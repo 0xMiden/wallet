@@ -564,26 +564,46 @@ async function touchDrag(cdp, x, y0, y1) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
+async function settingsListBox(page) {
+  return page.evaluate(() => {
+    const root = document.querySelector('[data-testid="settings-root"]');
+    const el = root?.querySelector('[data-slot="body"]');
+    if (!el) return null;
+    el.scrollTop = 0;
+    const rect = el.getBoundingClientRect();
+    return {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+      overflow: el.scrollHeight - el.clientHeight,
+      scrollTop: el.scrollTop
+    };
+  });
+}
+
 async function measureList(page, cdp) {
+  // A fresh mock wallet's overview fits in the frame, so it has nothing to
+  // scroll. Settings is a real list of rows and is taller than the screen.
+  await page.evaluate(() => {
+    location.hash = '#/settings';
+  });
+  const deadline = Date.now() + 8000;
+  let opened = null;
+  while (Date.now() < deadline) {
+    opened = await settingsListBox(page);
+    if (opened && opened.overflow >= 80 && opened.height > 50) break;
+    opened = null;
+    await sleep(40);
+  }
+  if (!opened) throw new Error(`settings list did not become scrollable: ${JSON.stringify(await settingsListBox(page))}`);
+
   const dropped = [];
   const p95 = [];
   for (let run = 0; run < LIST_RUNS; run++) {
-    const before = await page.evaluate(() => {
-      const el = document.querySelector('[data-testid="explore-scroll-container"]');
-      if (!el) return null;
-      el.scrollTop = 0;
-      const rect = el.getBoundingClientRect();
-      return {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        overflow: el.scrollHeight - el.clientHeight,
-        scrollTop: el.scrollTop
-      };
-    });
-    if (!before) throw new Error('overview list is missing');
-    if (before.overflow < 80) throw new Error(`overview list does not scroll (${before.overflow}px)`);
+    const before = await settingsListBox(page);
+    if (!before) throw new Error('settings list is missing');
+    if (before.overflow < 80) throw new Error(`settings list does not scroll (${before.overflow}px)`);
     await sleep(50);
     await page.evaluate(() => window.__PERF__.start());
     const x = Math.round(before.left + before.width * 0.5);
@@ -593,13 +613,13 @@ async function measureList(page, cdp) {
     await sleep(300);
     const after = await page.evaluate(() => {
       const raw = window.__PERF__.stop();
-      const el = document.querySelector('[data-testid="explore-scroll-container"]');
+      const el = document.querySelector('[data-testid="settings-root"]')?.querySelector('[data-slot="body"]');
       return { frames: raw.frames, scrollTop: el ? el.scrollTop : 0 };
     });
     const travel = after.scrollTop - before.scrollTop;
-    if (travel < 40) throw new Error(`overview list moved ${travel}px on run ${run + 1}`);
+    if (travel < 40) throw new Error(`settings list moved ${travel}px on run ${run + 1}`);
     const health = frameHealth(after.frames);
-    if (!health) throw new Error(`overview list produced too few frames on run ${run + 1}`);
+    if (!health) throw new Error(`settings list produced too few frames on run ${run + 1}`);
     dropped.push(health.droppedPct);
     p95.push(health.p95Ms);
     console.log(`list ${run + 1}/${LIST_RUNS}  dropped ${health.droppedPct}%  p95 ${health.p95Ms}ms  travel ${travel}px`);

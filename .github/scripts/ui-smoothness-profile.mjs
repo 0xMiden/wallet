@@ -31,7 +31,7 @@ export const DEFAULT_PROFILE = Object.freeze({
   /** Field Interaction to Next Paint bands, in milliseconds. */
   inpGoodMs: 200,
   inpPoorMs: 500,
-  /** Scrolls of the overview list. Each scroll reports dropped-frame percent and p95 frame time. */
+  /** Scrolls of the settings list. Each scroll reports dropped-frame percent and p95 frame time. */
   listRuns: 3
 });
 
