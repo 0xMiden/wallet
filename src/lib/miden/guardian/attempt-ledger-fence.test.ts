@@ -184,6 +184,9 @@ const ALLOWED: Record<string, string[]> = {
   // A service cache, and the in-flight init promises that stop a 3s tick from
   // starting a second init: coalescing, not retry accounting.
   'src/lib/miden/front/guardian-manager.ts': ['guardianServiceCache', 'guardianServiceInflight'],
+  // One-use completion capabilities, bounded by count and expiry, retired on lock or replacement.
+  // They authorize an already-submitted row's bookkeeping, without charging or retrying an attempt.
+  'src/lib/miden/guardian/committed-completion.ts': ['intents'],
   // `nextDriftProbeAt` arms on entry (not on settle) and its constant doubles as
   // the persisted silent-run contiguity floor, so forcing it into the ledger
   // would change what it means. `driftPasses` holds the in-flight pass per
