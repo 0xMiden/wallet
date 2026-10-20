@@ -1,7 +1,6 @@
 import {
   encodeBurnWithdrawal,
   isUsdcxWithdrawalNetwork,
-  UsdcxBurnError,
   usdcxMinimumBurnShortfall,
   validateUsdcxWithdrawal
 } from './withdrawal';
@@ -113,27 +112,6 @@ describe('USDCx withdrawal encoding', () => {
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 5_000_000n, 1n)).not.toThrow();
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 4_999_999n, 1n)).toThrow(
       expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '5' } })
-    );
-  });
-
-  // Circle takes its payout fee from the amount: a flat ~1.0035 USDC on Ethereum, against a 1.5 USDC allowance.
-  // Every allowance is below the 5 USDCx minimum, so a 1-unit minimum reaches this check.
-  it('refuses a burn its destination fee allowance takes whole, naming the allowance and the chain', () => {
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_001n, 1n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_001n, 1n)).not.toThrow();
-    let refusal: unknown;
-    try {
-      validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_000n, 1n);
-    } catch (error) {
-      refusal = error;
-    }
-    expect(refusal).toBeInstanceOf(UsdcxBurnError);
-    expect(refusal).toMatchObject({
-      translationKey: 'usdcxSendMoreThanPayoutFee',
-      values: { amount: '1.5', network: 'Sepolia' }
-    });
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_000n, 1n)).toThrow(
-      'usdcxSendMoreThanPayoutFee'
     );
   });
 

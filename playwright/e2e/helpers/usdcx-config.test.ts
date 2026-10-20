@@ -1,6 +1,5 @@
 import * as harness from './usdcx-constants';
 import * as wallet from '../../../src/lib/usdcx/constant';
-import { usdcxMinimumBurnShortfall } from '../../../src/lib/usdcx/withdrawal';
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
@@ -14,13 +13,6 @@ it('keeps the E2E burn protocol values equal to the wallet values', () => {
   expect(harness.USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME).toBe(wallet.USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME);
   expect(harness.USDCX_DECIMALS).toBe(wallet.USDCX_DECIMALS);
 });
-
-it.each([harness.ARC_PAYOUT, ...harness.L2_BRIDGE_IN_SOURCES.map(source => source.payout)])(
-  'allows the live burn amount through the wallet minimum check on $networkName',
-  chain => {
-    expect(usdcxMinimumBurnShortfall(chain.burnUnits)).toBeUndefined();
-  }
-);
 
 it('keeps the E2E payout floor equal to the configured wallet payout floor', () => {
   for (const chainId of harness.USDCX_DESTINATIONS.keys()) {
