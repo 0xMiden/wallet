@@ -1954,6 +1954,115 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
     });
 
+    describe('GEO023 admitted configure charge', () => {
+      type BudgetCase = {
+        phase: 'pending' | 'persistent401';
+        mode: 'restricted' | 'unavailable' | 'expired' | 'before-send refusal' | 'live';
+      };
+      const budgetCases: BudgetCase[] = [
+        { phase: 'pending', mode: 'restricted' },
+        { phase: 'pending', mode: 'unavailable' },
+        { phase: 'pending', mode: 'expired' },
+        { phase: 'pending', mode: 'before-send refusal' },
+        { phase: 'pending', mode: 'live' },
+        { phase: 'persistent401', mode: 'restricted' },
+        { phase: 'persistent401', mode: 'unavailable' },
+        { phase: 'persistent401', mode: 'expired' },
+        { phase: 'persistent401', mode: 'before-send refusal' },
+        { phase: 'persistent401', mode: 'live' }
+      ];
+
+      it.each(budgetCases)('GEO023 bounds $phase admitted configures after $mode', async ({ phase, mode }) => {
+        const clocks = useFakeClocks(1_000);
+        const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
+          'lib/remote-config/wallet-access'
+        );
+        const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+          'lib/remote-config/wallet-access'
+        );
+        const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
+        const barrier = makeBarrier();
+        const scope = 'geo023-configure-budget';
+        access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
+        access.publishWalletAccessDecision(scope, true);
+        assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
+        if (phase === 'pending') {
+          arrangePending();
+        } else {
+          const account = {
+            publicKey: 'acct-geo023-auth',
+            type: WalletType.Guardian,
+            hotPublicKey: 'hot',
+            coldPublicKey: 'cold',
+            guardianEndpoint: 'https://Guardian.Example.com'
+          };
+          storeState.accounts = [account];
+          mockGetOrCreateMultisigService.mockResolvedValue({
+            sync: jest.fn(async () => {
+              throw authError;
+            })
+          });
+        }
+        storeState.swapHotKey.mockRejectedValue(new Error('Vault temporarily busy'));
+        let sent = 0;
+        mockReRegister.mockImplementation(
+          async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
+            onPushStart?.(phase === 'pending' ? ['0xbeef', '0xc01d'] : ['0xaabb', '0xc01d']);
+            sent += 1;
+            if (sent === 1 && mode !== 'before-send refusal') await barrier.wait();
+          }
+        );
+        if (mode === 'before-send refusal') mockPreRegisterHold.mockImplementationOnce(async () => barrier.wait());
+        let pass: Promise<void> | undefined;
+        try {
+          if (phase === 'persistent401') {
+            for (let lap = 0; lap < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; lap++) await syncGuardianAccounts();
+          }
+          pass = syncGuardianAccounts();
+          await Promise.race([barrier.ready, pass]);
+          expect(barrier.wasEntered()).toBe(true);
+          expect(sent).toBe(mode === 'before-send refusal' ? 0 : 1);
+          expect(() => access.assertWalletAccessAllowed()).not.toThrow();
+          if (mode === 'restricted' || mode === 'before-send refusal') {
+            access.publishWalletAccessDecision(scope, false);
+          } else if (mode === 'unavailable') {
+            access.publishWalletAccessDecision(scope, null);
+          } else if (mode === 'expired') {
+            clocks.advance(60_000);
+          }
+          const expectedStatus =
+            mode === 'expired'
+              ? 'loading'
+              : mode === 'live'
+                ? 'allowed'
+                : mode === 'unavailable'
+                  ? 'unavailable'
+                  : 'restricted';
+          expect(access.getWalletAccessSnapshot().status).toBe(expectedStatus);
+          barrier.release();
+          await pass;
+          expect(sent).toBe(mode === 'before-send refusal' ? 0 : 1);
+          expect(storeState.swapHotKey).toHaveBeenCalledTimes(mode === 'live' && phase === 'pending' ? 1 : 0);
+          expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+
+          for (let retry = 0; retry < SELF_HEAL_MAX_ATTEMPTS; retry++) {
+            clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+            access.publishWalletAccessDecision(scope, true);
+            await syncGuardianAccounts();
+          }
+          expect(sent).toBe(SELF_HEAL_MAX_ATTEMPTS);
+          expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+          expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+        } finally {
+          barrier.release();
+          await pass;
+          assertBoundary.mockReset().mockImplementation(() => undefined);
+          access.invalidateWalletAccess();
+          clocks.restore();
+        }
+      });
+    });
+
     it.each(cases)('GEO019 fences pending healing after $stage: $change', async ({ stage, change }) => {
       const clocks = useFakeClocks(1_000);
       const account = arrangePending();

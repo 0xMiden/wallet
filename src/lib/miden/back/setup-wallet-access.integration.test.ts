@@ -776,3 +776,129 @@ describe('GEO020 account creation authority', () => {
     }
   });
 });
+
+describe('GEO021 public OnChain import-miss admission', () => {
+  async function pendingImportMiss() {
+    await registerNewWallet(WalletType.OnChain, undefined, MNEMONIC, true);
+    const vault = store.getState().vault;
+    if (!vault) throw new Error('Fixture did not create an active own-mnemonic Vault');
+    const originalAccounts = await vault.fetchAccounts();
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const probe = jest.spyOn(mockClient, 'importPublicMidenWalletFromSeed').mockImplementationOnce(async () => {
+      entered.resolve();
+      await release.promise;
+      throw Object.assign(new Error('Account not found on chain'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' });
+    });
+    const create = jest.spyOn(mockClient, 'createMidenWallet');
+    mockCreateAccountId = 'created-second';
+    mockWrites.length = 0;
+    mockSdkWrites.length = 0;
+    publications.length = 0;
+    mockGuardianRegistration.mockClear();
+    const outcome = settled(
+      withWalletRequestAccess({ type: WalletMessageType.CreateAccountRequest, walletType: WalletType.OnChain }, () =>
+        createHDAccount(WalletType.OnChain)
+      )
+    );
+    return { vault, originalAccounts, entered, release, probe, create, outcome };
+  }
+
+  const refusals: Array<false | null | 'expired'> = [false, null, 'expired'];
+  it.each(refusals)('refuses %s during import miss before the fallback create or key writes', async decision => {
+    const fixture = await pendingImportMiss();
+    try {
+      expect(
+        await Promise.race([fixture.entered.promise.then(() => 'importing'), fixture.outcome.then(() => 'finished')])
+      ).toBe('importing');
+      expect(mockHold).not.toBeNull();
+      expect(mockSink).toBe(fixture.vault.insertKeySink);
+      if (decision === 'expired') {
+        mockNow += 60_001;
+      } else {
+        mockLookup.mockResolvedValue(decision === null ? null : answer(decision));
+        invalidateWalletAccess();
+        await settled(ensureWalletAccessAllowed());
+      }
+      const refreshesAtResume = mockLookup.mock.calls.length;
+      expect(getWalletAccessSnapshot().status).toBe(
+        decision === 'expired' ? 'loading' : decision === false ? 'restricted' : 'unavailable'
+      );
+      fixture.release.resolve();
+      const outcome = await fixture.outcome;
+
+      expect(fixture.create).not.toHaveBeenCalled();
+      expect(mockSdkWrites).toEqual([]);
+      expect(mockWrites).toEqual([]);
+      expect(outcome).toMatchObject({ code: 'WALLET_ACCESS_DENIED' });
+      expect(mockLookup).toHaveBeenCalledTimes(refreshesAtResume);
+      expect(fixture.probe).toHaveBeenCalledTimes(1);
+      expect(mockGuardianRegistration).not.toHaveBeenCalled();
+      expect(await fixture.vault.fetchAccounts()).toEqual(fixture.originalAccounts);
+      expect(store.getState().accounts).toEqual(fixture.originalAccounts);
+      expect(publications).toEqual([]);
+      expect(mockHold).toBeNull();
+    } finally {
+      fixture.release.resolve();
+      await fixture.outcome;
+    }
+  });
+
+  it('retains the allowed public request import-miss fallback', async () => {
+    const fixture = await pendingImportMiss();
+    try {
+      expect(
+        await Promise.race([fixture.entered.promise.then(() => 'importing'), fixture.outcome.then(() => 'finished')])
+      ).toBe('importing');
+      assertWalletAccessAllowed();
+      expect(mockHold).not.toBeNull();
+      fixture.release.resolve();
+      const outcome = await fixture.outcome;
+
+      expect(outcome).toBe('resolved');
+      expect(fixture.probe).toHaveBeenCalledTimes(1);
+      expect(fixture.create).toHaveBeenCalledTimes(1);
+      expect(mockSdkWrites).toEqual(['create']);
+      expect(mockWrites).not.toHaveLength(0);
+      expect((await fixture.vault.fetchAccounts()).map(account => account.publicKey)).toEqual([
+        'fixture-account',
+        'created-second'
+      ]);
+      expect(store.getState().accounts.map(account => account.publicKey)).toEqual([
+        'fixture-account',
+        'created-second'
+      ]);
+      expect(mockGuardianRegistration).not.toHaveBeenCalled();
+      expect(mockHold).toBeNull();
+    } finally {
+      fixture.release.resolve();
+      await fixture.outcome;
+    }
+  });
+
+  it('retains the original hold check before the import-miss fallback', async () => {
+    const fixture = await pendingImportMiss();
+    try {
+      expect(
+        await Promise.race([fixture.entered.promise.then(() => 'importing'), fixture.outcome.then(() => 'finished')])
+      ).toBe('importing');
+      assertWalletAccessAllowed();
+      expect(mockHold).not.toBeNull();
+      mockHold = {};
+      fixture.release.resolve();
+      const outcome = await fixture.outcome;
+
+      expect(fixture.create).not.toHaveBeenCalled();
+      expect(mockSdkWrites).toEqual([]);
+      expect(mockWrites).toEqual([]);
+      expect(outcome).toMatchObject({ message: 'Failed to create account' });
+      expect(fixture.probe).toHaveBeenCalledTimes(1);
+      expect(await fixture.vault.fetchAccounts()).toEqual(fixture.originalAccounts);
+      expect(store.getState().accounts).toEqual(fixture.originalAccounts);
+      expect(mockHold).toBeNull();
+    } finally {
+      fixture.release.resolve();
+      await fixture.outcome;
+    }
+  });
+});

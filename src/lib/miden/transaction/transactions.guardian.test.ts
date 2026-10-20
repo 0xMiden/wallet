@@ -6139,11 +6139,9 @@ describe('generateTransaction — Guardian routing', () => {
             process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
             // Tagged as the offscreen leaf tags a failure before its submit (Task 8). Untagged, the attempt may have
             // crossed, and an execute, which can await a verdict, would keep its candidate instead (#1081).
-            mockDispatchGuardianPipeline
-              .mockRejectedValueOnce(
-                markErrorBeforeSubmit(new Error('failed to execute transaction: kernel assertion'))
-              )
-              .mockResolvedValueOnce(makeResult());
+            mockDispatchGuardianPipeline.mockRejectedValueOnce(
+              markErrorBeforeSubmit(new Error('failed to execute transaction: kernel assertion'))
+            );
           },
           1,
           () => expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 }),
