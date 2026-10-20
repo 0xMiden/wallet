@@ -38,7 +38,7 @@ export const ArcadeActivityHistory: React.FC<{
         icon={<Icon name={IconName.Information} size="sm" fill="currentColor" />}
         data-testid="arcade-activity-scope"
       >
-        {t('arcadeActivityScope')}
+        <span className="text-caption-heading">{t('arcadeActivityScope')}</span>
       </Notice>
     </div>
   );
