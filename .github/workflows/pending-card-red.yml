@@ -117,13 +117,13 @@ jobs:
           assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Run identity missing'
           assert source_tree == expected_tree, 'Reviewed source tree mismatch'
           subprocess.run(['git', 'merge-base', '--is-ancestor', source, head], check=True)
-          assert len(before) == 3606 and all(after.get(name) == entry for name, entry in before.items()), 'Source entry changed'
+          assert len(before) == 3618 and all(after.get(name) == entry for name, entry in before.items()), 'Source entry changed'
           assert set(after) - set(before) == {workflow}, 'Expected exactly one added workflow'
           assert after[workflow][:2] == ['100644', 'blob'], 'Workflow must be a regular file'
           subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
           assert not value('status', '--porcelain=v1', '--untracked-files=all'), 'Checkout is dirty'
           assert all(not Path(name).is_symlink() and manifest['checkout_test_sha256'][name] == binding['sha256'] for name, binding in tests.items()), 'Test bytes changed'
-          print('Verified all 3606 source entries unchanged and exactly one regular workflow addition')
+          print('Verified all 3618 source entries unchanged and exactly one regular workflow addition')
           PYTHON
 
       - name: Setup Node 22
