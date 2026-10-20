@@ -23,7 +23,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { createConnection } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
@@ -306,33 +306,43 @@ function rebuildBundle() {
 
 function startStaticServer() {
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url ?? '/', PAGE_URL);
-    let pathname = decodeURIComponent(url.pathname);
-    if (pathname.endsWith('/')) pathname += 'index.html';
-    const file = normalize(join(DIST, pathname));
-    if (file !== DIST && !file.startsWith(DIST + sep)) {
-      res.writeHead(403);
-      res.end();
-      return;
-    }
-    let stat;
     try {
-      stat = statSync(file);
+      const url = new URL(req.url ?? '/', PAGE_URL);
+      let pathname = decodeURIComponent(url.pathname);
+      if (pathname.endsWith('/')) pathname += 'index.html';
+      const file = normalize(join(DIST, pathname));
+      if (file !== DIST && !file.startsWith(DIST + sep)) {
+        res.writeHead(403);
+        res.end();
+        return;
+      }
+      let stat;
+      try {
+        stat = statSync(file);
+      } catch {
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      if (!stat.isFile()) {
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': FILE_TYPES[extname(file)] || 'application/octet-stream',
+        'Cache-Control': 'no-store'
+      });
+      createReadStream(file)
+        .on('error', () => {
+          if (!res.headersSent) res.writeHead(500);
+          res.end();
+        })
+        .pipe(res);
     } catch {
-      res.writeHead(404);
-      res.end('not found');
-      return;
+      if (!res.headersSent) res.writeHead(400);
+      res.end();
     }
-    if (!stat.isFile()) {
-      res.writeHead(404);
-      res.end('not found');
-      return;
-    }
-    res.writeHead(200, {
-      'Content-Type': FILE_TYPES[extname(file)] || 'application/octet-stream',
-      'Cache-Control': 'no-store'
-    });
-    createReadStream(file).pipe(res);
   });
   return new Promise((resolvePromise, reject) => {
     server.once('error', reject);
