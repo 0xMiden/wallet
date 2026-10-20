@@ -115,12 +115,20 @@ for (const [label, eligibility] of [
     network => json({ ...result(network), allowed: { wallet: 'yes', earn: true, swap: true } })
   ],
   ['missing wallet decision', network => json({ ...result(network), allowed: { earn: true, swap: true } })],
-  ['non-boolean decision', network => json({ ...result(network), allowed: { earn: 'yes', swap: true } })],
-  ['missing decision', network => json({ ...result(network), allowed: { earn: true } })],
+  [
+    'non-boolean earn decision',
+    network => json({ ...result(network), allowed: { ...result(network).allowed, earn: 'yes' } })
+  ],
+  ['missing earn decision', network => json({ ...result(network), allowed: { wallet: true, swap: true } })],
+  [
+    'non-boolean swap decision',
+    network => json({ ...result(network), allowed: { ...result(network).allowed, swap: 'yes' } })
+  ],
+  ['missing swap decision', network => json({ ...result(network), allowed: { wallet: true, earn: false } })],
   ['raw location disclosure', network => json({ ...result(network), country: 'US' })],
   [
     'nested location disclosure',
-    network => json({ ...result(network), allowed: { earn: true, swap: true, country: 'US' } })
+    network => json({ ...result(network), allowed: { ...result(network).allowed, country: 'US' } })
   ],
   [
     'cacheable decisions',
