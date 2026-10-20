@@ -14,13 +14,13 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      VISUAL_EVIDENCE: ${{ runner.temp }}/wallet1615-visual440/evidence
     steps:
       - name: Initialize provenance
         id: gate0
         run: |
           set -euo pipefail
+          export VISUAL_EVIDENCE="$RUNNER_TEMP/wallet1615-visual440/evidence"
+          printf 'VISUAL_EVIDENCE=%s\n' "$VISUAL_EVIDENCE" >> "$GITHUB_ENV"
           mkdir -p "$VISUAL_EVIDENCE"
           printf '%s\n' "$GITHUB_SHA" > "$VISUAL_EVIDENCE/transport-head.txt"
           printf '%s\n' "$GITHUB_REF" "$GITHUB_WORKFLOW_REF" "$GITHUB_WORKFLOW_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$VISUAL_EVIDENCE/run-identity.txt"
