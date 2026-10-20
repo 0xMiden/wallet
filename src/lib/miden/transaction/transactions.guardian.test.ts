@@ -14450,3 +14450,76 @@ describe('GEO014 non-Guardian Earn feature authorization at final submit', () =>
     }
   });
 });
+
+describe('GEO014 existing Swap consume remains available', () => {
+  it.each<{ kind: 'settle' | 'reclaim' }>([{ kind: 'settle' }, { kind: 'reclaim' }])(
+    'GEO014 permits an existing Swap $kind while new Swap creation is restricted',
+    async ({ kind }) => {
+      jest.clearAllMocks();
+      txStore.length = 0;
+      const runtime = await import('lib/remote-config/runtime');
+      const { TEST_BRIDGE_CONFIG_SNAPSHOT } = await import('lib/epoch/testing/bridge-config');
+      const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+      if (!accepted) throw new Error('Expected a configured Swap settlement fixture');
+      const snapshot: import('lib/remote-config/runtime').BridgeConfigSnapshot = {
+        ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+        config: { ...accepted, geo: { swap: [{ country: 'US' }] } },
+        geo: {
+          state: 'ready',
+          network: accepted.network,
+          version: accepted.version,
+          allowed: { wallet: true, earn: true, swap: false }
+        }
+      };
+      const readSnapshot = jest.spyOn(runtime, 'getBridgeConfigSnapshot').mockReturnValue(snapshot);
+      const transaction: import('../db/types').ITransaction = {
+        id: `geo014-existing-swap-${kind}`,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        displayIcon: 'RECEIVE',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        delegateTransaction: false,
+        noteId: 'existing-swap-tip',
+        noteIds: ['existing-swap-tip'],
+        requestBytes: kind === 'reclaim' ? new Uint8Array([7, 4]) : undefined,
+        extraInputs: { swapOrderTxId: 'existing-swap-order', swapSettleKind: kind }
+      };
+      txStore.push({ ...transaction });
+      const client = makeClientApi(makeResult());
+      mockGetMidenClient.mockResolvedValue({
+        isDisposed: false,
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createConsumeNotesProposal: jest.fn(async () => ({ id: 'geo014-consume', nonce: 5 })),
+        createPswapCancelProposal: jest.fn(async (_noteId: string, persist: (bytes: Uint8Array) => Promise<void>) => {
+          await persist(new Uint8Array([7, 4]));
+          return { id: 'geo014-reclaim', nonce: 5 };
+        }),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      });
+      try {
+        await generateTransaction(
+          transaction,
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          makeGuardianProvider(true)
+        );
+        expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+        expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+        expect(client.transactions.apply).toHaveBeenCalledTimes(1);
+        expect(runtime.getBridgeConfigSnapshot().geo).toMatchObject({ allowed: { wallet: true, swap: false } });
+      } finally {
+        readSnapshot.mockRestore();
+      }
+    }
+  );
+});

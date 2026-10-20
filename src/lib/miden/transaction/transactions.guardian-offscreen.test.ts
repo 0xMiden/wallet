@@ -4120,3 +4120,40 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
     }
   );
 });
+
+describe('GEO014 feature-kind forwarding to the offscreen Guardian leaf', () => {
+  it.each<{ kind: 'earn-deposit' | 'swap' }>([{ kind: 'earn-deposit' }, { kind: 'swap' }])(
+    'GEO014 forwards the original $kind row kind with its co-signed bytes',
+    async ({ kind }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      const transaction: ITransaction = {
+        id: `geo014-forward-${kind}`,
+        type: kind,
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        displayIcon: 'DEFAULT',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        delegateTransaction: false,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: 5n,
+        requestBytes: new Uint8Array([11, 12]),
+        extraInputs:
+          kind === 'swap'
+            ? { requestedFaucetId: 'requested-faucet', requestedAmount: 7n }
+            : { recallBlocks: 25, epochStatus: 'pending' }
+      };
+      arrange(transaction.id, { ...transaction });
+      mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+      const accountProvider: GuardianAccountProvider = {
+        getAccounts: async () => [],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: async () => 'sig'
+      };
+      await generateTransaction(transaction, signCallback, false, accountProvider);
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      expect(mockDispatchGuardianPipeline.mock.calls[0]?.[1]).toEqual(new Uint8Array(TR_BYTES));
+      expect(mockDispatchGuardianPipeline.mock.calls[0]?.[6]).toBe(kind);
+    }
+  );
+});

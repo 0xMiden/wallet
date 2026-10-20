@@ -49,6 +49,11 @@ import {
   PREPARED_TOKEN
 } from './testing/earn-prepared';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  __esModule: true,
+  ...jest.requireActual('lib/remote-config/runtime')
+}));
+
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   ...jest.requireActual('@epoch-protocol/epoch-intents-sdk'),
   EpochIntentSDK: class {},
@@ -2058,4 +2063,42 @@ describe('reviewed withdrawals', () => {
       expect(row?.error).toBe(REVIEW_CHANGED);
     }
   );
+});
+
+it('GEO014 permits an Earn withdrawal while only new Earn deposits are restricted', async () => {
+  jest.clearAllMocks();
+  mockAssertActiveAccount.mockReset();
+  jest.mocked(assertWithdrawalReviewCurrent).mockReset().mockResolvedValue(undefined);
+  jest.mocked(captureNativeAssetSnapshot).mockReturnValue({ scope: 'testnet', revision: 1 });
+  clearEarnSubmissionLocksForTests();
+  clearPollRegistryForTests();
+  const runtime = await import('lib/remote-config/runtime');
+  const { TEST_BRIDGE_CONFIG_SNAPSHOT } = await import('./testing/bridge-config');
+  const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+  if (!accepted) throw new Error('Expected a configured Earn withdrawal fixture');
+  const snapshot: import('lib/remote-config/runtime').BridgeConfigSnapshot = {
+    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+    config: { ...accepted, geo: { earn: [{ country: 'US' }] } },
+    geo: {
+      state: 'ready',
+      network: accepted.network,
+      version: accepted.version,
+      allowed: { wallet: true, earn: false, swap: true }
+    }
+  };
+  const readSnapshot = jest.spyOn(runtime, 'getBridgeConfigSnapshot').mockReturnValue(snapshot);
+  const executeActions = jest.fn().mockResolvedValue({ nonce: '22' });
+  const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+  try {
+    const result = await gaslessEarnWithdrawalToMiden(validArgs(), deps);
+    expect(result).toEqual({ txId: 'TX1', nonce: '22', gaslessUsed: true });
+    expect(executeActions).toHaveBeenCalledTimes(1);
+    expect(runtime.getBridgeConfigSnapshot().geo).toMatchObject({ allowed: { wallet: true, earn: false } });
+    expect((await Repo.transactions.where({ id: 'TX1' }).first())?.extraInputs).toMatchObject({
+      submissionState: 'accepted',
+      withdrawIntentNonce: '22'
+    });
+  } finally {
+    readSnapshot.mockRestore();
+  }
 });
