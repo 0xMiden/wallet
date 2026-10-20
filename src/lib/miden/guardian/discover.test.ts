@@ -22,9 +22,11 @@ import {
   classifyProbeError,
   compareMatches,
   decodeMaxNonce,
+  decodeStates,
   discoverGuardianForHotKey,
   discoverGuardianForSeed,
   GuardianProbeTimeoutError,
+  holdsCurrentState,
   selectBest,
   withTimeout,
   type GuardianDiscoveryResult,
@@ -45,6 +47,8 @@ interface FakeOperator {
   accounts?: string[];
   accountsByIndex?: Record<number, string[]>;
   nonces?: Record<string, bigint>;
+  /** Commitment of the state this operator serves per account; defaults to `state-<accountId>`, the chain's default too. */
+  stateCommitments?: Record<string, string>;
   updatedAt?: Record<string, string>;
   failWith?: Error;
   /** Makes getState reject while the lookup still succeeds. */
@@ -68,6 +72,19 @@ const mockSigners: object[] = [];
 const mockSeedsRequested: number[] = [];
 const mockDeserialize = jest.fn();
 const mockAuthDeserialize = jest.fn();
+/** The chain's tip commitment per account id; an account absent here is at `state-<accountId>`, the operators' default. */
+const mockChainCommitments = new Map<string, string>();
+/** Makes every chain read reject (a node that cannot be reached). */
+let mockChainFailWith: Error | undefined;
+/** Account ids the chain was asked about, in order. */
+const mockChainReads: string[] = [];
+
+// The chain comparison builds one standalone RpcClient; the SDK's WASM start and the endpoint are not under test.
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  ensureSdkWasmReady: async () => {},
+  getRpcEndpoint: () => 'rpc-endpoint'
+}));
 
 // A release build's own network is testnet or devnet; mainnet is a stored choice.
 let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
@@ -107,7 +124,17 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   },
   // Indirection, not a direct reference: the factory runs before the module
   // body initializes `mockDeserialize`.
-  Account: { deserialize: (bytes: Uint8Array) => mockDeserialize(bytes) }
+  Account: { deserialize: (bytes: Uint8Array) => mockDeserialize(bytes) },
+  // The probe prints an account id and parses it back for the chain read; the fakes keep it a plain string.
+  AccountId: { fromHex: (hex: string) => hex },
+  RpcClient: class {
+    async getAccountProof(accountId: string) {
+      mockChainReads.push(accountId);
+      if (mockChainFailWith) throw mockChainFailWith;
+      const commitment = mockChainCommitments.get(accountId) ?? `state-${accountId}`;
+      return { accountCommitment: () => ({ toHex: () => commitment }) };
+    }
+  }
 }));
 
 jest.mock('@openzeppelin/guardian-client', () => ({
@@ -141,9 +168,9 @@ jest.mock('@openzeppelin/guardian-client', () => ({
       return {
         accountId,
         commitment: `state-${accountId}`,
-        // `data` carries the account id so the Account.deserialize stub can
-        // look the scripted nonce back up.
-        stateJson: { data: Buffer.from(accountId).toString('base64') },
+        // `data` carries the operator and the account id so the Account.deserialize
+        // stub can look the scripted nonce and state commitment back up.
+        stateJson: { data: Buffer.from(`${this.url}|${accountId}`).toString('base64') },
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: operator.updatedAt?.[accountId] ?? '2024-01-01T00:00:00.000Z'
       };
@@ -157,16 +184,31 @@ const fakeDeriveSeed = (hdIndex: number): Uint8Array => {
   return new Uint8Array([hdIndex, 1, 2, 3]);
 };
 
-/** Resolve the scripted nonce for whatever account a state blob names. */
+/**
+ * Resolve the scripted nonce and state commitment for whatever account a state
+ * blob names. A blob from the fake guardian names its operator too (`<url>|<id>`),
+ * so two operators can serve different states of one account; a bare id (the
+ * decode unit tests) reads every operator's script.
+ */
 function scriptNonces() {
   mockDeserialize.mockImplementation((bytes: Uint8Array) => {
-    const accountId = Buffer.from(bytes).toString('utf8');
+    const [first, second] = Buffer.from(bytes).toString('utf8').split('|');
+    const accountId = second ?? first!;
+    const operators = second === undefined ? Array.from(mockBackend.values()) : [mockBackend.get(first!)];
     let nonce = 0n;
-    for (const operator of mockBackend.values()) {
-      const scripted = operator.nonces?.[accountId];
-      if (scripted !== undefined) nonce = scripted;
+    let commitment = `state-${accountId}`;
+    for (const operator of operators) {
+      const scriptedNonce = operator?.nonces?.[accountId];
+      if (scriptedNonce !== undefined) nonce = scriptedNonce;
+      const scriptedCommitment = operator?.stateCommitments?.[accountId];
+      if (scriptedCommitment !== undefined) commitment = scriptedCommitment;
     }
-    return { nonce: () => ({ asInt: () => nonce }), free: jest.fn() };
+    return {
+      nonce: () => ({ asInt: () => nonce }),
+      id: () => ({ toString: () => accountId }),
+      to_commitment: () => ({ toHex: () => commitment }),
+      free: jest.fn()
+    };
   });
 }
 
@@ -178,6 +220,9 @@ beforeEach(() => {
   mockSigners.length = 0;
   mockSeedsRequested.length = 0;
   resetMockProbes();
+  mockChainCommitments.clear();
+  mockChainFailWith = undefined;
+  mockChainReads.length = 0;
   jest.clearAllMocks();
   scriptNonces();
   mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
@@ -354,6 +399,68 @@ describe('discoverGuardianForSeed', () => {
 
     expect(result.best?.endpoint).toBe(OZ);
     expect(result.best?.nonce).toBeUndefined();
+  });
+
+  // #1648: the account moved to a guardian that is not in the list, so the one it
+  // left is the only listed operator that answers, with the state it had.
+  it('does not pick a lone operator whose state the chain has moved past, and marks it', async () => {
+    mockBackend.set(LAMBDA, { accounts: ['acct-1'], nonces: { 'acct-1': 4n } });
+    mockChainCommitments.set('acct-1', 'chain-after-the-switch');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    expect(result.best).toBeUndefined();
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: false });
+    expect(mockChainReads).toEqual(['acct-1']);
+  });
+
+  it('picks the operator serving the chain state over the one the account left, even with its nonce unknown', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 9n }, stateCommitments: { 'acct-1': 'old' } });
+    mockBackend.set(GATEWAY, {
+      accounts: ['acct-1'],
+      stateCommitments: { 'acct-1': 'current' },
+      stateFailWith: new Error('state unavailable')
+    });
+    mockChainCommitments.set('acct-1', 'current');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    // Without the chain verdict two matches with an unknown nonce would refuse to auto-pick;
+    // the stale one is out of the running, so the lone current operator is picked.
+    expect(result.best?.endpoint).toBe(GATEWAY);
+    expect(result.matches.map(match => [match.endpoint, match.holdsCurrentState])).toEqual([
+      [GATEWAY, undefined],
+      [OZ, false]
+    ]);
+  });
+
+  it('keeps a lone match, with the verdict unknown, when the node cannot be read', async () => {
+    mockBackend.set(LAMBDA, { accounts: ['acct-1'], nonces: { 'acct-1': 4n } });
+    mockChainFailWith = new Error('node unreachable');
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    expect(result.best?.endpoint).toBe(LAMBDA);
+    expect(result.best?.holdsCurrentState).toBeUndefined();
+  });
+
+  it('treats an account the chain holds no commitment for (not deployed yet) as uncompared', async () => {
+    mockBackend.set(LAMBDA, { accounts: ['acct-1'], nonces: { 'acct-1': 0n } });
+    mockChainCommitments.set('acct-1', `0x${'0'.repeat(64)}`);
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    expect(result.best?.endpoint).toBe(LAMBDA);
+    expect(result.best?.holdsCurrentState).toBeUndefined();
+  });
+
+  it('confirms an operator whose state is the chain state', async () => {
+    mockBackend.set(LAMBDA, { accounts: ['acct-1'], nonces: { 'acct-1': 4n } });
+
+    const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
+
+    expect(result.best).toMatchObject({ endpoint: LAMBDA, holdsCurrentState: true });
   });
 
   it('returns no matches when aborted mid-probe', async () => {
@@ -546,6 +653,59 @@ describe('decodeMaxNonce', () => {
   });
 });
 
+describe('decodeStates', () => {
+  const state = (accountId: string) => ({
+    accountId,
+    commitment: 'c',
+    stateJson: { data: Buffer.from(accountId).toString('base64') },
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z'
+  });
+
+  it('reads each account state commitment next to the maximum nonce', () => {
+    mockBackend.set(OZ, { nonces: { a: 2n, b: 11n }, stateCommitments: { a: 'A', b: 'B' } });
+    scriptNonces();
+
+    const decoded = decodeStates([state('a'), state('b')]);
+
+    expect(decoded.nonce).toBe(11n);
+    expect(Array.from(decoded.commitments)).toEqual([
+      ['a', 'a'],
+      ['b', 'b']
+    ]);
+  });
+
+  it('lowercases the commitments it compares', () => {
+    mockBackend.set(OZ, { stateCommitments: { a: '0xABC' } });
+    scriptNonces();
+
+    expect(decodeStates([state('a')]).commitments.get('a')).toBe('0xabc');
+  });
+});
+
+describe('holdsCurrentState', () => {
+  it('is true as soon as one served state is the chain state', () => {
+    const served = new Map([
+      ['a', 'old'],
+      ['b', 'same']
+    ]);
+    const chain = new Map([
+      ['a', 'new'],
+      ['b', 'same']
+    ]);
+    expect(holdsCurrentState(served, chain)).toBe(true);
+  });
+
+  it('is false when every compared state is behind the chain', () => {
+    expect(holdsCurrentState(new Map([['a', 'old']]), new Map([['a', 'new']]))).toBe(false);
+  });
+
+  it('is unknown when nothing could be compared', () => {
+    expect(holdsCurrentState(new Map([['a', 'old']]), new Map())).toBeUndefined();
+    expect(holdsCurrentState(new Map(), new Map([['a', 'new']]))).toBeUndefined();
+  });
+});
+
 describe('compareMatches', () => {
   const match = (over: Partial<GuardianProbeMatch>): GuardianProbeMatch => ({
     endpoint: OZ,
@@ -582,6 +742,14 @@ describe('compareMatches', () => {
     expect(compareMatches(known, unknown, [OZ, GATEWAY])).toBeLessThan(0);
     expect(compareMatches(unknown, known, [OZ, GATEWAY])).toBeGreaterThan(0);
   });
+
+  it('ranks a match whose state the chain moved past last, whatever its nonce', () => {
+    const behind = match({ endpoint: OZ, nonce: 9n, holdsCurrentState: false });
+    const unknownNonce = match({ endpoint: GATEWAY, nonce: undefined });
+
+    expect(compareMatches(unknownNonce, behind, [OZ, GATEWAY])).toBeLessThan(0);
+    expect(compareMatches(behind, unknownNonce, [OZ, GATEWAY])).toBeGreaterThan(0);
+  });
 });
 
 describe('selectBest', () => {
@@ -613,6 +781,14 @@ describe('selectBest', () => {
     const unknown = match({ endpoint: GATEWAY, nonce: undefined });
     expect(selectBest([known, unknown])).toBeUndefined();
     expect(selectBest([unknown, known])).toBeUndefined();
+  });
+
+  it('never picks a match whose state the chain moved past, and ranks the rest without it', () => {
+    const behind = match({ endpoint: OZ, nonce: 9n, holdsCurrentState: false });
+    expect(selectBest([behind])).toBeUndefined();
+
+    const current = match({ endpoint: GATEWAY, nonce: undefined });
+    expect(selectBest([current, behind])).toBe(current);
   });
 });
 

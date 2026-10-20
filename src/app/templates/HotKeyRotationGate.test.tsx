@@ -23,6 +23,10 @@ import { HotKeyRotationGate } from './HotKeyRotationGate';
 
 const mockInitiate = jest.fn();
 const mockRequestSW = jest.fn();
+// The Start over exit (#1648): the confirmation's answer, the alert, and the wipe-and-reload it runs.
+const mockConfirm = jest.fn(async (_options: unknown): Promise<boolean> => true);
+const mockAlert = jest.fn(async (_options: unknown): Promise<void> => {});
+const mockResetWalletAndReload = jest.fn(async (_onWipeError: (error: unknown) => Promise<void>): Promise<void> => {});
 const mockLoop = jest.fn();
 const mockUseTransactionRow = jest.fn();
 // The transactions table the gate reads, with its filters applied for real: the rotation
@@ -97,6 +101,13 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   default: () => mockLegacyFeeIdentity ?? mockFaucetId
 }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
+jest.mock('lib/ui/dialog', () => ({
+  useAlert: () => mockAlert,
+  useConfirm: () => mockConfirm
+}));
+jest.mock('lib/miden/reset-and-reload', () => ({
+  resetWalletAndReload: (onWipeError: (error: unknown) => Promise<void>) => mockResetWalletAndReload(onWipeError)
+}));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 
 jest.mock('app/env', () => ({
@@ -413,6 +424,63 @@ describe('HotKeyRotationGate', () => {
     // Failed rows are terminal: Retry enqueues a new transaction instead of adopting it.
     fireEvent.click(screen.getByText('hotKeyRotationRetry'));
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(2));
+  });
+
+  // #1648: a rotation that keeps failing (recovered from a Guardian the account had left) had no exit but a reinstall.
+  it('offers Start over on a failed rotation, which wipes the wallet back to onboarding once confirmed', async () => {
+    mockUseTransactionRow.mockReturnValue({
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'guardian unreachable' },
+      loaded: true
+    });
+    mockTable = [rotationRow('tx-new', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
+
+    render(<HotKeyRotationGate />);
+    await waitFor(() => expect(screen.getByTestId('hot-key-rotation-start-over')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('hot-key-rotation-start-over'));
+
+    await waitFor(() => expect(mockResetWalletAndReload).toHaveBeenCalledTimes(1));
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'hotKeyRotationStartOverTitle', destructive: true })
+    );
+    // No rotation was queued by the exit.
+    expect(mockInitiate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the wallet when Start over is not confirmed', async () => {
+    mockConfirm.mockResolvedValueOnce(false);
+    mockUseTransactionRow.mockReturnValue({
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key' },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+    await waitFor(() => expect(screen.getByTestId('hot-key-rotation-start-over')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('hot-key-rotation-start-over'));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+    expect(mockResetWalletAndReload).not.toHaveBeenCalled();
+    expect(screen.getByTestId('hot-key-rotation-gate')).toBeInTheDocument();
+  });
+
+  it('reports a wipe that did not finish instead of failing silently', async () => {
+    mockResetWalletAndReload.mockImplementationOnce(async onWipeError => {
+      await onWipeError(new Error('storage locked'));
+    });
+    mockUseTransactionRow.mockReturnValue({
+      row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key' },
+      loaded: true
+    });
+
+    render(<HotKeyRotationGate />);
+    await waitFor(() => expect(screen.getByTestId('hot-key-rotation-start-over')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('hot-key-rotation-start-over'));
+
+    await waitFor(() =>
+      expect(mockAlert).toHaveBeenCalledWith(expect.objectContaining({ children: 'resetDidNotFinish' }))
+    );
   });
 
   it('falls back to a generic failure message, with no details, when the row has no error text', async () => {

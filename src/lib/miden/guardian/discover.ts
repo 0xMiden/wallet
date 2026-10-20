@@ -42,15 +42,29 @@
  *   absorbs a transient blip; a sustained outage of the current operator while a
  *   stale one answers can still mislead detection, but the user always retains
  *   the manual picker, so this degrades convenience, not recoverability.
+ *
+ * Why the chain is asked too (#1648): an account moved to a CUSTOM guardian is
+ * still known to the built-in operator it left, and that operator answers with
+ * the pre-switch state. With the current operator absent from the list, the
+ * stale one is the lone match, and a lone match used to be picked whatever its
+ * nonce - so the recovery adopted a state the chain had moved past, and the
+ * hot-key rotation that follows failed against an operator the account no
+ * longer has. The node holds every account's current commitment, even a private
+ * one's, so each match's state commitment is compared with the chain's tip:
+ * a match whose state is behind the chain is marked `holdsCurrentState: false`
+ * and never auto-picked, and the recovery screen asks for the guardian's URL
+ * instead. A node that cannot be read leaves the verdict unknown and the
+ * ranking as it was, so an offline probe is no worse than before.
  */
-import { Account, AuthSecretKey } from '@miden-sdk/miden-sdk/lazy';
+import { Account, AccountId, AuthSecretKey, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import type { LookupResponse, StateObject } from '@openzeppelin/guardian-client';
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 import { EcdsaSigner } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
 import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
-import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { normalizeHex } from 'lib/miden/sdk/submit-evidence';
+import { ensureSdkWasmReady, getGuardianOptionsForNetwork, getRpcEndpoint } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
@@ -73,6 +87,14 @@ export interface GuardianProbeMatch {
   nonce: bigint | undefined;
   /** Newest `StateObject.updatedAt` across the matches — tiebreak only. */
   updatedAt?: string;
+  /**
+   * Whether the state this operator holds is the account's current on-chain state.
+   * `false` when the chain's commitment of every account it holds differs from
+   * the state it serves: the account moved on without this operator, most often
+   * to a guardian the wallet cannot enumerate. `undefined` when the node could not
+   * be read, or no state decoded, so nothing was compared.
+   */
+  holdsCurrentState?: boolean;
 }
 
 export type GuardianProbeFailureReason = 'timeout' | 'network' | 'auth' | 'unknown';
@@ -258,21 +280,35 @@ export function classifyProbeError(error: unknown): { reason: GuardianProbeFailu
   return { reason: 'unknown', message };
 }
 
+/** What one operator's decoded states say: the ranking nonce and, per account, the commitment of the state it serves. */
+export interface DecodedStates {
+  /** See {@link decodeMaxNonce}. */
+  nonce: bigint | undefined;
+  /** Account id (hex, as the SDK prints it) → commitment of the state this operator serves for it. */
+  commitments: Map<string, string>;
+}
+
 /**
- * Highest account nonce across `states`, or `undefined` when NONE could be
- * decoded (empty list, or every blob failed to deserialize). `undefined` marks
- * the nonce as UNKNOWN rather than zero: a state we can't read must not be
- * treated as nonce `0n`, because that silently loses the nonce ranking to any
- * operator that did decode — which is exactly how a stale operator could win.
+ * Decode `states` once for everything the ranking reads: the highest account
+ * nonce, and each account's state commitment, which the chain comparison needs.
+ *
+ * The nonce is `undefined` when NONE could be decoded (empty list, or every blob
+ * failed to deserialize). `undefined` marks the nonce as UNKNOWN rather than zero:
+ * a state we can't read must not be treated as nonce `0n`, because that silently
+ * loses the nonce ranking to any operator that did decode — which is exactly how
+ * a stale operator could win. A state whose commitment cannot be read is left out
+ * of `commitments`, so it is compared with nothing.
  */
-export function decodeMaxNonce(states: readonly StateObject[]): bigint | undefined {
+export function decodeStates(states: readonly StateObject[]): DecodedStates {
   let max: bigint | undefined;
+  const commitments = new Map<string, string>();
   for (const state of states) {
     let account: Account | undefined;
     try {
       account = Account.deserialize(new Uint8Array(Buffer.from(state.stateJson.data, 'base64')));
       const nonce = account.nonce().asInt();
       if (max === undefined || nonce > max) max = nonce;
+      commitments.set(normalizeHex(account.id().toString()), normalizeHex(account.to_commitment().toHex()));
     } catch (error) {
       console.warn('[guardian/discover] Could not decode account state for nonce, leaving it unknown:', error);
     } finally {
@@ -283,7 +319,86 @@ export function decodeMaxNonce(states: readonly StateObject[]): bigint | undefin
       }
     }
   }
-  return max;
+  return { nonce: max, commitments };
+}
+
+/** Highest account nonce across `states`, or `undefined` when none decoded; see {@link decodeStates}. */
+export function decodeMaxNonce(states: readonly StateObject[]): bigint | undefined {
+  return decodeStates(states).nonce;
+}
+
+/**
+ * The commitment of the account `0x`-hex id `accountIdHex` at the node's tip, through one standalone
+ * `RpcClient` (no store, no WASM client lock); `undefined` when the read failed, timed out, or the
+ * node holds no commitment for the account (not deployed yet).
+ */
+async function readChainCommitment(
+  rpc: RpcClient,
+  accountIdHex: string,
+  timeoutMs: number
+): Promise<string | undefined> {
+  try {
+    const proof = await withTimeout(
+      rpc.getAccountProof(AccountId.fromHex(accountIdHex), null, null),
+      timeoutMs,
+      `chain commitment of ${accountIdHex}`
+    );
+    const commitment = normalizeHex(proof.accountCommitment().toHex());
+    return /^(0x)?0+$/.test(commitment) ? undefined : commitment;
+  } catch (error) {
+    console.warn(`[guardian/discover] Could not read the chain commitment of ${accountIdHex}:`, error);
+    return undefined;
+  }
+}
+
+/**
+ * The chain's tip commitment of every account in `accountIdHexes`, keyed as given. An account whose read
+ * failed is absent. Never rejects: a node that cannot be reached leaves every verdict unknown.
+ */
+async function readChainCommitments(
+  accountIdHexes: readonly string[],
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<Map<string, string>> {
+  const commitments = new Map<string, string>();
+  if (accountIdHexes.length === 0 || signal?.aborted) return commitments;
+  let rpc: RpcClient;
+  try {
+    await ensureSdkWasmReady();
+    rpc = new RpcClient(getRpcEndpoint());
+  } catch (error) {
+    console.warn('[guardian/discover] Could not build the RPC client for the chain comparison:', error);
+    return commitments;
+  }
+  const settled = await runPooled(accountIdHexes, GUARDIAN_PROBE_CONCURRENCY, async accountIdHex => {
+    if (signal?.aborted) return undefined;
+    return readChainCommitment(rpc, accountIdHex, timeoutMs);
+  });
+  settled.forEach((result, index) => {
+    if (result.status === 'fulfilled' && result.value !== undefined) {
+      commitments.set(accountIdHexes[index]!, result.value);
+    }
+  });
+  return commitments;
+}
+
+/**
+ * Does the operator serve the current state of at least one of its accounts? `true` as soon as one
+ * state's commitment is the chain's, `false` when every compared state is behind the chain, and
+ * `undefined` when nothing could be compared (the chain read failed, or no state decoded).
+ */
+export function holdsCurrentState(
+  stateCommitments: ReadonlyMap<string, string>,
+  chainCommitments: ReadonlyMap<string, string>
+): boolean | undefined {
+  let verdict: boolean | undefined;
+  for (const [accountIdHex, commitment] of stateCommitments) {
+    const onChain = chainCommitments.get(accountIdHex);
+    if (onChain === undefined) continue;
+    if (onChain === commitment) return true;
+    verdict = false;
+  }
+  return verdict;
 }
 
 function newestUpdatedAt(states: readonly StateObject[]): string | undefined {
@@ -302,13 +417,18 @@ function newestUpdatedAt(states: readonly StateObject[]): string | undefined {
 }
 
 /**
- * Ranking rule: a KNOWN nonce outranks an unknown one → highest known nonce
+ * Ranking rule: an operator whose state the chain has moved past ranks last →
+ * a KNOWN nonce outranks an unknown one → highest known nonce
  * (current state) → newest `updatedAt` → the order the operators appear in
  * GUARDIAN_OPTIONS (stable, so the default operator wins a total tie). Ordering
  * an unknown nonce last is only half the fix — `selectBest` additionally refuses
  * to auto-pick when an unknown nonce leaves the winner genuinely ambiguous.
  */
 export function compareMatches(a: GuardianProbeMatch, b: GuardianProbeMatch, endpointOrder: readonly string[]): number {
+  const aBehind = a.holdsCurrentState === false;
+  const bBehind = b.holdsCurrentState === false;
+  if (aBehind !== bBehind) return aBehind ? 1 : -1;
+
   const aKnown = a.nonce !== undefined;
   const bKnown = b.nonce !== undefined;
   if (aKnown !== bKnown) return aKnown ? -1 : 1;
@@ -328,6 +448,10 @@ export function compareMatches(a: GuardianProbeMatch, b: GuardianProbeMatch, end
  * Pick the operator to auto-select from the already-ranked `matches`, or
  * `undefined` when the pick is not safe to make silently.
  *
+ * A match whose state the chain has moved past (`holdsCurrentState === false`) is
+ * never picked: the account left that operator, and recovering against it adopts
+ * a superseded state (#1648). The rules below apply to the matches that remain.
+ *
  * - 0 matches → nothing to pick.
  * - exactly 1 match → that operator is the sole holder; its nonce is irrelevant,
  *   so a failed getState never blocks the common (no-switch) case.
@@ -338,9 +462,10 @@ export function compareMatches(a: GuardianProbeMatch, b: GuardianProbeMatch, end
  *   rather than risk recovering against an operator that will never co-sign.
  */
 export function selectBest(matches: readonly GuardianProbeMatch[]): GuardianProbeMatch | undefined {
-  if (matches.length === 0) return undefined;
-  if (matches.length === 1) return matches[0];
-  return matches.some(match => match.nonce === undefined) ? undefined : matches[0];
+  const current = matches.filter(match => match.holdsCurrentState !== false);
+  if (current.length === 0) return undefined;
+  if (current.length === 1) return current[0];
+  return current.some(match => match.nonce === undefined) ? undefined : current[0];
 }
 
 interface ProbeTarget {
@@ -562,22 +687,42 @@ async function probeTargets(
     return { matches: [], probedEndpoints, failures };
   }
 
-  // Nonce decoding runs sequentially, AFTER the parallel section: it touches
+  // State decoding runs sequentially, AFTER the parallel section: it touches
   // WASM (`Account.deserialize`) and must not overlap with anything else.
-  const matches: GuardianProbeMatch[] = [];
+  const decoded: { match: GuardianProbeMatch; commitments: Map<string, string> }[] = [];
   for (const target of targets) {
     const hits = hitsByEndpoint.get(target.endpoint);
     if (!hits || hits.length === 0) continue;
     const states = hits.flatMap(hit => (hit.state ? [hit.state] : []));
-    matches.push({
-      endpoint: target.endpoint,
-      option: target.option,
-      accountIds: Array.from(new Set(hits.map(hit => hit.accountId))),
-      hdIndices: Array.from(new Set(hits.map(hit => hit.hdIndex))).sort((a, b) => a - b),
-      nonce: decodeMaxNonce(states),
-      updatedAt: newestUpdatedAt(states)
+    const { nonce, commitments } = decodeStates(states);
+    decoded.push({
+      match: {
+        endpoint: target.endpoint,
+        option: target.option,
+        accountIds: Array.from(new Set(hits.map(hit => hit.accountId))),
+        hdIndices: Array.from(new Set(hits.map(hit => hit.hdIndex))).sort((a, b) => a - b),
+        nonce,
+        updatedAt: newestUpdatedAt(states)
+      },
+      commitments
     });
   }
+
+  // The chain decides whether a state is current (#1648): an operator the account
+  // left still serves the state it had, and with the current operator absent from
+  // the list that stale state would otherwise be the lone match and get picked.
+  const chainCommitments = await readChainCommitments(
+    Array.from(new Set(decoded.flatMap(entry => Array.from(entry.commitments.keys())))),
+    timeoutMs,
+    signal
+  );
+  if (signal?.aborted) {
+    return { matches: [], probedEndpoints, failures };
+  }
+  const matches: GuardianProbeMatch[] = decoded.map(({ match, commitments }) => ({
+    ...match,
+    holdsCurrentState: holdsCurrentState(commitments, chainCommitments)
+  }));
 
   matches.sort((a, b) => compareMatches(a, b, probedEndpoints));
   const best = selectBest(matches);
@@ -587,7 +732,8 @@ async function probeTargets(
       endpoint: match.endpoint,
       accountIds: match.accountIds,
       nonce: match.nonce?.toString(),
-      updatedAt: match.updatedAt
+      updatedAt: match.updatedAt,
+      holdsCurrentState: match.holdsCurrentState
     })),
     failures
   });

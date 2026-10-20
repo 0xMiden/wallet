@@ -522,6 +522,53 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(onRetryProbe).toHaveBeenCalledTimes(1);
   });
 
+  // #1648: the only listed operator that knows the account serves a state the chain has moved past,
+  // so the account was moved to a guardian the probe cannot list. The screen names that operator,
+  // opens the URL field empty and holds Continue back until a URL is entered.
+  it('asks for the guardian URL when the only operator that knows the account serves a superseded state', () => {
+    const { onSubmit } = renderScreen({
+      probe: done({ matches: [match({ holdsCurrentState: false })] })
+    });
+
+    expect(screen.getByTestId('guardian-state-behind-chain')).toBeInTheDocument();
+    expect(screen.getByText('guardianStateBehindChain')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-not-detected')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-detected')).not.toBeInTheDocument();
+    expect(guardianInput()).toHaveValue('');
+    expect(continueButton()).toBeDisabled();
+
+    fireEvent.change(guardianInput(), { target: { value: 'https://mine.example.com' } });
+    expect(continueButton()).toBeEnabled();
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: 'https://mine.example.com'
+    });
+  });
+
+  it('keeps the listed operators reachable behind the toggle when a superseded state was found', () => {
+    const { onSubmit } = renderScreen({
+      probe: done({ matches: [match({ holdsCurrentState: false })] })
+    });
+
+    fireEvent.click(customToggle());
+    fireEvent.click(ozPreset());
+    expect(continueButton()).toBeEnabled();
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.Guardian, guardianEndpoint: OZ_ENDPOINT });
+  });
+
+  it('still shows the detected guardian when a current operator outranks a superseded one', () => {
+    renderScreen({
+      probe: detected(match(), [match({ endpoint: 'https://old.example.com', holdsCurrentState: false })])
+    });
+
+    expect(screen.getByTestId('guardian-detected')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-state-behind-chain')).not.toBeInTheDocument();
+  });
+
   it('warns that detection may be incomplete when some operators were unreachable', () => {
     renderScreen({
       probe: done({ failures: [{ endpoint: OZ_ENDPOINT, reason: 'timeout', message: 'timed out' }] })
