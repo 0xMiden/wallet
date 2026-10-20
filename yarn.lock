@@ -1122,9 +1122,9 @@
   integrity sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==
 
 "@capacitor/android@^8.0.1":
-  version "8.4.0"
-  resolved "https://registry.yarnpkg.com/@capacitor/android/-/android-8.4.0.tgz#88ae78c9293ff1f9df39046d4661d73f162d4f33"
-  integrity sha512-K1ZPkQzvRzPEALz9nBdLx5p5nAPzp5fsTYWk7LRiKZeH/NXqjDvqfTv7lrLgrziQNoDeaL6ijg64oBREzXiV+g==
+  version "8.5.3"
+  resolved "https://registry.yarnpkg.com/@capacitor/android/-/android-8.5.3.tgz#60be0f99326861fcf1b8d252b15850f6cc2a526a"
+  integrity sha512-ilH4gSSz3DrketMkzDVAvY9JsWJ//rCQnECLTdcFRO7xXDogwAbUvQAnIAbiqefwV/D1xfjEL4Gw1MJXEcaA9g==
 
 "@capacitor/app@^8.0.0":
   version "8.1.0"
@@ -1186,9 +1186,9 @@
   integrity sha512-c2hZzRR5Fk1tbTvhG1jhh2XBAf3EhnIerMIb2sl7Mt41Gxx1fhBJFDa0/BI1IbY4loVepyyuqNC9820/GZuoWQ==
 
 "@capacitor/ios@^8.0.1":
-  version "8.4.0"
-  resolved "https://registry.yarnpkg.com/@capacitor/ios/-/ios-8.4.0.tgz#c519f06fcb2957bf4ea928bd2948cc90ab54d619"
-  integrity sha512-tnwstEdbTJ2nHAfoAwnurXgYRscWeLY+IIGdz69o24gN2Crfj9Xc0TWo8L5uFLF1LmpbUywH1IT0U1oHV8c+CA==
+  version "8.5.3"
+  resolved "https://registry.yarnpkg.com/@capacitor/ios/-/ios-8.5.3.tgz#3bed5ce0673bc04ad9a961458337658472388c52"
+  integrity sha512-HnnV92Jl8+3x0JUloXUMjFcUsQI8wHFVsKwkLn72DfRZXYGZW11tQbmNOWOnRTljaU18FdI1b9ipT09SzzPDNw==
 
 "@capacitor/keyboard@^8.0.0":
   version "8.0.5"
@@ -2547,18 +2547,18 @@
   version "0.0.0"
   uid ""
 
-"@miden-sdk/miden-sdk@0.17.3", "@miden-sdk/miden-sdk@0.17.5":
-  version "0.17.5"
-  resolved "https://registry.npmjs.org/@miden-sdk/miden-sdk/-/miden-sdk-0.17.5.tgz#ddaffcc5bd81ef749792a2ffa94e639358dee8f0"
-  integrity sha512-q/ifVFPwTZnsduWSkOd4+YHaw39kVITxidiaF0tsfkDVi2wZwc5+X6AlbF3O61PgXCfEB7CJGIQ54zHcqgbVQw==
+"@miden-sdk/miden-sdk@0.17.3", "@miden-sdk/miden-sdk@0.17.4":
+  version "0.17.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.17.4.tgz#e9fc4af7131bca67c3a37673c0f504190aca8f71"
+  integrity sha512-az0dcl+c7WCU9zA8fbBkH6ye7WJqAyHZSf4/VA8tT0hBlAU1WYFBvYeouT9UsPj4rsRs3HQ669Yk3++i7ijd+g==
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
   optionalDependencies:
-    "@miden-sdk/node-darwin-arm64" "0.17.5"
-    "@miden-sdk/node-darwin-x64" "0.17.5"
-    "@miden-sdk/node-linux-x64-gnu" "0.17.5"
-    "@miden-sdk/node-linux-x64-musl" "0.17.5"
+    "@miden-sdk/node-darwin-arm64" "0.17.4"
+    "@miden-sdk/node-darwin-x64" "0.17.4"
+    "@miden-sdk/node-linux-x64-gnu" "0.17.4"
+    "@miden-sdk/node-linux-x64-musl" "0.17.4"
 
 "@miden-sdk/miden-wallet-adapter-base@0.17.0":
   version "0.17.0"
@@ -2582,30 +2582,30 @@
     "@miden-sdk/miden-wallet-adapter-base" "0.17.0"
     "@miden-sdk/miden-wallet-adapter-miden" "0.17.0"
 
-"@miden-sdk/node-darwin-arm64@0.17.5":
-  version "0.17.5"
-  resolved "https://registry.npmjs.org/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.5.tgz#b1043adb4db4f9b3aef5999edeac2d09fb31a3da"
-  integrity sha512-I0L9yOsOdL42pP5wjK3bkWUhKKFKdFYQnkrhAO5OIz23fICOSLBksQgq1oxYcGTQpUDSQMjgwHNXDLaEDJlRhg==
+"@miden-sdk/node-darwin-arm64@0.17.4":
+  version "0.17.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.4.tgz#40b021d93709514bf5d80c17d6001261f5aa605d"
+  integrity sha512-vxiZnREW7so55hBlKP0+rfBGgiyZo+QbmVCubVHtC4bG+XPBuQoVOBi+uPHwcywlnw5xP3SA4zORKo1Ot9II5Q==
 
-"@miden-sdk/node-darwin-x64@0.17.5":
-  version "0.17.5"
-  resolved "https://registry.npmjs.org/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.5.tgz#b6929f7293b26b120b3b8a270a0f00183151720e"
-  integrity sha512-JBswoRyBaWowPEymZPTKrzjKCHM02fcZkcrytpSRLlLlKAkgqY/4B2ja0xMpQQdptl2sEJz29K4W5jVqte+Tuw==
+"@miden-sdk/node-darwin-x64@0.17.4":
+  version "0.17.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.4.tgz#1c5c1894d5b11da08ce18a817b1d058d5fe2214a"
+  integrity sha512-QZVTDLISt1sISdXRUcX5KlDHA5apPnltPmqsl824Q471J0KCUuiV7Ncq0R+7CZrYxZrqvVDKDaFriaY/oERkAA==
 
-"@miden-sdk/node-linux-x64-gnu@0.17.5":
-  version "0.17.5"
-  resolved "https://registry.npmjs.org/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.5.tgz#8f9c8bc9118bd85bad8137a58a5b58dec19f2bf5"
-  integrity sha512-i1gp3qQAPjdf1AzYZAi/WX4XUZHYPlkhMXtkiYg5FZvuUzxekGiER+sopGv569Fg2LHT3tfkw2LmVMxy0Egv9Q==
+"@miden-sdk/node-linux-x64-gnu@0.17.4":
+  version "0.17.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.4.tgz#31152afe6515583da5028a029c7641ece7f86de8"
+  integrity sha512-lF80BIzPDREbZlPSqr6pH/4yELrBBNV7YePkMLv0VskRV54SM+QBauxSZMnfdr+kRvwjvZNSDBPz0iDMjhvUMA==
 
-"@miden-sdk/node-linux-x64-musl@0.17.5":
-  version "0.17.5"
-  resolved "https://registry.npmjs.org/@miden-sdk/node-linux-x64-musl/-/node-linux-x64-musl-0.17.5.tgz#4498262149fe6f8b4b400f9edf58ca28c2ba8e6b"
-  integrity sha512-cXD71rWD6lX1wl1g/XOJK/fpa7D4k325vHqb9P0YLA88rILsRBVIS7cUy+PvybjVqcJUxMwvNUEHi6vVqvVChw==
+"@miden-sdk/node-linux-x64-musl@0.17.4":
+  version "0.17.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-musl/-/node-linux-x64-musl-0.17.4.tgz#34dcf0fbe47717ebccde6abdbabc592449c6e95a"
+  integrity sha512-nrZOuaFJtmnB/DMfZ5oMlnOd6EeTFcyb3lSqIahAYA4OShudwD3OvQQDwePKdcBDJDdFya9j8AeZ2u8TNhOYyQ==
 
-"@miden-sdk/react@0.17.5":
-  version "0.17.5"
-  resolved "https://registry.npmjs.org/@miden-sdk/react/-/react-0.17.5.tgz#67ec7dcf2b3bef6eecd8c89bb6042e9ebbc4ecd6"
-  integrity sha512-lbOUdq/6tFGoGOMjQdqp7r4YufYrMfyXzL9lZMfLEYLBCMiY7WBl0YImAuMfi+H2hkKY7tW95o/fUTcb+LFNMg==
+"@miden-sdk/react@0.17.4":
+  version "0.17.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.17.4.tgz#a36c8d28cdfce33918f23bda04ccd3d1d21fce4d"
+  integrity sha512-g0TkB2SxUaNHpw2mZvAepeI8/QKNZG4iaXhfoFbWEGd1FQqKbJ+nw+vRAJt2NQ7sLGJSlV3J4dYCcdDK+XsGhw==
   dependencies:
     zustand "^5.0.0"
 
@@ -6714,10 +6714,10 @@ bplist-parser@0.3.2, bplist-parser@^0.3.2, bplist-parser@^0.x:
   dependencies:
     big-integer "1.6.x"
 
-brace-expansion@^2.0.2, brace-expansion@^2.0.3:
-  version "2.1.1"
-  resolved "https://registry.yarnpkg.com/brace-expansion/-/brace-expansion-2.1.1.tgz#c68b1c4111c76aae3a6fba55d496cee10c39dad8"
-  integrity sha512-WR1cURNjuvBLMZBMbqM0UoE+WAfdUcEV1ccD8PVBVOI+Z3ND4+SZbN8RsfT2bMuG1qwz5RFvPukSZm5fF2D5eA==
+brace-expansion@^2.0.2, brace-expansion@^2.1.2:
+  version "2.1.7"
+  resolved "https://registry.yarnpkg.com/brace-expansion/-/brace-expansion-2.1.7.tgz#14ea3836731823bb24740225ea43b941b436f9d1"
+  integrity sha512-uZbew1NqdmPDTMJ8ah1y+b+9QEJrfkXFk3RcTQw3X0jW/xRUvFKsg1CfQdSYGdTbXZWExtU3J3ccxtnfw1Fi0g==
   dependencies:
     balanced-match "^1.0.0"
 
@@ -11985,9 +11985,9 @@ nanoid@^3.3.12:
   integrity sha512-sPdqC6ByMVVGvF1ynvvMo0/o+oD1VX7DaHhijt1bFgjvBkHBib4t49GoNDhf2NDta4oeUNlaGbSt5K7qjZ955Q==
 
 nanoid@^5.0.9:
-  version "5.1.12"
-  resolved "https://registry.yarnpkg.com/nanoid/-/nanoid-5.1.12.tgz#c70b20b7d798a5d8ed52395fa964c7eadfed480b"
-  integrity sha512-qnKlkaoiOqC//7LzQEgBJzzX7f+4Sqz/oCAesl0TOxogBkitVlIp5Ozq9sTE6tWWpIA58qreYF7GoPjuDjoXdw==
+  version "5.1.16"
+  resolved "https://registry.yarnpkg.com/nanoid/-/nanoid-5.1.16.tgz#fe345c0a1f9007c32fbb5c139e1208bfd3f41ef7"
+  integrity sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==
 
 napi-postinstall@^0.3.4:
   version "0.3.4"
@@ -14478,10 +14478,10 @@ shebang-regex@^3.0.0:
   resolved "https://registry.yarnpkg.com/shebang-regex/-/shebang-regex-3.0.0.tgz#ae16f1644d873ecad843b0307b143362d4c42172"
   integrity sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==
 
-shell-quote@1.8.4, shell-quote@^1.6.1, shell-quote@^1.7.3, shell-quote@^1.8.1:
-  version "1.8.4"
-  resolved "https://registry.yarnpkg.com/shell-quote/-/shell-quote-1.8.4.tgz#2edd9a4dcefc96649e2e2cb12f637b1f1d92a190"
-  integrity sha512-VsC6n6vz1ihYYyZZwX7YZSF5l5x36ca17OC+a69h94YqB7X6XLwf+5MOgynYir2SLFUbl8gIYvBo8K8RoNQ6bQ==
+shell-quote@1.8.4, shell-quote@^1.6.1, shell-quote@^1.7.3, shell-quote@^1.8.1, shell-quote@^1.9.0:
+  version "1.12.0"
+  resolved "https://registry.yarnpkg.com/shell-quote/-/shell-quote-1.12.0.tgz#e98fdfd2e921d8a58ae2820f4fc0f75c39f09675"
+  integrity sha512-PcByqNyT/38F2kDNi006HAMRJaULuBzq/FOsw3qdZvX/GA9W/jamDaRskgHjubHiftXK5sIFxLNkvrXUwcof6Q==
 
 side-channel-list@^1.0.1:
   version "1.0.1"
