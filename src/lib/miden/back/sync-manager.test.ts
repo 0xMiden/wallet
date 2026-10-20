@@ -1726,9 +1726,12 @@ describe('doSync — native-note auto-consume', () => {
     }
   });
 
-  it('auto-consumes a backlog of individually-marginal native notes in one transaction', async () => {
+  it('auto-consumes a backlog of individually-marginal native notes, at most MAX_NOTES_PER_UNATTENDED_CLAIM to a transaction', async () => {
     // Judged per note these were ALL refused; together they are comfortably worth one
-    // transaction, which is what the wallet actually pays for.
+    // transaction, which is what the wallet actually pays for. A pile over the claim cap
+    // is several transactions (#1644), each measured against the floor on its own: the
+    // two full chunks of 8 are worth 40 fees each and go, the 4 left over are worth
+    // exactly the floor (20 fees) and wait for more notes, as the pile did below it.
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false);
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
@@ -1741,8 +1744,11 @@ describe('doSync — native-note auto-consume', () => {
 
     await doSync();
 
-    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
-    expect(mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).toHaveLength(20);
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(2);
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).toHaveLength(8);
+    expect(mockInitiateConsumeBatch.mock.calls[1]![1] as { id: string }[]).toHaveLength(8);
+    const queued = mockInitiateConsumeBatch.mock.calls.flatMap(call => (call[1] as { id: string }[]).map(n => n.id));
+    expect(new Set(queued).size).toBe(16);
   });
 
   it('fee identity: service worker auto-consumes actual native A instead of legacy B', async () => {
@@ -2014,13 +2020,15 @@ describe('doSync - zero-fill swap reclaim', () => {
         expect.objectContaining({ id: 'zero-fill-tip' }),
         reclaimBytes,
         'swap-1',
-        undefined,
+        // The mirrored delegated-proving setting (`true` here), not the row's own (#1644).
+        true,
         expect.any(Function)
       );
       const [classified] = mockSettlementSeen.classify;
       const [reconciled] = mockSettlementSeen.reconcile;
       const clock = classified!.args[4];
       expect(clock).toEqual(expect.any(Number));
+      expect(reconciled![2]).toBe(true);
       expect(reconciled![3]).toBe(clock);
       expect(reconciled![5]).toBe(classified!.result.zeroFillReclaims);
       expect((await Repo.transactions.get('swap-1'))?.extraInputs?.expiryTriggeredAt).toBe(clock);
@@ -2056,7 +2064,7 @@ describe('doSync - zero-fill swap reclaim', () => {
         expect.objectContaining({ id: 'zero-fill-tip' }),
         reclaimBytes,
         'swap-1',
-        undefined,
+        true,
         expect.any(Function)
       );
       expect(startTransactionProcessing).toHaveBeenCalledTimes(1);

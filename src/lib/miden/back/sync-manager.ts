@@ -45,6 +45,7 @@ import {
   reconcileSwapOrderNotes
 } from '../swap/settlement';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
+import { chunkNotesForClaim } from '../transaction/constants';
 import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
@@ -800,10 +801,14 @@ async function runSync(force: boolean): Promise<void> {
       // stamps reconcile writes, which only label the order, wait for that lap too.
       if (swapOrderRows.length > 0 && isUnlocked(store.getState())) {
         try {
+          // The user's CURRENT delegated-proving choice, read from the mirrored setting as the native enqueue
+          // below reads it, not the choice frozen on the swap row when the order was placed (#1644): a
+          // settlement claim proved on the device because the order predates the toggle is what overran the
+          // write deadline.
           const settlement = await reconcileSwapOrderNotes(
             accountPubKey,
             managedNotes,
-            undefined,
+            await isDelegateProofEnabledAsync(),
             settlementNowSeconds,
             swapOrderRows,
             zeroFillReclaims,
@@ -837,46 +842,63 @@ async function runSync(force: boolean): Promise<void> {
           // since the gate above queues nothing. A lock refuses every note alike, so it ends the pass rather than
           // falling back note by note.
           const canSign = () => isUnlocked(store.getState());
-          // ONE transaction for the batch: each consume pays its own fee, so a backlog
+          // ONE transaction per batch: each consume pays its own fee, so a backlog
           // claimed note-by-note charges N fees for what settles in one. A Miden tx is
           // atomic, so a single un-consumable note fails the whole batch; the `true`
           // argument isolates it on the following enqueue, so it cannot drag its healthy
           // mates into the shared row's #215 backoff. NOT the catch below -- this call is
           // a queue write and the real failure happens later, at generation time.
-          try {
-            await initiateConsumeNotesTransaction(
-              accountPubKey,
-              nativeAutoConsumeNotes,
-              delegate,
-              false,
-              true,
-              nativeAutoConsumeBaseFee,
-              'auto_consume',
-              canSign
-            );
-          } catch (batchErr) {
-            if (batchErr instanceof ClaimFeeRefusedError) {
-              console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
-              return;
+          //
+          // A pile over MAX_NOTES_PER_UNATTENDED_CLAIM is several batches (#1644): a
+          // consume proves every input note, and one that proves for longer than the
+          // extension's write deadline never submits, however often it retries. Each
+          // batch pays its own fee, so each is measured against the floor on its own;
+          // the whole pile was measured together above, which only a single batch
+          // inherits. A batch below the floor waits for more notes, as the pile did.
+          const batches = chunkNotesForClaim(nativeAutoConsumeNotes);
+          let feeRefusedNotes = 0;
+          for (const batch of batches) {
+            if (
+              batches.length > 1 &&
+              !isWorthClaiming(totalClaimableAmount(batch.map(n => n.amount)), nativeAutoConsumeBaseFee)
+            ) {
+              continue;
             }
-            if (!canSign()) throw batchErr;
-            console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
-            let feeRefusedNotes = 0;
-            for (const note of nativeAutoConsumeNotes) {
-              try {
-                await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
-              } catch (noteErr) {
-                if (noteErr instanceof ClaimFeeRefusedError) {
-                  console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
-                  feeRefusedNotes += 1;
-                  continue;
+            try {
+              await initiateConsumeNotesTransaction(
+                accountPubKey,
+                batch,
+                delegate,
+                false,
+                true,
+                nativeAutoConsumeBaseFee,
+                'auto_consume',
+                canSign
+              );
+            } catch (batchErr) {
+              if (batchErr instanceof ClaimFeeRefusedError) {
+                console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+                feeRefusedNotes += batch.length;
+                continue;
+              }
+              if (!canSign()) throw batchErr;
+              console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+              for (const note of batch) {
+                try {
+                  await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
+                } catch (noteErr) {
+                  if (noteErr instanceof ClaimFeeRefusedError) {
+                    console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+                    feeRefusedNotes += 1;
+                    continue;
+                  }
+                  if (!canSign()) throw noteErr;
+                  console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
                 }
-                if (!canSign()) throw noteErr;
-                console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
               }
             }
-            if (feeRefusedNotes === nativeAutoConsumeNotes.length) return;
           }
+          if (feeRefusedNotes === nativeAutoConsumeNotes.length) return;
           const { startTransactionProcessing } = await import('./transaction-processor');
           startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));
         } catch (err) {

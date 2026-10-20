@@ -18,6 +18,7 @@ import type { WasmLockHold } from '../sdk/miden-client';
 import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
+import { chunkNotesForClaim } from '../transaction/constants';
 import {
   initiateConsumeNotesTransaction,
   initiatePswapReclaimTransaction,
@@ -385,9 +386,9 @@ export async function reconcileSwapOrderNotes(
 
     const settleable = expired ? orderNotes : orderNotes.filter(note => note.swapOrder?.role === 'payback');
     if (settleable.length === 0) continue;
-    // The service worker cannot read the delegated-proving setting
-    // (localStorage-backed), so fall back to the preference captured on the
-    // swap row at initiate time.
+    // The caller passes the live delegated-proving setting (the service worker reads it from the mirrored
+    // setting, as its native auto-consume does); only a caller with no reading falls back to the preference
+    // captured on the swap row when the order was placed (#1644).
     const delegate = delegateTransaction ?? order.delegateTransaction;
     // ONE consume per ROLE, never one covering both. A Miden transaction is
     // atomic and an expired order's remainder tip is still publicly fillable, so
@@ -406,7 +407,16 @@ export async function reconcileSwapOrderNotes(
     const reclaimNotes = settleable.filter(note => note.swapOrder?.role !== 'payback');
     // Paybacks first: they are the funds the user is owed, the tip reclaim is
     // the leftover.
-    for (const batch of [paybackNotes, reclaimNotes]) {
+    //
+    // And at most MAX_NOTES_PER_UNATTENDED_CLAIM notes per row (#1644). The count of
+    // paybacks is the counterparty's to set: a solver that fills one order in dozens
+    // of partial fills leaves dozens of notes, and one consume of them all proved for
+    // longer than the extension's write deadline on every attempt, each cut-off
+    // keeping a Guardian proposal that blocked the account. A set over the cap is
+    // several rows, each tagged to the order, and the settlement stamp waits for the
+    // last of them (`completeConsumeTransaction`). The chunks are stable across ticks,
+    // so a chunk already queued is deduplicated whole on the next lap.
+    for (const batch of [...chunkNotesForClaim(paybackNotes), ...chunkNotesForClaim(reclaimNotes)]) {
       if (batch.length === 0) continue;
       // No `verificationBaseFee`, so no claim floor — unlike the three native
       // auto-consumers. Deliberate, and the reason is the RISK, not the plumbing.

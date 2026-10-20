@@ -62,6 +62,7 @@ import {
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
   INoteDeliveryState,
+  isLiveTransaction,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -264,6 +265,27 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
 };
 
+/**
+ * Whether another claim of the same settlement kind for the same swap order is still open: queued, generating, or
+ * waiting for the node's verdict. A settlement over the claim cap is several consume rows (#1644), and the stamp
+ * that reads the order as Confirmed or Reclaimed belongs to the last of them; a failed sibling leaves the order
+ * unstamped, so the next settlement tick queues its notes again and the stamp repair stays off until they are gone.
+ */
+const otherSettlementClaimOpen = async (id: string, settle: IConsumeSwapSettleExtraInputs): Promise<boolean> => {
+  const open = await Repo.transactions
+    .where('extraInputs.swapOrderTxId')
+    .equals(settle.swapOrderTxId)
+    .filter(
+      tx =>
+        tx.id !== id &&
+        tx.type === 'consume' &&
+        tx.extraInputs?.swapSettleKind === settle.swapSettleKind &&
+        (isLiveTransaction(tx) || tx.status === ITransactionStatus.Unconfirmed)
+    )
+    .count();
+  return open > 0;
+};
+
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
   const inputNotes = result.executedTransaction().inputNotes().notes();
   const firstInputNote = inputNotes[0];
@@ -351,7 +373,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   try {
     const settle: IConsumeSwapSettleExtraInputs | undefined =
       dbTransaction?.extraInputs?.swapOrderTxId != null ? dbTransaction.extraInputs : undefined;
-    if (settle) {
+    if (settle && !(await otherSettlementClaimOpen(id, settle))) {
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
         // `false`, not a bare return - dexie re-puts the deep clone for any other value.

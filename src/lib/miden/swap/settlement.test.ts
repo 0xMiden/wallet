@@ -330,17 +330,18 @@ describe('swap order note settlement', () => {
 
     const result = await settleSwapOrders('account-1', false);
 
+    // The notes of one row are in id order (the claim chunks are stable across ticks, #1644).
     expect(jest.mocked(initiateConsumeNotesTransaction).mock.calls).toEqual([
       [
         'account-1',
         [
+          expect.objectContaining({ id: 'assetless-payback', faucetId: '', amount: '', carriesMoreAssets: false }),
           expect.objectContaining({
             id: 'token-payback',
             faucetId: 'requested-token',
             amount: '35',
             carriesMoreAssets: false
-          }),
-          expect.objectContaining({ id: 'assetless-payback', faucetId: '', amount: '', carriesMoreAssets: false })
+          })
         ],
         false,
         ...SETTLES
@@ -650,6 +651,29 @@ describe('swap order note settlement', () => {
 
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false, ...SETTLES);
+  });
+
+  it('claims the paybacks of one order at most MAX_NOTES_PER_UNATTENDED_CLAIM to a row, in a stable order (#1644)', async () => {
+    const paybacks = Array.from({ length: 9 }, (_, i) => consumable(`payback-${i}`, 'payback', 'filled'));
+    // Handed over in reverse, so the chunking (not the caller) decides which notes share a row.
+    const tip = consumable('tip', 'tip', 'filled');
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-a')
+      .mockResolvedValueOnce('consume-b');
+
+    await reconcileSwapOrderNotes('account-1', [tip, ...[...paybacks].reverse()], false, 150);
+
+    // 63 paybacks of one order went into one consume whose on-device proof overran the extension's write deadline on
+    // every attempt; now a set over the cap is several rows, and a repeated tick sorts them the same way so the dedup
+    // covers each whole chunk.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
+      ['account-1', paybacks.slice(0, 8), false, ...SETTLES],
+      ['account-1', paybacks.slice(8), false, ...SETTLES]
+    ]);
+    // Every chunk is linked to the order, so history suppresses each and the last to complete stamps the order.
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'consume-a' });
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(2, { id: 'consume-b' });
+    expect(modify).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to the swap row delegate preference when no delegate flag is passed', async () => {
