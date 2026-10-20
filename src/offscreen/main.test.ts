@@ -6156,3 +6156,95 @@ describe('offscreen/main GEO007 permission renewal', () => {
     }
   );
 });
+
+describe('GEO014 offscreen Guardian feature authorization at final submit', () => {
+  afterEach(() => {
+    jest.dontMock('lib/remote-config/runtime');
+  });
+
+  it.each([
+    { kind: 'earn-deposit', delegate: false, allowed: true },
+    { kind: 'earn-deposit', delegate: false, allowed: false },
+    { kind: 'earn-deposit', delegate: true, allowed: true },
+    { kind: 'earn-deposit', delegate: true, allowed: false },
+    { kind: 'swap', delegate: false, allowed: true },
+    { kind: 'swap', delegate: false, allowed: false },
+    { kind: 'swap', delegate: true, allowed: true },
+    { kind: 'swap', delegate: true, allowed: false }
+  ])(
+    'GEO014 offscreen $kind delegated=$delegate feature allowed=$allowed after proof',
+    async ({ kind, delegate, allowed }) => {
+      const { TEST_BRIDGE_CONFIG_SNAPSHOT } = await import('lib/epoch/testing/bridge-config');
+      const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
+      if (!accepted) throw new Error('Expected a configured offscreen feature fixture');
+      let featureAllowed = true;
+      const snapshot = (): import('lib/remote-config/runtime').BridgeConfigSnapshot => ({
+        ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+        config: { ...accepted, geo: { earn: [{ country: 'US' }], swap: [{ country: 'US' }] } },
+        geo: {
+          state: 'ready',
+          network: accepted.network,
+          version: accepted.version,
+          allowed: {
+            wallet: true,
+            earn: kind === 'earn-deposit' ? featureAllowed : true,
+            swap: kind === 'swap' ? featureAllowed : true
+          }
+        }
+      });
+      jest.doMock('lib/remote-config/runtime', () => ({
+        __esModule: true,
+        getBridgeConfigSnapshot: snapshot,
+        initBridgeConfig: async () => snapshot()
+      }));
+      await loadModule();
+      const apply = jest.fn(async () => {});
+      const submit = jest.fn(async () => ({ apply }));
+      const prove = jest.fn(async () => {
+        featureAllowed = allowed;
+        return { submit };
+      });
+      G.__off.guardianExecuteRequest.mockImplementation(async () => ({
+        result: { serialize: () => new Uint8Array([55, 66, 77]) },
+        id: { toHex: () => 'geo014-guardian' },
+        prove
+      }));
+      G.__off.guardianSubmitProven = submit;
+      mockProveTransport.prove.mockReset().mockImplementation(async () => {
+        featureAllowed = allowed;
+        return { proven: new Uint8Array([1, 2, 3]), durationMs: 42 };
+      });
+      const reply = jest.fn();
+      if (!capturedListener) throw new Error('Offscreen listener was not installed');
+      capturedListener(
+        {
+          target: 'offscreen',
+          type: 'OFFSCREEN_CALL',
+          op_id: 'geo014-feature-submit',
+          deadline_ms: 1000,
+          method: 'guardianPipeline',
+          argsB64: [
+            encodeArg('acc'),
+            encodeArg(new Uint8Array([9])),
+            encodeArg(delegate),
+            encodeArg(null),
+            encodeArg(kind)
+          ],
+          endpoints: SW_ENDPOINTS
+        },
+        {},
+        reply
+      );
+      await flush();
+      expect(reply).toHaveBeenCalledTimes(1);
+      expect(featureAllowed).toBe(allowed);
+      expect(snapshot().geo).toMatchObject({ allowed: { wallet: true } });
+      expect(prove).toHaveBeenCalledTimes(delegate ? 1 : 0);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(delegate ? 0 : 1);
+      expect(submit).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(apply).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(reply.mock.calls[0]?.[0]?.ok).toBe(allowed);
+      expect(reply.mock.calls[0]?.[0]?.errorBeforeSubmit).toBe(allowed ? undefined : true);
+    }
+  );
+});

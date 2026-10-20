@@ -1413,10 +1413,34 @@ describe('GEO014 proxy Swap feature authorization at final submit', () => {
   beforeEach(() => {
     jest.resetModules();
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'false';
+    let boundary: typeof import('./miden-client') | undefined;
+    const mutexFactory = () => {
+      const actual = jest.requireActual<typeof import('./miden-client')>('./miden-client');
+      boundary ??= { ...actual };
+      Object.defineProperty(boundary, '__esModule', { value: true });
+      return boundary;
+    };
+    jest.doMock('./miden-client', mutexFactory);
+    jest.doMock('lib/miden/sdk/miden-client', mutexFactory);
+    jest.doMock('lib/remote-config/wallet-access', () => {
+      const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
+        'lib/remote-config/wallet-access'
+      );
+      const scope = () => `geo014-sdk:${access.getWalletAccessGeneration()}`;
+      access.registerWalletAccessRuntime({
+        scope,
+        refresh: async () => access.publishWalletAccessDecision(scope(), true)
+      });
+      access.publishWalletAccessDecision(scope(), true);
+      return access;
+    });
   });
 
   afterEach(() => {
     jest.dontMock('lib/remote-config/runtime');
+    jest.dontMock('./miden-client');
+    jest.dontMock('lib/miden/sdk/miden-client');
+    jest.dontMock('lib/remote-config/wallet-access');
     delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   });
 
