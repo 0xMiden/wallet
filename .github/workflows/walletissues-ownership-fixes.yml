@@ -16,7 +16,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     env:
-      OWNERSHIP_RESULTS: ${{ runner.temp }}/ownership-fix-results
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +26,8 @@ jobs:
         shell: bash
         working-directory: .github/fixtures/walletissues-ownership-fixes
         run: |
+          export OWNERSHIP_RESULTS="$RUNNER_TEMP/ownership-fix-results"
+          printf 'OWNERSHIP_RESULTS=%s\n' "$OWNERSHIP_RESULTS" >> "$GITHUB_ENV"
           mkdir -p "$OWNERSHIP_RESULTS"
           python3 -B capture_proof.py before
       - name: Run complete fixed ownership helper checkpoint
