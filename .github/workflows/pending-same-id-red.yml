@@ -1,0 +1,362 @@
+name: Pending same-ID guarded timing proof
+
+on:
+  push:
+    branches: [ci/1616-same-id-red]
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-async-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      PROOF_HEAD_SHA: ${{ github.sha }}
+      PROOF_REF: ${{ github.ref }}
+      PROOF_EVENT: ${{ github.event_name }}
+      PROOF_REPOSITORY: ${{ github.repository }}
+      PROOF_WORKFLOW_REF: ${{ github.workflow_ref }}
+      PROOF_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+      PROOF_RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - name: Initialize complete proof evidence
+        id: initialize
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="$RUNNER_TEMP/pending-same-id-red"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          cat > "$PROOF_DIR/run-logged.bash" <<'BASH_HELPER'
+          run_logged() {
+            local label="$1"
+            shift
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${statuses[1]}" > "$PROOF_DIR/$label.tee.exit"
+            if [ "${statuses[1]}" -ne 0 ]; then return "${statuses[1]}"; fi
+            return "${statuses[0]}"
+          }
+          BASH_HELPER
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          keys = ['HEAD_SHA', 'REF', 'EVENT', 'REPOSITORY', 'WORKFLOW_REF', 'WORKFLOW_SHA', 'RUN_ID', 'RUN_ATTEMPT']
+          identity = {key: os.environ['PROOF_' + key] for key in keys}
+          (Path(os.environ['PROOF_DIR']) / 'run-identity.json').write_text(json.dumps(identity, indent=2) + '\n')
+          PYTHON
+
+      - name: Checkout exact proof head
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind all reviewed source entries and sole workflow addition
+        id: source
+        if: ${{ !cancelled() && steps.initialize.outcome == 'success' && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged source python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          source = '8bb703c31fcacbb3edab46ef3e652759a6d4bcc4'
+          expected_tree = '86fdd24b583ddd42bfa0b00cb46bb24063324224'
+          expected_entries = 3618
+          regression_suites = {'src/app/templates/history/PendingActivityCard.test.tsx': {'sha256': '50534f667abf16316d7102b06d60647d1efd795a8daaeb1041478ff8685f2d1b', 'test_count': 31, 'test_names_sha256': '89703dd0f18893320835083868b32440e24e8bd2749824b81936f643853065d6'}, 'src/app/hooks/useActivityClaims.test.ts': {'sha256': '751045732ecb36065d0959dc8bf61a396a194618fd6b93a95ea320553bdd04d2', 'test_count': 83, 'test_names_sha256': '15eb4b3f0d3f85300019b8c50425157d9c33eff68c2d2acc3c8987ca21484d0b'}}
+          control_suites = {'src/lib/telemetry/user-visible-error.test.ts': {'sha256': 'd91730721f22ed04ef3dc37bdfac543a784008306aec1e055a88a3767f6901a7', 'test_count': 14}, 'src/lib/telemetry/crash-diagnostics.policy.test.ts': {'sha256': '6a93cd68a52e267c1853613f3d4c033dd3d901095adc368282627f40c1ce2bc6', 'test_count': 14}}
+          failure_sites = {'live claim failures through PendingActivityCard and Notice restarts an unfinished dwell for a new same-ID Retry failure with no committed clear': {'line': 1881, 'matcher': 'toHaveBeenCalled', 'source': '    expect(reportUserVisibleError).not.toHaveBeenCalled();'}, 'live claim failures through PendingActivityCard and Notice reports another same-ID Retry failure after its own dwell when the first already reported': {'line': 1914, 'matcher': 'toEqual', 'source': '    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual(['}}
+          provenance = {'fix1/report.md': '9986fae71fc557b90e7f2e4c538414b17bb67541c73034c0af236c9df54351e8', 'fix1/normal-review/report.md': '27c862a9c4466360e9a983f6288f3857229a55c7dae810473901ed8da97912e8', 'fix1/normal-review/controller-acceptance.json': '598b13d44cb0062bc7799fcf4d558d54bd1424cf95e441d9aaa39dc776895418', 'inventory-and-conditional-expectations.json': 'fe778550201ed40042e2dffe68931d10af30eda19a16ef713d9ff272217650e5'}
+          workflow = '.github/workflows/pending-same-id-red.yml'
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+          def value(*args):
+              return git(*args).decode().strip()
+
+          def tree(ref):
+              entries = {}
+              for record in git('ls-tree', '-r', '-z', ref).split(b'\0'):
+                  if record:
+                      metadata, name = record.split(b'\t', 1)
+                      entries[name.decode()] = metadata.decode().split()
+              return entries
+
+          head = value('rev-parse', 'HEAD')
+          source_tree = value('rev-parse', source + '^{tree}')
+          before, after = tree(source), tree(head)
+          all_tests = {**regression_suites, **control_suites}
+          manifest = {
+              'expected_source_commit': source, 'expected_source_tree': expected_tree,
+              'source_commit': value('rev-parse', source), 'source_tree': source_tree,
+              'checkout_commit': head, 'checkout_tree': value('rev-parse', 'HEAD^{tree}'),
+              'source_entries': len(before), 'source_entry_map': before,
+              'checkout_entry_map': after, 'delta': value('diff', '--name-status', source, 'HEAD'),
+              'regression_suites': regression_suites, 'control_suites': control_suites,
+              'conditional_failure_sites': failure_sites,
+              'checkout_test_sha256': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in all_tests},
+              'review_provenance_sha256': provenance,
+              'workflow_blob': after.get(workflow),
+              'workflow_sha256': hashlib.sha256(Path(workflow).read_bytes()).hexdigest(),
+              'runner_helper_sha256': hashlib.sha256((proof / 'run-logged.bash').read_bytes()).hexdigest(),
+              'runtime_claim': 'UNRUN; this binding alone grants no defect or source-correction credit'
+          }
+          (proof / 'source-and-checkout.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + '\n')
+          for label, ref in [('source', source), ('checkout', head)]:
+              (proof / (label + '-commit.txt')).write_bytes(git('cat-file', 'commit', ref))
+              (proof / (label + '-tree.txt')).write_bytes(git('ls-tree', '-r', ref))
+          (proof / 'workflow-only.diff').write_bytes(git('diff', '--binary', source, 'HEAD', '--', workflow))
+
+          assert head == os.environ['PROOF_HEAD_SHA'] == os.environ['PROOF_WORKFLOW_SHA'], 'Checkout/event/workflow head mismatch'
+          assert os.environ['PROOF_EVENT'] == 'push', 'Push event required'
+          assert os.environ['PROOF_REF'] == 'refs/heads/ci/1616-same-id-red', 'Disposable branch required'
+          expected_ref = os.environ['PROOF_REPOSITORY'] + '/' + workflow + '@' + os.environ['PROOF_REF']
+          assert os.environ['PROOF_WORKFLOW_REF'] == expected_ref, 'Workflow ref mismatch'
+          assert all(os.environ['PROOF_' + key].isdigit() for key in ['RUN_ID', 'RUN_ATTEMPT']), 'Run identity missing'
+          assert source_tree == expected_tree, 'Reviewed source tree mismatch'
+          assert value('rev-list', '--parents', '-n', '1', 'HEAD').split() == [head, source], 'Sole transport parent must be the reviewed source'
+          assert len(before) == expected_entries and all(after.get(name) == entry for name, entry in before.items()), 'Source entry changed'
+          assert set(after) - set(before) == {workflow}, 'Expected exactly one added workflow'
+          assert after[workflow][:2] == ['100644', 'blob'], 'Workflow must be a regular file'
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          assert not value('status', '--porcelain=v1', '--untracked-files=all'), 'Checkout is dirty'
+          assert all(not Path(name).is_symlink() and manifest['checkout_test_sha256'][name] == binding['sha256'] for name, binding in all_tests.items()), 'Test bytes changed'
+          for site in failure_sites.values():
+              assert Path('src/app/hooks/useActivityClaims.test.ts').read_text().splitlines()[site['line'] - 1] == site['source'], 'Timing assertion site changed'
+          print('Verified all', expected_entries, 'reviewed source entries and sole regular workflow addition')
+          PYTHON
+
+      - name: Setup Node22
+        id: node
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies with normal preparation hooks
+        id: install
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.node.outcome == 'success' }}
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged install timeout 10m yarn install --frozen-lockfile --non-interactive
+
+      - name: Recheck source and four tests after preparation
+        id: prepared
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged prepared python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+          subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+          for name, binding in {**manifest['regression_suites'], **manifest['control_suites']}.items():
+              assert not Path(name).is_symlink(), 'Symlink test: ' + name
+              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == binding['sha256'], 'Test bytes changed: ' + name
+          versions = {command: subprocess.check_output([command, '--version'], text=True).strip() for command in ['node', 'yarn']}
+          (proof / 'tool-versions.json').write_text(json.dumps(versions, indent=2) + '\n')
+          print('Verified unchanged tracked source and all four test files after normal preparation')
+          PYTHON
+
+      - name: Check formatting of the named source and regression files
+        id: format
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged format yarn prettier --check src/app/hooks/useActivityClaims.ts src/app/hooks/useActivityClaims.test.ts src/app/templates/history/PendingActivityCard.tsx src/app/templates/history/PendingActivityCard.test.tsx src/lib/telemetry/user-visible-error-contract.ts docs/privacy/index.md
+
+      - name: Lint the named source and four test files
+        id: eslint
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged eslint yarn eslint --max-warnings 0 src/app/hooks/useActivityClaims.ts src/app/hooks/useActivityClaims.test.ts src/app/templates/history/PendingActivityCard.tsx src/app/templates/history/PendingActivityCard.test.tsx src/lib/telemetry/user-visible-error-contract.ts src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts
+
+      - name: Check whole project TypeScript without emitting
+        id: typescript
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged typescript yarn tsc --noEmit --pretty false
+
+      - name: Run both complete114-case suites with natural expected-red status
+        id: jest
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged jest yarn jest --runTestsByPath src/app/hooks/useActivityClaims.test.ts src/app/templates/history/PendingActivityCard.test.tsx --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/jest.json"
+
+      - name: Run the separate reporter and privacy controls
+        id: controls
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.install.outcome == 'success' && steps.prepared.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source "$PROOF_DIR/run-logged.bash"
+          run_logged controls yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --no-colors --json --outputFile="$PROOF_DIR/controls.json"
+
+      - name: Reject invalid evidence or accept only both later timing assertions
+        id: validate
+        if: always()
+        env:
+          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          NODE_OUTCOME: ${{ steps.node.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PREPARED_OUTCOME: ${{ steps.prepared.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
+          TYPESCRIPT_OUTCOME: ${{ steps.typescript.outcome }}
+          JEST_OUTCOME: ${{ steps.jest.outcome }}
+          CONTROLS_OUTCOME: ${{ steps.controls.outcome }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export PROOF_DIR="${PROOF_DIR:-$RUNNER_TEMP/pending-same-id-red}"
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          proof = Path(os.environ['PROOF_DIR'])
+          proof.mkdir(parents=True, exist_ok=True)
+          outcome_names = ['INITIALIZE', 'CHECKOUT', 'SOURCE', 'NODE', 'INSTALL', 'PREPARED', 'FORMAT', 'ESLINT', 'TYPESCRIPT', 'JEST', 'CONTROLS']
+          outcomes = {key: os.environ.get(key + '_OUTCOME', 'missing') for key in outcome_names}
+          (proof / 'step-outcomes.json').write_text(json.dumps(outcomes, indent=2) + '\n')
+          validation = {'status': 'INVALID', 'source_correction': 'PROHIBITED', 'runtime': 'UNACCEPTED', 'independent_outcomes': outcomes}
+          labels = ['source', 'install', 'prepared', 'format', 'eslint', 'typescript', 'jest', 'controls']
+          required = ['run-identity.json', 'run-logged.bash', 'source-and-checkout.json', 'source-commit.txt', 'checkout-commit.txt', 'source-tree.txt', 'checkout-tree.txt', 'workflow-only.diff', 'tool-versions.json', 'jest.json', 'controls.json']
+          required += [label + suffix for label in labels for suffix in ['.log', '.exit', '.tee.exit']]
+          missing = [name for name in required if not (proof / name).is_file() or not (proof / name).stat().st_size]
+          (proof / 'evidence-completeness.json').write_text(json.dumps({'missing_or_empty': missing}, indent=2) + '\n')
+
+          def checked_suites(result, expected, regression):
+              actual = {}
+              failures = {}
+              for suite in result['testResults']:
+                  name = Path(suite['name']).relative_to(Path.cwd()).as_posix()
+                  assert name not in actual and name in expected, 'Unexpected or duplicate suite: ' + name
+                  binding = expected[name]
+                  cases = suite['assertionResults']
+                  names = sorted(case['fullName'] for case in cases)
+                  assert len(names) == binding['test_count'], 'Missing/extra cases: ' + name
+                  assert len(names) == len(set(names)), 'Duplicate case name: ' + name
+                  if regression:
+                      assert hashlib.sha256(json.dumps(names, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest() == binding['test_names_sha256'], 'Exact114 case inventory mismatch: ' + name
+                  assert not Path(name).is_symlink() and hashlib.sha256(Path(name).read_bytes()).hexdigest() == binding['sha256'], 'Test bytes changed: ' + name
+                  failed = []
+                  for case in cases:
+                      title = case['fullName']
+                      site = manifest['conditional_failure_sites'].get(title) if regression else None
+                      if site is None:
+                          assert case['status'] == 'passed' and not case['failureMessages'] and not case['failureDetails'], 'Guard/control/runtime failure: ' + title
+                          continue
+                      assert case['status'] == 'failed' and len(case['failureMessages']) == len(case['failureDetails']) == 1, 'Intended timing assertion not reached alone: ' + title
+                      assert not case['failing'] and case['invocations'] == 1 and not case['retryReasons'], 'Retries or expected-failing case not allowed: ' + title
+                      message = re.sub(r'\x1b\[[0-9;]*m', '', case['failureMessages'][0])
+                      prefix, stack = re.split(r'\n\s+at ', message, maxsplit=1)
+                      first_frame = stack.splitlines()[0]
+                      frame = r'^[^\n]* \(' + re.escape(str(Path.cwd() / name)) + ':' + str(site['line']) + r':\d+\)$'
+                      assert re.fullmatch(frame, first_frame), 'Earlier guard/setup/runtime failure, not the later timing site: ' + title
+                      assert site['matcher'] in first_frame, 'Wrong matcher frame: ' + title
+                      matcher = case['failureDetails'][0]['matcherResult']
+                      if site['matcher'] == 'toHaveBeenCalled':
+                          expected_prefix = 'Error: expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: "raw_pending_activity_retry_failed", "notice"'
+                          assert prefix.rstrip() == expected_prefix, 'Wrong early-report assertion values: ' + title
+                          assert matcher['pass'] is True and matcher['message'] == expected_prefix.removeprefix('Error: '), 'Wrong negated matcher details: ' + title
+                      else:
+                          row = ['raw_pending_activity_retry_failed', 'notice']
+                          assert prefix.startswith('Error: expect(received).toEqual(expected) // deep equality'), 'Non-equality failure: ' + title
+                          assert matcher['name'] == 'toEqual' and matcher['pass'] is False, 'Wrong equality matcher: ' + title
+                          assert matcher['actual'] == [row] and matcher['expected'] == [row, row], 'Wrong missing-second-report values: ' + title
+                          assert matcher['message'] == prefix.rstrip().removeprefix('Error: '), 'Message/detail mismatch: ' + title
+                      failed.append(title)
+                      failures[title] = {'assertion_line': site['line'], 'matcher': site['matcher'], 'first_frame': first_frame, 'observed_prefix_sha256': hashlib.sha256(prefix.rstrip().encode()).hexdigest(), 'passing_assertions_before_failure': case['numPassingAsserts']}
+                  actual[name] = {'test_count': len(cases), 'passed': len(cases) - len(failed), 'intended_timing_failures': failed}
+              assert set(actual) == set(expected), 'Missing suite'
+              return actual, failures
+
+          try:
+              assert not missing, 'Missing/empty evidence: ' + repr(missing)
+              for label in labels:
+                  expected_exit = '1' if label == 'jest' else '0'
+                  assert (proof / (label + '.exit')).read_text().strip() == expected_exit, 'Wrong command status: ' + label
+                  assert (proof / (label + '.tee.exit')).read_text().strip() == '0', 'Evidence tee failed: ' + label
+              assert outcomes['JEST'] == 'failure', 'Natural expected-red step status required'
+              assert all(value == 'success' for key, value in outcomes.items() if key != 'JEST'), 'Independent setup/check failure: ' + repr(outcomes)
+              manifest = json.loads((proof / 'source-and-checkout.json').read_text())
+              result = json.loads((proof / 'jest.json').read_text())
+              controls = json.loads((proof / 'controls.json').read_text())
+              suites, failures = checked_suites(result, manifest['regression_suites'], True)
+              assert set(failures) == set(manifest['conditional_failure_sites']), 'Both exact timing assertions required'
+              assert (result['numTotalTestSuites'], result['numFailedTestSuites'], result['numPassedTestSuites']) == (2, 1, 1), 'Wrong suite summary'
+              assert (result['numTotalTests'], result['numFailedTests'], result['numPassedTests']) == (114, 2, 112), 'Wrong regression summary'
+              assert all(result[key] == 0 for key in ['numPendingTestSuites', 'numPendingTests', 'numTodoTests', 'numRuntimeErrorTestSuites']), 'Skipped/todo/runtime result'
+              assert result['success'] is False and result['wasInterrupted'] is False and not result['openHandles'], 'Interrupted/runtime result'
+              control_suites, control_failures = checked_suites(controls, manifest['control_suites'], False)
+              assert not control_failures
+              assert (controls['numTotalTestSuites'], controls['numPassedTestSuites'], controls['numFailedTestSuites']) == (2, 2, 0), 'Wrong independent control suites'
+              assert (controls['numTotalTests'], controls['numPassedTests'], controls['numFailedTests']) == (28, 28, 0), 'Wrong independent control case summary'
+              assert all(controls[key] == 0 for key in ['numPendingTestSuites', 'numPendingTests', 'numTodoTests', 'numRuntimeErrorTestSuites']), 'Skipped/todo/runtime control result'
+              assert controls['success'] is True and controls['wasInterrupted'] is False and not controls['openHandles'], 'Interrupted/runtime control result'
+              subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], check=True)
+              validation.update({'status': 'EXPECTED_TIMING_ASSERTIONS_ONLY', 'runtime': 'ACTUAL_GUARDED_CI_RED', 'source_correction': 'ELIGIBLE_FOR_CONTROLLER_ACCEPTANCE_ONLY', 'regressions': {'total': 114, 'failed': 2, 'passed': 112, 'suites': suites}, 'independent_controls': {'total': 28, 'passed': 28, 'suites': control_suites}, 'exact_timing_failures': failures, 'limits': 'No storage timing, ordinary-click batching, current95% gate, final review, production fix or merge credit'})
+              print('Observed both later timing assertions only,112 preserved passes,28 independent controls and all setup/check gates; natural Jest red retained')
+          except Exception as error:
+              validation['reason'] = str(error)
+              raise
+          finally:
+              (proof / 'test-set-validation.json').write_text(json.dumps(validation, indent=2, ensure_ascii=True) + '\n')
+          PYTHON
+
+      - name: Retain raw evidence even on invalid or expected-red results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pending-same-id-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+          retention-days: 7
