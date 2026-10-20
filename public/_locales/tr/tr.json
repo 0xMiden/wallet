@@ -1504,6 +1504,8 @@
   "breadPresentationHint": "Dönmek için Bread’e dokunun",
   "breadPresentationError": "Bu uygulamanın yüklenmesi tamamlanmadı. Tekrar deneyin veya Bread’e dönün.",
   "bridgeInTitle": "Köprü",
+  "bridgeDepositTokensUnavailable": "Köprünün token listesi yüklenemedi, bu nedenle bazı tokenlar eksik olabilir. Daha sonra tekrar deneyin.",
+  "bridgeDepositTokenNotListed": "Köprü, bu token'ı bu ağda listelememektedir.",
   "bridgeConnectWalletTitle": "Cüzdanınızı bağlayın",
   "bridgeConnectWalletBody": "Miden’e aktarmak istediğiniz token’ları barındıran cüzdanı bağlayın.",
   "bridgeConnectWalletAction": "Cüzdanı bağla",

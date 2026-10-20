@@ -1504,6 +1504,8 @@
   "breadPresentationHint": "Touchez Bread pour revenir",
   "breadPresentationError": "Cette application ne s’est pas entièrement chargée. Réessayez ou revenez à Bread.",
   "bridgeInTitle": "Bridge in",
+  "bridgeDepositTokensUnavailable": "La liste des jetons du pont n’a pas pu être chargée ; certains jetons peuvent donc manquer. Veuillez réessayer plus tard.",
+  "bridgeDepositTokenNotListed": "Le pont ne liste pas ce jeton sur ce réseau.",
   "bridgeConnectWalletTitle": "Connectez votre portefeuille",
   "bridgeConnectWalletBody": "Connectez le portefeuille contenant les jetons que vous souhaitez transférer vers Miden.",
   "bridgeConnectWalletAction": "Connecter un portefeuille",

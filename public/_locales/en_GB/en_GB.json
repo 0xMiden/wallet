@@ -1504,6 +1504,8 @@
   "breadPresentationHint": "Tap Bread to return",
   "breadPresentationError": "This app did not finish loading. Try again or return to Bread.",
   "bridgeInTitle": "Bridge in",
+  "bridgeDepositTokensUnavailable": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later.",
+  "bridgeDepositTokenNotListed": "The bridge does not list this token on this network.",
   "bridgeConnectWalletTitle": "Connect your wallet",
   "bridgeConnectWalletBody": "Connect the wallet holding the tokens you want to bring to Miden.",
   "bridgeConnectWalletAction": "Connect wallet",

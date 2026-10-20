@@ -6812,6 +6812,14 @@
     "message": "桥接",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "无法加载桥接器的代币列表，因此可能存在部分代币缺失。请稍后重试。",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "该桥接服务未将此代币上架至该网络。",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "连接您的钱包",
     "englishSource": "Connect your wallet"

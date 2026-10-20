@@ -1504,6 +1504,8 @@
   "breadPresentationHint": "Tippe auf Bread, um zurückzukehren",
   "breadPresentationError": "Diese App wurde nicht vollständig geladen. Versuche es erneut oder kehre zu Bread zurück.",
   "bridgeInTitle": "Bridge in",
+  "bridgeDepositTokensUnavailable": "Die Token-Liste der Bridge konnte nicht geladen werden, daher fehlen möglicherweise einige Token. Bitte versuchen Sie es später erneut.",
+  "bridgeDepositTokenNotListed": "Die Bridge listet diesen Token nicht in diesem Netzwerk.",
   "bridgeConnectWalletTitle": "Verbinden Sie Ihre Wallet",
   "bridgeConnectWalletBody": "Verbinden Sie die Wallet, in der sich die Token befinden, die Sie zu Miden übertragen möchten.",
   "bridgeConnectWalletAction": "Wallet verbinden",

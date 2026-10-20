@@ -1504,6 +1504,8 @@
   "breadPresentationHint": "Breadをタップして戻る",
   "breadPresentationError": "このアプリの読み込みが完了しませんでした。もう一度試すか、Breadに戻ってください。",
   "bridgeInTitle": "ブリッジイン",
+  "bridgeDepositTokensUnavailable": "ブリッジのトークンリストを読み込めなかったため、一部のトークンが表示されていない可能性があります。後ほど再度お試しください。",
+  "bridgeDepositTokenNotListed": "このブリッジは、このネットワーク上でこのトークンを上場していません。",
   "bridgeConnectWalletTitle": "ウォレットを接続してください",
   "bridgeConnectWalletBody": "Midenに持ち込みたいトークンを保有しているウォレットを接続してください。",
   "bridgeConnectWalletAction": "ウォレットを接続する",

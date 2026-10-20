@@ -6812,6 +6812,14 @@
     "message": "Bridge in",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "Não foi possível carregar a lista de tokens da ponte, portanto, alguns tokens podem estar faltando. Tente novamente mais tarde.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "A ponte não lista esse token nesta rede.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "Conecte sua carteira",
     "englishSource": "Connect your wallet"

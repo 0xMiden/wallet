@@ -1504,6 +1504,8 @@
   "breadPresentationHint": "輕點 Bread 即可返回",
   "breadPresentationError": "此應用程式未完成載入。請重試或返回 Bread。",
   "bridgeInTitle": "Bridge in",
+  "bridgeDepositTokensUnavailable": "無法載入橋接器的代幣清單，因此可能有部分代幣遺漏。請稍後重試。",
+  "bridgeDepositTokenNotListed": "該橋接服務並未將此代幣上架至此網路。",
   "bridgeConnectWalletTitle": "連接您的錢包",
   "bridgeConnectWalletBody": "將您欲轉入 Miden 的代幣所存放的錢包進行連結。",
   "bridgeConnectWalletAction": "連接錢包",

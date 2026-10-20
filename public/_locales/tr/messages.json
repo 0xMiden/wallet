@@ -6812,6 +6812,14 @@
     "message": "Köprü",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "Köprünün token listesi yüklenemedi, bu nedenle bazı tokenlar eksik olabilir. Daha sonra tekrar deneyin.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "Köprü, bu token'ı bu ağda listelememektedir.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "Cüzdanınızı bağlayın",
     "englishSource": "Connect your wallet"

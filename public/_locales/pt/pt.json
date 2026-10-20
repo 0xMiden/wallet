@@ -1504,6 +1504,8 @@
   "breadPresentationHint": "Toque em Bread para voltar",
   "breadPresentationError": "Este aplicativo não terminou de carregar. Tente novamente ou volte ao Bread.",
   "bridgeInTitle": "Bridge in",
+  "bridgeDepositTokensUnavailable": "Não foi possível carregar a lista de tokens da ponte, portanto, alguns tokens podem estar faltando. Tente novamente mais tarde.",
+  "bridgeDepositTokenNotListed": "A ponte não lista esse token nesta rede.",
   "bridgeConnectWalletTitle": "Conecte sua carteira",
   "bridgeConnectWalletBody": "Conecte a carteira que contém os tokens que você deseja transferir para a Miden.",
   "bridgeConnectWalletAction": "Conectar carteira",
