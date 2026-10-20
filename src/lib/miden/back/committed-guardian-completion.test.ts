@@ -48,7 +48,6 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   __esModule: true,
   ...jest.requireActual('lib/miden/sdk/miden-client')
 }));
-jest.mock('../sdk/miden-client', () => jest.requireMock('lib/miden/sdk/miden-client'));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: jest.fn(() => 'testnet'),
@@ -59,7 +58,6 @@ jest.mock('lib/miden/guardian/direct-switch', () => ({
   readLastSyncedVerdict: jest.fn(async (): Promise<boolean | undefined> => true),
   readChainAccountCommitment: jest.fn(async (): Promise<string | undefined> => `0x${'cd'.repeat(32)}`)
 }));
-jest.mock('../guardian/direct-switch', () => jest.requireMock('lib/miden/guardian/direct-switch'));
 jest.mock('lib/miden/passworder', () => {
   const actual = jest.requireActual<typeof import('lib/miden/passworder')>('lib/miden/passworder');
   return { __esModule: true, ...actual, encrypt: jest.fn(actual.encrypt) };

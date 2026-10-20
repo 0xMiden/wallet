@@ -266,12 +266,15 @@ describe('setupTransactionProcessor', () => {
     // `getAllUncompletedTransactions` which returns both statuses, so the orphan
     // is reaped by `safeGenerateTransactionsLoop` → `cancelStuckTransactions` on
     // the next SW spawn.
-    mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'orphan', status: 1 }]);
+    // Startup finds the orphan; the resumed pass drains it instead of leaving a
+    // real retry timer running across the next resetModules boundary.
+    mockGetAllUncompletedTransactions.mockResolvedValue([]).mockResolvedValueOnce([{ id: 'orphan', status: 1 }]);
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     // Drain the promise chain (getAllUncompletedTransactions → then → startTransactionProcessing).
     await flushAsync();
-    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalled();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+    expect(mockAlarmsClear).toHaveBeenCalledWith('miden-tx-processor');
   });
 
   it('does not auto-resume when there are no uncompleted transactions', async () => {

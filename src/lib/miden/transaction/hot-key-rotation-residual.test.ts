@@ -116,7 +116,6 @@ describe('markRotationCompleted (#1233)', () => {
   });
 });
 
-
 describe('GEO012 committed hot-key bookkeeping residuals', () => {
   it('GEO012 revisits only eligible Completed rotations with the explicit pending bookkeeping flag', async () => {
     const pending = { newHotPublicKey: 'new-hot', hotKeyPersistFailed: true };
@@ -166,7 +165,11 @@ describe('GEO012 committed hot-key bookkeeping residuals', () => {
     const row = rotationRow('pending-heal', 100, {
       status: ITransactionStatus.Completed,
       displayMessage: 'Everyday key rotated',
-      extraInputs: { newHotPublicKey: 'new-hot', guardianEndpoint: 'https://guardian.example', hotKeyPersistFailed: true }
+      extraInputs: {
+        newHotPublicKey: 'new-hot',
+        guardianEndpoint: 'https://guardian.example',
+        hotKeyPersistFailed: true
+      }
     });
     mockRows.push(row);
 
@@ -176,7 +179,11 @@ describe('GEO012 committed hot-key bookkeeping residuals', () => {
       status: ITransactionStatus.Completed,
       displayIcon: 'DEFAULT',
       stage: 'complete',
-      extraInputs: { newHotPublicKey: 'new-hot', guardianEndpoint: 'https://guardian.example', hotKeyPersistFailed: false }
+      extraInputs: {
+        newHotPublicKey: 'new-hot',
+        guardianEndpoint: 'https://guardian.example',
+        hotKeyPersistFailed: false
+      }
     });
     expect(row.completedAt).toEqual(expect.any(Number));
     await expect(findFailedHotKeyRotations('acc-1')).resolves.toEqual([]);

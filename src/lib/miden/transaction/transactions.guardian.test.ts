@@ -14331,7 +14331,25 @@ describe('GEO014 Guardian feature authorization at final submit', () => {
           });
     transaction.requestBytes = requestBytes;
     txStore.push({ ...transaction });
-    const client = makeClientApi(makeResult());
+    const result = makeResult();
+    if (kind === 'swap') {
+      const executed = result.executedTransaction();
+      Object.assign(executed, {
+        outputNotes: () => ({
+          notes: () => [
+            {
+              id: () => ({ toString: () => 'geo014-order-note' }),
+              metadata: () => ({ tag: () => ({ asU32: () => 0 }) }),
+              intoFull: () => ({
+                recipient: () => ({ serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] }) })
+              })
+            }
+          ]
+        })
+      });
+      result.executedTransaction = () => executed;
+    }
+    const client = makeClientApi(result);
     client.transactions.prove.mockImplementation(async () => {
       featureAllowed = allowed;
       return { proved: true };
