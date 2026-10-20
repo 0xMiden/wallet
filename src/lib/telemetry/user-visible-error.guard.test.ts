@@ -92,7 +92,26 @@ function scanSources(sources: ReadonlyMap<string, string>): Violation[] {
     const surface = SURFACES.find(entry => entry.file === file && entry.exports.includes(name));
     if (surface) return { kind: 'surface', name: surface.name };
     if (file === HOOK && name === 'useUserVisibleError') return { kind: 'hook' };
-    for (const statement of parse(file)?.statements ?? []) {
+    const statements = parse(file)?.statements ?? [];
+    for (const statement of statements) {
+      const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+      if (modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+        if (modifiers.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword)) {
+          if (name === 'default') return undefined;
+        } else if (ts.isVariableStatement(statement)) {
+          const names = new Set<string>();
+          for (const declaration of statement.declarationList.declarations) boundNames(declaration.name, names);
+          if (names.has(name)) return undefined;
+        } else if (
+          (ts.isFunctionDeclaration(statement) ||
+            ts.isClassDeclaration(statement) ||
+            ts.isEnumDeclaration(statement) ||
+            ts.isModuleDeclaration(statement)) &&
+          statement.name?.text === name
+        ) {
+          return undefined;
+        }
+      }
       if (
         ts.isExportAssignment(statement) &&
         !statement.isExportEquals &&
@@ -116,7 +135,21 @@ function scanSources(sources: ReadonlyMap<string, string>): Violation[] {
           const original = (binding.propertyName ?? binding.name).text;
           return target ? exported(target, original, next) : imported(file, original, next);
         }
-      } else if (!clause && target && name !== 'default') {
+      }
+    }
+    for (const statement of statements) {
+      if (
+        !ts.isExportDeclaration(statement) ||
+        statement.isTypeOnly ||
+        statement.exportClause ||
+        name === 'default' ||
+        !statement.moduleSpecifier ||
+        !ts.isStringLiteral(statement.moduleSpecifier)
+      ) {
+        continue;
+      }
+      const target = moduleFile(file, statement.moduleSpecifier.text);
+      if (target) {
         const result = exported(target, name, next);
         if (result) return result;
       }
@@ -128,6 +161,11 @@ function scanSources(sources: ReadonlyMap<string, string>): Violation[] {
     if (ts.isIdentifier(name)) names.add(name.text);
     else for (const element of name.elements) if (ts.isBindingElement(element)) boundNames(element.name, names);
   };
+  const isLexicalLoop = (node: ts.Node) =>
+    (ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isForInStatement(node)) &&
+    node.initializer !== undefined &&
+    ts.isVariableDeclarationList(node.initializer) &&
+    (node.initializer.flags & ts.NodeFlags.BlockScoped) !== 0;
   const scopes = new Map<ts.Node, ReadonlySet<string>>();
   const declarations = (scope: ts.Node) => {
     const cached = scopes.get(scope);
@@ -139,7 +177,12 @@ function scanSources(sources: ReadonlyMap<string, string>): Violation[] {
         if (node.name) names.add(node.name.text);
         return;
       }
-      if (node !== scope && (ts.isBlock(node) || ts.isFunctionLike(node) || ts.isClassLike(node))) return;
+      if (
+        node !== scope &&
+        (ts.isBlock(node) || ts.isFunctionLike(node) || ts.isClassLike(node) || isLexicalLoop(node))
+      ) {
+        return;
+      }
       ts.forEachChild(node, visit);
     };
     if (ts.isFunctionLike(scope)) {
@@ -154,7 +197,7 @@ function scanSources(sources: ReadonlyMap<string, string>): Violation[] {
   const shadowed = (name: string, node: ts.Node) => {
     for (let parent = node.parent; parent && !ts.isSourceFile(parent); parent = parent.parent) {
       if (
-        (ts.isBlock(parent) || ts.isFunctionLike(parent) || ts.isCatchClause(parent)) &&
+        (ts.isBlock(parent) || ts.isFunctionLike(parent) || ts.isCatchClause(parent) || isLexicalLoop(parent)) &&
         declarations(parent).has(name)
       ) {
         return true;
