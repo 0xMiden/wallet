@@ -234,25 +234,25 @@ You agree not to use Bread Wallet: (a) to violate any applicable law, including 
 
 **15.3 Additional terms for the Apple App Store.** If you obtained Bread Wallet from the Apple App Store, the following also apply, as required by [Apple's minimum terms for a developer EULA](https://www.apple.com/legal/internet-services/itunes/dev/minterms/):
 
-- These Terms are between you and Miden only, not Apple. Miden, not Apple, is solely responsible for Bread Wallet and its content. These Terms do not set usage rules that conflict with the Apple Media Services Terms and Conditions.
+1. These Terms are between you and Miden only, not Apple. Miden, not Apple, is solely responsible for Bread Wallet and its content. These Terms do not set usage rules that conflict with the Apple Media Services Terms and Conditions.
 
-- Your license is limited to a non-transferable license to use Bread Wallet on Apple-branded products that you own or control, as permitted by the Usage Rules in the Apple Media Services Terms and Conditions, except that the app may be accessed by other accounts associated with you via Family Sharing or volume purchasing.
+2. Your license is limited to a non-transferable license to use Bread Wallet on Apple-branded products that you own or control, as permitted by the Usage Rules in the Apple Media Services Terms and Conditions, except that the app may be accessed by other accounts associated with you via Family Sharing or volume purchasing.
 
-- Miden is solely responsible for any maintenance and support of Bread Wallet. Apple has no obligation to furnish any maintenance or support services.
+3. Miden is solely responsible for any maintenance and support of Bread Wallet. Apple has no obligation to furnish any maintenance or support services.
 
-- Miden is solely responsible for any product warranties, express or implied by law, to the extent not disclaimed. If Bread Wallet fails to conform to an applicable warranty, you may notify Apple and Apple will refund the purchase price (if any) to you. To the maximum extent permitted by law, Apple has no other warranty obligation, and any other claims, losses, liabilities, damages, costs or expenses attributable to a failure to conform to a warranty are Miden's sole responsibility.
+4. Miden is solely responsible for any product warranties, express or implied by law, to the extent not disclaimed. If Bread Wallet fails to conform to an applicable warranty, you may notify Apple and Apple will refund the purchase price (if any) to you. To the maximum extent permitted by law, Apple has no other warranty obligation, and any other claims, losses, liabilities, damages, costs or expenses attributable to a failure to conform to a warranty are Miden's sole responsibility.
 
-- Miden, not Apple, is responsible for addressing any claims by you or a third party relating to Bread Wallet or your possession or use of it, including product liability claims, claims that it fails to conform to a legal or regulatory requirement, and claims under consumer protection, privacy or similar legislation.
+5. Miden, not Apple, is responsible for addressing any claims by you or a third party relating to Bread Wallet or your possession or use of it, including product liability claims, claims that it fails to conform to a legal or regulatory requirement, and claims under consumer protection, privacy or similar legislation.
 
-- If a third party claims that Bread Wallet or your use of it infringes that third party's intellectual property rights, Miden, not Apple, is solely responsible for the investigation, defense, settlement and discharge of the claim.
+6. If a third party claims that Bread Wallet or your use of it infringes that third party's intellectual property rights, Miden, not Apple, is solely responsible for the investigation, defense, settlement and discharge of the claim.
 
-- You represent and warrant that you are not located in a country subject to a U.S. Government embargo or designated a "terrorist supporting" country, and that you are not on any U.S. Government list of prohibited or restricted parties (see also 2.3).
+7. You represent and warrant that you are not located in a country subject to a U.S. Government embargo or designated a "terrorist supporting" country, and that you are not on any U.S. Government list of prohibited or restricted parties (see also 2.3).
 
-- Questions, complaints and claims should be directed to the contact details in section 23.
+8. Questions, complaints and claims should be directed to the contact details in section 23.
 
-- You must comply with applicable third-party terms when using Bread Wallet (see 1.3).
+9. You must comply with applicable third-party terms when using Bread Wallet (see 1.3).
 
-- Apple and Apple's subsidiaries are third-party beneficiaries of these Terms. On your acceptance, Apple has the right, and is deemed to have accepted the right, to enforce these Terms against you as a third-party beneficiary.
+10. Apple and Apple's subsidiaries are third-party beneficiaries of these Terms. On your acceptance, Apple has the right, and is deemed to have accepted the right, to enforce these Terms against you as a third-party beneficiary.
 
 ## 16. Disclaimers
 
