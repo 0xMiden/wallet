@@ -1819,6 +1819,10 @@
     "message": "Autres",
     "englishSource": "Other"
   },
+  "others": {
+    "message": "Autres",
+    "englishSource": "Others"
+  },
   "thousandFormat": {
     "message": "$thousand$ k",
     "englishSource": "$thousand$k",
@@ -5251,8 +5255,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "~20 min",
-    "englishSource": "~20 min"
+    "message": "~2 min",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1 min",

@@ -1819,6 +1819,10 @@
     "message": "기타",
     "englishSource": "Other"
   },
+  "others": {
+    "message": "기타",
+    "englishSource": "Others"
+  },
   "thousandFormat": {
     "message": "$thousand$ k",
     "englishSource": "$thousand$k",
@@ -5251,8 +5255,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "~20분",
-    "englishSource": "~20 min"
+    "message": "~2분",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1분",
