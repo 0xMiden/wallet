@@ -14,7 +14,8 @@ import { Avatar } from 'components/ui/Avatar';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { balanceFormatterFor } from './amount-format';
@@ -142,6 +143,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   // rather than at the confirmation.
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount && (!isBridge || !!network);
+  const amountErrorId = errorId === undefined && isUserErrorId(error) ? error : errorId;
+  useUserVisibleError(
+    showBalanceHelper && token && token.balance !== null && !scaleIsKnown ? 'unknownTokenScale' : null,
+    'inline'
+  );
 
   const tokenSelector = (
     <button
@@ -270,7 +276,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       invalid={!!error}
-      errorId={hideErrorText ? null : errorId}
+      errorId={hideErrorText ? null : amountErrorId}
       error={!hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
