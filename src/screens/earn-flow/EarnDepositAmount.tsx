@@ -141,6 +141,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               accent="earn"
               pageInset
               showAmountDivider={false}
+              showBalanceHelper={collateral !== null}
               token={token}
               amount={amount}
               isValidAmount={isValidAmount}
