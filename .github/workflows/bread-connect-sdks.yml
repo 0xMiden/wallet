@@ -118,6 +118,13 @@ jobs:
       - name: Run the Kotlin SDK unit tests
         working-directory: packages/bread-connect-kotlin
         run: ./gradlew testDebugUnitTest --console=plain
+      - name: Preserve Kotlin SDK assertion reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-kotlin-test-results
+          path: packages/bread-connect-kotlin/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: error
       - name: Check Kotlin SDK API compatibility
         id: kotlin_api_lint
         working-directory: packages/bread-connect-kotlin
