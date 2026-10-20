@@ -38,7 +38,7 @@ chmod +x "$work/bin/"*
 failures=0
 check() {
   local name=$1 attempts=$2 failed_installs=$3 failure=$4 want_exit=$5 want_calls=$6 want_delays=$7
-  local got=0 problem='' calls delays
+  local got=0 problem='' calls delays log
   printf '0\n' > "$work/count"
   : > "$work/delays"
   # An independent Bash process retains -e even when its caller captures failure.
@@ -48,6 +48,15 @@ check() {
     bash --noprofile --norc -e -o pipefail "$work/install.sh" > "$work/log" 2>&1 || got=$?
   calls=$(cat "$work/count")
   delays=$(tr '\n' ' ' < "$work/delays")
+  if [ "$failed_installs" -gt 0 ]; then
+    log=$(cat "$work/log")
+    if [ "$attempts" -gt 1 ]; then
+      [[ "$log" == *"(attempt 1/$attempts, exit $failure)"* ]] || problem="$problem retry warning lost exit$failure;"
+    fi
+    if [ "$failure" -eq 124 ]; then
+      [[ "$log" == *"yarn install exceeded 6m (attempt 1/$attempts)"* ]] || problem="$problem timeout warning missing;"
+    fi
+  fi
   [ "$got" -eq "$want_exit" ] || problem="$problem exit=$got want=$want_exit;"
   [ "$calls" -eq "$want_calls" ] || problem="$problem installs=$calls want=$want_calls;"
   [ "$delays" = "$want_delays" ] || problem="$problem delays='$delays' want='$want_delays';"
