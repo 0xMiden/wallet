@@ -42,9 +42,9 @@ public struct StoredSession: Equatable, Sendable {
     public let permission: JSONObject
 }
 
-/// Set from a cancellation handler, which can run off the main actor, and read by the opener before it opens Bread.
+/// Serializes cancellation, which can run off the main actor, with each synchronous native handoff.
 final class OpenGate: @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
     private var stopped = false
 
     func stop() {
@@ -57,6 +57,14 @@ final class OpenGate: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return stopped
+    }
+
+    func run(_ start: () -> Void) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopped else { return false }
+        start()
+        return true
     }
 }
 
@@ -298,6 +306,7 @@ public final class BreadConnect {
     /// Ends the waiting request, if any, and forgets it; with a token, only when that request is still waiting.
     private func settle(token: UUID? = nil, _ result: Result<JSONObject, Error>) {
         if let token, waiter?.token != token { return }
+        waiter?.gate.stop()
         // Left behind, the record only lets a late answer to its request land after a relaunch.
         try? storage.write(Self.pendingKey, nil)
         guard let waiter else { return }

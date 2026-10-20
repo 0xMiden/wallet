@@ -45,23 +45,33 @@ public final class KeychainStorage: BreadConnectStorage {
 
 @MainActor
 struct NativeLinkOpener: GateAwareBreadOpener {
+    // Start returns without waiting for completion or joining another thread; completion may reenter the gate.
     let start: (URL, Bool, @escaping (Bool) -> Void) -> Void
 
     func open(_ link: URL) async -> Bool {
-        await open(link, gate: OpenGate())
+        let gate = OpenGate()
+        return await withTaskCancellationHandler {
+            await open(link, gate: gate)
+        } onCancel: {
+            gate.stop()
+        }
     }
 
     func open(_ link: URL, gate: OpenGate) async -> Bool {
-        if await handoff(link, universalLinksOnly: true) { return true }
+        guard let opened = await handoff(link, universalLinksOnly: true, gate: gate) else { return true }
+        if opened { return true }
         if let store = URL(string: BreadConnectLinks.appStoreURL) {
-            _ = await handoff(store, universalLinksOnly: false)
+            guard await handoff(store, universalLinksOnly: false, gate: gate) != nil else { return true }
         }
         return false
     }
 
-    private func handoff(_ link: URL, universalLinksOnly: Bool) async -> Bool {
+    private func handoff(_ link: URL, universalLinksOnly: Bool, gate: OpenGate) async -> Bool? {
         await withCheckedContinuation { continuation in
-            start(link, universalLinksOnly) { continuation.resume(returning: $0) }
+            let admitted = gate.run {
+                start(link, universalLinksOnly) { continuation.resume(returning: $0) }
+            }
+            if !admitted { continuation.resume(returning: nil) }
         }
     }
 }
