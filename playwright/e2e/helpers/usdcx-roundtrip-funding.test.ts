@@ -1,6 +1,19 @@
 /** @jest-environment node */
+import { USDCX_MIN_BURN } from '../../../src/lib/usdcx/protocol';
+import { usdcxMinimumBurnShortfall } from '../../../src/lib/usdcx/withdrawal';
+
 import { optionalPublicFaucetGrant } from './public-faucet';
 import { ROUNDTRIP_DEPOSIT_UNITS, roundtripBurnUnits } from './usdcx-roundtrip-funding';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'mtst1native' }));
+jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 
 const NOTE_ID = `0x${'01'.repeat(32)}`;
 const controller = () => new AbortController();
@@ -93,4 +106,10 @@ it('keeps invalid requests as failures', async () => {
   await expect(
     optionalPublicFaucetGrant('https://faucet.example', 'account', 10_000_000n, controller().signal)
   ).rejects.toThrow('Invalid amount');
+});
+
+it.each([false, true])('round-trip selector obeys the wallet minimum (grant=%s)', receivedGrant => {
+  expect(USDCX_MIN_BURN).toBe(5_000_000n);
+  const selected = roundtripBurnUnits(10_000_000n, receivedGrant);
+  expect(usdcxMinimumBurnShortfall(selected)).toBeUndefined();
 });
