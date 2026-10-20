@@ -2054,6 +2054,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
           guardianEndpoint: 'https://Guardian.Example.com'
         };
         storeState.accounts = [account];
+        storeState.checkGuardianDrift.mockReset().mockResolvedValue(undefined);
         sync.mockRejectedValue(new Error('Failed to fetch'));
         for (let attempt = 0; attempt < GUARDIAN_SYNC_OUTAGE_THRESHOLD; attempt += 1) await syncGuardianAccounts();
         expect(isGuardianSyncOutage(account.publicKey)).toBe(true);
