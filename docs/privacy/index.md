@@ -1,309 +1,321 @@
 ---
-title: Privacy Policy — Bread Wallet by Miden
+title: Terms of Service — Bread Wallet by Miden
 permalink: /privacy/
 ---
 
-# Bread Wallet by Miden — Privacy Policy
+# Bread Wallet Terms of Service
 
-_Last updated: 2026-10-19_
+_Version 2.0, effective 20 October 2026_
 
-Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
+Please read these Terms carefully. They describe what Bread Wallet does, what we and the parties we work with are responsible for, and the risks of using software and networks that are still at an early stage. If you do not agree, do not use Bread Wallet.
 
-## Who we are
+## 1. Acceptance and parties
 
-The App is published by Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615), c/o Ogier Global (Cayman) Limited, 89 Nexus Way, Camana Bay, Grand Cayman, KY1-9009, Cayman Islands ("Miden", "we"). Miden is the controller of the personal data described in this policy. For anything about your data, write to privacy@miden.team.
+**1.1 Parties.** These Terms of Service ("Terms") are an agreement between you and Miden Technologies (US) Corp., a Delaware corporation (file number 10598340) with its registered address at 850 New Burton Road, Suite 201, Dover, Delaware 19904-5786, United States ("Miden", "we", "us"). They govern your access to and use of Bread Wallet, the software wallet for the Miden network, including its Guardian, Earn, swap, bridge and fiat on-ramp and off-ramp features (together, the "Services"). Some of what these Terms describe is done by our affiliate Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615), in particular the Miden swap solver (6.1). Where these Terms refer to the operation of the network, the USDCx contract, a validator or the Miden swap solver, "Miden" includes that affiliate.
 
-<!-- TODO before publication: confirm whether an EU or UK representative under GDPR Article 27 is required. If one is appointed, add their name and address here. -->
+**1.2 Incorporated documents.** By downloading, accessing or using Bread Wallet you agree to these Terms and to the following documents, each incorporated by reference: our Privacy Policy at [https://0xmiden.github.io/wallet/privacy-policy/](https://0xmiden.github.io/wallet/privacy-policy/) and the Miden Network Legal and Compliance Disclosures at [https://0xmiden.github.io/wallet/compliance/](https://0xmiden.github.io/wallet/compliance/), which contain the Sanctions Compliance Statement (Part I) and the Prohibited-User Disclosure (Part II). If you do not agree, do not use Bread Wallet.
 
-This policy covers two different kinds of data. The first is **telemetry**: crash reports and optional usage data the App sends to us. The sections from "Data we collect" to "What scrubbing can and cannot promise" describe it, and the short version is that it carries no identifier for you. The second is **data that leaves the App to make it work**: what the Miden network, your Guardian Operator, and the providers behind swaps, bridges, Earn and fiat on-ramp and off-ramp receive. The section "Data that leaves the App for reasons other than telemetry" describes that. The statements about telemetry are not statements about the second kind.
+**1.3 Third-party terms.** Some features are provided by third parties under their own terms (sections 4 to 8). Where a feature is provided by a third party, that party's terms govern your relationship with it, and we will identify the party and link its terms where the feature is offered in the app. You must comply with those terms when using the feature.
 
-## Data we collect
+**1.4 Apple users.** If you obtained Bread Wallet through the Apple App Store, section 15.3 also applies.
 
-The App sends **crash reports** so we can fix what breaks. They are described under "Crash reports" below: the error and where it happened in the code, scrubbed of sensitive data before sending, with no identifier for you or your device. Everything else is collected only if you turn on **Share usage data**. If you never turn it on, the App sends no product events.
+**1.5 Scope.** These Terms cover your use of Bread Wallet and of the Miden-hosted infrastructure it connects to (the sequencer, the note transport service, any remote prover and the bridge interface) when accessed through Bread Wallet. They do not govern independent use of open-source Miden software outside our infrastructure. Miden-hosted services accessed outside Bread Wallet are not covered by these Terms.
 
-You are asked once, after you create or import a wallet, and you can say no. Whatever you choose then, you can change it at any time in **Settings → General → Help improve Wallet**. Turning it off stops sending usage data: the setting is checked before every single send, so nothing that was waiting gets sent later. Crash reports are sent whether this setting is on or off.
+## 2. Eligibility and Prohibited Users
 
-**On Firefox, Firefox's own switch also applies.** Firefox asks whether an extension may collect technical and interaction data, and where it has said no, the App sends neither crash reports nor usage data. Other browsers and the mobile and desktop apps have no equivalent switch.
+**2.1 Age and capacity.** You must be at least 18 years old and legally capable of entering into these Terms.
 
-Usage data, below, is sent **only while that setting is on**. Crash reports are sent either way.
+**2.2 Prohibited Users.** You may not use Bread Wallet if you are a Prohibited User as defined in the Sanctions Compliance Statement. This includes any person or entity subject to sanctions administered by OFAC, the European Union, the United Kingdom or the other programs listed in the Sanctions Compliance Statement, and any person located, organized or resident in a comprehensively sanctioned jurisdiction.
 
-### Usage data
+**2.3 Your representations.** On each use of Bread Wallet you represent and warrant that: (a) you are not a Prohibited User and are not acting on behalf of one; (b) you are not located in a country subject to a U.S. Government embargo or designated by the U.S. Government as a "terrorist supporting" country; (c) you are not listed on any U.S. Government list of prohibited or restricted parties; and (d) you are using Bread Wallet on your own account and not on behalf of another person, except as permitted in section 13.
 
-When the setting is on, the App reports the start and the end of a small set of activities. Each report is a single message with no free-form text in it — there is no field an address, an amount, or an error message could occupy. A message contains only these:
+**2.4 Feature availability.** Some features are not available in every region, and a feature available today may be withdrawn from your region (section 11). Third-party providers apply their own eligibility checks, including identity verification, before you can use their feature (sections 5 and 7).
 
-| What | Values |
-|---|---|
-| Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity |
-| Which kind of work, for work the App did on your behalf | One of: sending, receiving, swapping, earning, bridging, a guardian change, a dApp's transaction, another transaction, proving, or one of three services being unreachable. A category of work, never a recipient, an amount, an asset, a dApp, or an endpoint. See "Work the App does on your behalf" below |
-| Whether it started or ended | `started` or `ended`, or `settled` for work the App did on your behalf |
-| How it ended | `completed`, `cancelled`, or `errored` |
-| Broad error category, if it failed | One of: network, rpc, proving, validation, storage, auth, timeout, unknown |
-| How long it took | A duration in milliseconds |
-| How far you got | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting` |
-| App version | For example, `1.15.21` |
-| Platform | `extension`, `ios`, or `android` |
-| Network | `mainnet`, `testnet`, `devnet`, or `localnet` |
-| A short random number for that one activity | Explained under "Identifiers" below |
-| A short random number for that run of the App | Explained under "Identifiers" below |
+## 3. Nature of the Wallet; your keys; account state; recovery
 
-That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
+**3.1 Self-custodial software.** Bread Wallet is software that lets you create and operate accounts on the Miden network. Your assets exist on the network, not with us. We do not hold your assets, cannot move them, and cannot reverse a transaction you have authorized. Nothing in Bread Wallet constitutes custody of assets by Miden or any Guardian Operator, and no fiduciary relationship is created.
 
-#### Work the App does on your behalf
+**3.2 Your keys.** Your account is controlled by two credentials that you hold: an Everyday Key, used for ordinary transactions, and a Recovery Phrase. Both are stored on your device when you create your wallet. You can copy the Recovery Phrase, and you can download it and remove it from your device so that it is held offline. The Recovery Phrase does not restore the Everyday Key, and the Everyday Key cannot replace a lost Recovery Phrase. Your Recovery Phrase also derives the EVM key that Earn uses (section 5). You are solely responsible for safeguarding your Recovery Phrase, your Everyday Key and your device credentials. We and your Guardian Operator never hold your keys, cannot access or reconstruct them, and cannot recover them if you lose them. If you lose both your Everyday Key and your Recovery Phrase, neither we nor any Guardian Operator can restore access to your assets.
 
-The App also reports whether the work it does on your behalf actually succeeded. When you send, swap, claim, earn, bridge, or change your guardian, the App has to prove and submit a transaction after you have finished asking for it, and that part can fail for reasons that have nothing to do with you — a prover or a node being down or unreachable. Without this, a failure affecting everyone would be invisible to us, because by then the activity above has already been reported as finished.
+**3.3 Account state.** A Miden private account's data (its "account state") is not stored on the public network. To transact from a private account you need a current copy of its account state in addition to your keys. Copies of your account state may be held: (a) on your device; (b) by your Guardian Operator, if you have enabled a Guardian (section 4); and (c) in any state backup the app offers in future. Bread Wallet does not currently let you export a copy of your account state, so today the copies are your device and your Guardian Operator. Keys and account state are different things. Losing your keys and losing your account state have different consequences, set out in 3.4.
 
-Those reports use the same fields as the table above and add nothing that describes you or your money. Nothing about the transaction itself travels with them: not who you sent to, not how much, not which asset, not which dApp, not which endpoint.
+**3.4 What recovery can and cannot do.** Guardian recovery restores account state, not keys. It works only in combination with a credential you still control. Replacing a lost Everyday Key requires your Recovery Phrase and your Guardian Operator's ACK. A lost Recovery Phrase cannot currently be replaced. If you lose it, move your assets to a new account while your Everyday Key still works.
 
-They also carry **no activity identifier**, which means we cannot tell which of your activities a piece of work belonged to. That is deliberate rather than an oversight: linking the two would mean writing one of those random values onto the transaction record the App keeps on disk, and a value written to disk outlives the run it was made for — which is exactly the durable identifier this design refuses to hold.
-
-Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`miden-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
-
-**We deliberately leave three of the provider's fields empty.** Aptabase's format has slots for your operating system version, your language or locale, and your device model, and their own libraries fill all three in. We send none of them. Each one is a fingerprinting signal — a combination of them narrows a crowd down to a person — and none is needed to find out where the wallet breaks. Automated tests fail the build if any of the three ever appears in an outgoing message, which is what stops someone filling them in later because the field was there.
-
-### Crash reports
-
-Handled transaction failures are also reported, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, the network the App was on, known public protocol error identities, the fixed failure reasons, refusal codes and claim origins listed below, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
-
-A failure report can also say why the transaction failed, using only these fixed values:
-
-- **The App's own reason**, when the App itself ended the transaction: `user_cancelled` (you cancelled it), `interrupted_on_startup` (the App closed while it was running), `stuck_reaped` (it ran too long and the App stopped waiting for it), `queued_expired` (it waited in the queue too long), `rotation_key_pending` (the account's everyday key was not active yet, so the App did not claim the incoming transfer), `rotation_funding_note_unavailable` (the transfer the App was claiming to activate the account's everyday key was no longer available to claim), `rotation_funding_not_native` (the App could not confirm that the transfer it was claiming to activate the account's everyday key was a standard payment holding only the network's own token), `rotation_gate_refusal` (the App refused to claim a transfer while the account's everyday key was not active yet, for a reason other than the three before it), `consume_not_landed` (the network still showed the incoming transfer as unclaimed), `consume_landed_external` (the network showed the incoming transfer as claimed, but not by a transaction the App could prove was its own), `note_invalid` (the incoming transfer can never be claimed), or `never_committed` (the network showed that a transaction the App submitted was never included, so nothing moved). Any other value is sent as `other`. With `never_committed`, the report can also say which check showed it: `expired` (its time to be included ran out), `superseded` (the account moved on with another transaction), `spent_elsewhere` (a transfer it claimed was claimed by another transaction), or `mixed` (the App had tried more than once, and different checks showed it for different tries). Any other check is sent as `other`.
-- **A guardian refusal**: `guardian_http_` followed by the HTTP status the guardian answered with, as its number, such as `409`, when it is a whole number from 100 to 599, and as `other` when it is not. It also carries the guardian's error code when it is one the guardian's published client defines: `account_already_exists`, `account_data_unavailable`, `account_not_found`, `account_paused`, `account_released`, `authentication_failed`, `authentication_replay`, `authorization_failed`, `candidate_landed`, `commitment_mismatch`, `configuration_error`, `conflict_pending_delta`, `conflict_pending_proposal`, `data_unavailable`, `delta_not_found`, `insufficient_operator_permission`, `insufficient_signatures`, `invalid_account_id`, `invalid_commitment`, `invalid_cursor`, `invalid_delta`, `invalid_evm_proposal`, `invalid_input`, `invalid_limit`, `invalid_network_config`, `invalid_proposal_signature`, `invalid_status_filter`, `invalid_timestamp`, `network_error`, `pending_proposals_limit`, `proposal_already_signed`, `proposal_not_found`, `rate_limit_exceeded`, `rpc_unavailable`, `rpc_validation_failed`, `session_expired`, `session_revoked`, `signature_scheme_not_allowed`, `signer_not_authorized`, `signing_error`, `state_not_found`, `storage_error`, `unsupported_evm_chain`, `unsupported_for_network` or `wallet_signature_required`. Any other code is sent as `other`, and a refusal with no code as `none`.
-- **A device key refusal**: `hot_key`, with the code the App's secure-hardware signing key was refused with, when it is one of `AUTH_FAILED`, `AUTH_UNAVAILABLE`, `BAD_CIPHERTEXT`, `BIOMETRIC_BUSY`, `DEVICE_LOCKED`, `HARDWARE_UNAVAILABLE`, `INVALID_INPUT`, `KEY_INVALIDATED`, `KEY_NOT_FOUND`, `LEGACY_CIPHER_INIT_FAILED`, `UNWRAP_FAILED` or `USER_CANCELLED`. Any other code is sent as `other`, and a refusal with no code as `none`.
-- **A submit with no definite answer**: `submit_outcome_unknown`, when the network neither accepted nor refused a transaction the App submitted. It carries the kind of answer the App got instead, one of `unavailable`, `internal`, `cancelled`, `aborted`, `data_loss`, `deadline_exceeded` or `unknown` (any other is sent as `other`), and whether the App was in the background while it waited: `yes`, `no`, or `unavailable` when the App cannot tell; and how long the submit took: `under_9s` (less than 9 seconds), `9_to_11s` (9 to 11 seconds, both included), `over_11s` (more than 11 seconds), or `unavailable` when the App has no start to measure from or cannot measure a valid duration. Only the bucket is sent, never the duration in milliseconds.
-- **A submit the network refused**: `submit_rejected`, when the network gave a definite refusal while the App submitted a transaction. It names the request that was refused, `submit_proven_transaction`, `submit_proven_batch`, `get_transaction_encryption_key` (the key the App seals a transaction with before it submits) or `other`; the kind of answer, one of `unavailable`, `internal`, `cancelled`, `aborted`, `data_loss`, `deadline_exceeded`, `unknown`, `not_found`, `invalid_argument`, `permission_denied`, `already_exists`, `resource_exhausted`, `failed_precondition`, `out_of_range`, `unimplemented` or `unauthenticated` (any other is sent as `other`); and the network's own reason when its fixed wording names one, `internal`, `expired`, `state_conflict`, `capacity_exceeded`, `missing_fee`, `consumes_inflight_fee_notes`, `invalid_fee_asset`, `batch_id_mismatch`, `authentication_failed` or `unknown_code`, else `none` when it gave no reason and `other` for any other. The network's own message is never sent.
-- **Work the App stopped**: when the App stopped a transaction's work from outside because it ran too long or what was running it went away. On the extension, `offscreen_aborted_deadline` (the background document running it passed its time limit), `offscreen_aborted_deadline_no_kill` (one read passed its time limit while another transaction was running), `offscreen_aborted_doc_closed` (that document closed before it answered), `offscreen_aborted_transport` (the message to that document could not be delivered) or `offscreen_aborted_other`. On any platform, `wasm_lock_evicted_watchdog` (an operation held the transaction engine past its time limit), `wasm_lock_evicted_realm_error` (the transaction engine crashed while in use) or `wasm_lock_evicted_other`.
-- **What the transaction software said went wrong**, when it could not build or run a transaction: `transaction_execution_failed` with the `cause` its own fixed wording names, one of `request_note_consumed` (a transfer being claimed was already claimed), `request_note_processing` (another transaction was already claiming it), `request_note_unauthenticated` (a transfer could not be proven to exist on the network), `request_duplicate_note` (the same transfer was included twice), `request_empty` (the transaction would change nothing), `request_fee_conversion` (the network fee could not be arranged for the account), `request_other` (any other problem with the request), `recency_check` (the App's copy of the network was too old), `account_locked` (the account's state may be out of date), `account_data_not_found` (the account's data was missing on the device), `output_mismatch` (the transaction did not produce the transfers it was asked to), `data_store`, `store` or `rpc` (reading the device's records or the network failed), `fetch_inputs`, `block_after_reference`, `account_not_in_store`, `block_not_in_store` or `fetch_asset_witness` (gathering what the transaction needed failed), `foreign_account_not_anchored` or `note_past_reference_block` (something the transaction used was newer than the network state it was built on), `kernel_program` (the transaction's program failed), `summary_block_unknown`, `summary_expiration_mismatch` or `summary_commitment_mismatch` (what the signers approve did not match the transaction), `signature_failed` (a signature could not be made), `executor_other` (any other failure while running it) or `other`. A check in the transaction's program that fails is named by the public name the transaction software the App ships gives it, read from the sources of the protocol, its standard components, its core library and its AggLayer bridge: the name of the error the check raises or, for a check whose message is written where it is made, the component and the words of that message. A check that fails with no message is sent as `kernel_assertion_without_message`, or as `kernel_u32_assertion_without_message` when it is a range check, and one whose number none of those sources publishes as `kernel_assertion_outside_shipped_sources`, or as `kernel_u32_assertion_outside_shipped_sources` when it is a range check.
-- **The signing step**, when the transaction failed while it was being signed: `creating_proposal` (preparing it for the guardian), `signing_proposal` (signing what was prepared) or `signing_locally` (signing on this device alone).
-- **The confirming step**, when the transaction failed after it was submitted: `confirming` (waiting for the network to include it), `delivering` (handing a private transfer over for its recipient), `registering_guardian` (registering the account with the guardian it moved to), `guardian_syncing` (bringing the account's guardian up to date, or finishing the transaction after that update failed) or `guardian_synced` (finishing the transaction after the guardian was brought up to date).
-- **The last deferral** of a failed claim: `wallet_locked` (the App was locked), `preflight_sync_failed` (the App could not bring its network state up to date before claiming), `guardian_backpressure` (the guardian needed the App to wait before sending more work), `delegated_prover_failed` (the proving service could not finish), `guardian_rate_limited` (the guardian asked the App to slow down), `guardian_unreachable` (the guardian could not be reached), or `guardian_unauthorized` (the guardian did not authorize the request). `none` means no deferral was recorded, including claims queued before the App recorded this; any unlisted value is sent as `other`. Only the fixed reason is sent, never an identifier, amount, time or the failure's text.
-- **The claim fee check's admission** of a failed claim: `native_id_unknown` (the network's own token could not be identified), `fee_unknown` (the fee could not be determined), `balance_unknown` (the account's balance could not be read), `ahead_assets_unknown` (the assets of claims ahead in the queue could not be determined), `ahead_native` (a claim ahead in the queue held the network's own token), `note_assets_unknown` (the assets or native-token amount of this incoming transfer could not be determined), or `known_sufficient` (the known funds covered the fee). `unrecorded` means no admission reason was recorded, including claims queued before the App recorded this; any unlisted value is sent as `other`. Only the fixed reason is sent, never an identifier, fee, balance, amount or time.
-- **The stuck-transaction check**, on a transaction it cancelled: `missing_start` (the transaction had no recorded start) or `past_limit` (it passed the App's waiting limit); and `started_here` (this app session started an attempt for it) or `not_started_here` (this app session had not started an attempt for it). Either value is sent as `unavailable` when it was not recorded or is outside its list. These are fixed categories, never an identifier, timestamp or elapsed time, and they carry no amount or other transaction value. An attempt started here is not proof it is still running.
-- **Two failures the transaction engine names itself**: `advice_stack_read_failed` (the transaction's program asked for data it was not given) and `client_terminated` (the transaction engine was shut down while the transaction was using it).
-- **A broad category**, when nothing above names the failure: one of `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout` or `unknown`, chosen on the device by reading the failure's text, which is never sent. With `unknown`, the report also says what kind of value was thrown: `wasm_runtime_error` (the transaction engine's WebAssembly code stopped with a runtime error), `type_error` (a value was used in a way its type does not allow), `range_error` (a value was outside its allowed range), `reference_error` (the code referred to something not defined), `syntax_error` (the code could not be parsed), `error` (any other error), `string` (text was thrown instead of an error), `non_error` (another kind of value was thrown), or `none` (no value was supplied). When the transaction was being submitted, it also carries the same background answer and submit-duration bucket listed under "A submit with no definite answer" above. Only these fixed values are sent, never the thrown value, its name or text, or the duration in milliseconds.
-
-None of these carries the text of the refusal, the guardian's response, or the address of the server that sent it.
-
-A failed claim of an incoming transfer also says what queued the claim, using only these fixed values: `auto_consume` (the App claimed the transfer on its own), `claim` (you accepted one transfer), `claim_all` (you accepted several transfers at once), `dapp` (a connected site asked to claim it), `bridge_reclaim` (you took back the funds of a failed bridge transfer), `swap_settlement` (the App settled one of your swaps), or `rotation_funding` (the App claimed it to activate the account's everyday key). A claim queued before the App recorded this is sent as `unrecorded`; any unlisted value is sent as `other`. It never names the transfer, the site or the account.
-
-A failed inbound bridge, a deposit from another network into Miden, also carries these fixed values:
-
-- **An inbound bridge that failed**: the route the deposit took, `epoch` (Fast), `agglayer` or `usdcx`, and `other` for any other; the step at which it failed, one of `provider_unavailable` (no wallet connection to sign with, or an amount that is not valid), `precheck_route` (the route was not set up to take the deposit), `precheck_balance` (the balance did not cover the deposit, or could not be read), `precheck_session_chain` (the connected wallet had not approved the network, or did not switch to it), `precheck_allowance` (the amount the bridge may spend could not be read), `precheck_domain` (Miden's registration with the bridge could not be confirmed), `precheck_quote` (no fee quote for the transfer), `wallet_approve` (the wallet's approval of the spend), `approve_receipt` (that approval on its network), `wallet_deposit` (the wallet's deposit), `deposit_receipt` (that deposit on its network), `epoch_solve` (the Fast deposit), `epoch_execute` (the rest of the Fast deposit's preparation), `reconciler_receipt` (a later check of the deposit on its network), `submission_interrupted` (the App closed before the deposit was recorded), `epoch_intent_failed` (the Fast route reported the transfer failed), `usdcx_mismatch_domain`, `usdcx_mismatch_token`, `usdcx_mismatch_recipient` or `usdcx_mismatch_amount` (Circle attested the deposit to another network, token, account or amount), or `delivery_timed_out` (the transfer did not arrive in time), and `other` when the App names none; and what the other network's wallet or its software answered, read from its fixed wording or error type: `user_rejected` (you or your wallet declined), `session_deleted` (the wallet connection was closed), `no_session` (no wallet was connected), `request_expired` (the wallet did not answer in time), `insufficient_funds` (the account could not pay for the transaction), `reverted` (the network refused the transaction), `timeout` (a request to the network ran out of time), `http_` followed by the HTTP status a server answered with, as its number, when it is a whole number from 100 to 599, and `http_other` when it is not, `unknown_rpc_error` (the wallet answered with an error it gave no code for), `other` for any other answer, and `none` when there was no answer at all. The answer's own words, the wallet's message, addresses, amounts and server addresses are never sent.
-
-A crash sends the error type, the error's message, and the stack trace (the list of code locations the error passed through), plus the app version. Where one error was caused by another, each error in that chain is included. Text is scrubbed before it leaves your device: addresses, amounts, long hex values, credentials in URLs, and values under names like `password` or `seed` are replaced with `[redacted]`. A message that scrubs down to nothing useful is dropped rather than sent as a row of markers, and if anything in the report looks like a recovery phrase, the whole report is thrown away rather than sent.
-
-Every crash report also names the network the App was on: `mainnet`, `testnet`, `devnet`, or `localnet`.
-
-Every crash report also says how the error reached the reporter: reported by the App itself (`generic`, or `react` when a screen failed to show), or never caught and picked up by the App's global error handlers (`onerror` or `onunhandledrejection`). It names the platform (`extension`, `ios` or `android`) and the build the App came from: which build it was (`extension`, `mobile`, `desktop` or `background`, the extension's background part), the commit of the App's source code it was built from, which is the same for everyone running that build, and whether that source had changes not in the commit (`true` or `false`). A crash in one of three of the App's own operations names it: its messaging between its windows and its background (`intercom_request`), a dApp approval window reading its request (`confirm_payload`), or starting the built-in WebAssembly module (`sdk_initialize`). When a dApp approval window cannot read its request, the report says whether the window's address had no approval id at all or an empty one (`missing` or `empty`).
-
-If the App's built-in WebAssembly module fails while starting, the report also says which startup step failed (`wasm_ready`, `client_create`, `mock_import` or `mock_create`) and, when it was building the App's client, whether that client ran in a worker (`enabled` or `disabled`). When the failure is a WebAssembly trap, it adds whether a fresh one-page block of shared memory could still grow (`grew`, `refused` or `unavailable`) and how many of the App's own pages were open, counting its hidden background page (`1`, `2-3`, `4+` or `unavailable`). None of these is an identifier.
-
-A crash in the App's own messaging between its windows and its background also names the kind of request that failed, from the App's fixed list of request names, and, in the browser extension, whether the window had reconnected to the background before it failed (`true` or `false`). When a dApp approval window's request finds nothing in the background to answer it, the report also names the state the background held for that approval (`open`, `answered`, `window_closed`, `expired`, `payload_failed` or `unknown`). None of these includes the approval's id, the dApp, or anything the request carried.
-
-A crash that is the App's connection to the WalletConnect relay failing is sent as a warning, at most once for each range of such failures in a window (the first, the second to fifth, and the sixth onward), so at most three times per window. Every such failure is counted, but none is sent while the device is offline: a range is sent with the first failure in it that happens while the device is online. Its message is WalletConnect's fixed wording with only the relay's host, none of the errors that caused it is sent, and it also carries these fixed values:
-
-- **A WalletConnect relay connection that failed**: the label that says so (`walletconnect_relay`); whether the device's network connection had changed in the 30 seconds before (`just_changed` or `steady`); whether the App's window was on screen (`visible` or `hidden`); which App window it was (`popup`, `fullpage`, `sidepanel` or `confirm`); whether the connect-wallet screen was open in that window when the connection failed (`connect_modal` or `no_connect_modal`); whether the relay had connected in that window before (`true` or `false`); and how many relay failures that window had seen (`1`, `2-5` or `6+`). It never carries your connected wallet, its address, a session or pairing identifier, or the project key.
-
-Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library — the standard technical envelope, with nothing about you in it.
-
-Please read "What scrubbing can and cannot promise" below, which is the honest limit of this.
-
-### What we never collect
-
-Not when the setting is on, not when it is off, not ever:
-
-- Your private keys, recovery phrase, or password
-- Your account addresses, balances, or transaction amounts
-- The contents of your transactions, your notes, or your note IDs
-- Your name, email address, or contacts
-- Your location — the App asks for no location permission and reads no location sensor
-- Your operating system version, your language or locale, your timezone, or your device model — see the note under "Usage data"
-- Any advertising identifier, and anything that would let us or anyone else follow you across other apps or websites. The App does not show Apple's App Tracking Transparency prompt, because it has nothing to ask permission for.
-
-And nothing collected is ever sold, or shared with data brokers or ad networks.
-
-We also do not call this data anonymous. Sending anything over the internet means the receiving server sees the IP address the request came from, exactly as it does for any other network request — and an IP address indicates a rough region. Our processors are configured not to store it. A processor may still derive something coarse from it before discarding it, such as which country a request came from, and keep that alongside the message; we are not going to describe data as anonymous when a server saw where it came from.
-
-## Identifiers
-
-The App holds **no persistent identifier for you** — no user id, no device id, no install id, no cookie, no advertising identifier. Nothing in the usage data or the crash reports says "this is the same person as last week", or even "as yesterday".
-
-Two short random numbers are involved, and both live only in memory:
-
-- **One per activity.** Created when an activity starts, used only to match that activity's "started" message to its "ended" message, never written to disk, never reused. Once the activity is over, it is gone.
-- **One per run of the App.** Created when the App starts and shared by the activities you perform in that run, so that a sequence like "opened the wallet, went to swap, changed your mind, sent instead" can be read as one visit rather than as unconnected fragments. It is never written to disk, so closing the App or reloading the extension ends it permanently and the next run gets an unrelated value. It also renews itself after 30 minutes with no activity, so a window left open does not accumulate a long trail.
-
-**What that second number does and does not allow, stated plainly.** Within one run of the App, the activities you performed can be seen as belonging together. Across runs — and across devices, and across people — nothing can. This is a deliberate trade: the earlier design used the per-activity number for both purposes, and the result was data in which every session held exactly one activity and lasted zero seconds, which could not answer the only question the feature exists to answer, namely where people get stuck.
-
-**One thing worth spelling out, because our provider's naming suggests otherwise.** Aptabase calls the field this number travels in a "session id", and their own libraries store it on your device and reuse it on a four-hour timeout — which makes it survive restarts. Ours does not exist anywhere but memory. That is also the only option available to us: the App has no way to store such a value at all, and a test asserts it stays that way.
-
-### What that means for deleting your data
-
-It means we cannot delete your data on request, and we would rather say so than promise otherwise.
-
-There is no identifier in this data by which we could find your records. If you asked us to delete your usage data or your crash reports, we would have no way to tell yours apart from everyone else's — the records simply do not say who they came from.
-
-This is a deliberate trade-off, not a way of avoiding the request. The alternative is to attach a durable identifier to every message so that we *could* find your data later, which would mean building the exact tracking capability we chose not to have. We decided that not being able to identify you is worth more than being able to service a deletion request, and this paragraph is the cost of that decision stated plainly.
-
-Two things do follow from it, in your favour:
-
-- **Turning the setting off is complete.** There is no profile left behind to keep, because there was never a profile.
-- **Everything expires on its own.** All usage data and all crash reports are deleted **90 days** after they are received. Nothing is kept longer, and nothing needs a request to make that happen.
-
-Everything the App stores about *your wallet* — your keys, accounts, balances, and history — is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
-
-## What scrubbing can and cannot promise
-
-The scrubbing described under "Crash reports" is thorough but it is a filter, not a guarantee, and you should know its limits: crash reports are sent whether or not you share usage data.
-
-It works by recognising what secrets look like. That is reliable for the things that have a recognisable shape: a Miden address, a long hex value, a run of digits, a credential in a URL, or any value stored under a name like `password`. Three kinds of thing can get past it:
-
-- **A recovery phrase broken into small pieces.** The filter spots runs of consecutive words from the recovery-phrase wordlist, and a real phrase is 12 or 24 words. A phrase scattered two or three words at a time across many separate fields of one report could fall below that threshold and survive.
-- **A recovery phrase split by the App's own fixed words.** A transaction failure report is built only from fixed values the App defines, and each of them ends a run of wordlist words, so that the report's own labels are never read as a phrase. Some of those values, such as `fee`, `local` and `other`, are wordlist words themselves, so a phrase that such values split every three words would not read as one run. No transaction failure report carries free text, so nothing can place a phrase there today.
-- **A password with nothing around it.** If a password were ever the entire text of an error message, with no field name and no URL to identify it, the filter has nothing to go on: by shape alone it is indistinguishable from a harmless request id.
-
-None of them is a known leak. No part of the App puts a recovery phrase or a password into an error, and automated tests run on every change assert that. They are the residual risk if some future code did, and we would rather name them than imply the filter is perfect.
-
-## Who processes this data
-
-Crash reports are sent either way; usage data only if the setting is on:
-
-| Data | Processor | Where |
+| **Situation** | **Can you transact?** | **What recovery can do** |
 |---|---|---|
-| Usage data | Aptabase | European Union (Germany) |
-| Crash reports | Sentry | European Union |
+| Lost or new device, Recovery Phrase saved, Guardian Operator available | Yes, after restore and rotation | You restore from your Recovery Phrase; your Guardian Operator returns your account state; you rotate in a new Everyday Key with your Recovery Phrase and your Guardian Operator's ACK |
+| Lost or new device, Recovery Phrase saved, Guardian Operator unavailable or its copy lost | No, until the Guardian Operator is available again | Nothing in the meantime. Bread Wallet does not currently let you export your account state, so your Guardian Operator's copy is the only copy besides your device |
+| Lost Everyday Key, Recovery Phrase intact, device and state intact | Yes, after rotation | You rotate in a new Everyday Key using your Recovery Phrase. The rotation requires your Guardian Operator's ACK |
+| Lost Recovery Phrase, Everyday Key intact | Yes, with the Everyday Key, for as long as it works | Nothing. A new Recovery Phrase cannot be set up with the Everyday Key. Move your assets to a new account while you still can |
+| Lost both the Everyday Key and the Recovery Phrase | No | Nothing. No one can restore access, including us and your Guardian Operator |
+| Your Guardian Operator pauses you or is offline; both credentials and state on your device intact | Yes, after rotation | You rotate to another operator with your Everyday Key and Recovery Phrase. The old operator's cooperation is not needed |
+| Your Guardian Operator pauses you or is offline; Recovery Phrase lost | No, until the pause ends or the operator returns | Nothing. Rotation needs both credentials |
+| Everyday Key and Recovery Phrase intact, no current account state on your device, Guardian copy available | Yes, after restore | Restore account state from your Guardian Operator |
+| Everyday Key and Recovery Phrase intact, no current account state anywhere | No, even though you hold your credentials | Nothing (section 4.7) |
 
-Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
+**3.5 Your responsibility for backups.** You are responsible for keeping your Recovery Phrase safe. Bread Wallet does not currently offer a backup of your account state; when it does, you are responsible for keeping that backup too.
 
-Both are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale.
+## 4. Guardian
 
-## How the App uses your device
+**4.1 What a Guardian is.** A Guardian is a service run by a Guardian Operator that (a) keeps an encrypted copy of your account state, (b) provides an acknowledgement signature ("ACK") on transactions you authorize, and (c) helps you restore account state to a new device. The Guardian Operator holds its own Guardian key. That key is not one of your keys, does not count toward your account's signing threshold, and cannot move your assets. The ACK is a separate check your account performs in addition to verifying your own signatures.
 
-For transparency about how the App functions on your device (this is not data we receive or have access to):
+**4.2 Who the Guardian Operator is.** Four independent Guardian Operators run Guardian services for the Miden partner mainnet; their live status is shown at guardians.miden.xyz. At launch they are LambdaClass (FOLTREK SA), KODA (Korea Digital Asset Co., Ltd.), Para (Capsule Labs Inc.) and Gateway.fm (GATEWAY.FM AS). When you create a wallet, Bread Wallet measures the response time of each operator on the list and assigns you the fastest one. The app shows you which operator was assigned, and you can change it at any time (4.5). Your Guardian Operator is a separate party from us. During the partner mainnet phase there are no separate service terms between you and your Guardian Operator; this section 4 describes what the operator does and does not do. If an operator introduces its own terms, we will tell you in the app and you may rotate to another operator before they apply (4.8). We are not responsible for a Guardian Operator's acts or omissions except where the Guardian Operator is Miden or an affiliate.
 
-- Your Recovery Phrase and your Everyday Key are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled. They never leave your device. You can copy your Recovery Phrase, and you can download it and remove it from the device; what you do with that copy is up to you.
-- Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, an encrypted copy is also held by your Guardian Operator; see "Your Guardian Operator" below. The App does not currently offer an export of your account state.
+**4.3 What the Guardian stores.** Your Guardian Operator stores an encrypted copy of your account state and nothing else about you. It collects no identity, contact or compliance data from you, and it does not store your Everyday Key or your Recovery Phrase. How this data is handled is described in the Privacy Policy and in the Guardian Operator's own privacy notice.
 
-<!-- TODO: when the account-state export ships, describe it here and in the Terms (section 3.3). Until then, do not reintroduce the "Encrypted Wallet File" sentence; the feature has no user interface. -->
+**4.4 ACK and pause.** When you authorize a transaction, your Guardian Operator signs the same transaction summary that you sign. A Guardian Operator is expected to decline to sign (a "pause") only where it has reason to believe your account or device is compromised, or where a lawful request requires it. Technically, an operator can pause your account at its discretion, and we do not control when it does. During a pause, transactions that require an ACK fail. A failed transaction is your notice of a pause; the app does not currently tell you that a failure was caused by a pause. A pause does not move your assets and does not change your credentials. Your remedy against a pause, whatever its reason, is rotation to another operator (4.5).
 
-## Biometric authentication (Face ID, Touch ID, Fingerprint)
+**4.5 Your rotation right.** You may replace your Guardian Operator with another, or with none where the app allows it, at any time. Rotation is a transaction signed with both your Everyday Key and your Recovery Phrase. It does not require your Guardian Operator's ACK, cooperation or consent at the protocol level. This is the mechanism that keeps the Guardian a service to you rather than a controller of your account. To build a rotation transaction you need a current copy of your account state (3.3).
 
-The App offers **optional** biometric unlock using your device's built-in authentication — Face ID or Touch ID on iOS, fingerprint or face authentication on Android.
+**4.6 Recovery.** On a new device, your Guardian Operator can return your encrypted account state to you. Decrypting and using it requires a key you still control. Your Guardian Operator cannot restore keys and cannot give anyone else access to your account.
 
-**The App does not collect, access, receive, store, transmit, or share any face data, fingerprint data, or other biometric data.**
+**4.7 Unavailability and data loss.** Guardian services can become unavailable through outage, termination, insolvency, legal order or data loss. The allocation is: (a) we and the Guardian Operator do not guarantee availability of the Guardian service; (b) if your Guardian Operator's copy of your account state is unavailable or lost and you hold no other current copy or backup, you may be unable to transact, including unable to rotate, even though you still hold your keys; (c) Bread Wallet keeps a copy of your account state on your device but does not currently let you export it, so if you lose your device, your Guardian Operator's copy is the only remaining copy; (d) neither we nor the Guardian Operator is liable for losses from Guardian unavailability or data loss except as set out in section 17.
 
-Biometric matching is performed entirely by your device's operating system inside secure hardware (Apple's Secure Enclave / Android's hardware-backed keystore). Your biometric templates are created, stored, and managed solely by iOS/Android and are never made available to the App. When you unlock with biometrics, the App receives only a yes/no result indicating whether authentication succeeded — it never receives any biometric data itself.
+**4.8 Changing Guardian Operators by us.** We may change the list of Guardian Operators at any time, including adding or removing operators. We cannot rotate your Guardian for you, and no operator can move you to another operator; only you can, with both your credentials (4.5). If your operator is being removed from the list, or you want to leave it, you rotate to another operator in the app. Rotation takes a few minutes and your assets are unaffected. Where we remove an operator in a planned way, or an operator introduces a fee, we will tell you in the app and give you at least 30 days to rotate before the change takes effect. Where an operator becomes unavailable without notice, 4.7 applies.
 
-- **What we collect:** No face or fingerprint data. None is ever transmitted off your device; we operate no servers that could receive it.
-- **How it is used:** A successful biometric check causes your device's operating system to release a wallet-unlock key held in secure hardware, allowing the App to decrypt your local wallet without you typing your password. This happens entirely on-device.
-- **Sharing / third parties:** None. No biometric data exists in the App to share.
-- **Storage:** No biometric data is stored by the App. Your biometric templates remain solely under your operating system's control in secure hardware.
-- **Retention / deletion:** The App retains no biometric data. You manage your enrolled biometrics in your device's system settings. Disabling biometric unlock in the App, or uninstalling the App, removes the App's on-device unlock key and has no effect on and no access to your OS-level biometric enrollment.
+## 5. Earn
 
-## Data that leaves the App for reasons other than telemetry
+**5.1 What Earn is.** Earn lets you place assets held on Miden into a lending position on an EVM network, in a market such as Aave, Compound, Morpho or a similar protocol (the "Earn Protocol"; the markets available are shown in the app). The position is recorded at an EVM address that belongs to you. Bread Wallet derives that address and its key from your Recovery Phrase when your account is created, stores the key encrypted on your device, and signs EVM transactions with it on your device; the key never leaves your device. Restoring from your Recovery Phrase restores the EVM key too, with or without a Guardian. During the partner mainnet phase, Earn positions are held on the Ethereum network. Epoch, operated by SYNC TECH LLC, a limited liability company of St. Vincent and the Grenadines, Euro House, Richmond Hill Road, Kingstown, St. Vincent and the Grenadines, mailing address P.O. Box 2897, Kingstown, St. Vincent and the Grenadines (the "Earn Provider") quotes the route, provides the liquidity on the EVM side, executes the deposit and the withdrawal, and settles with you on Miden. The Earn Protocol records your position and pays whatever yield it pays. Bread Wallet is an interface. We do not take deposits, hold your Earn assets, set rates or pay returns, and we receive no part of the yield or of Epoch's fees.
 
-Everything in this section is data the App must send for a feature to work. None of it is telemetry, none of it is optional once you use the feature, and most of it is received by someone other than us.
+**5.2 How a deposit works.** You choose an amount and a market and see a quote with the expected net result. Bread Wallet then creates a public note on Miden addressed to Epoch for the deposit amount, bound to that exact order and carrying a reclaim height. Epoch executes the deposit on the EVM network and only then consumes the note. If Epoch never executes, the note stays unconsumed and you can reclaim it yourself once the reclaim height is reached. Because the funding note is public, the deposit amount and your Miden account are visible on the network.
 
-### The Miden network and its operator
+**5.3 How a withdrawal works.** You choose an amount of the underlying asset to withdraw and see a quote with a minimum payout. Bread Wallet signs the EVM transactions that take the assets out of the market and place them in a settlement lock. Epoch then delivers a payout note to your Miden account, and only after that delivery has been verified may Epoch claim the locked EVM assets. If the EVM steps partly fail, assets may remain at your EVM address or in the settlement lock. Bread Wallet tracks each step separately and shows you where your assets are; if a recovery step is needed, contact us (section 23) and we will help you complete it. Withdrawals depend on the market's liquidity and exit rules and may be delayed or unavailable.
 
-To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. However, during the network's current operating period Miden, as the network operator, has visibility into transaction data, including data associated with private accounts and private notes, for network-integrity, compliance and legal purposes. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
+**5.4 Rates are variable and not guaranteed.** Any rate, APY or projected return shown in Bread Wallet is an estimate based on current conditions in the lending market. Rates change continuously and may fall to zero. Past rates do not predict future rates. Neither we nor Epoch guarantees any return; the lending market's rules determine what, if anything, you receive.
 
-<!-- TODO: confirm with protocol engineering whether the operator sees this data directly or holds it encrypted with the ability to decrypt, and state the expected duration (e.g. "for the partner mainnet phase"). Align the wording with Terms section 12.1. -->
+**5.5 Fees.** Epoch charges a fee of 0.15% (15 basis points) on each transaction it executes for you, so a deposit and a later withdrawal are charged separately. Epoch pays the Ethereum transaction costs of a withdrawal and does not charge you for them. The lending market's own fees, any exchange fees on a route that converts assets, and Miden network fees are separate. Each quote shows the fee, the routing costs and the net amount before you confirm. We take no fee on Earn (section 9).
 
-We retain compliance-related records, including block, unblock and legal-process records, for at least five years, and may disclose information where required by law or lawful process. Data written to the blockchain itself is permanent and cannot be deleted by anyone, including us.
+**5.6 Risks specific to Earn.** Deposited assets are subject to the lending market's smart-contract and solvency risk; to the risk that Epoch cannot execute or settle; to withdrawal delays or limits set by the market; to partial failure across two networks, which can leave assets at your EVM address or in the settlement lock until recovered; to price movement and slippage on any route that converts assets; and to loss of both your device and your Recovery Phrase, which also loses the EVM key that owns the position. You may receive back less than you deposited. Earn is not a bank deposit and is not insured or guaranteed by any government scheme.
 
-### Your Guardian Operator
+**5.7 Withdrawal.** You may request withdrawal at any time through Bread Wallet. A deposit and a withdrawal are separate orders with separate quotes. Processing time depends on both networks and on the market, and may be longer than for a transaction on Miden alone.
 
-If you enable a Guardian, your Guardian Operator receives and stores: an encrypted copy of your account state; the transaction summaries it is asked to acknowledge, and whether it acknowledged them; and the technical data needed to run the service. It does not receive your Recovery Phrase or your Everyday Key. Your Guardian Operator is a separate party from us unless the App tells you otherwise, and it handles this data under its own privacy notice.
+**5.8 Open positions on suspension or termination.** Your position is held at your EVM address in the lending market, not in Bread Wallet and not with Epoch. If we suspend or terminate your access to Bread Wallet, or withdraw the Earn feature, the position is unaffected. Because the EVM key derives from your Recovery Phrase, you can also recover the position with any wallet that supports the same key derivation as Bread Wallet. If Epoch stops providing the service, you can still withdraw on the EVM side with your EVM key, and you can return assets to Miden through another route (section 6). We have no obligation to make you whole for anything that happens in the lending market or at Epoch.
 
-<!-- TODO: name the default Guardian Operator for partner mainnet, say whether it is Miden, an affiliate or an independent operator, and link its privacy notice. If the operator collects any identity or compliance data (e.g. for compliance zones), say so here. -->
+**5.9 Availability.** Earn is not available to residents of the United Kingdom or of the State of New York, and the feature is blocked for connections from those places. We may add or remove jurisdictions, markets and networks at any time.
 
-### Fiat on-ramp and off-ramp (Transak)
+## 6. Swaps, bridges and solver routing
 
-Buying crypto with fiat and selling crypto for fiat in the App is provided by Transak through a widget. When you use it you open an account with Transak and deal with Transak directly. Transak verifies your identity before you can transact and collects identity documents, bank details and other personal data for that purpose, under [Transak's privacy policy](https://transak.com/privacy-policy). We do not receive your identity documents or bank details.
+**6.1 Swaps.** Bread Wallet offers two kinds of swap. A **Miden swap** exchanges one asset for another on the Miden network. It is filled by a solver that, during the partner mainnet phase, our affiliate Whiteharbor Technologies operates: when you accept a Miden swap quote you are trading with Whiteharbor Technologies as your counterparty, at the quoted rate, and it is bound by the quote once you confirm. Miden swap quotes are at the market rate with no spread added. A **cross-chain swap** sends one asset from another network and delivers a different asset on Miden, or the reverse, through NEAR Intents (6.4); it is filled by a third-party solver, and we are not a party to it. In both cases you see a quoted amount and set a minimum amount you are willing to receive before you confirm. We do not guarantee that a cross-chain quote will be filled.
 
-<!-- TODO: state exactly what, if anything, the App receives back from Transak (e.g. an order status, a transaction id) and whether any Transak identifier is stored in the App. -->
+**6.2 Routing discretion.** We choose which Solvers, bridges and liquidity sources Bread Wallet connects to and may change them at any time. Where several routes exist, Bread Wallet shows you the route and the quoted result before you confirm. We do not receive fees, rebates or other payments from Solvers or bridge operators.
 
-### Swaps and bridges
+**6.3 Slippage and price movement.** Market prices move between quote and settlement. You may receive less than the quoted amount, down to the minimum you set. A quote is not a guaranteed price.
 
-A swap is filled by a third-party solver, and a bridge transfer is processed by a third-party bridge operator and the other network. Each of them sees the transaction it processes: the assets, the amounts and the addresses involved. Before that, the App requests quotes: a swap quote sends the two tokens and their amounts to the swap-quote service, never your address, and tracking a bridge transfer sends its destination address to the bridge's status service (both named under "Network traffic").
+**6.4 Bridges.** Moving assets between Miden and another network uses one of the routes below. Each is operated by a party other than us, except where the table says otherwise. While in transit, your assets are held by that route's contracts or solver, not by us.
 
-<!-- TODO: name the operators of the swap-quote service, the bridge status service and the solver network, and note whether any of them is Miden. -->
+| **Route** | **Operated by** | **Used for** | **How your assets move** | **Time** | **If it fails** |
+|---|---|---|---|---|---|
+| Agglayer bridge | The Agglayer bridge's operators, not us | Deposits to and withdrawals from Miden | Your assets are held by the bridge's contracts on the origin network until they are released or issued on the destination | Shown in the app before you confirm; delays are possible | Where the route supports it, the app lets you reclaim a failed transfer; otherwise 6.5 applies |
+| NEAR Intents | The NEAR Intents protocol and independent solvers | Cross-chain transfers and cross-chain swaps | You deposit on the origin network; a solver fills the order and delivers on the destination | Shown in the app before you confirm; delays are possible | An unfilled order is returned under the protocol's rules; 6.5 applies |
+| Epoch (Fast) | Epoch (SYNC TECH LLC) | Fast deposits to Miden | Epoch provides liquidity on Miden and settles on the origin network | Shown in the app before you confirm; delays are possible | 6.5 applies |
+| USDCx via CCTP | Circle (CCTP attestation and the xReserve on Arc) and the USDCx contract on Miden | Moving USDC to and from Miden as USDCx; the bridge leg of every Transak on-ramp and off-ramp (section 7) | USDC is burned on the origin network and attested by Circle; USDCx is issued on Miden against USDC held in Circle's xReserve, and the reverse on the way out | Shown in the app before you confirm; depends on Circle's attestation | If Circle's attestation does not match the deposit or delivery times out, the app shows the failed transfer and 6.5 applies |
 
-### Earn
+**6.5 Failed, stuck or undelivered transfers.** If a swap or bridge transfer fails before your assets leave your account, the assets remain yours and nothing is owed. If assets leave your account but the transfer does not complete, the app lets you reclaim the funds of a failed bridge transfer where the route supports it. For a Miden swap, we return your assets if we cannot fill the order. In any other case we will help you trace the transfer, but we cannot guarantee recovery and have no obligation to refund or replace assets held by a third-party solver, bridge or other network.
 
-<!-- TODO: describe what the Earn feature sends and to whom (the Earn Provider and its privacy notice). -->
+**6.6 Finality.** A transaction on Miden is final when it is included in a block that the network treats as final. During the partner mainnet phase the network operator can halt the network and revert to an earlier block in response to a security incident. A transaction you believed complete may then be undone, and assets you received may be returned to the sender. Section 10 describes this risk further.
 
-### Geographic restrictions
+**6.7 No obligation to offer swaps or bridges.** We may suspend or withdraw swap and bridge features at any time, including for individual assets or regions.
 
-The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions. To apply that restriction, the IP address of a request is checked against the country it comes from, at the application level and at the network's sequencer endpoint. The IP address is used for that check and for the ordinary operation of the connection.
+## 7. Fiat on-ramp and off-ramp via Transak
 
-<!-- TODO: confirm whether IP addresses are logged for geoblocking or compliance purposes and for how long; if they are, say so here and in the retention section. -->
+**7.1 Who you deal with.** Buying crypto with fiat (on-ramp) and selling crypto for fiat (off-ramp) in Bread Wallet is provided by Transak through a widget embedded in the app. When you use it you open an account with, and transact with, the Transak entity for your country of residence under [Transak's Terms of Service](https://transak.com/terms-of-service). For residents of the UK and of countries not otherwise listed that is Transak Limited, a UK company registered with the Financial Conduct Authority as a cryptoasset firm; U.S. residents deal with Transak USA LLC under [Transak's U.S. terms](https://transak.com/terms-of-service-us) (Transak Terms 5.1). We are not a party to your transaction with Transak, do not receive or hold your fiat, and are not a payment service provider.
 
-## Network traffic
+**7.2 How it works.** Transak does not operate on the Miden network. Both directions therefore use the EVM address that Bread Wallet derives from your Recovery Phrase (section 5.1) as your Transak wallet, with a bridge leg between that address and Miden (section 6). The asset is USDC on the Ethereum network, and the bridge leg is the USDCx route via CCTP (6.4). On-ramp: you pay fiat to Transak and Transak sends USDC to your EVM address. Bread Wallet then completes the bridge to Miden for you: you sign a single transaction from your EVM address that authorizes the bridge transfer to your Miden account, and we submit it to the Ethereum network and pay the Ethereum gas; we do not recover that cost from you. You see the full flow before you confirm the Transak purchase. Off-ramp: you first bridge USDCx from Miden to USDC at your EVM address, with the Ethereum gas again paid by us; then you create a sale order, the USDC is sent from that address to Transak within the time limit Transak sets, again by a transaction you sign and we submit and pay gas for, and Transak pays fiat to your verified bank account (Transak Terms 11.1). You do not need to hold ETH at your EVM address for any step. We may stop paying gas on your behalf at any time; if we do, the gas cost will be shown before you confirm. Between the legs your assets sit at your EVM address, which only your key controls, or in transit in the bridge (6.4). Each leg has its own counterparty, fees, timing and failure modes.
 
-<!-- TODO before partner mainnet: replace the testnet hostnames below with the partner mainnet hostnames. -->
+**7.3 Identity verification.** Transak must verify your identity before you can transact and will not provide its service until verification is complete (Transak Terms 9.1). Identity verification is performed entirely by Transak. Transak collects identity documents and bank details directly; we do not receive, store or have access to them, and we do not verify your identity ourselves. Transak links your verified identity to your EVM address, and transfers between that address and your Miden accounts are visible on the networks involved. We do not use Transak's KYC-reliance or identity pass-through features.
 
-The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
+**7.4 Sanctions and compliance controls.** Transak screens its users and transactions and requires each user to comply with OFAC, EU and UN sanctions (Transak Terms 6.3). Separately, our own controls apply to the Miden side of any transaction: the USDCx blocklist (section 8) and geographic restrictions (section 11). A transaction can therefore be declined by Transak, by the network, or by both, and declining is your notice.
 
-It also downloads public data. Miden's verified-token list and update notices come from GitHub (`raw.githubusercontent.com`) and carry nothing about you. The logos of listed tokens come from the same GitHub list, so GitHub sees which listed tokens' logos the App draws (the listed tokens you hold or open), never your account, address or balance. Explore's catalog of apps and their icons come from GitHub too, so GitHub sees which network's catalog and which of its icons the App requests, never your account, address or balance. Token prices and charts come from Binance (`api.binance.com`), which sees which tokens' prices the App requests (the priced tokens you hold or open), never your address, keys or balances.
+**7.5 Pricing and fees.** Transak sets its exchange rate from market sources with a spread (Transak Terms 12.1) and shows its fee before you confirm (Transak Terms 14.2). Transak's website states a flat 1% Transak fee and that partners may add their own fee. Bread Wallet adds no partner fee. The bridge leg carries its own fees (sections 6 and 9), so a full on-ramp or off-ramp costs the Transak fee plus any bridge fee plus network fees. During the partner mainnet phase we pay the Ethereum gas for the bridge transactions on both the on-ramp and the off-ramp, and do not recover it from you.
 
-Three features send the service behind them only what that feature needs. Requesting test tokens sends your account address and the amount to the Miden faucet (`faucet-api.testnet.miden.io`). Tracking a bridge transfer sends its destination address to the bridge's status service (`miden-testnet-bridge.dev.eu-north-3.gateway.fm`). A swap quote sends the two tokens and their amounts to the swap-quote service (`35-175-40-181.sslip.io`), never your address.
+**7.6 Failed, rejected and mistaken transactions.** Transak may reject an order, including for price movement or order size, and may charge a processing fee to return your crypto on a rejected sale (Transak Terms 11.1). Crypto sent to a wrong address, or to Transak without a sale order, may be unrecoverable. Once Transak has paid fiat to your bank account the payment cannot be refunded (Transak Terms 11.3). We cannot reverse, refund or accelerate any Transak transaction.
 
-The App reaches Sentry to send crash reports. If **Share usage data** is on, it also reaches Aptabase; if it is off, it does not contact Aptabase at all.
+**7.7 Wallet ownership.** Transak requires you to attest that you are the sole owner of the wallet address you use and that no other person has access to or control over it (Transak Terms 11.4). The address you use with Transak is your EVM address, which is controlled by a key derived from your Recovery Phrase and held only on your device; no Guardian Operator and no other party can sign for it.
 
-Apart from those token logos and Explore icons, and the site icons the dApp browser on mobile fetches from Google's favicon service, the App loads no fonts, scripts, or images from third-party servers. Everything else it needs to draw itself ships inside the App.
+**7.8 Limits and availability.** Transak applies transaction limits that depend on payment method, verification level and country (Transak Terms 7.1(c)). Transak's off-ramp is available in a limited set of countries; availability in the app does not mean availability for you.
 
-## Permissions
+## 8. USDCx and on-chain compliance controls
 
-The App requests the following Android permissions:
+**8.1 What USDCx is.** USDCx is a token on the Miden network that represents USDC held in Circle's xReserve contract on Arc, Circle's own network. One USDCx is issued when one USDC is deposited into that reserve, and USDCx is burned when the underlying USDC is released. USDC coming from or going to the Ethereum network travels through CCTP (6.4). USDCx is also the asset in which network fees are paid (section 9).
 
-- **INTERNET** - to reach the Miden RPC and transport endpoints and the services named under Network traffic
-- **VIBRATE** — for haptic feedback on UI interactions
-- **USE_BIOMETRIC** (Android 6+) — to unlock the wallet via fingerprint / face authentication
+**8.2 Who issues USDCx and what you hold.** USDCx is a bridged representation of USDC on the Miden network. It is not issued by Circle, and Circle's USDC terms do not apply to it. The USDCx contract on Miden is deployed and administered by Miden. Holding USDCx gives you the ability to redeem it for USDC through the reserve mechanism described in 8.1, subject to the blocklist (8.3), any pause (8.4) and applicable law; that redemption runs through Circle's reserve contract but does not give you a contractual claim against Circle. USDCx is not legal tender, is not a deposit, and is not insured by any government scheme.
 
-## Children
+**8.3 Blocklist.** The USDCx contract enforces a blocklist administered by an authorized freeze manager, currently Predicate. Addresses designated on applicable sanctions lists are added automatically. If your address is blocked, transactions involving that address are denied; denial is your notice of blocked status and we are not obligated to give advance notice. Blocked USDCx cannot be sent, received or bridged. Unblocking occurs only where consistent with applicable law, as described in the Prohibited-User Disclosure. These controls operate at the asset layer and apply whatever interface you use.
 
-The App is not directed at anyone under 18, and our Terms of Service require users to be at least 18. We do not knowingly collect any information from children.
+**8.4 Pause.** The USDCx contract can be paused by Miden, as network operator, and by Circle, as operator of the reserve, each acting independently, in response to a security incident, a legal requirement or a migration (8.5). While paused, USDCx cannot be transferred. Because network fees are paid in USDCx, a pause also stops ordinary transactions on the network for its duration.
 
-## Why we process data, and on what legal basis
+**8.5 Contract migration.** During partner mainnet the USDCx contract may be replaced. In a migration, balances are re-issued on the new contract according to a published process, and the blocklist carries over. We will tell you in the app if you need to do anything, and we will publish the process before any migration.
 
-| Purpose | Data | Legal basis (GDPR Article 6) |
-|---|---|---|
-| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
-| Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
-| Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
-| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
+**8.6 Depeg and reserve risk.** The value of USDCx depends on the reserve and on USDC itself. USDCx may trade below one U.S. dollar, and redemption may be delayed or unavailable if the bridge, the reserve or USDC is impaired. Section 10 sets out further risks.
 
-## How long we keep data
+## 9. Fees
 
-- Usage data and crash reports: 90 days, then deleted automatically (see "Identifiers").
-- Compliance records (block, unblock and legal-process records): at least five years.
-- Data held by your Guardian Operator: as set out in its privacy notice.
-- Data written to the blockchain: permanent.
+**9.1 Where fees are shown.** The only fee we or our affiliates charge is the Miden network transaction fee, which during the partner mainnet phase is collected by the operator of the network, which during the partner mainnet phase is Miden or an affiliate. Where we pay a third-party network's gas on your behalf (7.2), we do not recover it. We charge nothing for Bread Wallet, bridging, Earn, Transak or the Guardian, and we receive no share of any third-party fee. Miden swap quotes from our affiliate's solver carry no spread (6.1). All other fees are charged by third parties and passed through unchanged. Bread Wallet shows the network fee and any third-party fee (for swaps, for bridging via NEAR Intents, CCTP or Agglayer, for Earn, and for Transak) before you confirm a transaction. That display is the price disclosure for each transaction; there is no separate fee schedule.
 
-<!-- TODO: add retention for any IP or geoblocking logs if they exist. -->
+| **Fee** | **Charged by** | **Amount** | **Paid in** | **Shown before you confirm?** |
+|---|---|---|---|---|
+| Network transaction fee | Miden network (collected by Miden as operator during partner mainnet) | Set by the network per transaction | USDCx | Yes |
+| Miden swap spread | Whiteharbor, as solver during partner mainnet | None; quotes are at the market rate | In the quoted rate | Yes, in the quote |
+| Cross-chain swap fee or spread | Third-party solver | In the quote | Asset being swapped | Yes |
+| Bridge fee | Bridge operator and destination network | In the quote | Asset being bridged | Yes |
+| Earn fee or spread | Epoch | 0.15% per transaction, on deposit and on withdrawal; no gas charge | Deposited asset | Yes, in the Earn quote |
+| Transak fee | Transak | Shown by Transak; its site states a flat 1% | Fiat or crypto per Transak | Yes, in the Transak widget |
+| Guardian service fee | Guardian Operator | None during partner mainnet | Not applicable | Not applicable; any future fee would be shown before you confirm |
 
-## Where data goes
+**9.2 Disclosure before confirmation.** Bread Wallet shows the total fee for a transaction before you confirm it. Third-party fees shown in a quote are passed through from the third party and may differ at settlement where the third party's terms allow.
 
-Crash reports and usage data are processed in the European Union (see "Who processes this data"). Your Guardian Operator and Transak may be located outside the European Union and the United Kingdom.
+**9.3 Non-refundable.** Fees are earned when a transaction is submitted and are not refundable, including for a transaction that later fails on the network or is reverted (6.6), except where applicable law requires a refund.
 
-<!-- TODO: state the transfer mechanism for any recipient outside the EU and UK (e.g. standard contractual clauses, or an adequacy decision), once the Guardian Operator is named. -->
+**9.4 Changes.** The network fee is set by the network and shown before each transaction; it may change without notice. Third-party fees change under the third party's terms.
 
-## Your rights
+## 10. Risk disclosures and experimental software
 
-If you are in the European Union, the European Economic Area or the United Kingdom, you have the right to access the personal data we hold about you, to have it corrected or erased, to restrict or object to its processing, to receive it in a portable format, and to withdraw consent where processing rests on consent. You also have the right to complain to a data protection supervisory authority, in particular in the country where you live.
+**10.1 Experimental software and early network.** Bread Wallet and the Miden network are at an early stage. The network is currently operated as a partner mainnet: a closed network run by a single operator with a limited number of participants. During this phase the network operator can halt the network, revert to an earlier block, block addresses at the node level, and reset or migrate contracts. Software updates may be frequent and may change behavior. Bread Wallet may connect to test infrastructure. Do not use Bread Wallet with assets you cannot afford to lose.
 
-Two limits follow from how the App is built, and we would rather state them than imply otherwise:
+**10.2 Specific risks.** By using Bread Wallet you accept the following risks, none of which we insure or guarantee against:
 
-- We cannot find, and therefore cannot access, correct or erase, your usage data or crash reports, because they carry no identifier that links them to you (see "What that means for deleting your data"). They are deleted automatically after 90 days.
-- Data written to the blockchain cannot be erased by anyone. Erasure requests can only apply to records we hold off-chain.
+- **Smart-contract risk.** The Guardian account component, the USDCx contract, the blocklist component, swap notes and any Earn Protocol are code. Code can contain defects that lose or lock assets. Audits reduce but do not remove this risk. The Miden VM and cryptography libraries have been audited by Trail of Bits, the Miden transaction kernel and protocol by OpenZeppelin, and the Agglayer bridge by Spearbit. OpenZeppelin has also audited the USDCx contract, including its blocklist component. The Guardian account component and the Guardian service software have not been audited. Bread Wallet itself has not been audited. Other components have not been audited unless we say so.
 
-To exercise a right, write to privacy@miden.team.
+- **Bridge risk.** Bridged assets depend on the bridge's contracts and operators and on the other network. Bridges have been a frequent target of attacks across the industry.
 
-## Changes
+- **USDCx issuer and depeg risk.** USDCx depends on its reserve, on USDC and on the entities operating the bridge and reserve. It can lose its peg, be paused, be blocklisted, or become unredeemable (section 8).
 
-Material changes to this policy will be reflected on this page with an updated "Last updated" date.
+- **Prover and infrastructure reliance.** Transacting on Miden requires generating a proof. If proving is delegated to a remote prover and that prover is unavailable, you may be unable to transact. The same applies to the network's RPC nodes and to your Guardian Operator.
 
-## Contact
+- **Guardian reliance.** A Guardian pause or outage can delay your transactions until you rotate (section 4). If you lose your device while your Guardian Operator is unavailable, you cannot access your account until it is available again, because Bread Wallet does not currently let you keep your own export of account state (section 3.4).
 
-Open an issue at [github.com/0xMiden/wallet/issues](https://github.com/0xMiden/wallet/issues) or email privacy@miden.team.
+- **Privacy limits.** During the partner mainnet phase your transaction data, including data about private accounts and notes, is stored encrypted by the network's validators and can be decrypted when two validators cooperate; the validators are run by independent entities, not by Miden alone (section 12). Privacy features do not hide your activity from the operator or from a court order served on it.
+
+- **Regulatory risk.** Assets may be frozen, features may be withdrawn from your region, and the legal treatment of USDCx, Earn or the Guardian may change.
+
+- **Key loss.** Loss of your keys is permanent (section 3).
+
+- **Price and liquidity risk.** Digital assets are volatile and may be illiquid.
+
+- **Tax.** You are responsible for any taxes on your transactions.
+
+**10.3 No advice.** Nothing in Bread Wallet is investment, legal, tax or financial advice. We do not recommend any asset, swap, Earn position or counterparty.
+
+## 11. Geographic restrictions
+
+**11.1 Blocked jurisdictions.** Access to Bread Wallet is restricted through geoblocking at the application level and at the network's sequencer for comprehensively sanctioned jurisdictions, listed in the Sanctions Compliance Statement.
+
+**11.2 Feature-level restrictions.** Individual features may be unavailable in further jurisdictions. Current restrictions: Earn is not available in the United Kingdom or the State of New York and is blocked for connections from those places (5.9); Transak on-ramp and off-ramp are available only in the countries Transak supports (7.8). We may change these at any time.
+
+**11.3 No circumvention.** You may not use VPNs, proxies or other means to circumvent geographic or compliance restrictions. Attempting to do so is a material breach of these Terms.
+
+## 12. Network data, operator visibility and privacy
+
+**12.1 Designed for privacy, operated with visibility.** Miden is designed to support private transaction execution. During the network's current operating period, the transaction data you submit, including data associated with private accounts and private notes, is stored by the network's validators in encrypted form. Any two validators acting together can decrypt it. During the partner mainnet phase there are three validators, operated by Miden, Gateway.fm and LambdaClass. Miden cannot decrypt your transaction data on its own; decryption requires two validators to cooperate, so at least one party independent of Miden must agree, and it takes place only for network-integrity, compliance and legal purposes, including in response to a lawful request. We will tell you in the app and update these Terms when this changes.
+
+**12.2 Who else sees data.** Your Guardian Operator holds the data described in 4.3. Transak holds the data described in 7.3. Solvers and bridge operators see the transactions they process. Each party's handling of your data is described in our Privacy Policy and in that party's own privacy notice.
+
+**12.3 Records and disclosure.** We retain compliance-related records, including block and unblock records, for at least five years. We may disclose information where required by law or lawful process, including to sanctions authorities and courts.
+
+**12.4 Privacy Policy.** Our Privacy Policy at [https://0xmiden.github.io/wallet/privacy-policy/](https://0xmiden.github.io/wallet/privacy-policy/) describes what personal data we collect, why, who receives it, how long we keep it, and your rights. It forms part of these Terms.
+
+## 13. Acceptable use
+
+You agree not to use Bread Wallet: (a) to violate any applicable law, including sanctions and export-control laws; (b) to engage in money laundering, terrorist financing, fraud or market manipulation, including manipulating Solver quotes or Earn rates; (c) to interact with addresses or contracts you know to be associated with illicit activity; (d) to interfere with or disrupt the network, a Guardian Operator, a Solver, a bridge, Transak or other users; (e) on behalf of another person, except where you hold a legal authority to act for them and have told us; or (f) to reverse engineer, decompile or misuse the software except as permitted by law or by the open-source licenses that apply to distributed components.
+
+## 14. Third-party services and assets
+
+**14.1 Third parties you interact with.** Bread Wallet displays or connects to services and assets provided by others, including Guardian Operators (section 4), the Earn Provider (section 5), Solvers and bridge operators (section 6), Transak (section 7), the USDCx reserve and bridge (section 8), and the Apple App Store, Google Play and Chrome Web Store through which the app is distributed. Each is a separate party. We do not control them and are not responsible for their availability, performance, security or terms. Your agreement with each of them is between you and that party.
+
+**14.2 Assets.** We do not issue, endorse or vouch for any asset shown in Bread Wallet. Digital assets are volatile and you bear all risk of loss.
+
+**14.3 Links and content.** Third-party content and links in the app are provided for convenience and are not endorsements.
+
+## 15. Intellectual property; license; app store terms
+
+**15.1 Ownership.** Miden and its licensors retain all rights in Bread Wallet and its content, except for components released under open-source licenses, which are governed by those licenses.
+
+**15.2 License.** We grant you a limited, revocable, non-exclusive, non-transferable license to use Bread Wallet in accordance with these Terms, on devices that you own or control.
+
+**15.3 Additional terms for the Apple App Store.** If you obtained Bread Wallet from the Apple App Store, the following also apply, as required by [Apple's minimum terms for a developer EULA](https://www.apple.com/legal/internet-services/itunes/dev/minterms/):
+
+- These Terms are between you and Miden only, not Apple. Miden, not Apple, is solely responsible for Bread Wallet and its content. These Terms do not set usage rules that conflict with the Apple Media Services Terms and Conditions.
+
+- Your license is limited to a non-transferable license to use Bread Wallet on Apple-branded products that you own or control, as permitted by the Usage Rules in the Apple Media Services Terms and Conditions, except that the app may be accessed by other accounts associated with you via Family Sharing or volume purchasing.
+
+- Miden is solely responsible for any maintenance and support of Bread Wallet. Apple has no obligation to furnish any maintenance or support services.
+
+- Miden is solely responsible for any product warranties, express or implied by law, to the extent not disclaimed. If Bread Wallet fails to conform to an applicable warranty, you may notify Apple and Apple will refund the purchase price (if any) to you. To the maximum extent permitted by law, Apple has no other warranty obligation, and any other claims, losses, liabilities, damages, costs or expenses attributable to a failure to conform to a warranty are Miden's sole responsibility.
+
+- Miden, not Apple, is responsible for addressing any claims by you or a third party relating to Bread Wallet or your possession or use of it, including product liability claims, claims that it fails to conform to a legal or regulatory requirement, and claims under consumer protection, privacy or similar legislation.
+
+- If a third party claims that Bread Wallet or your use of it infringes that third party's intellectual property rights, Miden, not Apple, is solely responsible for the investigation, defense, settlement and discharge of the claim.
+
+- You represent and warrant that you are not located in a country subject to a U.S. Government embargo or designated a "terrorist supporting" country, and that you are not on any U.S. Government list of prohibited or restricted parties (see also 2.3).
+
+- Questions, complaints and claims should be directed to the contact details in section 23.
+
+- You must comply with applicable third-party terms when using Bread Wallet (see 1.3).
+
+- Apple and Apple's subsidiaries are third-party beneficiaries of these Terms. On your acceptance, Apple has the right, and is deemed to have accepted the right, to enforce these Terms against you as a third-party beneficiary.
+
+## 16. Disclaimers
+
+BREAD WALLET IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SOFTWARE, THE NETWORK, ANY GUARDIAN SERVICE, ANY SOLVER OR BRIDGE, THE EARN PROTOCOL OR TRANSAK WILL BE AVAILABLE, UNINTERRUPTED, ERROR-FREE OR SECURE; THAT ANY TRANSACTION WILL BE FILLED, SETTLED OR FINAL; THAT ANY RATE SHOWN IN EARN WILL BE PAID; OR THAT ANY ASSET WILL RETAIN VALUE, REMAIN TRANSFERABLE OR REMAIN REDEEMABLE. NOTHING IN THIS SECTION EXCLUDES A WARRANTY THAT CANNOT BE EXCLUDED UNDER THE LAW OF THE COUNTRY WHERE YOU LIVE (SECTION 21.3).
+
+## 17. Limitation of liability
+
+**17.1 Exclusion.** TO THE MAXIMUM EXTENT PERMITTED BY LAW, MIDEN AND ITS AFFILIATES SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE DAMAGES, OR ANY LOSS OF ASSETS, DATA, PROFITS OR VALUE, ARISING FROM OR RELATING TO YOUR USE OF BREAD WALLET, INCLUDING LOSSES RESULTING FROM: COMPLIANCE ACTIONS SUCH AS BLOCKING, PAUSING OR TRANSACTION DENIAL; GUARDIAN UNAVAILABILITY, PAUSE OR DATA LOSS; FAILED, DELAYED OR REVERTED SWAPS, BRIDGE TRANSFERS OR NETWORK TRANSACTIONS; EARN RETURNS OR LOSSES; TRANSAK TRANSACTIONS; OR LOSS OF KEYS OR ACCOUNT STATE.
+
+**17.2 Cap.** OUR AGGREGATE LIABILITY FOR ALL CLAIMS RELATING TO BREAD WALLET SHALL NOT EXCEED USD 1,000.
+
+**17.3 Third parties.** We are not liable for the acts or omissions of Guardian Operators, Solvers, bridge operators, the Earn Provider, Transak or any other third party (section 14), except where the third party is Miden or an affiliate acting in that role.
+
+**17.4 What we do not exclude.** Nothing in these Terms excludes or limits liability for death or personal injury caused by negligence, for fraud or fraudulent misrepresentation, or for any other liability that cannot be excluded or limited under applicable law, including the consumer protection law of the country where you live (section 21.3).
+
+## 18. Indemnification
+
+You will indemnify and hold harmless Miden and its affiliates, officers, employees and agents from claims, losses and expenses (including reasonable attorneys' fees) arising from your use of Bread Wallet, your violation of these Terms, or your violation of applicable law, including sanctions laws. This section does not apply to the extent it would be unenforceable against a consumer under the law of the country where you live (section 21.3).
+
+## 19. Suspension and termination
+
+**19.1 What we can suspend or terminate.** We may suspend or terminate your access to the Bread Wallet application and to the features we operate at any time, with or without notice, including where required by law, where we believe you are a Prohibited User, or where you breach these Terms. We may also withdraw a feature, a region or the app as a whole.
+
+**19.2 What termination does not do.** Termination ends your license to use our software. It does not and cannot: (a) take, freeze or move assets in your on-chain accounts, which remain controlled by your keys; (b) revoke your Guardian Operator's obligations to you under its own terms; or (c) close an Earn position, a pending swap or a Transak order, each of which continues under the relevant third party's terms. Compliance controls that operate at the asset or network layer (sections 8 and 11) are separate from termination and continue to apply.
+
+**19.3 Access to your assets after termination.** After termination you can access your accounts with any software compatible with the Miden network. Where we withdraw the app or a feature entirely, we will keep a withdraw-only mode available for at least 90 days after notice so that you can move assets, close Earn positions and rotate or disable your Guardian.
+
+**19.4 Survival.** Sections 3, 4.7, 8, 9.3, 10, 12, 14 and 16 to 22 survive termination.
+
+## 20. Changes to these Terms
+
+We may modify these Terms by posting an updated version at [https://0xmiden.github.io/wallet/privacy/](https://0xmiden.github.io/wallet/privacy/) with a new effective date. For material changes we will give at least 30 days' notice in the app before they take effect, except where a change is needed to comply with law or to address a security risk, in which case we will give as much notice as we reasonably can. Continued use after a change takes effect constitutes acceptance. If you do not accept a change, stop using Bread Wallet before it takes effect; section 19.3 applies to your assets.
+
+## 21. Governing law, disputes and consumer rights
+
+**21.1 Governing law.** These Terms are governed by the laws of the State of Delaware, United States, without regard to its conflict-of-laws rules.
+
+**21.2 Disputes for users outside the EU, EEA and UK.** If you are not a consumer resident in the European Union, the European Economic Area or the United Kingdom, any dispute arising out of or relating to these Terms or Bread Wallet shall be brought exclusively in the state or federal courts located in the State of Delaware, and you and we each submit to the jurisdiction of those courts. Before starting proceedings, you agree to contact us at the address in section 23 with a written description of the dispute and to give us 30 days to resolve it informally.
+
+**21.3 Consumers in the EU, EEA and UK.** If you are a consumer resident in the European Union, the European Economic Area or the United Kingdom, section 21.2 does not apply to you. You may bring any dispute in the courts of the country where you live, and we will bring proceedings against you only in those courts. Nothing in these Terms, including the choice of law in 21.1, deprives you of the protection of provisions of the law of your country of residence that cannot be derogated from by agreement. Where a term of these Terms conflicts with such a provision, the provision prevails for you.
+
+**21.4 Complaints.** Complaints can be sent to the contact in section 23.
+
+## 22. General provisions
+
+**22.1 Entire agreement.** These Terms, together with the documents incorporated in 1.2, are the entire agreement between you and us about Bread Wallet and supersede any earlier terms. They do not affect any separate agreement you have with a third party named in section 14.
+
+**22.2 Severability.** If any provision of these Terms is held invalid or unenforceable, it will be enforced to the maximum extent permitted and the remaining provisions remain in full force.
+
+**22.3 Assignment.** You may not assign or transfer these Terms or any rights under them. We may assign these Terms to an affiliate or to a successor in a merger, acquisition or sale of assets, and will notify you in the app.
+
+**22.4 Force majeure.** We are not liable for any failure or delay caused by events beyond our reasonable control, including network outages, actions of the network operator or a third party named in section 14, changes in law, sanctions designations, cyber-attacks, or failures of internet or cloud infrastructure.
+
+**22.5 No waiver.** Our failure or delay in enforcing any provision is not a waiver of it.
+
+**22.6 Third-party beneficiaries.** Except for Apple and its subsidiaries under 15.3, no third party has any right to enforce these Terms.
+
+**22.7 Notices.** We may give you notice in the app, by email to an address you have given us, or by posting at [https://0xmiden.github.io/wallet/privacy/](https://0xmiden.github.io/wallet/privacy/). Notices to us go to the address in section 23. Notice by email is deemed received on the business day it is sent.
+
+**22.8 Language.** These Terms are written in English. Any translation is for convenience; the English text prevails.
+
+**22.9 Export control.** You will comply with applicable export-control laws in using Bread Wallet.
+
+## 23. Contact
+
+Miden Technologies (US) Corp., 850 New Burton Road, Suite 201, Dover, Delaware 19904-5786, United States. Questions, complaints and claims: [privacy@miden.team](mailto:privacy@miden.team), telephone +1 707 813 2275. Blocked-address inquiries: the same contact, handled as described in the Prohibited-User Disclosure.

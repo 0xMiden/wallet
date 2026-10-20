@@ -21,13 +21,13 @@ When you contact us, please include your device model, OS version, and app versi
 Bread Wallet is a **non-custodial** wallet: your recovery phrase and private keys are generated and stored **only on your device**, and we never have access to them. This means only you can restore your wallet, using your recovery phrase. We cannot reset it or recover funds on your behalf. Please keep your recovery phrase backed up somewhere safe and private.
 
 ### How do I unlock the app with Face ID or Touch ID?
-Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely by your device's operating system — the app never receives your face or fingerprint data, only a success/failure result. See our [Privacy Policy](https://0xmiden.github.io/wallet/privacy/) for details.
+Enable biometric unlock in **Settings**. Face ID / Touch ID is handled entirely by your device's operating system — the app never receives your face or fingerprint data, only a success/failure result. See our [Privacy Policy](https://0xmiden.github.io/wallet/privacy-policy/) for details.
 
 ### The app isn't syncing, or a transaction seems stuck.
 First, check your internet connection and reopen the app to let it re-sync. If a transaction stays pending, give the network a few minutes. If the problem persists, email us at [privacy@miden.team](mailto:privacy@miden.team) with your app version and a description, and we'll investigate.
 
 ### Is my wallet data private?
-Yes. Your recovery phrase, private keys, account names, balances, and transaction history are generated and held only on your device. We operate no accounts, analytics, or servers that receive your data. See the [Privacy Policy](https://0xmiden.github.io/wallet/privacy/).
+Yes. Your recovery phrase, private keys, account names, balances, and transaction history are generated and held only on your device. We operate no accounts, analytics, or servers that receive your data. See the [Privacy Policy](https://0xmiden.github.io/wallet/privacy-policy/).
 
 ### How do I back up or move my wallet to a new device?
 Keep your recovery phrase safe and import it on the new device: it restores a wallet of Guardian accounts. If the wallet also holds a fully private or imported account, **Settings → Security → Encrypted Wallet File** exports a file that restores those too. Never store your recovery phrase in plain text where others could access it.
@@ -42,4 +42,4 @@ Removal affects this local wallet. It does not delete backups that you previousl
 
 ## More
 
-- [Privacy Policy](https://0xmiden.github.io/wallet/privacy/)
+- [Privacy Policy](https://0xmiden.github.io/wallet/privacy-policy/)

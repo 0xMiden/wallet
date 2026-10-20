@@ -13,7 +13,7 @@ import {
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
 
 const crashReportPolicy = (): string => {
-  const policy = readFileSync(join(__dirname, '..', '..', '..', 'docs/privacy/index.md'), 'utf8');
+  const policy = readFileSync(join(__dirname, '..', '..', '..', 'docs/privacy-policy/index.md'), 'utf8');
   const section = policy.slice(policy.indexOf('### Crash reports'));
   return section.slice(0, section.indexOf('\n#', 1));
 };

@@ -7,7 +7,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
 
-import { PRIVACY_POLICY_URL } from '../constants';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
 // Import the component under test AFTER the mocks are declared.
 import Settings from './Settings';
 
@@ -537,19 +537,13 @@ describe('Settings page — root menu (non-guardian)', () => {
     // binding it reads holds for any value either of them takes, so an accidental
     // edit to `app/constants` would sail through. The "Send feedback" row in the
     // next test already pins its URL this way.
-    expect(privacy).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
+    expect(privacy).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy-policy/');
     // Passed through as undefined rather than coerced to '': Link tracks a
     // ButtonPress for any testID that is merely `!== undefined`, so the empty
     // string bought an analytics event with no name.
     expect(privacy).not.toHaveAttribute('data-selector');
 
     expect(tos).toHaveAttribute('data-external', 'true');
-    // Deliberately pinning a KNOWN BUG, so that it is a bug this test describes
-    // rather than one it endorses: `TERMS_OF_USE_URL` in app/constants is set to
-    // the same string as `PRIVACY_POLICY_URL`, so the Terms of Service row links
-    // to the privacy policy. Whoever gives Terms its own URL should change the
-    // expectation on the next line to it and delete this comment — the red build
-    // is a reminder, not a verdict on the fix.
     expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
   });
 
@@ -969,12 +963,15 @@ describe('Settings page — active tab routing', () => {
     expect(screen.getByTestId('dapp-drawer-settings')).toBeInTheDocument();
   });
 
-  it('routes to an external "about" tab (renders its empty Component under a header)', () => {
-    render(<Settings tabSlug={PRIVACY_POLICY_URL} />);
+  it.each([
+    [PRIVACY_POLICY_URL, 'privacyPolicy'],
+    [TERMS_OF_USE_URL, 'termsOfService']
+  ])('routes to the external about tab %s', (url, title) => {
+    render(<Settings tabSlug={url} />);
 
     // Every tab's slug resolves to an active tab now, external ones included
     // whose Component renders nothing under the navigation header.
-    expect(screen.getByTestId('nav-title')).toHaveTextContent('privacyPolicy');
+    expect(screen.getByTestId('nav-title')).toHaveTextContent(title);
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 
@@ -1121,9 +1118,6 @@ describe('Settings page — mobile body attribute effects', () => {
 //   • The module-level `isDevnet ? …Devnet : …Orange` icon selectors (one per
 //     settings icon) are decided once from the build-time DEFAULT_NETWORK
 //     constant, so only one side is reachable within a single test process.
-//   • `Component: () => null` on the Terms-of-Service tab is dead because
-//     TERMS_OF_USE_URL currently equals PRIVACY_POLICY_URL, so the tab lookup
-//     always resolves the Privacy tab first.
 //   Covering these would require changing the source, which the task forbids.
 
 it('has one rendering path for every sub-page: the page draws its own frame, the host adds none', () => {

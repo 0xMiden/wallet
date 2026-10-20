@@ -1,0 +1,309 @@
+---
+title: Privacy Policy — Bread Wallet by Miden
+permalink: /privacy-policy/
+---
+
+# Bread Wallet by Miden — Privacy Policy
+
+_Last updated: 2026-10-19_
+
+Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
+
+## Who we are
+
+The App is published by Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615), c/o Ogier Global (Cayman) Limited, 89 Nexus Way, Camana Bay, Grand Cayman, KY1-9009, Cayman Islands ("Miden", "we"). Miden is the controller of the personal data described in this policy. For anything about your data, write to privacy@miden.team.
+
+<!-- TODO before publication: confirm whether an EU or UK representative under GDPR Article 27 is required. If one is appointed, add their name and address here. -->
+
+This policy covers two different kinds of data. The first is **telemetry**: crash reports and optional usage data the App sends to us. The sections from "Data we collect" to "What scrubbing can and cannot promise" describe it, and the short version is that it carries no identifier for you. The second is **data that leaves the App to make it work**: what the Miden network, your Guardian Operator, and the providers behind swaps, bridges, Earn and fiat on-ramp and off-ramp receive. The section "Data that leaves the App for reasons other than telemetry" describes that. The statements about telemetry are not statements about the second kind.
+
+## Data we collect
+
+The App sends **crash reports** so we can fix what breaks. They are described under "Crash reports" below: the error and where it happened in the code, scrubbed of sensitive data before sending, with no identifier for you or your device. Everything else is collected only if you turn on **Share usage data**. If you never turn it on, the App sends no product events.
+
+You are asked once, after you create or import a wallet, and you can say no. Whatever you choose then, you can change it at any time in **Settings → General → Help improve Wallet**. Turning it off stops sending usage data: the setting is checked before every single send, so nothing that was waiting gets sent later. Crash reports are sent whether this setting is on or off.
+
+**On Firefox, Firefox's own switch also applies.** Firefox asks whether an extension may collect technical and interaction data, and where it has said no, the App sends neither crash reports nor usage data. Other browsers and the mobile and desktop apps have no equivalent switch.
+
+Usage data, below, is sent **only while that setting is on**. Crash reports are sent either way.
+
+### Usage data
+
+When the setting is on, the App reports the start and the end of a small set of activities. Each report is a single message with no free-form text in it — there is no field an address, an amount, or an error message could occupy. A message contains only these:
+
+| What | Values |
+|---|---|
+| Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity |
+| Which kind of work, for work the App did on your behalf | One of: sending, receiving, swapping, earning, bridging, a guardian change, a dApp's transaction, another transaction, proving, or one of three services being unreachable. A category of work, never a recipient, an amount, an asset, a dApp, or an endpoint. See "Work the App does on your behalf" below |
+| Whether it started or ended | `started` or `ended`, or `settled` for work the App did on your behalf |
+| How it ended | `completed`, `cancelled`, or `errored` |
+| Broad error category, if it failed | One of: network, rpc, proving, validation, storage, auth, timeout, unknown |
+| How long it took | A duration in milliseconds |
+| How far you got | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting` |
+| App version | For example, `1.15.21` |
+| Platform | `extension`, `ios`, or `android` |
+| Network | `mainnet`, `testnet`, `devnet`, or `localnet` |
+| A short random number for that one activity | Explained under "Identifiers" below |
+| A short random number for that run of the App | Explained under "Identifiers" below |
+
+That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
+
+#### Work the App does on your behalf
+
+The App also reports whether the work it does on your behalf actually succeeded. When you send, swap, claim, earn, bridge, or change your guardian, the App has to prove and submit a transaction after you have finished asking for it, and that part can fail for reasons that have nothing to do with you — a prover or a node being down or unreachable. Without this, a failure affecting everyone would be invisible to us, because by then the activity above has already been reported as finished.
+
+Those reports use the same fields as the table above and add nothing that describes you or your money. Nothing about the transaction itself travels with them: not who you sent to, not how much, not which asset, not which dApp, not which endpoint.
+
+They also carry **no activity identifier**, which means we cannot tell which of your activities a piece of work belonged to. That is deliberate rather than an oversight: linking the two would mean writing one of those random values onto the transaction record the App keeps on disk, and a value written to disk outlives the run it was made for — which is exactly the durable identifier this design refuses to hold.
+
+Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`miden-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
+
+**We deliberately leave three of the provider's fields empty.** Aptabase's format has slots for your operating system version, your language or locale, and your device model, and their own libraries fill all three in. We send none of them. Each one is a fingerprinting signal — a combination of them narrows a crowd down to a person — and none is needed to find out where the wallet breaks. Automated tests fail the build if any of the three ever appears in an outgoing message, which is what stops someone filling them in later because the field was there.
+
+### Crash reports
+
+Handled transaction failures are also reported, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, the network the App was on, known public protocol error identities, the fixed failure reasons, refusal codes and claim origins listed below, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
+
+A failure report can also say why the transaction failed, using only these fixed values:
+
+- **The App's own reason**, when the App itself ended the transaction: `user_cancelled` (you cancelled it), `interrupted_on_startup` (the App closed while it was running), `stuck_reaped` (it ran too long and the App stopped waiting for it), `queued_expired` (it waited in the queue too long), `rotation_key_pending` (the account's everyday key was not active yet, so the App did not claim the incoming transfer), `rotation_funding_note_unavailable` (the transfer the App was claiming to activate the account's everyday key was no longer available to claim), `rotation_funding_not_native` (the App could not confirm that the transfer it was claiming to activate the account's everyday key was a standard payment holding only the network's own token), `rotation_gate_refusal` (the App refused to claim a transfer while the account's everyday key was not active yet, for a reason other than the three before it), `consume_not_landed` (the network still showed the incoming transfer as unclaimed), `consume_landed_external` (the network showed the incoming transfer as claimed, but not by a transaction the App could prove was its own), `note_invalid` (the incoming transfer can never be claimed), or `never_committed` (the network showed that a transaction the App submitted was never included, so nothing moved). Any other value is sent as `other`. With `never_committed`, the report can also say which check showed it: `expired` (its time to be included ran out), `superseded` (the account moved on with another transaction), `spent_elsewhere` (a transfer it claimed was claimed by another transaction), or `mixed` (the App had tried more than once, and different checks showed it for different tries). Any other check is sent as `other`.
+- **A guardian refusal**: `guardian_http_` followed by the HTTP status the guardian answered with, as its number, such as `409`, when it is a whole number from 100 to 599, and as `other` when it is not. It also carries the guardian's error code when it is one the guardian's published client defines: `account_already_exists`, `account_data_unavailable`, `account_not_found`, `account_paused`, `account_released`, `authentication_failed`, `authentication_replay`, `authorization_failed`, `candidate_landed`, `commitment_mismatch`, `configuration_error`, `conflict_pending_delta`, `conflict_pending_proposal`, `data_unavailable`, `delta_not_found`, `insufficient_operator_permission`, `insufficient_signatures`, `invalid_account_id`, `invalid_commitment`, `invalid_cursor`, `invalid_delta`, `invalid_evm_proposal`, `invalid_input`, `invalid_limit`, `invalid_network_config`, `invalid_proposal_signature`, `invalid_status_filter`, `invalid_timestamp`, `network_error`, `pending_proposals_limit`, `proposal_already_signed`, `proposal_not_found`, `rate_limit_exceeded`, `rpc_unavailable`, `rpc_validation_failed`, `session_expired`, `session_revoked`, `signature_scheme_not_allowed`, `signer_not_authorized`, `signing_error`, `state_not_found`, `storage_error`, `unsupported_evm_chain`, `unsupported_for_network` or `wallet_signature_required`. Any other code is sent as `other`, and a refusal with no code as `none`.
+- **A device key refusal**: `hot_key`, with the code the App's secure-hardware signing key was refused with, when it is one of `AUTH_FAILED`, `AUTH_UNAVAILABLE`, `BAD_CIPHERTEXT`, `BIOMETRIC_BUSY`, `DEVICE_LOCKED`, `HARDWARE_UNAVAILABLE`, `INVALID_INPUT`, `KEY_INVALIDATED`, `KEY_NOT_FOUND`, `LEGACY_CIPHER_INIT_FAILED`, `UNWRAP_FAILED` or `USER_CANCELLED`. Any other code is sent as `other`, and a refusal with no code as `none`.
+- **A submit with no definite answer**: `submit_outcome_unknown`, when the network neither accepted nor refused a transaction the App submitted. It carries the kind of answer the App got instead, one of `unavailable`, `internal`, `cancelled`, `aborted`, `data_loss`, `deadline_exceeded` or `unknown` (any other is sent as `other`), and whether the App was in the background while it waited: `yes`, `no`, or `unavailable` when the App cannot tell; and how long the submit took: `under_9s` (less than 9 seconds), `9_to_11s` (9 to 11 seconds, both included), `over_11s` (more than 11 seconds), or `unavailable` when the App has no start to measure from or cannot measure a valid duration. Only the bucket is sent, never the duration in milliseconds.
+- **A submit the network refused**: `submit_rejected`, when the network gave a definite refusal while the App submitted a transaction. It names the request that was refused, `submit_proven_transaction`, `submit_proven_batch`, `get_transaction_encryption_key` (the key the App seals a transaction with before it submits) or `other`; the kind of answer, one of `unavailable`, `internal`, `cancelled`, `aborted`, `data_loss`, `deadline_exceeded`, `unknown`, `not_found`, `invalid_argument`, `permission_denied`, `already_exists`, `resource_exhausted`, `failed_precondition`, `out_of_range`, `unimplemented` or `unauthenticated` (any other is sent as `other`); and the network's own reason when its fixed wording names one, `internal`, `expired`, `state_conflict`, `capacity_exceeded`, `missing_fee`, `consumes_inflight_fee_notes`, `invalid_fee_asset`, `batch_id_mismatch`, `authentication_failed` or `unknown_code`, else `none` when it gave no reason and `other` for any other. The network's own message is never sent.
+- **Work the App stopped**: when the App stopped a transaction's work from outside because it ran too long or what was running it went away. On the extension, `offscreen_aborted_deadline` (the background document running it passed its time limit), `offscreen_aborted_deadline_no_kill` (one read passed its time limit while another transaction was running), `offscreen_aborted_doc_closed` (that document closed before it answered), `offscreen_aborted_transport` (the message to that document could not be delivered) or `offscreen_aborted_other`. On any platform, `wasm_lock_evicted_watchdog` (an operation held the transaction engine past its time limit), `wasm_lock_evicted_realm_error` (the transaction engine crashed while in use) or `wasm_lock_evicted_other`.
+- **What the transaction software said went wrong**, when it could not build or run a transaction: `transaction_execution_failed` with the `cause` its own fixed wording names, one of `request_note_consumed` (a transfer being claimed was already claimed), `request_note_processing` (another transaction was already claiming it), `request_note_unauthenticated` (a transfer could not be proven to exist on the network), `request_duplicate_note` (the same transfer was included twice), `request_empty` (the transaction would change nothing), `request_fee_conversion` (the network fee could not be arranged for the account), `request_other` (any other problem with the request), `recency_check` (the App's copy of the network was too old), `account_locked` (the account's state may be out of date), `account_data_not_found` (the account's data was missing on the device), `output_mismatch` (the transaction did not produce the transfers it was asked to), `data_store`, `store` or `rpc` (reading the device's records or the network failed), `fetch_inputs`, `block_after_reference`, `account_not_in_store`, `block_not_in_store` or `fetch_asset_witness` (gathering what the transaction needed failed), `foreign_account_not_anchored` or `note_past_reference_block` (something the transaction used was newer than the network state it was built on), `kernel_program` (the transaction's program failed), `summary_block_unknown`, `summary_expiration_mismatch` or `summary_commitment_mismatch` (what the signers approve did not match the transaction), `signature_failed` (a signature could not be made), `executor_other` (any other failure while running it) or `other`. A check in the transaction's program that fails is named by the public name the transaction software the App ships gives it, read from the sources of the protocol, its standard components, its core library and its AggLayer bridge: the name of the error the check raises or, for a check whose message is written where it is made, the component and the words of that message. A check that fails with no message is sent as `kernel_assertion_without_message`, or as `kernel_u32_assertion_without_message` when it is a range check, and one whose number none of those sources publishes as `kernel_assertion_outside_shipped_sources`, or as `kernel_u32_assertion_outside_shipped_sources` when it is a range check.
+- **The signing step**, when the transaction failed while it was being signed: `creating_proposal` (preparing it for the guardian), `signing_proposal` (signing what was prepared) or `signing_locally` (signing on this device alone).
+- **The confirming step**, when the transaction failed after it was submitted: `confirming` (waiting for the network to include it), `delivering` (handing a private transfer over for its recipient), `registering_guardian` (registering the account with the guardian it moved to), `guardian_syncing` (bringing the account's guardian up to date, or finishing the transaction after that update failed) or `guardian_synced` (finishing the transaction after the guardian was brought up to date).
+- **The last deferral** of a failed claim: `wallet_locked` (the App was locked), `preflight_sync_failed` (the App could not bring its network state up to date before claiming), `guardian_backpressure` (the guardian needed the App to wait before sending more work), `delegated_prover_failed` (the proving service could not finish), `guardian_rate_limited` (the guardian asked the App to slow down), `guardian_unreachable` (the guardian could not be reached), or `guardian_unauthorized` (the guardian did not authorize the request). `none` means no deferral was recorded, including claims queued before the App recorded this; any unlisted value is sent as `other`. Only the fixed reason is sent, never an identifier, amount, time or the failure's text.
+- **The claim fee check's admission** of a failed claim: `native_id_unknown` (the network's own token could not be identified), `fee_unknown` (the fee could not be determined), `balance_unknown` (the account's balance could not be read), `ahead_assets_unknown` (the assets of claims ahead in the queue could not be determined), `ahead_native` (a claim ahead in the queue held the network's own token), `note_assets_unknown` (the assets or native-token amount of this incoming transfer could not be determined), or `known_sufficient` (the known funds covered the fee). `unrecorded` means no admission reason was recorded, including claims queued before the App recorded this; any unlisted value is sent as `other`. Only the fixed reason is sent, never an identifier, fee, balance, amount or time.
+- **The stuck-transaction check**, on a transaction it cancelled: `missing_start` (the transaction had no recorded start) or `past_limit` (it passed the App's waiting limit); and `started_here` (this app session started an attempt for it) or `not_started_here` (this app session had not started an attempt for it). Either value is sent as `unavailable` when it was not recorded or is outside its list. These are fixed categories, never an identifier, timestamp or elapsed time, and they carry no amount or other transaction value. An attempt started here is not proof it is still running.
+- **Two failures the transaction engine names itself**: `advice_stack_read_failed` (the transaction's program asked for data it was not given) and `client_terminated` (the transaction engine was shut down while the transaction was using it).
+- **A broad category**, when nothing above names the failure: one of `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout` or `unknown`, chosen on the device by reading the failure's text, which is never sent. With `unknown`, the report also says what kind of value was thrown: `wasm_runtime_error` (the transaction engine's WebAssembly code stopped with a runtime error), `type_error` (a value was used in a way its type does not allow), `range_error` (a value was outside its allowed range), `reference_error` (the code referred to something not defined), `syntax_error` (the code could not be parsed), `error` (any other error), `string` (text was thrown instead of an error), `non_error` (another kind of value was thrown), or `none` (no value was supplied). When the transaction was being submitted, it also carries the same background answer and submit-duration bucket listed under "A submit with no definite answer" above. Only these fixed values are sent, never the thrown value, its name or text, or the duration in milliseconds.
+
+None of these carries the text of the refusal, the guardian's response, or the address of the server that sent it.
+
+A failed claim of an incoming transfer also says what queued the claim, using only these fixed values: `auto_consume` (the App claimed the transfer on its own), `claim` (you accepted one transfer), `claim_all` (you accepted several transfers at once), `dapp` (a connected site asked to claim it), `bridge_reclaim` (you took back the funds of a failed bridge transfer), `swap_settlement` (the App settled one of your swaps), or `rotation_funding` (the App claimed it to activate the account's everyday key). A claim queued before the App recorded this is sent as `unrecorded`; any unlisted value is sent as `other`. It never names the transfer, the site or the account.
+
+A failed inbound bridge, a deposit from another network into Miden, also carries these fixed values:
+
+- **An inbound bridge that failed**: the route the deposit took, `epoch` (Fast), `agglayer` or `usdcx`, and `other` for any other; the step at which it failed, one of `provider_unavailable` (no wallet connection to sign with, or an amount that is not valid), `precheck_route` (the route was not set up to take the deposit), `precheck_balance` (the balance did not cover the deposit, or could not be read), `precheck_session_chain` (the connected wallet had not approved the network, or did not switch to it), `precheck_allowance` (the amount the bridge may spend could not be read), `precheck_domain` (Miden's registration with the bridge could not be confirmed), `precheck_quote` (no fee quote for the transfer), `wallet_approve` (the wallet's approval of the spend), `approve_receipt` (that approval on its network), `wallet_deposit` (the wallet's deposit), `deposit_receipt` (that deposit on its network), `epoch_solve` (the Fast deposit), `epoch_execute` (the rest of the Fast deposit's preparation), `reconciler_receipt` (a later check of the deposit on its network), `submission_interrupted` (the App closed before the deposit was recorded), `epoch_intent_failed` (the Fast route reported the transfer failed), `usdcx_mismatch_domain`, `usdcx_mismatch_token`, `usdcx_mismatch_recipient` or `usdcx_mismatch_amount` (Circle attested the deposit to another network, token, account or amount), or `delivery_timed_out` (the transfer did not arrive in time), and `other` when the App names none; and what the other network's wallet or its software answered, read from its fixed wording or error type: `user_rejected` (you or your wallet declined), `session_deleted` (the wallet connection was closed), `no_session` (no wallet was connected), `request_expired` (the wallet did not answer in time), `insufficient_funds` (the account could not pay for the transaction), `reverted` (the network refused the transaction), `timeout` (a request to the network ran out of time), `http_` followed by the HTTP status a server answered with, as its number, when it is a whole number from 100 to 599, and `http_other` when it is not, `unknown_rpc_error` (the wallet answered with an error it gave no code for), `other` for any other answer, and `none` when there was no answer at all. The answer's own words, the wallet's message, addresses, amounts and server addresses are never sent.
+
+A crash sends the error type, the error's message, and the stack trace (the list of code locations the error passed through), plus the app version. Where one error was caused by another, each error in that chain is included. Text is scrubbed before it leaves your device: addresses, amounts, long hex values, credentials in URLs, and values under names like `password` or `seed` are replaced with `[redacted]`. A message that scrubs down to nothing useful is dropped rather than sent as a row of markers, and if anything in the report looks like a recovery phrase, the whole report is thrown away rather than sent.
+
+Every crash report also names the network the App was on: `mainnet`, `testnet`, `devnet`, or `localnet`.
+
+Every crash report also says how the error reached the reporter: reported by the App itself (`generic`, or `react` when a screen failed to show), or never caught and picked up by the App's global error handlers (`onerror` or `onunhandledrejection`). It names the platform (`extension`, `ios` or `android`) and the build the App came from: which build it was (`extension`, `mobile`, `desktop` or `background`, the extension's background part), the commit of the App's source code it was built from, which is the same for everyone running that build, and whether that source had changes not in the commit (`true` or `false`). A crash in one of three of the App's own operations names it: its messaging between its windows and its background (`intercom_request`), a dApp approval window reading its request (`confirm_payload`), or starting the built-in WebAssembly module (`sdk_initialize`). When a dApp approval window cannot read its request, the report says whether the window's address had no approval id at all or an empty one (`missing` or `empty`).
+
+If the App's built-in WebAssembly module fails while starting, the report also says which startup step failed (`wasm_ready`, `client_create`, `mock_import` or `mock_create`) and, when it was building the App's client, whether that client ran in a worker (`enabled` or `disabled`). When the failure is a WebAssembly trap, it adds whether a fresh one-page block of shared memory could still grow (`grew`, `refused` or `unavailable`) and how many of the App's own pages were open, counting its hidden background page (`1`, `2-3`, `4+` or `unavailable`). None of these is an identifier.
+
+A crash in the App's own messaging between its windows and its background also names the kind of request that failed, from the App's fixed list of request names, and, in the browser extension, whether the window had reconnected to the background before it failed (`true` or `false`). When a dApp approval window's request finds nothing in the background to answer it, the report also names the state the background held for that approval (`open`, `answered`, `window_closed`, `expired`, `payload_failed` or `unknown`). None of these includes the approval's id, the dApp, or anything the request carried.
+
+A crash that is the App's connection to the WalletConnect relay failing is sent as a warning, at most once for each range of such failures in a window (the first, the second to fifth, and the sixth onward), so at most three times per window. Every such failure is counted, but none is sent while the device is offline: a range is sent with the first failure in it that happens while the device is online. Its message is WalletConnect's fixed wording with only the relay's host, none of the errors that caused it is sent, and it also carries these fixed values:
+
+- **A WalletConnect relay connection that failed**: the label that says so (`walletconnect_relay`); whether the device's network connection had changed in the 30 seconds before (`just_changed` or `steady`); whether the App's window was on screen (`visible` or `hidden`); which App window it was (`popup`, `fullpage`, `sidepanel` or `confirm`); whether the connect-wallet screen was open in that window when the connection failed (`connect_modal` or `no_connect_modal`); whether the relay had connected in that window before (`true` or `false`); and how many relay failures that window had seen (`1`, `2-5` or `6+`). It never carries your connected wallet, its address, a session or pairing identifier, or the project key.
+
+Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library — the standard technical envelope, with nothing about you in it.
+
+Please read "What scrubbing can and cannot promise" below, which is the honest limit of this.
+
+### What we never collect
+
+Not when the setting is on, not when it is off, not ever:
+
+- Your private keys, recovery phrase, or password
+- Your account addresses, balances, or transaction amounts
+- The contents of your transactions, your notes, or your note IDs
+- Your name, email address, or contacts
+- Your location — the App asks for no location permission and reads no location sensor
+- Your operating system version, your language or locale, your timezone, or your device model — see the note under "Usage data"
+- Any advertising identifier, and anything that would let us or anyone else follow you across other apps or websites. The App does not show Apple's App Tracking Transparency prompt, because it has nothing to ask permission for.
+
+And nothing collected is ever sold, or shared with data brokers or ad networks.
+
+We also do not call this data anonymous. Sending anything over the internet means the receiving server sees the IP address the request came from, exactly as it does for any other network request — and an IP address indicates a rough region. Our processors are configured not to store it. A processor may still derive something coarse from it before discarding it, such as which country a request came from, and keep that alongside the message; we are not going to describe data as anonymous when a server saw where it came from.
+
+## Identifiers
+
+The App holds **no persistent identifier for you** — no user id, no device id, no install id, no cookie, no advertising identifier. Nothing in the usage data or the crash reports says "this is the same person as last week", or even "as yesterday".
+
+Two short random numbers are involved, and both live only in memory:
+
+- **One per activity.** Created when an activity starts, used only to match that activity's "started" message to its "ended" message, never written to disk, never reused. Once the activity is over, it is gone.
+- **One per run of the App.** Created when the App starts and shared by the activities you perform in that run, so that a sequence like "opened the wallet, went to swap, changed your mind, sent instead" can be read as one visit rather than as unconnected fragments. It is never written to disk, so closing the App or reloading the extension ends it permanently and the next run gets an unrelated value. It also renews itself after 30 minutes with no activity, so a window left open does not accumulate a long trail.
+
+**What that second number does and does not allow, stated plainly.** Within one run of the App, the activities you performed can be seen as belonging together. Across runs — and across devices, and across people — nothing can. This is a deliberate trade: the earlier design used the per-activity number for both purposes, and the result was data in which every session held exactly one activity and lasted zero seconds, which could not answer the only question the feature exists to answer, namely where people get stuck.
+
+**One thing worth spelling out, because our provider's naming suggests otherwise.** Aptabase calls the field this number travels in a "session id", and their own libraries store it on your device and reuse it on a four-hour timeout — which makes it survive restarts. Ours does not exist anywhere but memory. That is also the only option available to us: the App has no way to store such a value at all, and a test asserts it stays that way.
+
+### What that means for deleting your data
+
+It means we cannot delete your data on request, and we would rather say so than promise otherwise.
+
+There is no identifier in this data by which we could find your records. If you asked us to delete your usage data or your crash reports, we would have no way to tell yours apart from everyone else's — the records simply do not say who they came from.
+
+This is a deliberate trade-off, not a way of avoiding the request. The alternative is to attach a durable identifier to every message so that we *could* find your data later, which would mean building the exact tracking capability we chose not to have. We decided that not being able to identify you is worth more than being able to service a deletion request, and this paragraph is the cost of that decision stated plainly.
+
+Two things do follow from it, in your favour:
+
+- **Turning the setting off is complete.** There is no profile left behind to keep, because there was never a profile.
+- **Everything expires on its own.** All usage data and all crash reports are deleted **90 days** after they are received. Nothing is kept longer, and nothing needs a request to make that happen.
+
+Everything the App stores about *your wallet* — your keys, accounts, balances, and history — is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
+
+## What scrubbing can and cannot promise
+
+The scrubbing described under "Crash reports" is thorough but it is a filter, not a guarantee, and you should know its limits: crash reports are sent whether or not you share usage data.
+
+It works by recognising what secrets look like. That is reliable for the things that have a recognisable shape: a Miden address, a long hex value, a run of digits, a credential in a URL, or any value stored under a name like `password`. Three kinds of thing can get past it:
+
+- **A recovery phrase broken into small pieces.** The filter spots runs of consecutive words from the recovery-phrase wordlist, and a real phrase is 12 or 24 words. A phrase scattered two or three words at a time across many separate fields of one report could fall below that threshold and survive.
+- **A recovery phrase split by the App's own fixed words.** A transaction failure report is built only from fixed values the App defines, and each of them ends a run of wordlist words, so that the report's own labels are never read as a phrase. Some of those values, such as `fee`, `local` and `other`, are wordlist words themselves, so a phrase that such values split every three words would not read as one run. No transaction failure report carries free text, so nothing can place a phrase there today.
+- **A password with nothing around it.** If a password were ever the entire text of an error message, with no field name and no URL to identify it, the filter has nothing to go on: by shape alone it is indistinguishable from a harmless request id.
+
+None of them is a known leak. No part of the App puts a recovery phrase or a password into an error, and automated tests run on every change assert that. They are the residual risk if some future code did, and we would rather name them than imply the filter is perfect.
+
+## Who processes this data
+
+Crash reports are sent either way; usage data only if the setting is on:
+
+| Data | Processor | Where |
+|---|---|---|
+| Usage data | Aptabase | European Union (Germany) |
+| Crash reports | Sentry | European Union |
+
+Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
+
+Both are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale.
+
+## How the App uses your device
+
+For transparency about how the App functions on your device (this is not data we receive or have access to):
+
+- Your Recovery Phrase and your Everyday Key are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled. They never leave your device. You can copy your Recovery Phrase, and you can download it and remove it from the device; what you do with that copy is up to you.
+- Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, an encrypted copy is also held by your Guardian Operator; see "Your Guardian Operator" below. The App does not currently offer an export of your account state.
+
+<!-- TODO: when the account-state export ships, describe it here and in the Terms (section 3.3). Until then, do not reintroduce the "Encrypted Wallet File" sentence; the feature has no user interface. -->
+
+## Biometric authentication (Face ID, Touch ID, Fingerprint)
+
+The App offers **optional** biometric unlock using your device's built-in authentication — Face ID or Touch ID on iOS, fingerprint or face authentication on Android.
+
+**The App does not collect, access, receive, store, transmit, or share any face data, fingerprint data, or other biometric data.**
+
+Biometric matching is performed entirely by your device's operating system inside secure hardware (Apple's Secure Enclave / Android's hardware-backed keystore). Your biometric templates are created, stored, and managed solely by iOS/Android and are never made available to the App. When you unlock with biometrics, the App receives only a yes/no result indicating whether authentication succeeded — it never receives any biometric data itself.
+
+- **What we collect:** No face or fingerprint data. None is ever transmitted off your device; we operate no servers that could receive it.
+- **How it is used:** A successful biometric check causes your device's operating system to release a wallet-unlock key held in secure hardware, allowing the App to decrypt your local wallet without you typing your password. This happens entirely on-device.
+- **Sharing / third parties:** None. No biometric data exists in the App to share.
+- **Storage:** No biometric data is stored by the App. Your biometric templates remain solely under your operating system's control in secure hardware.
+- **Retention / deletion:** The App retains no biometric data. You manage your enrolled biometrics in your device's system settings. Disabling biometric unlock in the App, or uninstalling the App, removes the App's on-device unlock key and has no effect on and no access to your OS-level biometric enrollment.
+
+## Data that leaves the App for reasons other than telemetry
+
+Everything in this section is data the App must send for a feature to work. None of it is telemetry, none of it is optional once you use the feature, and most of it is received by someone other than us.
+
+### The Miden network and its operator
+
+To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. However, during the network's current operating period Miden, as the network operator, has visibility into transaction data, including data associated with private accounts and private notes, for network-integrity, compliance and legal purposes. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
+
+<!-- TODO: confirm with protocol engineering whether the operator sees this data directly or holds it encrypted with the ability to decrypt, and state the expected duration (e.g. "for the partner mainnet phase"). Align the wording with Terms section 12.1. -->
+
+We retain compliance-related records, including block, unblock and legal-process records, for at least five years, and may disclose information where required by law or lawful process. Data written to the blockchain itself is permanent and cannot be deleted by anyone, including us.
+
+### Your Guardian Operator
+
+If you enable a Guardian, your Guardian Operator receives and stores: an encrypted copy of your account state; the transaction summaries it is asked to acknowledge, and whether it acknowledged them; and the technical data needed to run the service. It does not receive your Recovery Phrase or your Everyday Key. Your Guardian Operator is a separate party from us unless the App tells you otherwise, and it handles this data under its own privacy notice.
+
+<!-- TODO: name the default Guardian Operator for partner mainnet, say whether it is Miden, an affiliate or an independent operator, and link its privacy notice. If the operator collects any identity or compliance data (e.g. for compliance zones), say so here. -->
+
+### Fiat on-ramp and off-ramp (Transak)
+
+Buying crypto with fiat and selling crypto for fiat in the App is provided by Transak through a widget. When you use it you open an account with Transak and deal with Transak directly. Transak verifies your identity before you can transact and collects identity documents, bank details and other personal data for that purpose, under [Transak's privacy policy](https://transak.com/privacy-policy). We do not receive your identity documents or bank details.
+
+<!-- TODO: state exactly what, if anything, the App receives back from Transak (e.g. an order status, a transaction id) and whether any Transak identifier is stored in the App. -->
+
+### Swaps and bridges
+
+A swap is filled by a third-party solver, and a bridge transfer is processed by a third-party bridge operator and the other network. Each of them sees the transaction it processes: the assets, the amounts and the addresses involved. Before that, the App requests quotes: a swap quote sends the two tokens and their amounts to the swap-quote service, never your address, and tracking a bridge transfer sends its destination address to the bridge's status service (both named under "Network traffic").
+
+<!-- TODO: name the operators of the swap-quote service, the bridge status service and the solver network, and note whether any of them is Miden. -->
+
+### Earn
+
+<!-- TODO: describe what the Earn feature sends and to whom (the Earn Provider and its privacy notice). -->
+
+### Geographic restrictions
+
+The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions. To apply that restriction, the IP address of a request is checked against the country it comes from, at the application level and at the network's sequencer endpoint. The IP address is used for that check and for the ordinary operation of the connection.
+
+<!-- TODO: confirm whether IP addresses are logged for geoblocking or compliance purposes and for how long; if they are, say so here and in the retention section. -->
+
+## Network traffic
+
+<!-- TODO before partner mainnet: replace the testnet hostnames below with the partner mainnet hostnames. -->
+
+The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
+
+It also downloads public data. Miden's verified-token list and update notices come from GitHub (`raw.githubusercontent.com`) and carry nothing about you. The logos of listed tokens come from the same GitHub list, so GitHub sees which listed tokens' logos the App draws (the listed tokens you hold or open), never your account, address or balance. Explore's catalog of apps and their icons come from GitHub too, so GitHub sees which network's catalog and which of its icons the App requests, never your account, address or balance. Token prices and charts come from Binance (`api.binance.com`), which sees which tokens' prices the App requests (the priced tokens you hold or open), never your address, keys or balances.
+
+Three features send the service behind them only what that feature needs. Requesting test tokens sends your account address and the amount to the Miden faucet (`faucet-api.testnet.miden.io`). Tracking a bridge transfer sends its destination address to the bridge's status service (`miden-testnet-bridge.dev.eu-north-3.gateway.fm`). A swap quote sends the two tokens and their amounts to the swap-quote service (`35-175-40-181.sslip.io`), never your address.
+
+The App reaches Sentry to send crash reports. If **Share usage data** is on, it also reaches Aptabase; if it is off, it does not contact Aptabase at all.
+
+Apart from those token logos and Explore icons, and the site icons the dApp browser on mobile fetches from Google's favicon service, the App loads no fonts, scripts, or images from third-party servers. Everything else it needs to draw itself ships inside the App.
+
+## Permissions
+
+The App requests the following Android permissions:
+
+- **INTERNET** - to reach the Miden RPC and transport endpoints and the services named under Network traffic
+- **VIBRATE** — for haptic feedback on UI interactions
+- **USE_BIOMETRIC** (Android 6+) — to unlock the wallet via fingerprint / face authentication
+
+## Children
+
+The App is not directed at anyone under 18, and our Terms of Service require users to be at least 18. We do not knowingly collect any information from children.
+
+## Why we process data, and on what legal basis
+
+| Purpose | Data | Legal basis (GDPR Article 6) |
+|---|---|---|
+| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
+| Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
+| Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
+| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
+
+## How long we keep data
+
+- Usage data and crash reports: 90 days, then deleted automatically (see "Identifiers").
+- Compliance records (block, unblock and legal-process records): at least five years.
+- Data held by your Guardian Operator: as set out in its privacy notice.
+- Data written to the blockchain: permanent.
+
+<!-- TODO: add retention for any IP or geoblocking logs if they exist. -->
+
+## Where data goes
+
+Crash reports and usage data are processed in the European Union (see "Who processes this data"). Your Guardian Operator and Transak may be located outside the European Union and the United Kingdom.
+
+<!-- TODO: state the transfer mechanism for any recipient outside the EU and UK (e.g. standard contractual clauses, or an adequacy decision), once the Guardian Operator is named. -->
+
+## Your rights
+
+If you are in the European Union, the European Economic Area or the United Kingdom, you have the right to access the personal data we hold about you, to have it corrected or erased, to restrict or object to its processing, to receive it in a portable format, and to withdraw consent where processing rests on consent. You also have the right to complain to a data protection supervisory authority, in particular in the country where you live.
+
+Two limits follow from how the App is built, and we would rather state them than imply otherwise:
+
+- We cannot find, and therefore cannot access, correct or erase, your usage data or crash reports, because they carry no identifier that links them to you (see "What that means for deleting your data"). They are deleted automatically after 90 days.
+- Data written to the blockchain cannot be erased by anyone. Erasure requests can only apply to records we hold off-chain.
+
+To exercise a right, write to privacy@miden.team.
+
+## Changes
+
+Material changes to this policy will be reflected on this page with an updated "Last updated" date.
+
+## Contact
+
+Open an issue at [github.com/0xMiden/wallet/issues](https://github.com/0xMiden/wallet/issues) or email privacy@miden.team.
