@@ -13,24 +13,28 @@ import { getIntercom } from './defaults';
  */
 export function showBackgroundNotification(title: string, message: string, notificationId = 'miden-background'): void {
   const fallback = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const chromeNotifications = (globalThis as any).chrome?.notifications;
-    if (chromeNotifications) {
-      chromeNotifications.create(
-        notificationId,
-        {
-          type: 'basic',
-          iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-          title,
-          message,
-          requireInteraction: true
-        },
-        () => {
-          if (chrome.runtime.lastError) {
-            console.warn('[background-notification] chrome.notifications error:', chrome.runtime.lastError.message);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chromeNotifications = (globalThis as any).chrome?.notifications;
+      if (chromeNotifications) {
+        chromeNotifications.create(
+          notificationId,
+          {
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
+            title,
+            message,
+            requireInteraction: true
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              console.warn('[background-notification] chrome.notifications error:', chrome.runtime.lastError.message);
+            }
           }
-        }
-      );
+        );
+      }
+    } catch (error) {
+      console.warn('[background-notification] chrome.notifications error:', error);
     }
   };
 
