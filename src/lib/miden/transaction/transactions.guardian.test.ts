@@ -6313,7 +6313,7 @@ describe('generateTransaction — Guardian routing', () => {
         ],
         [
           'on',
-          'leaves no mark, since an offscreen attempt never marks',
+          'records the mark too, since its submit gate never opened (#1644)',
           () => {
             process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
             // Tagged as the offscreen leaf tags a failure before its submit (Task 8). Untagged, the attempt may have
@@ -6323,8 +6323,8 @@ describe('generateTransaction — Guardian routing', () => {
             );
           },
           1,
-          () => expect(getGuardianCandidate('guardian-acc')).toBeUndefined(),
-          1
+          () => expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 }),
+          2
         ]
       ])(
         'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s %s',
