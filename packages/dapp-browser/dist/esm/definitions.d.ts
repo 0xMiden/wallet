@@ -611,6 +611,7 @@ export interface DimensionOptions {
     y?: number;
 }
 export interface InAppBrowserPlugin {
+    addListener(eventName: 'permissionDeniedToast', listenerFunc: () => void): Promise<PluginListenerHandle>;
     addListener(eventName: 'presentationMinimizeRequested', listenerFunc: (event: {
         id: string;
         policyRevision: number;

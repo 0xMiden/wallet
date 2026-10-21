@@ -95,6 +95,7 @@ An error is `{ "code": <code>, "message": <text for logs> }`. The codes are Brea
 | --- | --- |
 | `NOT_GRANTED` | The user declined, or the app has no permission for the account. |
 | `NOT_FOUND`, `INVALID_PARAMS`, `NETWORK_NOT_GRANTED` | As in Bread's in-app browser. |
+| `LOGIN_KEY_UNAVAILABLE` | This device has no root key for the account, so it cannot derive the site's login key. |
 | `UNSUPPORTED_METHOD` | The request type is not one of the methods below. |
 | `INVALID_REQUEST` | The envelope or its payload is malformed. Unsealed when Bread cannot read the envelope. |
 | `DUPLICATE_REQUEST` | The session already answered this request id. |
@@ -107,7 +108,7 @@ An error is `{ "code": <code>, "message": <text for logs> }`. The codes are Brea
 
 ## Methods
 
-A `request` envelope carries one of these `MidenDAppRequest` types: `SIGN_REQUEST`, `TRANSACTION_REQUEST`, `SEND_TRANSACTION_REQUEST`, `CONSUME_REQUEST`, `PRIVATE_NOTES_REQUEST`, `ASSETS_REQUEST`, `CONSUMABLE_NOTES_REQUEST`, `IMPORT_PRIVATE_NOTE_REQUEST` and `GUARDIAN_INFO_REQUEST`. `PERMISSION_REQUEST` travels only in `connect`. The app answers `GET_CURRENT_PERMISSION_REQUEST` from its session, and a disconnect only forgets the session in the app; the user removes the app's permission in Bread.
+A `request` envelope carries one of these `MidenDAppRequest` types: `SIGN_REQUEST`, `LOGIN_KEY_REQUEST`, `LOGIN_SIGN_REQUEST`, `TRANSACTION_REQUEST`, `SEND_TRANSACTION_REQUEST`, `CONSUME_REQUEST`, `PRIVATE_NOTES_REQUEST`, `ASSETS_REQUEST`, `CONSUMABLE_NOTES_REQUEST`, `IMPORT_PRIVATE_NOTE_REQUEST` and `GUARDIAN_INFO_REQUEST`. `LOGIN_KEY_REQUEST` asks for the account's login key for the callback's domain and is answered with no prompt. `LOGIN_SIGN_REQUEST` asks that key to sign a login message, and the user approves it as in Bread's in-app browser. `PERMISSION_REQUEST` travels only in `connect`. The app answers `GET_CURRENT_PERMISSION_REQUEST` from its session, and a disconnect only forgets the session in the app; the user removes the app's permission in Bread.
 
 Bread finishes a transaction request (`TRANSACTION_REQUEST`, `SEND_TRANSACTION_REQUEST`, `CONSUME_REQUEST`) before it switches back: once the user approves, Bread proves and submits the transaction while it stays open, because a phone suspends a background app within seconds. The answer carries the transaction id and its outcome, which is what `waitForTransaction` returns, so the app answers `WAIT_FOR_TRANSACTION_REQUEST` for that transaction without switching to Bread again. `TRANSACTION_FAILED` means the transaction failed. An outcome Bread cannot return is `TRANSACTION_TIMEOUT`: one it did not learn within 5 minutes or could not wait for, a transaction whose record Bread cannot read, and a transaction that landed without a result Bread can send. When the user approved a transaction but Bread cannot tell whether it was sent, Bread answers the transaction id with a `TRANSACTION_TIMEOUT` outcome, or a `TRANSACTION_TIMEOUT` error when it has no id. So an app never takes a transaction that may have landed for one that failed.
 

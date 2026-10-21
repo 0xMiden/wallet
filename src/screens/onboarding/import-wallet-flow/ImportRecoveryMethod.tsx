@@ -18,6 +18,7 @@ import type { GuardianProbeMatch } from 'lib/miden/guardian/discover';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 import { GuardianProbeState, WalletType } from '../types';
@@ -44,6 +45,7 @@ function operatorName(match: GuardianProbeMatch | undefined): string {
 export interface ImportRecoveryMethodScreenProps {
   /** The last lookup failure's display text; `undefined`/`null` for none. */
   error?: string | null;
+  errorId?: UserErrorId | null;
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
   /**
@@ -62,6 +64,7 @@ export interface ImportRecoveryMethodScreenProps {
 
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({
   error,
+  errorId = 'raw_import_recovery_lookup_failed',
   probe,
   guardianOnly = false,
   network,
@@ -358,7 +361,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
         <div className="flex flex-col gap-3">
           {renderGuardianBody()}
           {showError && (
-            <Notice tone="negative" role="alert">
+            <Notice errorId={errorId} tone="negative" role="alert">
               {error}
             </Notice>
           )}

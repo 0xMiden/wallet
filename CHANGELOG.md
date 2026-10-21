@@ -4,13 +4,33 @@
 
 ### Changes
 
+- [CHANGE][all] Login key commitment tests verify key handles are freed and root and scalar buffers are zeroed for stored EVM keys and legacy seed-derived keys (#1579).
+- [CHANGE][all] Update the Web SDK and React SDK to 0.17.5.
+
+- [CHANGE][all] Publish Bread Wallet Terms of Service v2.0 at /tos/ and the Sanctions Compliance Statement and Prohibited-User Disclosure at /compliance/, with distinct onboarding and Settings links and the existing Privacy Policy URL preserved (#1652).
+
+- [CHANGE][mobile] The home carousel snap starts on the frame the finger lifts, instead of holding still for a frame before the spring.
+- [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
+- [CHANGE][all] Each pull request posts a UI smoothness result: carousel feel against the base, the slowest scripted tap, and how the settings list scrolls, each with a difference in percent. The carousel score is the median of six passes from Overview to Swap, with the main thread slowed 4×. The tap and the list are not slowed, so the tap keeps the 200ms and 500ms bands. The comment is informational and does not block merge.
 - [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
 
 ### Features
 
+- [FEATURE][all] Every error message the wallet shows is reported to the team as a crash report naming only which message it was and where, never its text (#1616).
+- [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
+- [FEATURE][all] At startup, geographic rules in `0xMiden/wallet-config` block wallet access, including withdrawals, in Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. New Earn deposits are additionally blocked in New York and the UK. A Cloudflare Worker keeps MaxMind credentials on the server and returns only access decisions; a missing or failed check keeps the wallet closed.
 
 ### Fixes
+
+- [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
+- [FIX][all] The external-wallet connection picker offers wallet connections without email or social sign-in, including when the remote dashboard enables them (#1625).
+- [FIX][tests] The live iOS USDCx round trip deposits 5.2 USDC for a 5 USDCx return withdrawal. A public faucet outage no longer stops bridge-out coverage. A verified faucet grant raises the return amount to 6 USDCx; both paths check the payout and wallet confirmation.
+- [FIX][extension] Incoming-note notifications use the Chrome fallback when the Web Notifications API fails during permission or construction.
+
+- [FIX][all] CI dependency installation retries registry failures and timeouts before giving up, so a transient outage does not immediately discard builds or UI smoothness measurements.
+- [FIX][all] A USDCx withdrawal no longer fails with `Unable to read the USDCx faucet's burn policy`, which every review on testnet showed once the faucet's nonce map outgrew the full-account read. A burn must be at least 5 USDCx, or the faucet's minimum burn when that is larger; the wallet reads that minimum from an account proof, and a failed read keeps 5 USDCx instead of blocking the burn.
+- [FIX][all] Token metadata reads public proof values without loading unrelated storage maps or vault assets, so a large nonce registry no longer prevents reading the token name, symbol and authoritative decimals (#1632).
 
 - [FIX][android] In release builds the in-app browser no longer writes dApp requests, the wallet's answers, or page URLs, origins, hosts and scripts to the device log (#1582).
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).

@@ -73,7 +73,7 @@ export const modal = createAppKit({
     '1ae92b26df02f0abca6304df07debccd18262fdf5fe82daa81593582dac9a369', // rainbow
     'c03dfee351b6fcc421b4494ea33b9d4b92a984f87aa76d1663bb28705e95034a' // uniswap
   ],
-  features: { analytics: false }
+  features: { analytics: false, email: false, socials: false, connectMethodsOrder: ['wallet'] }
 });
 
 // Read only, for relay failure reports: whether the connect modal is open, and whether the relay connected. AppKit's

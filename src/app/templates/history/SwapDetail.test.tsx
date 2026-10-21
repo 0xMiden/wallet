@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -8,10 +8,12 @@ import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 
 import type { IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
+import { useTransactionActions } from './useTransactionActions';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
+      if (key === 'smthWentWrong') return 'Visible swap generic failure';
       const values = opts ? Object.values(opts) : [];
       return values.length > 0 ? `${key}_${values.join('_')}` : key;
     }
@@ -632,5 +634,129 @@ describe('SwapDetail cancelling a live order', () => {
 
     expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
     expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+const mockCancelSwapOrder = jest.fn();
+const mockConfirmCancel = jest.fn();
+jest.mock('lib/miden/swap/cancel-order', () => ({
+  cancelSwapOrder: (...args: unknown[]) => mockCancelSwapOrder(...args)
+}));
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirmCancel }));
+
+const LiveSwapCancel = () => {
+  const actions = useTransactionActions('synthetic-swap', entry, undefined);
+  return (
+    <SwapDetail
+      entry={entry}
+      requestedAmount={1000n}
+      requestedDecimals={8}
+      requestedScaleIsKnown
+      requestedSymbol="ETH"
+      requestedFaucetId={REQUESTED_FAUCET}
+      filledAmount={400n}
+      orderState="active"
+      trackingLoading={false}
+      settledTransactions={[]}
+      reclaimedTransactions={[]}
+      fromAccount={<span>me</span>}
+      showActions
+      offerCancelOrder
+      isCancellingOrder={actions.isCancellingOrder}
+      cancelOrderError={actions.cancelOrderError}
+      cancelOrderErrorId={actions.cancelOrderErrorId}
+      onCancelOrder={actions.onCancelOrder}
+    />
+  );
+};
+
+describe('user-visible live swap cancel errors', () => {
+  const settle = () =>
+    act(async () => {
+      for (let tick = 0; tick < 25; tick++) {
+        await Promise.resolve();
+      }
+    });
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockConfirmCancel.mockReset().mockResolvedValue(true);
+    mockCancelSwapOrder.mockReset().mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports raw_history_swap_cancel_failed from the real live cancel producer and Notice', async () => {
+    mockCancelSwapOrder.mockRejectedValueOnce(new Error('private cancel order amount 42'));
+    render(<LiveSwapCancel />);
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private cancel order amount 42');
+    await expectErrorAfterDwell('raw_history_swap_cancel_failed', 'notice');
+  });
+
+  it('reports smthWentWrong from the real non-Error cancel refusal', async () => {
+    mockCancelSwapOrder.mockRejectedValueOnce('private non-error');
+    render(<LiveSwapCancel />);
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible swap generic failure');
+    await expectErrorAfterDwell('smthWentWrong', 'notice');
+  });
+
+  it.each(['retry', 'unmount'])('clears a short swap cancel error on %s', async control => {
+    mockCancelSwapOrder.mockRejectedValueOnce(new Error('short order failure'));
+    const view = render(<LiveSwapCancel />);
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('short order failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'retry') {
+      fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+      await settle();
+    } else view.unmount();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps declined confirmation and a successful cancel silent', async () => {
+    mockConfirmCancel.mockResolvedValueOnce(false);
+    render(<LiveSwapCancel />);
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await settle();
+    expect(mockCancelSwapOrder).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await settle();
+    expect(mockCancelSwapOrder).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

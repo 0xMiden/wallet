@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Notice } from 'components/ui/Notice';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 /**
  * A positions load that did not fully succeed. It must not read as "you have no positions": that
@@ -13,17 +14,18 @@ import { Notice } from 'components/ui/Notice';
  * by every `useEarnPositions` consumer, so all of them retry the same way. The vault surfaces pass
  * `message` to say the vault could not load, which is true for a user with no positions too.
  */
-export const EarnLoadError: FC<{ onRetry: () => void; className?: string; message?: string }> = ({
-  onRetry,
-  className,
-  message
-}) => {
+export const EarnLoadError: FC<{
+  onRetry: () => void;
+  className?: string;
+  message?: string;
+  errorId?: UserErrorId;
+}> = ({ onRetry, className, message, errorId = 'earnPositionsLoadError' }) => {
   const { t } = useTranslation();
 
   return (
     <div className={classNames('flex flex-col items-center gap-4', className)}>
       {/* The shared notice, in the negative tone, rather than a page-local alert block. */}
-      <Notice tone="negative" role="alert" data-testid="earn-positions-load-error">
+      <Notice errorId={errorId} tone="negative" role="alert" data-testid="earn-positions-load-error">
         {message ?? t('earnPositionsLoadError')}
       </Notice>
       {/* The shared compact secondary button, which brings the tap haptic and the press motion

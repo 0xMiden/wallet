@@ -15,6 +15,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { isWalletReadyNow } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import { claimNoteIds, GateRow, RotationFundingReason, RotationFundingStatus } from './HotKeyRotationGate.selectors';
 
@@ -173,6 +175,37 @@ export function useRotationFundingClaim({
   return { retryClaim };
 }
 
+/** Only a failure observed on the same loaded row is live; first reads and row switches are persisted views. */
+export function useWatchedTransactionFailure(
+  row: Pick<ITransaction, 'id' | 'status'> | undefined,
+  loaded: boolean,
+  scope: string,
+  visible: boolean
+): boolean {
+  const previous = useRef<{ scope: string; id: string; status: ITransactionStatus } | null>(null);
+  const [failedId, setFailedId] = useState<string | null>(null);
+  const id = row?.id;
+  const status = row?.status;
+  useEffect(() => {
+    const before = previous.current;
+    const sameRow = before?.scope === scope && before.id === id;
+    if (!loaded || id === undefined || status === undefined) {
+      previous.current = null;
+      setFailedId(null);
+      return;
+    }
+    if (visible && sameRow && before.status !== ITransactionStatus.Failed && status === ITransactionStatus.Failed) {
+      setFailedId(id);
+    } else if (!sameRow || !visible || status !== ITransactionStatus.Failed) {
+      setFailedId(null);
+    }
+    previous.current = { scope, id, status };
+  }, [id, loaded, scope, status, visible]);
+  return (
+    loaded && visible && status === ITransactionStatus.Failed && failedId === id && previous.current?.scope === scope
+  );
+}
+
 const STATUS_KEYS: Record<RotationFundingStatus, string> = {
   waiting: 'hotKeyRotationFundingWaiting',
   'too-small': 'hotKeyRotationFundingTooSmall',
@@ -182,6 +215,7 @@ const STATUS_KEYS: Record<RotationFundingStatus, string> = {
 };
 
 interface PanelProps {
+  errorId?: UserErrorId | null;
   address: string;
   reason: RotationFundingReason;
   status: RotationFundingStatus;
@@ -208,6 +242,7 @@ interface PanelProps {
  * local balance cannot prove the account unfunded when another holder funded it.
  */
 export const RotationFundingPanel: FC<PanelProps> = ({
+  errorId,
   address,
   reason,
   status,
@@ -220,6 +255,7 @@ export const RotationFundingPanel: FC<PanelProps> = ({
   onCheckAgain
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError(status === 'claim-failed' ? errorId : null, 'status_screen');
   return (
     <div
       data-testid="hot-key-rotation-funding"

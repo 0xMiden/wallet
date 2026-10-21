@@ -5,6 +5,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import type { GuardianDiscoveryResult, GuardianProbeMatch } from 'lib/miden/guardian/discover';
 import { GUARDIAN_OPTIONS, MIDEN_NETWORK_NAME, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ImportRecoveryMethodScreen } from './ImportRecoveryMethod';
 import { GuardianProbeState, WalletType } from '../types';
@@ -93,6 +94,24 @@ beforeEach(() => {
 afterEach(() => {
   _resetGuardianRegistryForTest();
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('ImportRecoveryMethodScreen', () => {
   it('renders the title, both options, and the default Guardian badge', () => {
@@ -742,5 +761,54 @@ describe('on a network that lists no Guardian operator', () => {
       walletType: WalletType.Guardian,
       guardianEndpoint: MAINNET_OPERATOR.endpoint
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  it('does not report the no-match fallback or partial-discovery caution', () => {
+    renderScreen({
+      probe: {
+        status: 'done',
+        result: {
+          matches: [],
+          probedEndpoints: [DEFAULT_ENDPOINT],
+          failures: [{ endpoint: DEFAULT_ENDPOINT, reason: 'timeout', message: privateErrorFixture }]
+        }
+      }
+    });
+    expect(screen.getByText('guardianNotDetected')).toBeVisible();
+    expect(screen.getByText('guardianProbePartialFailure')).toBeVisible();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports the displayed lookup failure using a closed site identity', () => {
+    renderScreen({ error: privateErrorFixture });
+    expect(screen.getByRole('alert')).toHaveTextContent(privateErrorFixture);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('raw_import_recovery_lookup_failed', 'notice');
+  });
+  it('does not report a lookup error hidden by the public-account selection', () => {
+    renderScreen({ error: privateErrorFixture });
+    selectOnChain();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+  it('does not report detecting progress', () => {
+    renderScreen({ probe: { status: 'probing' } });
+    expect(screen.getByText('detectingGuardian')).toBeVisible();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

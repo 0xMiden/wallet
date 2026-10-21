@@ -2,6 +2,10 @@ import React, { PropsWithChildren } from 'react';
 
 import { act, renderHook } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 type DialogModule = typeof import('./dialog');
 
 // `dialog.tsx` captures `document.getElementById('root')` into a module-level
@@ -101,13 +105,13 @@ describe('lib/ui/dialog', () => {
       let resolved = false;
 
       act(() => {
-        alertPromise = result.current.alert({ title: 'Heads up' }).then(() => {
+        alertPromise = result.current.alert({ ...{ title: 'Heads up', errorId: null } }).then(() => {
           resolved = true;
         });
       });
 
       // Synchronous first setState has flushed: modal is open, promise pending.
-      expect(result.current.params.alertParams).toEqual({ title: 'Heads up', isOpen: true });
+      expect(result.current.params.alertParams).toEqual({ title: 'Heads up', errorId: null, isOpen: true });
       expect(resolved).toBe(false);
 
       await act(async () => {
@@ -117,7 +121,7 @@ describe('lib/ui/dialog', () => {
 
       // Close event fired -> promise resolved (void) and the modal is marked closed.
       expect(resolved).toBe(true);
-      expect(result.current.params.alertParams).toEqual({ title: 'Heads up', isOpen: false });
+      expect(result.current.params.alertParams).toEqual({ title: 'Heads up', errorId: null, isOpen: false });
     });
 
     it('confirm: resolves true when the close event carries true', async () => {
@@ -176,7 +180,7 @@ describe('lib/ui/dialog', () => {
       let resolveCount = 0;
 
       act(() => {
-        alertPromise = result.current.alert({ title: 'Once' }).then(() => {
+        alertPromise = result.current.alert({ ...{ title: 'Once', errorId: null } }).then(() => {
           resolveCount += 1;
         });
       });
@@ -209,5 +213,93 @@ describe('lib/ui/dialog', () => {
       expect(() => mod.dispatchConfirmClose(true)).not.toThrow();
       expect(() => mod.dispatchConfirmClose(false)).not.toThrow();
     });
+  });
+});
+
+describe('imperative dialog error reporting', () => {
+  let mod: DialogModule;
+
+  beforeAll(() => {
+    mod = loadDialogWithRoot();
+  });
+  beforeEach(() => jest.mocked(reportUserVisibleError).mockClear());
+
+  it('reports the closed identity immediately when the real error alert opens', async () => {
+    const { result, rerender } = renderDialogs(mod);
+    const options = {
+      title: 'A private operation failed',
+      children: 'raw detail 0x1234 amount 42',
+      errorId: 'incorrectPassword' as const
+    };
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.alert(options);
+    });
+    expect(result.current.params.alertParams).toEqual({ ...options, isOpen: true });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'dialog']]);
+    rerender();
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'dialog']]);
+    await act(async () => {
+      mod.dispatchAlertClose();
+      await pending;
+    });
+    expect(result.current.params.alertParams.isOpen).toBe(false);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'dialog']]);
+  });
+
+  it('reports two separate open calls after the first alert closes', async () => {
+    const { result } = renderDialogs(mod);
+    const options = { title: 'Same visible copy', errorId: 'incorrectPassword' as const };
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.alert(options);
+    });
+    await act(async () => {
+      mod.dispatchAlertClose();
+      await pending;
+    });
+    act(() => {
+      pending = result.current.alert(options);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['incorrectPassword', 'dialog'],
+      ['incorrectPassword', 'dialog']
+    ]);
+    await act(async () => {
+      mod.dispatchAlertClose();
+      await pending;
+    });
+  });
+
+  it('keeps an explicitly non-error alert quiet even with error-like copy', async () => {
+    const { result } = renderDialogs(mod);
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.alert({ ...{ title: 'incorrectPassword', errorId: null } });
+    });
+    expect(result.current.params.alertParams).toEqual({ title: 'incorrectPassword', errorId: null, isOpen: true });
+    await act(async () => {
+      mod.dispatchAlertClose();
+      await pending;
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+  });
+
+  it('keeps destructive confirm styling quiet on open and close', async () => {
+    const { result } = renderDialogs(mod);
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = result.current.confirm({ title: 'Delete this wallet?', destructive: true });
+    });
+    expect(result.current.params.confirmParams).toEqual({
+      title: 'Delete this wallet?',
+      destructive: true,
+      isOpen: true
+    });
+    await act(async () => {
+      mod.dispatchConfirmClose(false);
+      expect(await pending).toBe(false);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
   });
 });

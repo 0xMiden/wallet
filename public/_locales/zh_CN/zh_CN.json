@@ -18,9 +18,8 @@
   "usdcxInvalidDestination": "请输入一个位于受支持网络上的有效地址以进行此次提现。",
   "usdcxUnsupportedFaucet": "该网络不支持此代币的USDCx提现。",
   "usdcxInvalidAmount": "请输入正数的USDCx金额，小数部分最多保留六位。",
-  "usdcxBelowMinimumBurn": "该金额低于faucet规定的最低销毁金额。",
-  "usdcxIncompatibleBurnScript": "该钱包的销毁脚本与 USDCx 的 faucet 不匹配。",
-  "usdcxFaucetUnavailable": "无法读取 USDCx faucet 的销毁政策。请重新开启审核以再次尝试。",
+  "usdcxBelowMinimumBurn": "发送至少 $amount$ USDCx。",
+  "usdcxFaucetUnavailable": "USDCx 的“faucet”目前尚不明确。请重新开启审核以再次尝试。",
   "usdcxSendMoreThanPayoutFee": "向$network$网络发送超过$amount$的USDCx：Circle的手续费将从支付金额中扣除。",
   "usdcxPayoutFeeUpTo": "最高$amount$ USDC",
   "usdcxPayoutAtLeast": "至少$amount$ USDC",
@@ -917,6 +916,8 @@
   "unavailable": "不可用",
   "bridgeFeatureUnavailableTitle": "暂时不可用",
   "bridgeFeatureUnavailableBody": "该外部服务目前无法使用。请稍后再试。",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "该网络不支持“Swap”功能",
   "swapUnavailableBody": "目前该网络尚未配置任何可交换代币。",
   "agglayerCheckingToken": "正在检查该代币是否支持慢速路线……",
@@ -1562,5 +1563,11 @@
   "webViewUpdateChromeBody": "Bread 需要更新版本的 Chrome 浏览器，因为该版本的 Android 系统会将网页显示为应用程序。请通过 Google Play 进行更新，然后重新打开 Bread。",
   "webViewStartFailedTitle": "Bread 无法启动",
   "webViewStartFailedBody": "Bread 加载时遇到问题。请重试，或关闭 Bread 后重新打开。",
-  "webViewStartFailedAction": "请重试"
+  "webViewStartFailedAction": "请重试",
+  "walletAccessCheckingTitle": "正在检查可用性",
+  "walletAccessCheckingBody": "请稍候，我们正在检查你所在地区是否可以使用钱包。",
+  "walletAccessRestrictedTitle": "你所在地区无法使用钱包",
+  "walletAccessRestrictedBody": "你当前所在位置无法使用钱包。",
+  "walletAccessUnavailableTitle": "无法检查可用性",
+  "walletAccessUnavailableBody": "请检查网络连接后重试。"
 }

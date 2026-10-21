@@ -2,7 +2,14 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { ContactDetailPage, sendToContactPath } from './ContactDetailPage';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 const updateContactMock = jest.fn();
 const removeContactMock = jest.fn();
@@ -533,4 +540,65 @@ it('releases the row when the user leaves edit mode after a failed save', async 
   });
 
   expect(screen.getByTestId('redirect')).toHaveTextContent('/settings/address-book');
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each([
+    ['save', 'raw_contact_save_failed', true],
+    ['save', 'raw_contact_save_failed', false],
+    ['delete', 'raw_contact_delete_failed', true],
+    ['delete', 'raw_contact_delete_failed', false]
+  ])('reports a rejected %s with closed identity %s (Error object: %s)', async (operation, id, errorObject) => {
+    const text = 'private contact 0xsecret amount 123 https://private.invalid';
+    const failure = errorObject ? new Error(text) : text;
+    (operation === 'save' ? updateContactMock : removeContactMock).mockRejectedValueOnce(failure);
+    confirmMock.mockResolvedValue(true);
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    if (operation === 'save') {
+      fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Private replacement' } });
+    }
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`contact-${operation}`));
+    });
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(backMock).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels reporting when a failed edit is acknowledged before dwell', async () => {
+    updateContactMock.mockRejectedValueOnce(new Error('private failure'));
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Changed' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-save'));
+    });
+    expect(screen.getByText('private failure')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    fireEvent.click(screen.getByTestId('page-back'));
+    expect(screen.queryByText('private failure')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report a cancelled delete or the persisted contact details', async () => {
+    confirmMock.mockResolvedValue(false);
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-delete'));
+    });
+    act(() => jest.advanceTimersByTime(2000));
+    expect(removeContactMock).not.toHaveBeenCalled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
 });

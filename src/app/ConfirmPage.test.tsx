@@ -11,12 +11,21 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
+import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: jest.fn(),
+  isUserErrorId: (value: unknown) => jest.requireActual('lib/telemetry/user-visible-error').isUserErrorId(value),
+  get USER_ERROR_SURFACES() {
+    return jest.requireActual('lib/telemetry/user-visible-error').USER_ERROR_SURFACES;
+  }
+}));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -218,17 +227,13 @@ jest.mock('./confirm/decode', () => {
   };
 });
 
-jest.mock('./atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description, onClose }: any) => (
-    <div data-testid="alert">
-      <span>{description}</span>
-      <button type="button" data-testid="alert-close" onClick={onClose}>
-        close
-      </button>
-    </div>
-  )
-}));
+jest.mock('./atoms/Alert', () => {
+  const actual = jest.requireActual<typeof import('./atoms/Alert')>('./atoms/Alert');
+  return {
+    __esModule: true,
+    default: (props: React.ComponentProps<typeof actual.default>) => <actual.default {...props} data-testid="alert" />
+  };
+});
 jest.mock('./icons/v2', () => ({
   Icon: ({ name }: any) => <span data-testid="icon" data-name={name} />,
   IconName: { Globe: 'Globe', WarningFill: 'WarningFill', Download: 'Download' }
@@ -637,7 +642,7 @@ describe('connect payload', () => {
     });
     await waitFor(() => expect(screen.getByTestId('alert')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByTestId('alert-close'));
+    fireEvent.click(within(screen.getByTestId('alert')).getByRole('button'));
     await waitFor(() => expect(screen.queryByTestId('alert')).not.toBeInTheDocument());
   });
 
@@ -695,6 +700,42 @@ describe('connect payload', () => {
     });
 
     await waitFor(() => expect(screen.getByText('network boom')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'inline');
+  });
+
+  it('keeps one inline report for the real approval error Alert across parent rerenders', async () => {
+    jest.useFakeTimers();
+    ctx.confirmDAppPermission.mockRejectedValueOnce(new Error('private approval detail'));
+    setPayload(connectPayload());
+    const { rerender } = render(<ConfirmPage />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(within(screen.getByTestId('alert')).getByText('private approval detail')).toBeInTheDocument();
+      expect(screen.getByTestId('alert')).toHaveAttribute('role', 'alert');
+      act(() => jest.advanceTimersByTime(999));
+      expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
+        ['raw_confirm_approval_failed', 'inline']
+      ]);
+
+      rerender(<ConfirmPage />);
+      act(() => jest.advanceTimersByTime(5000));
+      expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
+        ['raw_confirm_approval_failed', 'inline']
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('falls back to the generic error message when the thrown error has none', async () => {
@@ -817,11 +858,15 @@ describe('transaction payload', () => {
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', false, false));
   });
 
-  it('renders the payloadError instead of the derived content when present', () => {
+  it('renders the payloadError instead of the derived content when present', async () => {
     setPayload({ ...txPayload(), error: 'preview failed' });
     render(<ConfirmPage />);
 
     expect(screen.getByText('preview failed')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_payload_failed', 'inline');
   });
 });
 
@@ -935,7 +980,7 @@ describe('sign payload — word', () => {
     expect(screen.getByText('0xdeadbeefcafe')).toBeInTheDocument();
   });
 
-  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', () => {
+  it('logs and shows the invalid-payload copy under advanced details when deserialization throws', async () => {
     mockWord.deserialize.mockImplementation(() => {
       throw new Error('bad word');
     });
@@ -946,8 +991,17 @@ describe('sign payload — word', () => {
     expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
     expect(screen.getByText('invalidPayload')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('invalidPayload', 'inline');
   });
 
   it('confirms the signature via confirmDAppSign', async () => {
@@ -1012,7 +1066,7 @@ describe('sign payload — signingInputs', () => {
     return { variantType: SigningInputsType.TransactionSummary, transactionSummaryPayload: () => ts };
   };
 
-  it('shows the parse-failure copy when SigningInputs.deserialize throws', () => {
+  it('shows the parse-failure copy when SigningInputs.deserialize throws', async () => {
     mockSigningInputs.deserialize.mockImplementation(() => {
       throw new Error('bad si');
     });
@@ -1020,6 +1074,10 @@ describe('sign payload — signingInputs', () => {
     render(<ConfirmPage />);
 
     expect(screen.getByText('failedToParseSigningPayload')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('failedToParseSigningPayload', 'inline');
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
@@ -1378,15 +1436,23 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotVerifyBySimulation', 'inline');
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
   });
 
-  it('shows could-not-decode when requestBytes is absent', () => {
+  it('shows could-not-decode when requestBytes is absent', async () => {
     (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
     setPayload(customPayload({ requestBytes: undefined }));
     render(<ConfirmPage />);
 
     expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotDecodeTransaction', 'inline');
   });
 
   it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {

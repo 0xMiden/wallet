@@ -36,6 +36,7 @@ type FeeSnapshot = {
   balancesLoading: boolean;
 };
 type ClaimAttempt = PendingActivityItem & { feeRefusedAt?: FeeSnapshot };
+type RetryFailure = { message: string } & NonNullable<PendingActivityItem['failure']>;
 type Attempts = ReadonlyMap<string, ClaimAttempt>;
 type ClaimSlot = {
   attempts: Attempts;
@@ -168,7 +169,7 @@ export function useActivityClaims() {
     .sort()
     .join(',');
   const [heldTxIds, setHeldTxIds] = useState<ReadonlySet<string>>(new Set());
-  const [retryErrors, setRetryErrors] = useState<ReadonlyMap<string, string>>(new Map());
+  const [retryErrors, setRetryErrors] = useState<ReadonlyMap<string, RetryFailure>>(new Map());
 
   useEffect(() => {
     if (!watchedTxIds) return;
@@ -215,10 +216,12 @@ export function useActivityClaims() {
     const heldFields = (
       status: PendingActivityStatus,
       txId: string | undefined
-    ): Pick<PendingActivityItem, 'held' | 'retryError'> => {
+    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure'> => {
       if (status !== 'claiming' || txId === undefined || !heldTxIds.has(txId)) return {};
       const retryError = retryErrors.get(txId);
-      return retryError === undefined ? { held: true } : { held: true, retryError };
+      return retryError === undefined
+        ? { held: true }
+        : { held: true, retryError: retryError.message, failure: retryError };
     };
     const result = new Map<string, PendingActivityItem>();
     for (const note of claim.safeClaimableNotes) {
@@ -326,7 +329,9 @@ export function useActivityClaims() {
         setAttempts(previous => settleFeeRefusal(new Map(previous), note, startedAt));
         return;
       }
-      setAttempts(previous => new Map(previous).set(note.id, { note, status: 'failed' }));
+      setAttempts(previous =>
+        new Map(previous).set(note.id, { note, status: 'failed', failure: { id: 'noteClaimFailedRetry' } })
+      );
       console.error('[activity] Could not queue claim', error);
       return;
     } finally {
@@ -419,7 +424,9 @@ export function useActivityClaims() {
         }
         setAttempts(previous => {
           const next = new Map(previous);
-          for (const note of groupNotes) next.set(note.id, { note, status: 'failed' });
+          for (const note of groupNotes) {
+            next.set(note.id, { note, status: 'failed', failure: { id: 'noteClaimFailedRetry' } });
+          }
           return next;
         });
         console.error('[activity] Could not queue batch claim', error);
@@ -456,7 +463,8 @@ export function useActivityClaims() {
           : error instanceof Error
             ? error.message
             : String(error);
-      setRetryErrors(previous => new Map(previous).set(txId, message));
+      const id = error instanceof ClaimFeeRefusedError ? 'insufficientFeeAsset' : 'raw_pending_activity_retry_failed';
+      setRetryErrors(previous => new Map(previous).set(txId, { message, id }));
       return;
     } finally {
       retrying.delete(txId);

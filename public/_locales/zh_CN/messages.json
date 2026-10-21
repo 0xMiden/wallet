@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "该金额低于faucet规定的最低销毁金额。",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "该钱包的销毁脚本与 USDCx 的 faucet 不匹配。",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "发送至少 $amount$ USDCx。",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "无法读取 USDCx faucet 的销毁政策。请重新开启审核以再次尝试。",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "USDCx 的“faucet”目前尚不明确。请重新开启审核以再次尝试。",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "向$network$网络发送超过$amount$的USDCx：Circle的手续费将从支付金额中扣除。",
@@ -4061,6 +4062,14 @@
     "message": "该外部服务目前无法使用。请稍后再试。",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
   "swapUnavailableTitle": {
     "message": "该网络不支持“Swap”功能",
     "englishSource": "Swap is not available on this network"
@@ -7065,5 +7074,29 @@
   "webViewStartFailedAction": {
     "message": "请重试",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "正在检查可用性",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "请稍候，我们正在检查你所在地区是否可以使用钱包。",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "你所在地区无法使用钱包",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "你当前所在位置无法使用钱包。",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "无法检查可用性",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "请检查网络连接后重试。",
+    "englishSource": "Check your connection and try again."
   }
 }

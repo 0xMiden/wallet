@@ -63,7 +63,9 @@ export const OnboardingNetwork: FC<{
       >
         <div role="status" aria-label={t('loading')} className="my-auto flex flex-col items-center gap-4">
           {state !== 'failed' && <Spinner size="lg" />}
-          <ErrorLine>{state === 'failed' ? t('devEndpointSaveFailed') : null}</ErrorLine>
+          <ErrorLine errorId="devEndpointSaveFailed">
+            {state === 'failed' ? t('devEndpointSaveFailed') : null}
+          </ErrorLine>
         </div>
       </SubPageLayout>
     );

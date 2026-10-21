@@ -37,6 +37,7 @@ import {
 } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate, useLocation } from 'lib/woozie';
 
 const RotateGuardianReview: FC = () => {
@@ -82,6 +83,7 @@ const RotateGuardianReview: FC = () => {
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const submissionRef = useRef(false);
 
   // Set when the user backs out of a submission, so one that lands afterwards
@@ -142,10 +144,12 @@ const RotateGuardianReview: FC = () => {
       // credential, but the password step submits straight through to here.
       if (endpointUnchanged) {
         setError(t('guardianEndpointUnchanged'));
+        setErrorId('guardianEndpointUnchanged');
         return;
       }
       if (endpointInvalid) {
         setError(t('invalidUrl'));
+        setErrorId('invalidUrl');
         return;
       }
       // Claimed synchronously, before the first `await` below. The queue read is
@@ -169,6 +173,7 @@ const RotateGuardianReview: FC = () => {
         const queued = await getUncompletedTransactions(currentAccount.publicKey);
         if (queued.some(tx => tx.type === 'switch-guardian')) {
           setError(t('guardianSwitchAlreadyInProgress'));
+          setErrorId('guardianSwitchAlreadyInProgress');
           return;
         }
         await unlock(credential);
@@ -239,6 +244,14 @@ const RotateGuardianReview: FC = () => {
               ? err
               : t('smthWentWrong');
         setError(rotationInProgress ? t('guardianSwitchAlreadyInProgress') : message);
+        setErrorId(
+          rotationInProgress
+            ? 'guardianSwitchAlreadyInProgress'
+            : (typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string') ||
+                typeof err === 'string'
+              ? 'raw_guardian_switch_failed'
+              : 'smthWentWrong'
+        );
       } finally {
         submissionRef.current = false;
         setSubmitting(false);
@@ -254,12 +267,14 @@ const RotateGuardianReview: FC = () => {
     // an auth failure, on a step that could never succeed.
     if (endpointUnchanged) {
       setError(t('guardianEndpointUnchanged'));
+      setErrorId('guardianEndpointUnchanged');
       return;
     }
     // Before the credential step, not after it: authenticating and only then
     // being told the target is malformed reads as an auth failure.
     if (endpointInvalid) {
       setError(t('invalidUrl'));
+      setErrorId('invalidUrl');
       return;
     }
     if (hasHardwareProtector) {
@@ -345,6 +360,7 @@ const RotateGuardianReview: FC = () => {
             <PasscodeEntry
               onSubmit={code => void authenticateAndSwitch(code)}
               onChange={() => setError(null)}
+              errorId={errorId}
               error={error}
               isSubmitting={submitting}
               className="mt-auto pb-2"
@@ -360,6 +376,7 @@ const RotateGuardianReview: FC = () => {
                 value={password}
                 autoFocus
                 placeholder="********"
+                errorId={errorId}
                 error={error ?? undefined}
                 onChange={event => {
                   setPassword(event.target.value);
@@ -394,7 +411,12 @@ const RotateGuardianReview: FC = () => {
                 Continue and the reason appears above it. `max-h` + scroll so a long backend error
                 cannot grow the footer and push Continue off-screen. */}
             {error && (
-              <Notice tone="negative" role="alert" className="max-h-24 overflow-y-auto select-text wrap-break-word">
+              <Notice
+                errorId={errorId}
+                tone="negative"
+                role="alert"
+                className="max-h-24 overflow-y-auto select-text wrap-break-word"
+              >
                 {error}
               </Notice>
             )}
