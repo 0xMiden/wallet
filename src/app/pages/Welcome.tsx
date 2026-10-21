@@ -389,14 +389,24 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;
     if (!skipViaParam && !skipViaGlobal) return;
 
-    // Wallet type for the bypass: explicit `walletType=guardian` creates a
-    // Guardian (co-signed) account; anything else creates a fully-private
-    // (OffChain) account. The default is intentionally NOT the component's
-    // Guardian default — the bypass otherwise inherits it, which silently makes
-    // every bypass-created wallet guardian-backed. Defaulting to OffChain
-    // matches the Chrome E2E's private default and keeps non-guardian specs
-    // independent of a guardian backend.
-    const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
+    // `walletType=guardian` creates a Guardian account, `walletType=on-chain` a
+    // public single-key account, and anything else a private account. The
+    // default stays private: the component's own default is Guardian, and a
+    // bypass that named no type would otherwise create a guardian-backed wallet.
+    const walletTypeParam = params.get('walletType');
+    const bypassWalletType =
+      walletTypeParam === 'guardian'
+        ? WalletType.Guardian
+        : walletTypeParam === 'on-chain'
+          ? WalletType.OnChain
+          : WalletType.OffChain;
+    // One-time mainnet invitation for a create. An import of an account the
+    // node already admitted leaves this off. The harness passes it on the
+    // E2E global so it never appears in the page URL. Never log it.
+    const bypassAccessCode =
+      params.get('accessCode') ||
+      (globalThis as { __TEST_MAINNET_ACCESS_CODE__?: string }).__TEST_MAINNET_ACCESS_CODE__ ||
+      undefined;
     // Guardian endpoint override for the bypass. Production sets this via the
     // MeetGuardian / ImportRecoveryMethod screens, which the bypass skips, so
     // thread it from the `guardianUrl` param the E2E helper passes. register()
@@ -404,11 +414,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     // so fetchGuardianCreateKey (create) and Vault.spawn's recovery scan (import)
     // bind to it. Only meaningful for a Guardian wallet.
     const bypassGuardianUrl = params.get('guardianUrl') || undefined;
-    // Optional `seed` param: a space- or comma-separated mnemonic. When present,
-    // import that exact seed (onboardingType=Import drives registerWallet's
-    // isImport=true) instead of generating a fresh mnemonic + Create. This lets
-    // the harness restore a specific wallet through the bypass.
-    const seedParam = params.get('seed');
+    // Optional seed: a space- or comma-separated mnemonic. When present, import
+    // that exact seed (onboardingType=Import drives registerWallet's isImport)
+    // instead of generating a fresh one. The harness passes it on the E2E global
+    // so a long-lived seed is not put in the page URL. The query param remains
+    // for the bypass unit tests.
+    const seedParam =
+      params.get('seed') || (globalThis as { __TEST_IMPORT_SEED__?: string }).__TEST_IMPORT_SEED__ || null;
     const importedSeed = seedParam
       ? seedParam
           .split(/[\s,]+/)
@@ -439,6 +451,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     setSeedPhrase(testSeed);
     setPassword(testPassword);
     setOnboardingType(bypassOnboardingType);
+    if (bypassAccessCode) setAccessCode(bypassAccessCode);
     setTestBypassTriggered(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
