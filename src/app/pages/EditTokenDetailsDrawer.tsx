@@ -124,6 +124,7 @@ const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, decimalsEditab
         label={t('tokenNameLabel')}
         value={values.name}
         onChange={event => changeField('name', event.target.value)}
+        errorId="tokenNameInvalid"
         error={errors.name && t('tokenNameInvalid', { max: TOKEN_NAME_MAX_LENGTH })}
         errorTestId="edit-token-name-error"
         maxLength={TOKEN_NAME_MAX_LENGTH}
@@ -135,6 +136,7 @@ const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, decimalsEditab
         label={t('tokenSymbolLabel')}
         value={values.symbol}
         onChange={event => changeField('symbol', event.target.value)}
+        errorId="tokenSymbolInvalid"
         error={errors.symbol && t('tokenSymbolInvalid', { max: TOKEN_SYMBOL_MAX_LENGTH })}
         errorTestId="edit-token-symbol-error"
         maxLength={TOKEN_SYMBOL_MAX_LENGTH}
@@ -150,6 +152,7 @@ const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, decimalsEditab
             label={t('tokenDecimalsLabel')}
             value={values.decimals}
             onChange={event => changeField('decimals', event.target.value)}
+            errorId="tokenDecimalsInvalid"
             error={errors.decimals && t('tokenDecimalsInvalid', { max: TOKEN_DECIMALS_MAX })}
             errorTestId="edit-token-decimals-error"
             inputMode="numeric"
@@ -164,7 +167,11 @@ const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, decimalsEditab
         </>
       )}
 
-      {saveFailed && <ErrorLine data-testid="edit-token-save-error">{t('tokenMetadataSaveError')}</ErrorLine>}
+      {saveFailed && (
+        <ErrorLine data-testid="edit-token-save-error" errorId="tokenMetadataSaveError">
+          {t('tokenMetadataSaveError')}
+        </ErrorLine>
+      )}
 
       <div className="flex flex-col gap-2.5">
         <Button

@@ -8,6 +8,7 @@ import { Button } from 'components/Button';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { setFaucetIdSetting } from 'lib/miden/assets';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const FORM_ID = 'edit-miden-faucet-id-form';
@@ -27,6 +28,7 @@ const EditMidenFaucetId: FC = () => {
     formState: { errors, isSubmitting }
   } = useForm<FormData>();
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
 
   const formRef = useRef<HTMLFormElement>(null);
   const focusFaucetIdField = useCallback(() => {
@@ -51,6 +53,7 @@ const EditMidenFaucetId: FC = () => {
 
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
+        setSubmitErrorId('raw_faucet_id_save_failed');
         setError('faucetId', { type: SUBMIT_ERROR_TYPE, message: err instanceof Error ? err.message : String(err) });
         focusFaucetIdField();
       }
@@ -79,6 +82,7 @@ const EditMidenFaucetId: FC = () => {
           id="set-faucet-id"
           type="text"
           placeholder={faucetId ?? ''}
+          errorId={errors.faucetId?.type === SUBMIT_ERROR_TYPE ? submitErrorId : 'required'}
           error={errors.faucetId?.message}
           errorTestId="edit-faucet-id-error"
           onChange={() => {

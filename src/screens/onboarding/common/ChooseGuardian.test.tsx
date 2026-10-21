@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
+let mockRealTelemetrySurfaces = false;
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -91,29 +93,54 @@ jest.mock('components/Button', () => ({
 // `TextField` — thin controlled input echoing the props the screen threads through
 // (rest props forwarded so keyboard attributes like enterKeyHint are assertable),
 // and the error line the real field renders as an alert.
-jest.mock('components/ui/TextField', () => ({
-  TextField: ({
-    id,
-    value,
-    placeholder,
-    onChange,
-    error,
-    containerClassName: _containerClassName,
-    ...rest
-  }: {
-    id?: string;
-    value?: string;
-    placeholder?: string;
-    error?: React.ReactNode;
-    containerClassName?: string;
-    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <>
-      <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
-      {error && <p role="alert">{error}</p>}
-    </>
-  )
-}));
+jest.mock('components/ui/TextField', () =>
+  (() => {
+    const legacy = {
+      TextField: ({
+        id,
+        value,
+        placeholder,
+        onChange,
+        error,
+        containerClassName: _containerClassName,
+        ...rest
+      }: {
+        id?: string;
+        value?: string;
+        placeholder?: string;
+        error?: React.ReactNode;
+        containerClassName?: string;
+        onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+      } & React.InputHTMLAttributes<HTMLInputElement>) => (
+        <>
+          <input
+            data-testid="custom-input"
+            id={id}
+            value={value}
+            placeholder={placeholder}
+            onChange={onChange}
+            {...rest}
+          />
+          {error && <p role="alert">{error}</p>}
+        </>
+      )
+    };
+    return {
+      ...legacy,
+      TextField: React.forwardRef<
+        import('components/ui/TextField').TextFieldElement,
+        React.ComponentProps<typeof import('components/ui/TextField').TextField>
+      >((props, ref) => {
+        if (mockRealTelemetrySurfaces) {
+          const { TextField } = jest.requireActual<typeof import('components/ui/TextField')>('components/ui/TextField');
+          return <TextField {...props} ref={ref} />;
+        }
+        const { size: _size, ...legacyProps } = props;
+        return <legacy.TextField {...legacyProps} />;
+      })
+    };
+  })()
+);
 
 // `GuardianInfoDrawer` — surface the open flag and a close hook so the
 // info-drawer open/close wiring is assertable.
@@ -131,6 +158,8 @@ jest.mock('./GuardianInfoDrawer', () => ({
 import { PageActiveContext } from 'app/layouts/page-active';
 // eslint-disable-next-line import/first
 import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
+// eslint-disable-next-line import/first
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 // eslint-disable-next-line import/first
 import { ChooseGuardianScreen, default as DefaultChooseGuardianScreen } from './ChooseGuardian';
@@ -202,6 +231,24 @@ const enterCustomUrl = (url: string) => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('ChooseGuardianScreen', () => {
   it('exports the same component as the default export', () => {
@@ -1033,5 +1080,55 @@ describe('ChooseGuardianScreen — offline banner', () => {
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' })
     );
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockRealTelemetrySurfaces = true;
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+    mockRealTelemetrySurfaces = false;
+  });
+
+  it('reports a caller submission failure without sending its raw text', () => {
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} error={privateErrorFixture} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(privateErrorFixture);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('raw_choose_guardian_submit_failed', 'notice');
+  });
+  it.each([false, true])('reports the custom endpoint validation failure unreachable=%s', async unreachable => {
+    mockIsValidGuardianUrl.mockReturnValue(unreachable);
+    mockPing.mockResolvedValue(null);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+    fireEvent.change(screen.getByPlaceholderText('https://'), { target: { value: privateErrorFixture } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('continue-button'));
+    });
+    const id = unreachable ? 'customGuardianUnreachable' : 'invalidUrl';
+    expect(screen.getByRole('alert')).toHaveTextContent(id);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport(id, 'field');
+  });
+  it('cancels custom endpoint errors cleared by editing before dwell', () => {
+    mockIsValidGuardianUrl.mockReturnValue(false);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+    fireEvent.change(screen.getByPlaceholderText('https://'), { target: { value: privateErrorFixture } });
+    fireEvent.click(screen.getByTestId('continue-button'));
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    fireEvent.change(screen.getByPlaceholderText('https://'), { target: { value: 'changed' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

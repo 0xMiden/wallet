@@ -8,8 +8,11 @@ import {
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { SendAmount, SendAmountProps } from './SendAmount';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -54,24 +57,31 @@ jest.mock('components/Button', () => ({
     </button>
   )
 }));
+let mockUseRealAmountInput = false;
 jest.mock('components/AmountInput', () => ({
-  AmountInput: (props: any) => (
-    <div>
-      <input
-        data-testid={props['data-testid']}
-        data-invalid={String(!!props.invalid)}
-        value={props.value}
-        onChange={e => props.onValueChange(e.target.value)}
-      />
-      <button
-        data-testid="change-localized-amount"
-        onClick={() => props.onValueChange('1.5', undefined, { value: '1.5', float: 1.5, formatted: '۱.۵' })}
-      />
-      <button data-testid="clear-amount" onClick={() => props.onValueChange(undefined)} />
-      {props.error && <span data-testid="amount-error">{props.error}</span>}
-      {props.helper}
-    </div>
-  )
+  AmountInput: (props: any) =>
+    mockUseRealAmountInput ? (
+      React.createElement(
+        jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput').AmountInput,
+        props
+      )
+    ) : (
+      <div>
+        <input
+          data-testid={props['data-testid']}
+          data-invalid={String(!!props.invalid)}
+          value={props.value}
+          onChange={e => props.onValueChange(e.target.value)}
+        />
+        <button
+          data-testid="change-localized-amount"
+          onClick={() => props.onValueChange('1.5', undefined, { value: '1.5', float: 1.5, formatted: '۱.۵' })}
+        />
+        <button data-testid="clear-amount" onClick={() => props.onValueChange(undefined)} />
+        {props.error && <span data-testid="amount-error">{props.error}</span>}
+        {props.helper}
+      </div>
+    )
 }));
 jest.mock('./bridge-networks', () => ({
   getBridgeNetwork: (id: string) => (id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 1 } : undefined)
@@ -327,5 +337,119 @@ describe('SendAmount', () => {
       expect(frames.some(frame => amountOf(frame) > 12000 && amountOf(frame) < 15000)).toBe(true);
       expect(frames[frames.length - 1]).toBe('available 15000');
     });
+  });
+});
+
+describe('SendAmount user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockUseRealAmountInput = true;
+  });
+
+  afterEach(() => {
+    mockUseRealAmountInput = false;
+    jest.useRealTimers();
+  });
+
+  const expectReport = async (id: string, surface: string) => {
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, surface]]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  it.each([
+    'invalidAmount',
+    'amountMustBeLessThanBalance',
+    'feeReserveBlocksSend',
+    'usdcxBurnFeeUnavailable',
+    'usdcxSendMoreThanPayoutFee'
+  ])('reports the displayed %s amount refusal by its key after 1000 ms', async error => {
+    const Owner = () => {
+      const [amount, setAmount] = React.useState('');
+      return (
+        <SendAmount {...renderProps()} amount={amount} error={amount ? error : undefined} onAmountChange={setAmount} />
+      );
+    };
+    render(<Owner />);
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+
+    expect(screen.getByText(error)).toBeVisible();
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('aria-invalid', 'true');
+    await expectReport(error, 'field');
+  });
+
+  function renderProps(): SendAmountProps {
+    return {
+      token: TOKEN,
+      amount: '',
+      isValidAmount: false,
+      recipientAddress: 'mtst1recipientaddress',
+      network: 'miden',
+      onAmountChange: jest.fn(),
+      onSelectToken: jest.fn(),
+      onReceive: jest.fn(),
+      onBack: jest.fn(),
+      onConfirm: jest.fn()
+    };
+  }
+
+  it('reports the fee shortfall notice without marking the amount invalid', async () => {
+    renderAmount({ error: 'insufficientFeeAsset' });
+
+    expect(screen.getByTestId('send-fee-notice')).toHaveTextContent('insufficientFeeAsset');
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('aria-invalid', 'false');
+    await expectReport('insufficientFeeAsset', 'notice');
+  });
+
+  it('reports a parameterized payout refusal without forwarding its values', async () => {
+    renderAmount({
+      amount: '1.5',
+      error: 'usdcxSendMoreThanPayoutFee',
+      errorValues: { amount: '1.5', network: 'Sepolia' }
+    });
+
+    expect(screen.getByText('usdcxSendMoreThanPayoutFee:1.5:Sepolia')).toBeVisible();
+    await expectReport('usdcxSendMoreThanPayoutFee', 'field');
+  });
+
+  it('does not report an invalid amount until its error text becomes visible', async () => {
+    const props = { ...renderProps(), error: 'invalidAmount' };
+    const { rerender } = render(<SendAmount {...props} />);
+    await act(async () => jest.advanceTimersByTimeAsync(1500));
+    expect(screen.queryByText('invalidAmount')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(<SendAmount {...props} amount="0" />);
+    expect(screen.getByText('invalidAmount')).toBeVisible();
+    await expectReport('invalidAmount', 'field');
+  });
+
+  it('reports an unknown token scale while confirmation remains blocked', async () => {
+    renderAmount({ token: { ...TOKEN, scaleIsKnown: false }, amount: '1', isValidAmount: true });
+
+    expect(screen.getByTestId('send-amount-available')).toHaveTextContent('unknownTokenScale');
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    await expectReport('unknownTokenScale', 'inline');
+  });
+
+  it('does not report the pending burn-fee measurement as an error', async () => {
+    renderAmount({ amount: '1.5', error: 'usdcxBurnFeeMeasuring' });
+    expect(screen.getByText('usdcxBurnFeeMeasuring')).toBeVisible();
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('aria-invalid', 'true');
+
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report the pending token availability warning as an error', async () => {
+    renderAmount({ tokenHeld: true });
+    expect(screen.getByTestId('send-amount-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

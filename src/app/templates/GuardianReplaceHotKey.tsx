@@ -10,6 +10,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 
 /**
@@ -29,6 +30,7 @@ const GuardianReplaceHotKey: FC = () => {
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
 
   const onClick = useCallback(async () => {
     if (!currentAccount) return;
@@ -48,6 +50,7 @@ const GuardianReplaceHotKey: FC = () => {
       navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setErrorId('raw_guardian_replace_hot_key_failed');
     } finally {
       setSubmitting(false);
     }
@@ -84,7 +87,9 @@ const GuardianReplaceHotKey: FC = () => {
         {confirming ? t('confirmReplaceHotKey') : t('replaceHotKey')}
       </Button>
 
-      <ErrorLine className="mt-3">{error}</ErrorLine>
+      <ErrorLine errorId={errorId} className="mt-3">
+        {error}
+      </ErrorLine>
     </SubPageSection>
   );
 };

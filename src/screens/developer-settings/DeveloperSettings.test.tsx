@@ -5,9 +5,15 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 
 import DeveloperSettings from './DeveloperSettings';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and every rendered label is the raw key.
@@ -854,6 +860,22 @@ describe('DeveloperSettings', () => {
   // reports a reload that cannot start. The reload does not depend on the page staying open at any point: on the
   // extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
   // the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
+  it('forwards resetDidNotFinish from the actual developer-settings wipe catch', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    resetStorageDestructive.mockRejectedValueOnce(new Error('private storage detail'));
+    render(<DeveloperSettings readOnly />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
+    });
+
+    await waitFor(() => expect(mockReloadInPlace).toHaveBeenCalledTimes(1));
+    expect(resetStorageDestructive).toHaveBeenCalledWith({ keepEndpointOverride: false });
+    expect(alert.mock.calls).toEqual([
+      [{ title: 'error', children: 'resetDidNotFinish', errorId: 'resetDidNotFinish' }]
+    ]);
+  });
+
   it('says the reset did not finish, then reloads, when the wipe fails partway', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     mockIsExtension.value = true;
@@ -864,12 +886,18 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
-    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
-    // While the alert is open nothing reloads, and the reset stays pending.
-    expect(runtimeReload).not.toHaveBeenCalled();
-    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
-
-    closeAlert();
+    try {
+      expect(alert).toHaveBeenCalledWith({
+        title: 'error',
+        children: 'resetDidNotFinish',
+        errorId: 'resetDidNotFinish'
+      });
+      // While the alert is open nothing reloads, and the reset stays pending.
+      expect(runtimeReload).not.toHaveBeenCalled();
+      expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+    } finally {
+      await act(async () => closeAlert());
+    }
     await waitFor(() => expect(runtimeReload).toHaveBeenCalledTimes(1));
     expect(alert.mock.invocationCallOrder[0]!).toBeLessThan(runtimeReload.mock.invocationCallOrder[0]!);
     // The inline error is only for a reload that cannot start.
@@ -1079,10 +1107,16 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-reset'));
 
     await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
-    expect(alert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
-    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
-
-    closeAlert();
+    try {
+      expect(alert).toHaveBeenCalledWith({
+        title: 'error',
+        children: 'resetDidNotFinish',
+        errorId: 'resetDidNotFinish'
+      });
+      expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'true');
+    } finally {
+      await act(async () => closeAlert());
+    }
     await waitFor(() => expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-loading', 'false'));
     expect(runtimeReload).not.toHaveBeenCalled();
     // The inline error is only for a reload that cannot start.
@@ -1246,4 +1280,68 @@ describe('DeveloperSettings module evaluation (desktop boot safety)', () => {
       require('./DeveloperSettings');
     }).not.toThrow();
   });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each(['save', 'reload', 'polyfill'])('reports the %s refusal using its known inline key', async operation => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    if (operation === 'save')
+      applyEndpointOverride.mockRejectedValueOnce(new Error('private endpoint https://private.invalid'));
+    if (operation === 'reload')
+      mockReloadInPlace.mockImplementationOnce(() => {
+        throw new Error('private reload');
+      });
+    if (operation === 'polyfill') {
+      mockIsExtension.value = true;
+      jest.resetModules();
+      jest.doMock('webextension-polyfill', () => {
+        throw new Error('private polyfill');
+      });
+    }
+    render(<DeveloperSettings readOnly={operation !== 'save'} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(operation === 'save' ? 'dev-endpoints-save' : 'dev-endpoints-reset'));
+    });
+    const id = operation === 'save' ? 'devEndpointSaveFailed' : 'resetDidNotFinish';
+    expect(screen.getByTestId('dev-endpoints-error')).toHaveTextContent(id);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('cancels a save failure report when a new save clears the error', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    applyEndpointOverride.mockRejectedValueOnce(new Error('private endpoint'));
+    render(<DeveloperSettings />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    });
+    expect(screen.getByTestId('dev-endpoints-error')).toHaveTextContent('devEndpointSaveFailed');
+    act(() => jest.advanceTimersByTime(999));
+    applyEndpointOverride.mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    });
+    expect(screen.queryByTestId('dev-endpoints-error')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each<HealthStatus>(['idle', 'pending', 'reachable', 'error'])(
+    'keeps the developer warning, helper fields and %s health note silent',
+    status => {
+      mockHealthStatus.value = status;
+      render(<DeveloperSettings />);
+      expect(screen.getByText('developerSettingsWarning')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(2000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    }
+  );
 });

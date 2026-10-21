@@ -118,7 +118,11 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
         await resetStorageDestructive();
       } catch (err) {
         console.warn('[options] Could not wipe the wallet storage', err);
-        await customAlert({ title: getMessage('error'), children: getMessage('resetDidNotFinish') });
+        await customAlert({
+          errorId: 'resetDidNotFinish',
+          title: getMessage('error'),
+          children: getMessage('resetDidNotFinish')
+        });
       }
       // A listener reload that threw left the flag down, so this one retries and reports.
       if (!reloaded) {
@@ -126,6 +130,7 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
           reloadOnce();
         } catch (err) {
           await customAlert({
+            errorId: 'raw_options_reload_failed',
             title: getMessage('error'),
             children: err instanceof Error ? err.message : String(err)
           });

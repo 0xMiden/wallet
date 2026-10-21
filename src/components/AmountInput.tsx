@@ -8,6 +8,8 @@ import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
 import { Skeleton } from 'components/ui/Skeleton';
 import { getCurrentLocale } from 'lib/i18n/core';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { clearFieldValue } from 'lib/ui/clear-field';
 
 /**
@@ -64,6 +66,8 @@ export function normalizeDecimalInput(rawValue: string): string {
 }
 
 export interface AmountInputProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   value?: string;
   /** Exact-token flows can opt into their own precision validation instead of the send default. */
   decimalsLimit?: number;
@@ -122,6 +126,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   placeholder = '0.00',
   label,
   error,
+  errorId,
   invalid = false,
   helper,
   tokenSelector,
@@ -136,6 +141,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   className,
   'data-testid': dataTestId
 }) => {
+  useUserVisibleError(error ? errorId : null, 'field');
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
   const showClear = Boolean(value) && !disabled && !loading;

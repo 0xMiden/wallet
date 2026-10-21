@@ -1,5 +1,7 @@
 import { getMessage } from 'lib/i18n';
 import { isExtension } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { getIntercom } from './defaults';
 
@@ -11,7 +13,12 @@ import { getIntercom } from './defaults';
  * unconditionally. `notificationId` scopes the chrome.notifications entry so a
  * failure alert doesn't replace a received-note alert.
  */
-export function showBackgroundNotification(title: string, message: string, notificationId = 'miden-background'): void {
+export function showBackgroundNotification(
+  title: string,
+  message: string,
+  notificationId = 'miden-background',
+  errorId: UserErrorId | null = null
+): void {
   const fallback = () => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -29,6 +36,8 @@ export function showBackgroundNotification(title: string, message: string, notif
           () => {
             if (chrome.runtime.lastError) {
               console.warn('[background-notification] chrome.notifications error:', chrome.runtime.lastError.message);
+            } else if (errorId) {
+              reportUserVisibleError(errorId, 'os_notification');
             }
           }
         );
@@ -48,7 +57,11 @@ export function showBackgroundNotification(title: string, message: string, notif
           icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
           requireInteraction: true
         })
-      ).catch(fallback);
+      )
+        .then(() => {
+          if (errorId) reportUserVisibleError(errorId, 'os_notification');
+        })
+        .catch(fallback);
     } catch {
       fallback();
     }
@@ -82,7 +95,7 @@ export function notifyBackgroundTransactionFailed(): void {
     const body =
       getMessage('transactionFailedNotificationBody') ||
       "A transaction couldn't be completed. Open the wallet to review.";
-    showBackgroundNotification(title, body, 'miden-transaction-failed');
+    showBackgroundNotification(title, body, 'miden-transaction-failed', 'transactionFailedNotificationBody');
   } catch (err) {
     console.warn('[background-notification] failed to notify a transaction failure:', err);
   }
@@ -102,7 +115,12 @@ export function notifyBackgroundTransactionNotConfirmed(): void {
     const body =
       getMessage('transactionNotConfirmedNotificationBody') ||
       'The wallet could not confirm whether a transaction went through. Open the wallet before you try again.';
-    showBackgroundNotification(title, body, 'miden-transaction-not-confirmed');
+    showBackgroundNotification(
+      title,
+      body,
+      'miden-transaction-not-confirmed',
+      'transactionNotConfirmedNotificationBody'
+    );
   } catch (err) {
     console.warn('[background-notification] failed to notify an unconfirmed transaction:', err);
   }

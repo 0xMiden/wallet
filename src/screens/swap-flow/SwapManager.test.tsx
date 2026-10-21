@@ -9,6 +9,7 @@ import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/faucet-ids';
 import { SwapPair } from 'lib/miden/swap/tokens';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
@@ -127,11 +128,15 @@ jest.mock('components/Navigator', () => ({
 
 // The three swap-flow children are exercised by their own suites; stub them to
 // thin harnesses that surface every prop and forward every callback.
+let mockRealSwapDisplays = false;
+let mockRealSwapAmounts = false;
 jest.mock('./SwapAmounts', () => {
   const { AmountInput } = jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput');
   return {
     SwapAmounts: (props: import('./SwapAmounts').SwapAmountsProps) => (
       <div data-testid="swap-amounts">
+        {mockRealSwapAmounts &&
+          React.createElement(jest.requireActual<typeof import('./SwapAmounts')>('./SwapAmounts').SwapAmounts, props)}
         <span data-testid="sa-offer-token">{props.offerToken.symbol}</span>
         <span data-testid="sa-request-token">{props.requestToken.symbol}</span>
         <span data-testid="sa-offer-balance">{String(props.offerBalance)}</span>
@@ -157,12 +162,14 @@ jest.mock('./SwapAmounts', () => {
   };
 });
 
-let mockReviewSubmit: () => Promise<void>;
+let mockReviewSubmit: () => void;
 jest.mock('./ReviewSwap', () => ({
-  ReviewSwap: (props: Record<string, any>) => {
+  ReviewSwap: (props: import('./ReviewSwap').ReviewSwapProps) => {
     mockReviewSubmit = props.onSubmit;
     return (
       <div data-testid="review-swap" data-submitting={String(Boolean(props.submitting))}>
+        {mockRealSwapDisplays &&
+          React.createElement(jest.requireActual<typeof import('./ReviewSwap')>('./ReviewSwap').ReviewSwap, props)}
         <span data-testid="rs-offer-token">{props.offerToken.symbol}</span>
         <span data-testid="rs-request-token">{props.requestToken.symbol}</span>
         <span data-testid="rs-offer-amount">{props.offerAmount}</span>
@@ -255,6 +262,8 @@ const mockSwapPartners = (faucetId: string) =>
         mockSolverPairs.some(pair => pair.includes(faucetId) && pair.includes(token.faucetId)))
   );
 jest.mock('lib/miden/swap/tokens', () => ({
+  normalizedFaucetId:
+    jest.requireActual<typeof import('lib/miden/swap/faucet-ids')>('lib/miden/swap/faucet-ids').normalizedFaucetId,
   getSwapTokens: () => mockGetSwapTokens(),
   getSwapPartners: (faucetId: string) => mockSwapPartners(faucetId),
   isSwapPair: (faucetId: string, other: string) => mockSwapPartners(faucetId).some(token => token.faucetId === other),
@@ -309,6 +318,7 @@ jest.mock('lib/miden/back/protector-probe', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  ...jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers'),
   stringToBigInt: (str: string, decimals: number) => mockStringToBigInt(str, decimals),
   // The inverse of the stand-in above: base units read as whole display units.
   formatBigInt: (amount: bigint) => amount.toString()
@@ -320,6 +330,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
+  ...jest.requireActual<typeof import('lib/platform')>('lib/platform'),
   isExtension: () => mockIsExtension()
 }));
 
@@ -1042,6 +1053,22 @@ describe('SwapFlow / SwapManager', () => {
         expect(mockConfirmSensitive).not.toHaveBeenCalled();
       });
 
+      it('reports user-visible error: refuses the review Swap and starts no spending-limit check or swap', async () => {
+        jest.useFakeTimers();
+        jest.mocked(reportUserVisibleError).mockClear();
+        mockRealSwapDisplays = true;
+        const { rerender } = renderFlow();
+        act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+        setOffer('10');
+        delistOpenPair(rerender);
+        await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+        expectRefusedAndRetryable();
+        expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+        expect(mockConfirmSensitive).not.toHaveBeenCalled();
+        act(() => jest.advanceTimersByTime(1000));
+        expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapPairNotListed', 'review']]);
+      });
+
       it('refuses the resubmit when the delist lands while a spending-limit challenge is open', async () => {
         mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
         const { rerender } = renderFlow();
@@ -1318,6 +1345,53 @@ describe('SwapFlow / SwapManager', () => {
   });
 
   describe('status message', () => {
+    it('reports user-visible missing fees rejected by review', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      mockBaseFee = 7;
+      mockAllBalancesReturn = {
+        data: [
+          { tokenId: 'bech32-faucet-A', balance: 100 },
+          { tokenId: 'MIDEN-ID', balance: 0 }
+        ]
+      };
+      renderFlow();
+      setOffer('10');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('insufficientFeeAsset');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['insufficientFeeAsset', 'review']]);
+    });
+
+    it('does not report user-visible successful quote state', () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapAmounts = true;
+      renderFlow();
+      setOffer('10');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['no_market', 'swapVerdictNoMarket'],
+      ['no_price', 'swapVerdictNoPrice']
+    ])('reports user-visible quote verdict %s', (code, id) => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapAmounts = true;
+      mockSwapQuoteResult = {
+        loading: false,
+        error: 'private quote detail',
+        errorCode: code === 'no_market' ? 'no_market' : 'no_price'
+      };
+      renderFlow();
+      setOffer('10');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    });
+
     it('shows a same-token error when both sides are the same faucet', () => {
       mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenA, mockTokenC]);
       renderFlow();
@@ -1327,6 +1401,20 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
     });
 
+    it('reports user-visible error: shows a same-token error when both sides are the same faucet', () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapAmounts = true;
+      mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenA, mockTokenC]);
+      renderFlow();
+
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapSameToken');
+      expect(screen.getByTestId('sa-status-error')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapSameToken', 'inline']]);
+    });
+
     it('shows a price-unavailable error when the quote errors', () => {
       mockSwapQuoteResult = { loading: false, error: 'quote boom', errorCode: 'unknown' };
       renderFlow();
@@ -1334,6 +1422,20 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPriceUnavailable');
       expect(screen.getByTestId('sa-status-error')).toHaveTextContent('true');
+    });
+
+    it('reports user-visible error: shows a price-unavailable error when the quote errors', () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapAmounts = true;
+      mockSwapQuoteResult = { loading: false, error: 'quote boom', errorCode: 'unknown' };
+      renderFlow();
+      setOffer('10');
+
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPriceUnavailable');
+      expect(screen.getByTestId('sa-status-error')).toHaveTextContent('true');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapPriceUnavailable', 'inline']]);
     });
 
     it('names the reason when the service says the pair is not traded or has no price', () => {
@@ -1642,6 +1744,25 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('assessment backend down');
     });
 
+    it('reports user-visible error: shows a real Error rejection from the pre-check by its own message', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      // Not price-unavailable and not an authorization-required breach - a genuine failure of the
+      // pre-check itself, which must surface as its own reason rather than a swallowed string.
+      mockWalletState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('assessment backend down');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+    });
+
     it('opens the unvalued challenge when the actual swap cannot be priced', async () => {
       mockInitiateSwap.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'AAA' });
       renderFlow();
@@ -1745,6 +1866,21 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockInitiateSwap).not.toHaveBeenCalled();
     });
 
+    it('reports user-visible error: rejects an empty pay amount with a validation error', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      renderFlow();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapInvalidAmounts', 'review']]);
+    });
+
     it('rejects a same-token swap with a validation error', async () => {
       mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenA, mockTokenC]);
       renderFlow();
@@ -1755,6 +1891,23 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
       expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it('reports user-visible error: rejects a same-token swap with a validation error', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenA, mockTokenC]);
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapInvalidAmounts', 'review']]);
     });
 
     it('rejects when the derived receive amount is zero', async () => {
@@ -1900,6 +2053,24 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockNavigate).not.toHaveBeenCalled();
     });
 
+    it('reports user-visible error: surfaces an Error message when the swap fails', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      mockInitiateSwap.mockRejectedValue(new Error('chain rejected'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('chain rejected');
+      expect(mockNavigate).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+    });
+
     it('stringifies a non-Error rejection', async () => {
       mockInitiateSwap.mockRejectedValue('plain failure');
       renderFlow();
@@ -1910,6 +2081,23 @@ describe('SwapFlow / SwapManager', () => {
       });
 
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('plain failure');
+    });
+
+    it('reports user-visible error: stringifies a non-Error rejection', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      mockInitiateSwap.mockRejectedValue('plain failure');
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('plain failure');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
     });
   });
 
@@ -2234,6 +2422,30 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockQuoteNow).toHaveBeenLastCalledWith();
     });
 
+    it('reports user-visible error: refuses an ask the price has moved past, shows the fresh quote and rebuilds the wallet-built amount', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      const moved = quoteAt('1', 5n, { priceBand: 'off_market', fillStatus: 'none', reason: 'price' });
+      quoteNowAnswers(moved);
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+      expect(screen.getByTestId('rs-market-price')).toHaveTextContent('1');
+      // The second call is the rebuild from the new price: no ask of its own.
+      expect(mockQuoteNow).toHaveBeenCalledTimes(2);
+      expect(mockQuoteNow).toHaveBeenLastCalledWith();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapPriceMoved', 'review']]);
+    });
+
     it('keeps a user-edited ask as it is when the solver reads it as off market', async () => {
       quoteNowAnswers(quoteAt('2', 9n, { priceBand: 'off_market', fillStatus: 'none', reason: 'price' }));
       renderFlow();
@@ -2300,6 +2512,25 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceUnavailable');
       expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+    });
+
+    it('reports user-visible error: refuses to sign an ask it could not check', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockRealSwapDisplays = true;
+      mockQuoteNow.mockRejectedValueOnce(new Error('offline'));
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceUnavailable');
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapPriceUnavailable', 'review']]);
     });
   });
 
@@ -2539,4 +2770,12 @@ beforeEach(() => {
 
 afterEach(() => {
   mockTokenA.decimals = 8;
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+afterEach(() => {
+  mockRealSwapDisplays = false;
+  mockRealSwapAmounts = false;
+  jest.useRealTimers();
 });
