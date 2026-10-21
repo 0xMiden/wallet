@@ -6,7 +6,7 @@ import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { useOnboardingFinishing } from 'app/onboarding-finish';
-import { Button } from 'components/Button';
+import { Button, ButtonVariant } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { Spinner } from 'components/ui/Spinner';
@@ -21,6 +21,7 @@ import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/m
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
+import { resetWalletAndReload } from 'lib/miden/reset-and-reload';
 import {
   findAdoptableShortfallRow,
   hotKeyRotationLockName,
@@ -35,6 +36,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { useAlert, useConfirm } from 'lib/ui/dialog';
 import { guardianNoteScanText, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 import * as Woozie from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
@@ -169,11 +171,12 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
  * flex column a box otherwise sizes to its widest unbreakable token, and the overlay only scrolls
  * vertically, so a long id in a raw error ran off both sides of the screen (#1250).
  */
-const RotationFailedPanel: FC<{ failure: RotationFailure; errorId: UserErrorId | null; onRetry: () => void }> = ({
-  failure,
-  errorId,
-  onRetry
-}) => {
+const RotationFailedPanel: FC<{
+  failure: RotationFailure;
+  errorId: UserErrorId | null;
+  onRetry: () => void;
+  onStartOver: () => void;
+}> = ({ failure, errorId, onRetry, onStartOver }) => {
   const { t } = useTranslation();
   useUserVisibleError(errorId, 'status_screen');
   return (
@@ -187,6 +190,13 @@ const RotationFailedPanel: FC<{ failure: RotationFailure; errorId: UserErrorId |
       <ErrorDetails details={failure.details} className="w-full items-center" />
       <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
         {t('hotKeyRotationRetry')}
+      </Button>
+      {/* The exit (#1648): the wallet behind this gate holds a recovered account whose rotation keeps failing, most
+          often because it was recovered from a Guardian the account had left. Nothing local is worth keeping (no hot
+          key ever landed), so the way out is a wipe back to onboarding, where recovery starts again with the right
+          Guardian. Without it the only exit was to reinstall. */}
+      <Button variant={ButtonVariant.Secondary} data-testid="hot-key-rotation-start-over" onClick={onStartOver}>
+        {t('hotKeyRotationStartOver')}
       </Button>
     </div>
   );
@@ -287,6 +297,29 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     void beginRotation(false);
   }, [beginRotation]);
 
+  const confirm = useConfirm();
+  const alert = useAlert();
+  // The exit from a rotation that keeps failing: a confirmed wipe back to onboarding (#1648). The confirmation
+  // names what the user needs, since nothing of this wallet survives the reset. The reset's failure contract is
+  // the mainnet switch's: a rejected wipe and a reload that cannot start are both reported, nothing else is.
+  const onStartOver = useCallback(async () => {
+    const accepted = await confirm({
+      title: t('hotKeyRotationStartOverTitle'),
+      variant: 'explanation',
+      children: t('hotKeyRotationStartOverBody'),
+      confirmLabel: t('hotKeyRotationStartOver'),
+      destructive: true
+    });
+    if (!accepted) return;
+    try {
+      await resetWalletAndReload(async () => {
+        await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
+      });
+    } catch {
+      await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
+    }
+  }, [alert, confirm, t]);
+
   // A funding trigger never queues a second rotation beside a live one.
   const onFunded = useCallback(() => {
     if (!rotationLive) void beginRotation(false);
@@ -377,7 +410,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
             onCheckAgain={onRetry}
           />
         ) : gate.view === 'failed' ? (
-          <RotationFailedPanel failure={rotationFailure} errorId={rotationErrorId} onRetry={onRetry} />
+          <RotationFailedPanel
+            failure={rotationFailure}
+            errorId={rotationErrorId}
+            onRetry={onRetry}
+            onStartOver={onStartOver}
+          />
         ) : (
           <>
             <Spinner />

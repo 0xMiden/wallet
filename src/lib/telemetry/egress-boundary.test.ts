@@ -1,7 +1,9 @@
 import { createElement } from 'react';
 
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Scope } from '@sentry/browser';
 import { act, render, renderHook } from '@testing-library/react';
+import Dexie from 'dexie';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
@@ -10,14 +12,17 @@ import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { deserializeInternalError } from 'lib/intercom/helpers';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
+import { createSchemaFor, Table } from 'lib/miden/repo';
 import { MidenMessageType } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
+import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
 import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry';
 
 import { resolveTelemetryContext } from './context';
@@ -64,8 +69,8 @@ jest.mock('./crash-artifacts', () => ({
  *    transport, so what is asserted is the actual envelope on the wire and not
  *    an argument to a mocked `captureException`.
  *
- * Nothing here mocks the telemetry stack. `fetch` is the only thing replaced,
- * because `fetch` IS the wire.
+ * The telemetry stack stays real. Native rejection cases also replace the raw
+ * Capacitor plugin entry point; `fetch` captures the resulting wire.
  */
 
 // The frontend→background hop is the intercom, which cannot run in Jest. The
@@ -89,6 +94,21 @@ jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
   isMobile: () => true
 }));
+
+jest.mock('@capacitor/core', () => {
+  const actual = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
+  const reown = { sendTransaction: jest.fn(), request: jest.fn(), launchWallet: jest.fn() };
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, getPlatform: jest.fn(actual.Capacitor.getPlatform) },
+    registerPlugin: jest.fn((name: string, implementations?: Parameters<typeof actual.registerPlugin>[1]) =>
+      name === 'Reown' ? reown : actual.registerPlugin(name, implementations)
+    )
+  };
+});
+
+const rawReown = registerPlugin<ReownPlugin>('Reown');
+const { Capacitor: actualCapacitor } = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
 
 // Real unless a test moves it: the network is read from here on every event, and a test that moves it has to see the
 // wire follow.
@@ -340,6 +360,150 @@ function parsePayload(text: string): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed)) payload[key] = value;
   return payload;
+}
+
+function sentryEvents(): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = [];
+  for (const entry of captured) {
+    if (!new URL(entry.url).pathname.endsWith('/envelope/')) continue;
+    const lines = entry.body.split('\n');
+    for (let index = 1; index < lines.length; index += 2) {
+      const header = lines[index];
+      const payload = lines[index + 1];
+      if (header === undefined || payload === undefined) throw new Error('incomplete Sentry envelope item');
+      if (parsePayload(header).type === 'event') events.push(parsePayload(payload));
+    }
+  }
+  return events;
+}
+
+function storageWireIncrement(): {
+  event: Record<string, unknown>;
+  baseline: Record<string, unknown>;
+  increment: number;
+} {
+  expect(captured).toHaveLength(1);
+  const request = captured[0];
+  if (request === undefined) throw new Error('missing wire report');
+  expect(new URL(request.url).pathname.endsWith('/envelope/')).toBe(true);
+  const lines = request.body.split('\n');
+  const eventIndexes: number[] = [];
+  for (let index = 1; index < lines.length; index += 2) {
+    const header = lines[index];
+    if (header === undefined) throw new Error('missing envelope item header');
+    if (parsePayload(header).type === 'event') eventIndexes.push(index + 1);
+  }
+  expect(eventIndexes).toHaveLength(1);
+  const eventIndex = eventIndexes[0];
+  if (eventIndex === undefined) throw new Error('missing event item');
+  const payload = lines[eventIndex];
+  if (payload === undefined) throw new Error('missing event payload');
+  const event = parsePayload(payload);
+  expect(JSON.stringify(event)).toBe(payload);
+
+  const baseline = parsePayload(payload);
+  const extra = objectAt(baseline, 'extra');
+  const diagnostics = objectAt(extra, 'walletDiagnostics');
+  const tags = objectAt(baseline, 'tags');
+  for (const key of ['storageOwner', 'storageOperation', 'pageVisibility']) delete diagnostics[key];
+  for (const key of ['storage_owner', 'storage_operation', 'page_visibility']) delete tags[key];
+  extra.walletDiagnostics = diagnostics;
+  baseline.extra = extra;
+  baseline.tags = tags;
+  expect(Object.keys(diagnostics).length).toBeGreaterThan(0);
+  expect(Object.keys(tags).length).toBeGreaterThan(0);
+  expect(baseline.fingerprint).toEqual(event.fingerprint);
+  const actualDiagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+  const actualTags = objectAt(event, 'tags');
+  expect([
+    diagnostics.userErrorId,
+    diagnostics.userErrorSurface,
+    tags['user_error.id'],
+    tags['user_error.surface']
+  ]).toEqual([
+    actualDiagnostics.userErrorId,
+    actualDiagnostics.userErrorSurface,
+    actualTags['user_error.id'],
+    actualTags['user_error.surface']
+  ]);
+  expect({ ...baseline, extra: event.extra, tags: event.tags }).toEqual(event);
+
+  // Replace only the event payload so all actual envelope headers and unrelated items keep their wire bytes.
+  const baselineLines = [...lines];
+  baselineLines[eventIndex] = JSON.stringify(baseline);
+  expect(baselineLines.filter((_, index) => index !== eventIndex)).toEqual(
+    lines.filter((_, index) => index !== eventIndex)
+  );
+  expect(leaksIn(wireText())).toEqual([]);
+  const encoder = new TextEncoder();
+  return {
+    event,
+    baseline,
+    increment: encoder.encode(request.body).byteLength - encoder.encode(baselineLines.join('\n')).byteLength
+  };
+}
+
+interface CursorFaultEvidence {
+  opened: number;
+  requestErrors: number;
+}
+
+async function withCursorRequestFailure(
+  target: Dexie,
+  failure: Error,
+  run: (evidence: CursorFaultEvidence) => Promise<void>
+): Promise<void> {
+  const evidence: CursorFaultEvidence = { opened: 0, requestErrors: 0 };
+  const backend = target.backendDB();
+  const restores: Array<() => void> = [];
+  const openCursor = IDBObjectStore.prototype.openCursor;
+  const spy = jest.spyOn(IDBObjectStore.prototype, 'openCursor').mockImplementation(function (
+    this: IDBObjectStore,
+    query?: IDBValidKey | IDBKeyRange | null,
+    direction?: IDBCursorDirection
+  ) {
+    const request = openCursor.call(this, query, direction);
+    if (this.transaction.db !== backend) return request;
+    const onSuccess = () => {
+      const cursor: unknown = request.result;
+      if (!(cursor instanceof IDBCursor)) throw new Error('fault fixture did not open a real cursor');
+      const iterate: unknown = Reflect.get(cursor, '_iterate');
+      if (typeof iterate !== 'function') throw new Error('fault fixture cannot find cursor iteration');
+      evidence.opened++;
+      const own = Object.getOwnPropertyDescriptor(cursor, '_iterate');
+      // fake-indexeddb schedules this private method for the next real request, after open has succeeded.
+      Object.defineProperty(cursor, '_iterate', {
+        configurable: true,
+        writable: true,
+        value: () => {
+          throw failure;
+        }
+      });
+      restores.push(() => {
+        if (own === undefined) Reflect.deleteProperty(cursor, '_iterate');
+        else Object.defineProperty(cursor, '_iterate', own);
+      });
+    };
+    const onError = () => {
+      if (evidence.opened === 0 || request.error !== failure) {
+        throw new Error('fault fixture did not observe the post-open request failure');
+      }
+      evidence.requestErrors++;
+    };
+    request.addEventListener('success', onSuccess);
+    request.addEventListener('error', onError);
+    restores.push(() => {
+      request.removeEventListener('success', onSuccess);
+      request.removeEventListener('error', onError);
+    });
+    return request;
+  });
+  try {
+    await run(evidence);
+  } finally {
+    for (const restore of restores.reverse()) restore();
+    spy.mockRestore();
+  }
 }
 
 /** Every Aptabase envelope that reached the wire, parsed. */
@@ -654,6 +818,9 @@ afterAll(() => {
 
 beforeEach(() => {
   captured.length = 0;
+  jest.mocked(Capacitor.getPlatform).mockImplementation(actualCapacitor.getPlatform);
+  jest.mocked(rawReown.sendTransaction).mockReset();
+  jest.mocked(rawReown.launchWallet).mockReset();
   process.env.APTABASE_APP_KEY = APP_KEY;
   // No host override: the endpoint has to come from the key's region, which is
   // how a release build is configured.
@@ -1032,6 +1199,205 @@ describe('product-event egress', () => {
 });
 
 describe('crash-report egress', () => {
+  it('realNativeRejectionReportsOnlyClosedDiagnosticsOnTheWire', async () => {
+    consentOn();
+    jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
+    const address = `0x${'a1'.repeat(20)}`;
+    const poison = {
+      requestId: 'request-private-123',
+      topic: 'topic-private-456',
+      address,
+      amount: '1234.5678',
+      url: 'https://native-poison.example.invalid/private',
+      hostname: 'native-poison.example.invalid',
+      walletCode: '-32603',
+      requestAge: '123456',
+      text: 'native-private-free-text'
+    };
+    const privateText = Object.values(poison).join(' ');
+    const code =
+      'REOWN_NATIVE_REQUEST_FAILURE:' +
+      JSON.stringify({
+        nativeOrigin: 'wallet_error',
+        walletResponseCode: 'internal_error',
+        requestAge: '120_to_300s',
+        published: 'confirmed',
+        backgrounded: 'yes'
+      });
+    const rawError = Object.assign(new Error(`Request expired\n${privateText}`, { cause: new Error(privateText) }), {
+      code,
+      details: `Request expired\n${privateText}`,
+      data: poison
+    });
+    rawError.stack = `Error: ${privateText}\n    at nativeRequest (${poison.url}:123456:1)`;
+    jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
+    let caught: unknown;
+    try {
+      await NativeReown.sendTransaction({ chainId: 1, to: address });
+    } catch (rejection) {
+      caught = rejection;
+    }
+    expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(caught).toBe(rawError);
+
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      point: 'bridge_receive_settlement',
+      bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: caught },
+      error: caught
+    });
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const events = sentryEvents();
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (event === undefined) throw new Error('Expected one Sentry event');
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+      reownNativeOrigin: 'wallet_error',
+      reownWalletResponseCode: 'internal_error',
+      reownRequestAge: '120_to_300s',
+      reownPublished: 'confirmed',
+      reownBackgrounded: 'yes'
+    });
+    expect(objectAt(event, 'tags')).toMatchObject({
+      reown_native_origin: 'wallet_error',
+      reown_wallet_response_code: 'internal_error',
+      reown_request_age: '120_to_300s',
+      reown_published: 'confirmed',
+      reown_backgrounded: 'yes'
+    });
+    const exception = objectAt(event, 'exception');
+    expect(exception.values).toHaveLength(1);
+    if (!Array.isArray(exception.values)) throw new Error('Expected exception values');
+    const value: unknown = exception.values[0];
+    if (typeof value !== 'object' || value === null) throw new Error('Expected a synthetic exception');
+    expect(Reflect.get(value, 'type')).toBe('WalletTransactionFailure');
+    expect(Reflect.get(value, 'value')).toContain('via usdcx; failed at wallet_approve; evm error request_expired');
+    expect(value).not.toHaveProperty('cause');
+    const stacktrace: unknown = Reflect.get(value, 'stacktrace');
+    const frames: unknown =
+      typeof stacktrace === 'object' && stacktrace !== null ? Reflect.get(stacktrace, 'frames') : stacktrace;
+    expect(frames ?? []).toEqual([]);
+    expect(event.fingerprint).toBeUndefined();
+    for (const text of [...Object.values(poison), 'REOWN_NATIVE_REQUEST_FAILURE:', code]) {
+      for (const variant of encodingVariantsOf(text)) expect(wireText()).not.toContain(variant);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  describe('native request diagnostic omissions', () => {
+    const closedCode =
+      'REOWN_NATIVE_REQUEST_FAILURE:' +
+      JSON.stringify({
+        nativeOrigin: 'wallet_error',
+        walletResponseCode: 'internal_error',
+        requestAge: '120_to_300s',
+        published: 'confirmed',
+        backgrounded: 'yes'
+      });
+    const expectedDiagnostics = {
+      reownNativeOrigin: 'wallet_error',
+      reownWalletResponseCode: 'internal_error',
+      reownRequestAge: '120_to_300s',
+      reownPublished: 'confirmed',
+      reownBackgrounded: 'yes'
+    };
+    const expectedTags = {
+      reown_native_origin: 'wallet_error',
+      reown_wallet_response_code: 'internal_error',
+      reown_request_age: '120_to_300s',
+      reown_published: 'confirmed',
+      reown_backgrounded: 'yes'
+    };
+
+    function expectNoNativeDiagnostics(event: Record<string, unknown>): void {
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      const tags = objectAt(event, 'tags');
+      for (const field of Object.keys(expectedDiagnostics)) expect(diagnostics).not.toHaveProperty(field);
+      for (const tag of Object.keys(expectedTags)) expect(tags).not.toHaveProperty(tag);
+    }
+
+    it.each(['ios', 'web', 'legacy code', 'invalid envelope', 'auxiliary native method', 'text-flattened cause'])(
+      'unsupportedNativePathsStillSendWithoutNativeDiagnostics: %s',
+      async path => {
+        consentOn();
+        jest.mocked(Capacitor.getPlatform).mockReturnValue(path === 'ios' || path === 'web' ? path : 'android');
+        const code =
+          path === 'legacy code'
+            ? 'LEGACY_REOWN_FAILURE'
+            : path === 'invalid envelope'
+              ? 'REOWN_NATIVE_REQUEST_FAILURE:{"nativeOrigin":"wallet_error","requestAge":123456,"published":"confirmed"}'
+              : closedCode;
+        const rawError = Object.assign(new Error('Request expired'), { code });
+        const rawMethod = path === 'auxiliary native method' ? rawReown.launchWallet : rawReown.sendTransaction;
+        jest.mocked(rawMethod).mockRejectedValueOnce(rawError);
+        let caught: unknown;
+        try {
+          if (path === 'auxiliary native method') await NativeReown.launchWallet();
+          else await NativeReown.sendTransaction({ chainId: 1, to: `0x${'a1'.repeat(20)}` });
+        } catch (rejection) {
+          caught = rejection;
+        }
+        expect(rawMethod).toHaveBeenCalledTimes(1);
+        expect(caught).toBe(rawError);
+        if (!(caught instanceof Error)) throw new Error('Expected a native rejection');
+        const cause = path === 'text-flattened cause' ? new Error(caught.message) : caught;
+        reportTransactionFailure({
+          type: 'bridged-receive',
+          point: 'bridge_receive_settlement',
+          bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause },
+          error: cause
+        });
+        await flushEgress();
+
+        expect(captured).toHaveLength(1);
+        const events = sentryEvents();
+        expect(events).toHaveLength(1);
+        const event = events[0];
+        if (event === undefined) throw new Error('Expected a Sentry event for an unsupported native path');
+        expect(JSON.stringify(objectAt(event, 'exception'))).toContain('WalletTransactionFailure');
+        expectNoNativeDiagnostics(event);
+        expect(leaksIn(wireText())).toEqual([]);
+      }
+    );
+
+    it('followingUnrelatedEventDoesNotInheritNativeDiagnostics', async () => {
+      consentOn();
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
+      const rawError = Object.assign(new Error('Request expired'), { code: closedCode });
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: `0x${'a1'.repeat(20)}` });
+      } catch (rejection) {
+        caught = rejection;
+      }
+      expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(caught).toBe(rawError);
+      reportTransactionFailure({
+        type: 'bridged-receive',
+        point: 'bridge_receive_settlement',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: caught },
+        error: caught
+      });
+      await flushEgress();
+      reportTransactionFailure({ type: 'execute', stage: 'executing', error: 'advice stack read failed' });
+      await flushEgress();
+
+      expect(captured).toHaveLength(2);
+      const events = sentryEvents();
+      expect(events).toHaveLength(2);
+      const [native, unrelated] = events;
+      if (native === undefined || unrelated === undefined) throw new Error('Expected two Sentry events');
+      expect(objectAt(objectAt(native, 'extra'), 'walletDiagnostics')).toMatchObject(expectedDiagnostics);
+      expect(objectAt(native, 'tags')).toMatchObject(expectedTags);
+      expect(JSON.stringify(objectAt(unrelated, 'exception'))).toContain('WalletTransactionFailure');
+      expect(JSON.stringify(objectAt(unrelated, 'exception'))).toContain('advice_stack_read_failed');
+      expectNoNativeDiagnostics(unrelated);
+    });
+  });
+
   it('reports a handled offscreen assertion without raw transaction data or a frontend scope', async () => {
     consentOn();
     reportTransactionFailure({
@@ -1232,6 +1598,321 @@ describe('crash-report egress', () => {
     expect(leaksIn(text)).toEqual([]);
     expect(text.match(/"confirmationId":"empty"/g)).toHaveLength(1);
     expect(text).not.toContain('"payload"');
+  });
+
+  describe('storage rejection egress', () => {
+    const poison = {
+      database: 'wire-poison-database-hazel',
+      firstPrimaryKey: 'wire-poison-primary-a',
+      secondPrimaryKey: 'wire-poison-primary-b',
+      indexedQueryKey: 'wire-poison-primary-',
+      accountId: 'wire-poison-account-opaque',
+      transactionId: HIGH_ENTROPY_POISON.transactionId,
+      noteId: HIGH_ENTROPY_POISON.noteId,
+      address: HIGH_ENTROPY_POISON.addressTestnet,
+      amount: '715326498217',
+      fieldName: 'wirePoisonOpaqueField',
+      fieldValue: 'wire-poison-row-field-value',
+      nestedFieldName: 'wirePoisonNestedField',
+      nestedFieldValue: 'wire-poison-nested-field-value',
+      errorCredential: 'wire-poison-credential',
+      causeCredential: 'wire-poison-cause',
+      invalidOwner: 'wire-poison-owner',
+      invalidOperation: 'wire-poison-operation'
+    };
+    let target: Dexie;
+    let injectedFailure: Error;
+    let visibility: PropertyDescriptor | undefined;
+
+    beforeEach(async () => {
+      visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      target = createSchemaFor(poison.database);
+      await target.open();
+      const rows: Array<ITransaction & Record<string, unknown>> = [poison.firstPrimaryKey, poison.secondPrimaryKey].map(
+        id => ({
+          id,
+          type: 'send',
+          accountId: poison.accountId,
+          transactionId: poison.transactionId,
+          noteId: poison.noteId,
+          secondaryAccountId: poison.address,
+          amount: BigInt(poison.amount),
+          status: ITransactionStatus.Queued,
+          initiatedAt: 1,
+          displayIcon: 'SEND',
+          [poison.fieldName]: poison.fieldValue,
+          extraInputs: { [poison.nestedFieldName]: poison.nestedFieldValue }
+        })
+      );
+      await target.table<ITransaction, string>(Table.Transactions).bulkAdd(rows);
+      // An existing Dexie class preserves this exact Error and its cause through request-error mapping.
+      injectedFailure = new Dexie.UnknownError('cursor request failed password=wire-poison-credential');
+      injectedFailure.cause = new Error('continuation failed password=wire-poison-cause');
+    });
+
+    afterEach(async () => {
+      stopCrashReporting();
+      target.close();
+      try {
+        await target.delete();
+      } finally {
+        if (visibility === undefined) Reflect.deleteProperty(document, 'visibilityState');
+        else Object.defineProperty(document, 'visibilityState', visibility);
+      }
+    });
+
+    function scanFailure(): Promise<unknown> {
+      // A filter forces cursor iteration instead of Dexie's getAll fast path; the range poisons an actual query key.
+      return target
+        .table<ITransaction, string>(Table.Transactions)
+        .where(':id')
+        .aboveOrEqual(poison.indexedQueryKey)
+        .filter(() => true)
+        .toArray()
+        .then(
+          () => undefined,
+          (failure: unknown) => failure
+        );
+    }
+
+    function expectNoStoragePoison(text: string): void {
+      for (const sentinel of Object.values(poison)) {
+        for (const variant of encodingVariantsOf(sentinel)) expect(text).not.toContain(variant);
+      }
+      expect(leaksIn(text)).toEqual([]);
+    }
+
+    function expectOriginalExceptions(event: Record<string, unknown>): void {
+      expect(objectAt(event, 'exception').values).toEqual([
+        expect.objectContaining({ type: 'Error', value: expect.stringContaining('continuation failed') }),
+        expect.objectContaining({ type: 'UnknownError', value: expect.stringContaining('cursor request failed') })
+      ]);
+      expect(event).not.toHaveProperty('title');
+      expect(event).not.toHaveProperty('message');
+      expect(event).not.toHaveProperty('fingerprint');
+      expect(JSON.stringify(objectAt(event, 'exception'))).not.toMatch(
+        /wallet_transactions|storageOwner|storageOperation/
+      );
+    }
+
+    it('keeps the maximum storage diagnostic increment within192 wire bytes', async () => {
+      const previousTarget = process.env.WALLET_BUILD_TARGET;
+      process.env.WALLET_BUILD_TARGET = 'mobile';
+      try {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'prerender' });
+        consentOn();
+        initCrashReporting();
+        const failure = new Error(`storage operation failed password=${POISON.password}`);
+        failure.name = 'WalletUserVisibleError';
+        annotateCrash(failure, {
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'transaction',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        captureCrash(failure);
+        await flushEgress();
+
+        const { event, baseline, increment } = storageWireIncrement();
+        expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+          appVersion: packageJson.version,
+          network: 'testnet',
+          target: 'mobile',
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'transaction',
+          pageVisibility: 'unknown',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        expect(objectAt(event, 'exception').values).toEqual([
+          expect.objectContaining({
+            type: 'WalletUserVisibleError',
+            value: expect.stringContaining('storage operation failed')
+          })
+        ]);
+        expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
+        expect(objectAt(objectAt(baseline, 'extra'), 'walletDiagnostics')).toMatchObject({
+          appVersion: packageJson.version,
+          network: 'testnet',
+          target: 'mobile',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        expect(increment).toBeLessThanOrEqual(192);
+        expect(event.tags).toEqual({
+          network: 'testnet',
+          storage_owner: 'wallet_transactions',
+          storage_operation: 'transaction',
+          'user_error.id': 'usdcxFaucetUnavailable',
+          'user_error.surface': 'review'
+        });
+        expect(event.tags).not.toHaveProperty('page_visibility');
+      } finally {
+        if (previousTarget === undefined) delete process.env.WALLET_BUILD_TARGET;
+        else process.env.WALLET_BUILD_TARGET = previousTarget;
+      }
+    });
+
+    it('keeps a real cursor diagnostic increment within192 wire bytes', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+
+        const { event, increment } = storageWireIncrement();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'cursor',
+          pageVisibility: 'hidden'
+        });
+        expect(event.tags).toEqual({
+          network: 'testnet',
+          storage_owner: 'wallet_transactions',
+          storage_operation: 'cursor'
+        });
+        expect(event.tags).not.toHaveProperty('page_visibility');
+        expect(increment).toBeGreaterThan(0);
+        expect(increment).toBeLessThanOrEqual(192);
+      });
+    });
+
+    it('keeps an unannotated report within192 added wire bytes without storage attribution', async () => {
+      consentOn();
+      initCrashReporting();
+      captureCrash(new Error('unannotated wire budget control'));
+      await flushEgress();
+
+      const { event, increment } = storageWireIncrement();
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).not.toHaveProperty('storageOwner');
+      expect(diagnostics).not.toHaveProperty('storageOperation');
+      expect(diagnostics.pageVisibility).toBe('hidden');
+      expect(event.tags).toEqual({ network: 'testnet' });
+      expect(event.tags).not.toHaveProperty('page_visibility');
+      expect(event).not.toHaveProperty('fingerprint');
+      expect(increment).toBeGreaterThan(0);
+      expect(increment).toBeLessThanOrEqual(192);
+    });
+
+    it('sends only closed storage values from a real post-open cursor rejection', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        if (!(publicFailure instanceof Error)) throw new Error('cursor scan did not reject with an Error');
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(publicFailure).toBe(injectedFailure);
+        expect(publicFailure.name).toBe('UnknownError');
+        expect(captured).toHaveLength(1);
+        expect(sentryEvents()).toHaveLength(1);
+        expect(wireText()).toContain('continuation failed');
+        expect(wireText()).toContain('"type":"onunhandledrejection","handled":false');
+        expect(wireText()).toContain('"pageVisibility":"hidden"');
+        expect(wireText()).not.toContain('"page_visibility"');
+        expect(wireText()).toContain('"storageOwner":"wallet_transactions"');
+        expect(wireText()).toContain('"storageOperation":"cursor"');
+        expect(wireText()).toContain('"storage_owner":"wallet_transactions"');
+        expect(wireText()).toContain('"storage_operation":"cursor"');
+        expectNoStoragePoison(wireText());
+        const event = sentryEvents()[0];
+        if (event === undefined) throw new Error('missing cursor report');
+        expectOriginalExceptions(event);
+      });
+    });
+
+    it('sends nothing when the same cursor failure is consumed', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        expect(await scanFailure()).toBe(injectedFailure);
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(0);
+      });
+    });
+
+    it('sends nothing for a real cursor failure when consent is denied', async () => {
+      consentOff();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(0);
+      });
+    });
+
+    it('drops unlisted storage labels on the real wire', async () => {
+      consentOn();
+      initCrashReporting();
+      const publicFailure = new Error('unlisted storage annotation');
+      // This adversarial annotation is separate from every genuine cursor rejection above.
+      annotateCrash(publicFailure, { storageOwner: poison.invalidOwner, storageOperation: poison.invalidOperation });
+      globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      const events = sentryEvents();
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      if (event === undefined) throw new Error('missing adversarial report');
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).not.toHaveProperty('storageOwner');
+      expect(diagnostics).not.toHaveProperty('storageOperation');
+      expect(diagnostics.pageVisibility).toBe('hidden');
+      const tags = objectAt(event, 'tags');
+      expect(tags).not.toHaveProperty('storage_owner');
+      expect(tags).not.toHaveProperty('storage_operation');
+      expect(tags).not.toHaveProperty('page_visibility');
+      expectNoStoragePoison(wireText());
+    });
+
+    it("does not attach a cursor failure's storage labels to the next event", async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        globalThis.dispatchEvent(
+          Object.assign(new Event('unhandledrejection'), { reason: new Error('unrelated storage control') })
+        );
+        await flushEgress();
+        expect(captured).toHaveLength(2);
+        const events = sentryEvents();
+        expect(events).toHaveLength(2);
+        const [first, second] = events;
+        if (first === undefined || second === undefined) throw new Error('missing sequential reports');
+        expect(objectAt(objectAt(first, 'extra'), 'walletDiagnostics').pageVisibility).toBe('hidden');
+        expect(objectAt(first, 'tags')).not.toHaveProperty('page_visibility');
+        const diagnostics = objectAt(objectAt(second, 'extra'), 'walletDiagnostics');
+        expect(diagnostics).not.toHaveProperty('storageOwner');
+        expect(diagnostics).not.toHaveProperty('storageOperation');
+        expect(diagnostics.pageVisibility).toBe('visible');
+        const tags = objectAt(second, 'tags');
+        expect(tags).not.toHaveProperty('storage_owner');
+        expect(tags).not.toHaveProperty('storage_operation');
+        expect(tags).not.toHaveProperty('page_visibility');
+        expectNoStoragePoison(wireText());
+      });
+    });
   });
 
   it('retains exact validated local compiled positions and source build identity only', async () => {
@@ -1537,6 +2218,7 @@ describe('crash-report egress', () => {
     const text = wireText();
     expect(captured.length).toBeGreaterThan(0);
     expect(text).toContain('"tags":{"network":"mainnet"}');
+    expect(text).not.toContain('"page_visibility"');
     expect(text).toMatch(/"walletDiagnostics":\{[^}]*"network":"mainnet"/);
     expect(leaksIn(text)).toEqual([]);
   });
@@ -1585,6 +2267,7 @@ describe('user-visible error reports', () => {
       'user_error.id': 'raw_send_submit_failed',
       'user_error.surface': 'inline'
     });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_send_submit_failed', 'inline']);
     expect(wireText()).toContain('raw_send_submit_failed');
     expect(leaksIn(wireText())).toEqual([]);
@@ -1611,10 +2294,12 @@ describe('user-visible error reports', () => {
       'user_error.id': 'usdcxFaucetUnavailable',
       'user_error.surface': 'review'
     });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toEqual({
       ...resolveTelemetryContext(),
       ...getCrashBuildIdentity(),
+      pageVisibility: 'visible',
       userErrorId: 'usdcxFaucetUnavailable',
       userErrorSurface: 'review'
     });
@@ -1723,6 +2408,7 @@ describe('user-visible error reports', () => {
       'user_error.id': 'raw_account_export_failed',
       'user_error.surface': 'review'
     });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_account_export_failed', 'review']);
     expect(objectAt(event, 'exception').values).toEqual([
       expect.objectContaining({
@@ -1737,6 +2423,7 @@ describe('user-visible error reports', () => {
       walletDiagnostics: {
         ...resolveTelemetryContext(),
         ...getCrashBuildIdentity(),
+        pageVisibility: 'visible',
         userErrorId: 'raw_account_export_failed',
         userErrorSurface: 'review'
       }
@@ -1854,11 +2541,13 @@ describe('WalletConnect relay failure reports', () => {
       network: resolveTelemetryContext().network,
       service: 'walletconnect_relay'
     });
+    expect(objectAt(event, 'tags')).not.toHaveProperty('page_visibility');
     const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
     expect(Object.fromEntries(Object.entries(diagnostics).filter(([key]) => !EVERY_REPORT_KEYS.includes(key)))).toEqual(
       {
         service: 'walletconnect_relay',
         connectivity: 'steady',
+        pageVisibility: 'visible',
         visibility: 'visible',
         surface: 'confirm',
         relayTrigger: 'no_connect_modal',

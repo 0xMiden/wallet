@@ -34,7 +34,7 @@ describe('EvmBridgeUsdcxRoute', () => {
     expect(screen.getByTestId('bridge-route-usdcx')).toHaveTextContent('usdcxArrivalArc');
   });
 
-  it.each([11155111, 84532, 421614])('reads ~20 min for a deposit from chain %i', sourceChainId => {
+  it.each([11155111, 84532, 421614])('reads ~2 min for a deposit from chain %i', sourceChainId => {
     render(<EvmBridgeUsdcxRoute sourceChainId={sourceChainId} onConfirm={jest.fn()} />);
     expect(screen.getByTestId('bridge-route-usdcx')).toHaveTextContent(/^usdcxArrival$/);
   });

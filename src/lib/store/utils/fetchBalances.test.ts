@@ -22,6 +22,10 @@ import {
   fetchingAddresses
 } from './fetchBalances';
 
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
+
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: () => 'mainnet'

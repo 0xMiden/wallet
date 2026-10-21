@@ -1,7 +1,7 @@
 import { isRecord } from 'lib/update/guards';
 
 /** What a token-list document says about one network, by faucet id as the document spells it. */
-export type TokenList = { ids: Set<string>; logos: Map<string, string> };
+export type TokenList = { ids: Set<string>; logos: Map<string, string>; priceAssets: Map<string, string> };
 
 const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
@@ -11,12 +11,9 @@ const isToken = (value: unknown): value is { network: string; faucetId: string; 
 const LOGO_PREFIX = 'https://raw.githubusercontent.com/0xMiden/token-list/main/logos/';
 
 /**
- * The verified faucet ids a token-list document names for `network` and the logos it gives them, or
- * `null` when the document is malformed. Only each token's network and faucet id are checked, since
- * only they decide anything (the token-list repository's CI validates the full schema). One bad token
- * rejects the whole document: a partial list would mark the holders of the dropped token Unverified.
- * A logo counts only as the list repository's own file for that token's id; anything else drops that
- * logo and nothing else, since a logo never decides whether a token is verified.
+ * Read faucet ids, logos and price assets for one network.
+ * Reject the full document when a token has no network or faucet id.
+ * Ignore invalid logos and price assets without removing the verified id.
  */
 export function parseTokenList(value: unknown, network: string): TokenList | null {
   if (!isRecord(value)) return null;
@@ -24,11 +21,18 @@ export function parseTokenList(value: unknown, network: string): TokenList | nul
   if (!Array.isArray(tokens) || !tokens.every(isToken)) return null;
   const ids = new Set<string>();
   const logos = new Map<string, string>();
-  for (const { network: tokenNetwork, faucetId, logoURI } of tokens) {
+  const priceAssets = new Map<string, string>();
+  for (const token of tokens) {
+    const { network: tokenNetwork, faucetId, logoURI } = token;
     if (tokenNetwork !== network) continue;
     ids.add(faucetId);
+    if (isRecord(token)) {
+      let asset = 'symbol' in token ? token.symbol : undefined;
+      if ('binanceAsset' in token && token.binanceAsset !== undefined) asset = token.binanceAsset;
+      if (typeof asset === 'string' && /^[A-Z0-9]{1,20}$/.test(asset)) priceAssets.set(faucetId, asset);
+    }
     const own = `${LOGO_PREFIX}${faucetId}/logo.`;
     if (logoURI === `${own}png`) logos.set(faucetId, logoURI);
   }
-  return { ids, logos };
+  return { ids, logos, priceAssets };
 }

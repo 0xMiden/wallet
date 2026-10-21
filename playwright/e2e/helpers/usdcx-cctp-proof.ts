@@ -245,7 +245,7 @@ export async function waitForIrisForward(
     if (clock.now() >= deadline) {
       throw new Error(
         `Circle has not attested and forwarded ${where} within ${opts.timeoutMs} ms: ${last}. A fast transfer ` +
-          'forwarded 8-10 s after its burn when probed on 2026-10-16; the wallet tells users about 20 min'
+          'forwarded 8-10 s after its burn when probed on 2026-10-16; the wallet tells users about 2 min'
       );
     }
     await clock.sleep(opts.pollMs ?? 3_000);

@@ -107,7 +107,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
       onBack={onBack}
       footer={
         <Button
-          title={t('confirm')}
+          title={t('continue')}
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}

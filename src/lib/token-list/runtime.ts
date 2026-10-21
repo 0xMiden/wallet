@@ -5,18 +5,13 @@ import { fetchBoundedJson, readTimestampedEntry } from 'lib/remote-json';
 import { parseTokenList } from './parse';
 import { bundledTokenList } from './snapshot';
 
-export const TOKEN_LIST_TTL_MS = 24 * 60 * 60 * 1_000;
-/** How long a failed refresh holds off the next, so a network with no published list is not asked on every load. */
-export const TOKEN_LIST_RETRY_BACKOFF_MS = 60 * 60 * 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_BYTES = 256 * 1_024;
 
 const tokenListUrl = (network: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/${network}.json`;
 const cacheKey = (network: string) => `token_list_cache_v2:${network}`;
-// Cached before logos were read, so it may lack logos the list has since gained: it stands in with no
-// age, which makes a refresh due at once, until a v2 entry lands.
+// Read the old cache only when the current cache is not valid.
 const legacyCacheKey = (network: string) => `token_list_cache_v1:${network}`;
-const attemptKey = (network: string) => `token_list_attempt_v1:${network}`;
 
 interface Dependencies {
   storage: () => StorageProvider;
@@ -27,7 +22,7 @@ interface Dependencies {
 interface LoadedList {
   ids: Set<string> | null;
   logos: Map<string, string> | null;
-  fetchedAt: number | null;
+  priceAssets: Map<string, string> | null;
 }
 
 const defaults = (): Dependencies => ({
@@ -42,15 +37,11 @@ let deps = defaults();
 const loaded = new Map<string, Promise<LoadedList>>();
 // Read synchronously, so a row mounted after a list loaded draws it on its first render.
 const settled = new Map<string, LoadedList>();
-// One refresh per network per realm; a popup is a fresh realm on every open, so the device cache,
-// not this set, is what keeps a reopened popup from refetching.
-const refreshing = new Set<string>();
-// The last failed refresh per network: this realm's own, or one an earlier realm stored.
-const lastFailure = new Map<string, number>();
+// Each app launch or popup realm checks each network once.
+const attempted = new Set<string>();
 const listeners = new Set<(network: string) => void>();
-let foregroundCheckInstalled = false;
 
-/** Test-only: swap the storage, fetch and clock, and forget in-flight refreshes, listeners and the foreground check. */
+/** Test-only: swap the storage, fetch and clock, and clear the loaded lists, refresh attempts and listeners. */
 export function _resetTokenListForTest(
   overrides: { storage?: StorageProvider; fetch?: typeof fetch; now?: () => number } = {}
 ): void {
@@ -63,11 +54,8 @@ export function _resetTokenListForTest(
   };
   loaded.clear();
   settled.clear();
-  refreshing.clear();
-  lastFailure.clear();
+  attempted.clear();
   listeners.clear();
-  if (foregroundCheckInstalled) document.removeEventListener('visibilitychange', checkOnForeground);
-  foregroundCheckInstalled = false;
 }
 
 export function onTokenListUpdated(listener: (network: string) => void): () => void {
@@ -80,30 +68,29 @@ export function onTokenListUpdated(listener: (network: string) => void): () => v
 async function readList(network: string): Promise<LoadedList> {
   let stored: Record<string, unknown> = {};
   try {
-    stored = await deps.storage().get([cacheKey(network), legacyCacheKey(network), attemptKey(network)]);
+    stored = await deps.storage().get([cacheKey(network), legacyCacheKey(network)]);
   } catch {
     // Unreadable storage reads as empty, so the snapshot stands in.
   }
-  const failedAt = stored[attemptKey(network)];
-  if (typeof failedAt === 'number') lastFailure.set(network, failedAt);
   const cached = readTimestampedEntry(stored[cacheKey(network)]);
   const fromCache = cached ? parseTokenList(cached.body, network) : null;
-  // Only a list that parsed has an age; an unreadable entry leaves an older list standing in and is due at once.
-  if (cached && fromCache) return { ...fromCache, fetchedAt: cached.fetchedAt };
+  // Use only a cache entry that passes validation.
+  if (cached && fromCache) return fromCache;
   const legacy = readTimestampedEntry(stored[legacyCacheKey(network)]);
   const fromLegacy = legacy ? parseTokenList(legacy.body, network) : null;
-  if (fromLegacy) return { ...fromLegacy, fetchedAt: null };
+  if (fromLegacy) return fromLegacy;
   const bundled = parseTokenList(bundledTokenList(network), network);
-  return { ids: bundled?.ids ?? null, logos: bundled?.logos ?? null, fetchedAt: null };
+  return { ids: bundled?.ids ?? null, logos: bundled?.logos ?? null, priceAssets: bundled?.priceAssets ?? null };
 }
 
 /** Fetches the list and stores it once it validates; rejects when it is not whole, not valid or not stored. */
 async function fetchAndStore(network: string): Promise<void> {
-  const body = await fetchBoundedJson(deps.fetch, tokenListUrl(network), {
-    maxBytes: MAX_BYTES,
-    timeoutMs: REQUEST_TIMEOUT_MS
-  });
-  // Validated before storing: every realm trusts this entry for a day.
+  const body = await fetchBoundedJson(
+    (url, init) => deps.fetch(url, { ...init, cache: 'no-cache' }),
+    tokenListUrl(network),
+    { maxBytes: MAX_BYTES, timeoutMs: REQUEST_TIMEOUT_MS }
+  );
+  // Validate the full document before replacing the persistent cache.
   if (parseTokenList(body, network) === null) throw new Error('the token list does not parse');
   await deps.storage().set({ [cacheKey(network)]: { fetchedAt: deps.now(), body } });
   try {
@@ -117,12 +104,7 @@ async function refresh(network: string): Promise<void> {
   try {
     await fetchAndStore(network);
   } catch (error) {
-    // Set before the awaited write, so a stamp storage refuses still holds this realm off for the hour.
-    const failedAt = deps.now();
-    lastFailure.set(network, failedAt);
     console.warn(`[token-list] refresh failed for ${network}:`, error);
-    // The cache stays as it was. Stored as well, so the next popup or app start waits out the hour too.
-    await deps.storage().set({ [attemptKey(network)]: failedAt });
     return;
   }
   // Forgotten before the notice, so the loads it sets off read what was just stored.
@@ -131,35 +113,12 @@ async function refresh(network: string): Promise<void> {
 }
 
 function startRefresh(network: string): void {
-  if (refreshing.has(network)) return;
-  refreshing.add(network);
-  void refresh(network)
-    // An attempt stamp storage refused lands here; `lastFailure` already holds this realm off.
-    .catch(() => undefined)
-    .finally(() => refreshing.delete(network));
-}
-
-function isDue(network: string, fetchedAt: number | null): boolean {
-  const now = deps.now();
-  // A stamp later than the clock, on the list or on a failure, is skew and says nothing about age.
-  if (fetchedAt !== null && now >= fetchedAt && now - fetchedAt < TOKEN_LIST_TTL_MS) return false;
-  const failedAt = lastFailure.get(network);
-  // Honoured whatever the list's stamp says: a stamp ahead of the clock must not switch the backoff off.
-  return failedAt === undefined || now < failedAt || now - failedAt >= TOKEN_LIST_RETRY_BACKOFF_MS;
-}
-
-// Home stays mounted for the app's lifetime on mobile and desktop, so a return to the foreground is
-// what lets a day-old list start its refresh. One listener per realm checks every list read so far.
-function checkOnForeground(): void {
-  if (document.visibilityState !== 'visible') return;
-  loaded.forEach((_list, network) => void loadVerifiedFaucetIds(network));
+  if (attempted.has(network)) return;
+  attempted.add(network);
+  refresh(network).catch(() => undefined);
 }
 
 async function load(network: string): Promise<LoadedList> {
-  if (!foregroundCheckInstalled && typeof document !== 'undefined') {
-    foregroundCheckInstalled = true;
-    document.addEventListener('visibilitychange', checkOnForeground);
-  }
   let pending = loaded.get(network);
   if (!pending) {
     pending = readList(network);
@@ -167,16 +126,14 @@ async function load(network: string): Promise<LoadedList> {
   }
   const list = await pending;
   settled.set(network, list);
-  // Checked on every load, not once per read: a long-lived realm must still refresh a day-old list.
-  if (isDue(network, list.fetchedAt)) startRefresh(network);
+  // The attempt guard prevents more requests until the next launch.
+  startRefresh(network);
   return list;
 }
 
 /**
- * The verified faucet ids for `network`: the cached list at any age, else the bundled snapshot,
- * else `null` (no list known for this network, so nothing is marked). A cache that is missing or
- * older than a day starts one background refresh, on this load or on a return to the foreground,
- * unless one failed within the hour; subscribers hear when it lands. Localnet never has a list.
+ * Return cached ids, then bundled ids, or null when no list is available.
+ * Start one background check per network per app launch. Localnet has no list.
  */
 export async function loadVerifiedFaucetIds(network: string): Promise<Set<string> | null> {
   // Localnet faucet ids are minted per machine, so no published list can name them.
@@ -200,4 +157,16 @@ export function peekVerifiedFaucetIds(network: string): Set<string> | null | und
 export function peekTokenLogos(network: string): Map<string, string> | null | undefined {
   if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
   return settled.get(network)?.logos;
+}
+
+/** The price asset for each faucet in the verified list. Symbols keep their full prefix. */
+export async function loadTokenPriceAssets(network: string): Promise<Map<string, string> | null> {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return (await load(network)).priceAssets;
+}
+
+/** The last loaded price assets, or undefined before the first load completes. */
+export function peekTokenPriceAssets(network: string): Map<string, string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.priceAssets;
 }
