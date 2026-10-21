@@ -1,9 +1,12 @@
 import { useMemo } from 'react';
 
 import { useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
-import { pricesLoaded } from 'lib/prices';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
+import type { TokenPrices } from 'lib/prices';
+import { isListedSymbol } from 'lib/prices/binance';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectBridgeInMaxBalanceUsd } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
@@ -56,6 +59,23 @@ export function bridgeInBalanceCapVerdict({
     : { state: 'clear', ...verdict };
 }
 
+/**
+ * Pure: the holdings as the Home card values them (`valuedBalanceTotal`), or null while a token that valuation would
+ * price (held, known scale) still waits for its quote. A total summed before then counts that token at nothing and
+ * would wave a deposit through against a balance the next quote values; a token whose market is known to be absent
+ * has nothing to wait for.
+ */
+export function settledHeldUsd(balances: readonly TokenBalanceData[], tokenPrices: TokenPrices): number | null {
+  const pending = balances.some(
+    token =>
+      token.balance > 0 &&
+      hasKnownScale(token.metadata) &&
+      !tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol) &&
+      isListedSymbol(priceSymbolFor(token.tokenId, token.metadata.symbol))
+  );
+  return pending ? null : valuedBalanceTotal(balances, tokenPrices).totalFiat;
+}
+
 export interface UseBridgeInBalanceCapOptions {
   /** The Miden account the deposit lands in. */
   accountPublicKey: string;
@@ -83,11 +103,7 @@ export function useBridgeInBalanceCap({
 
   return useMemo(() => {
     if (capUsd === null) return { state: 'none' };
-    // A total summed before the feed's first quote counts a priced token at nothing, which would wave a deposit through
-    // against a balance the next render values; so the holdings wait for the feed where a held token needs it.
-    const symbols = balances.map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
-    const heldUsd =
-      isLoading || !pricesLoaded(tokenPrices, symbols) ? null : valuedBalanceTotal(balances, tokenPrices).totalFiat;
+    const heldUsd = isLoading ? null : settledHeldUsd(balances, tokenPrices);
     return bridgeInBalanceCapVerdict({ capUsd, heldUsd, depositAmount, depositPriceUsd });
   }, [capUsd, balances, isLoading, tokenPrices, depositAmount, depositPriceUsd]);
 }
