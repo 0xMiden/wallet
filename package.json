@@ -90,6 +90,7 @@
     "test:e2e:blockchain:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:blockchain",
     "test:e2e:blockchain:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:blockchain",
     "test:e2e:blockchain:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:blockchain",
+    "test:e2e:mainnet:run": "playwright test --config playwright.mainnet.config.ts",
     "test:e2e:blockchain:agentic": "cross-env E2E_AGENTIC=true yarn test:e2e:blockchain",
     "test:e2e:stored-override:build": "cross-env E2E_NETWORK=localhost MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=false yarn test:e2e:blockchain:build",
     "test:e2e:stored-override:run": "cross-env E2E_NETWORK=localhost playwright test --config playwright.stored-override.config.ts",
