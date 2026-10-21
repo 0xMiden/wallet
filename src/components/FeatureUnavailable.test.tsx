@@ -17,7 +17,7 @@ jest.mock('react-i18next', () => ({
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 const LOADING: FeatureAvailability = { state: 'loading' };
 const DOWN: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: 503' };
-const RESTRICTED: FeatureAvailability = { state: 'unavailable', reason: 'restricted' };
+const RESTRICTED: FeatureAvailability = { state: 'unavailable', reason: 'restricted', detail: 'blocked by a geo rule' };
 
 describe('FeatureUnavailableNotice', () => {
   it('says the built-in copy as a warning, never the cause', () => {
