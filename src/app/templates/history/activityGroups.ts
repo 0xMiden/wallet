@@ -8,8 +8,83 @@
  * never of what exists (see `ActivityGroup.count`).
  */
 
+import type { ITransactionType } from 'lib/miden/db/types';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { isFaucetRequest } from './transactionUtils';
+
+/**
+ * The category chips of the Activity feed (Transfer, Swap, Earn, Others). Each transaction type
+ * is in one category only.
+ */
+export type ActivityCategory = 'transfer' | 'swap' | 'earn' | 'others';
+
+/**
+ * The category of an activity row. It reads the transaction type, not the icon: a failed row
+ * shows the FAILED icon, but it stays in the category of its type.
+ *
+ * The switch has a case for each `ITransactionType` and no default. Thus a new type does not
+ * compile until it gets a category, and no row can go missing from every chip.
+ */
+export function activityCategoryOf(entry: { txType: ITransactionType }): ActivityCategory {
+  switch (entry.txType) {
+    case 'send':
+    case 'consume':
+    case 'bridged-send':
+    case 'bridged-receive':
+      return 'transfer';
+    case 'swap':
+      return 'swap';
+    case 'earn-deposit':
+    case 'earn-withdraw':
+      return 'earn';
+    case 'execute':
+    case 'switch-guardian':
+    case 'replace-hot-key':
+    case 'update-procedure-threshold':
+      return 'others';
+  }
+}
+
+/**
+ * Whether Activity hides the faucet claims on this network. Mainnet has no faucet to request
+ * funds from, so a faucet row there is noise. This changes only what Activity shows: the stored
+ * rows and the balances stay the same. The caller gives the network of each render, because a
+ * Developer Settings save can change it without a reload.
+ */
+export function hidesFaucetActivity(network: MIDEN_NETWORK_NAME): boolean {
+  return network === MIDEN_NETWORK_NAME.MAINNET;
+}
+
+/**
+ * Whether a claimable note is a faucet claim. Its consume row copies the note's faucet and sender
+ * (`ConsumeTransaction`), so this is `isFaucetRequest` on those two values: a note of the native
+ * asset sent by the native faucet. A caller that renders passes the id it re-renders on
+ * (`useNativeFeeFaucetId`); the default reads the cache.
+ */
+export function isFaucetClaimNote(
+  note: { faucetId: string; senderAddress: string },
+  nativeFaucetId: string | null = getNativeAssetIdSync()
+): boolean {
+  return !!nativeFaucetId && note.faucetId === nativeFaucetId && note.senderAddress === nativeFaucetId;
+}
+
+/**
+ * Whether a history entry is a faucet claim, whatever its state. `isFaucetRequest` reads the
+ * RECEIVE icon, which a failed claim loses, so the Mainnet guard tests the row itself: a claim of
+ * the native asset whose sender is the native faucet. A failed or pending faucet claim is hidden too.
+ * The caller passes the native faucet id it re-renders on, so a filter run while the id was unknown
+ * runs again once it is known.
+ */
+export function isFaucetActivityEntry(
+  entry: Pick<IHistoryEntry, 'txType' | 'faucetId' | 'secondaryAddress'>,
+  nativeFaucetId: string | null
+): boolean {
+  if (!nativeFaucetId) return false;
+  return entry.txType === 'consume' && entry.faucetId === nativeFaucetId && entry.secondaryAddress === nativeFaucetId;
+}
 
 /**
  * What a group is keyed by:
@@ -149,13 +224,11 @@ export function activityGroupMatcher(kind: ActivityGroupKind, id?: string): (ent
   return entry => matches(activityGroupKeyOf(entry));
 }
 
-/**
- * The group a claim card belongs to: the one its consume row joins. That row copies the note's faucet and
- * sender (`ConsumeTransaction`), so the faucet test is `isFaucetRequest` run on those two.
- */
+/** The group a claim card belongs to: the one its consume row joins (see `isFaucetClaimNote`). */
 export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress: string }): ActivityGroupKey {
-  const row = { transactionIcon: 'RECEIVE' as const, faucetId: note.faucetId, secondaryAddress: note.senderAddress };
-  return isFaucetRequest(row) ? { kind: 'faucet', id: 'faucet' } : { kind: 'address', id: note.senderAddress.trim() };
+  return isFaucetClaimNote(note)
+    ? { kind: 'faucet', id: 'faucet' }
+    : { kind: 'address', id: note.senderAddress.trim() };
 }
 
 /** `activityGroupMatcher` for claim cards, which have no history entry yet. */

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { UserRejectedRequestError } from 'viem';
 
 import { englishWordlist } from '@miden/hd-key';
+import { markReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
   BRIDGE_RECEIVE_LIBRARY_ERRORS,
@@ -10,13 +11,22 @@ import {
   BRIDGE_RECEIVE_STEPS,
   type BridgeReceiveFailure,
   bridgeReceiveLibraryError,
+  bridgeReceiveNativeFailure,
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS,
   walletRaised
 } from './bridge-receive-failure';
+import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
+import { snapshotCrashDiagnostics } from './crash-diagnostics';
 import { containsSeedMaterial } from './redact';
 import { reportTransactionFailure } from './transaction-failure';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
+jest.mock('./context', () => ({ resolveTelemetryContext: jest.fn() }));
 
 const REPO_ROOT = join(__dirname, '..', '..', '..');
 
@@ -39,6 +49,9 @@ const named = (name: string, message: string, fields: object = {}, cause?: unkno
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest
+    .mocked(resolveTelemetryContext)
+    .mockReturnValue({ platform: 'android', network: 'testnet', appVersion: '1.17.6' });
 });
 
 it('names the route, step and wallet answer of a refused Fast deposit, and none of its text', () => {
@@ -101,6 +114,20 @@ it('reads past a cause the wallet raised itself to the answer it wraps', () => {
   expect(bridgeReceiveLibraryError(walletRaised(new Error(OWN_WORDS, { cause: rejection })))).toBe('user_rejected');
 });
 
+it('does not classify a ninth original answer through a wallet-raised wrapper', () => {
+  let cause: unknown = { code: 4001 };
+  for (let index = 0; index < 8; index++) cause = new Error('opaque cause', { cause });
+
+  expect(bridgeReceiveLibraryError(walletRaised(new Error(OWN_WORDS, { cause })))).toBe('other');
+});
+
+it('stops at a cause cycle made only of wallet-raised wrappers', () => {
+  const error = walletRaised(new Error(OWN_WORDS));
+  Object.assign(error, { cause: error });
+
+  expect(bridgeReceiveLibraryError(error)).toBe('none');
+});
+
 it('reports other for the same words when the wallet did not mark them as its own', () => {
   expect(bridgeReceiveLibraryError(new Error(OWN_WORDS))).toBe('other');
 });
@@ -146,6 +173,10 @@ const LIBRARY_CASES: ReadonlyArray<readonly [string, unknown]> = [
   ['http_other', named('HttpRequestError', 'HTTP request failed.', { status: '429' })],
   ['unknown_rpc_error', 'An unknown RPC error occurred.\n\nDetails: Something went wrong.\nVersion: viem@2.55.4'],
   ['unknown_rpc_error', named('UnknownRpcError', 'An unknown error occurred.')],
+  ['invalid_permissions', new Error('Invalid permissions for call.')],
+  ['other', new Error('prefix Invalid permissions for call.')],
+  ['other', new Error('invalid permissions for call.')],
+  ['other', new Error('Invalid permissions for call')],
   // The App's own words name no library error, its own timeout included.
   ['other', 'Bridge delivery timed out.'],
   ['other', 'Circle attested this deposit to a different amount.'],
@@ -232,7 +263,9 @@ it('sends none of the stored text, the cause, the endpoint, an address, a hash o
     'Version: viem@2.55.4'
   ].join('\n');
 
-  const message = reportBridge({ route: 'epoch', step: 'epoch_solve', cause: new Error(stored) }, stored);
+  const cause = new Error(stored);
+  markReownNativeFailure(cause, nativeSnapshot);
+  const message = reportBridge({ route: 'epoch', step: 'epoch_solve', cause }, stored);
 
   expect(message).toContain('; via epoch; failed at epoch_solve; evm error user_rejected. ');
   for (const text of [
@@ -279,8 +312,21 @@ it.each([
   [
     'library error',
     () => [...BRIDGE_RECEIVE_LIBRARY_ERRORS, 'http_other', 'other', 'none'],
-    () => bridgePolicyClause('; and what the other network')
-  ]
+    () => bridgePolicyClause('; and what the other network', '; native origin')
+  ],
+  ['native origin', () => REOWN_NATIVE_ORIGINS, () => bridgePolicyClause('; native origin', '; wallet response code')],
+  [
+    'wallet response code',
+    () => REOWN_WALLET_RESPONSE_CODES,
+    () => bridgePolicyClause('; wallet response code', '; request age')
+  ],
+  ['request age', () => REOWN_REQUEST_AGES, () => bridgePolicyClause('; request age', '; publication observation')],
+  [
+    'publication observation',
+    () => REOWN_PUBLICATIONS,
+    () => bridgePolicyClause('; publication observation', '; background observation')
+  ],
+  ['background observation', () => REOWN_BACKGROUND_ANSWERS, () => bridgePolicyClause('; background observation')]
 ])(
   'the privacy policy lists every reportable inbound-bridge %s in its own clause, and nothing else',
   (_name, values, clause) => {
@@ -289,8 +335,129 @@ it.each([
   }
 );
 
+it('policyClauseRejectsMissingOrExtraSentinels', () => {
+  const clause = bridgePolicyClause('; request age', '; publication observation');
+  expect(listedIn(clause)).toEqual([...REOWN_REQUEST_AGES].sort());
+  expect(listedIn(clause.replace('`unknown`', ''))).not.toEqual([...REOWN_REQUEST_AGES].sort());
+  expect(listedIn(clause + ' `unavailable`')).not.toEqual([...REOWN_REQUEST_AGES].sort());
+});
+
 it('the privacy policy states the HTTP status range of a library error and its fallback', () => {
   const clause = bridgePolicyClause('`http_`', '`unknown_rpc_error`');
   expect(clause).toMatch(/\b100\b[^.]*\b599\b/);
   expect(clause).toContain('`http_other`');
+});
+
+const nativeSnapshot: ReownNativeFailure = {
+  nativeOrigin: 'wallet_error',
+  walletResponseCode: 'internal_error',
+  requestAge: '120_to_300s',
+  published: 'confirmed',
+  backgrounded: 'yes'
+};
+
+it('reports the marked Android bridge cause as closed diagnostics on a cause-free Error', () => {
+  const cause = new Error('Invalid permissions for call.');
+  markReownNativeFailure(cause, nativeSnapshot);
+  reportBridge({ route: 'usdcx', step: 'wallet_approve', cause });
+  const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  expect(report).toBeInstanceOf(Error);
+  if (!(report instanceof Error)) throw new Error('Missing report');
+  expect(report.message).toContain('evm error invalid_permissions');
+  expect(snapshotCrashDiagnostics(report)).toEqual({
+    reownNativeOrigin: 'wallet_error',
+    reownWalletResponseCode: 'internal_error',
+    reownRequestAge: '120_to_300s',
+    reownPublished: 'confirmed',
+    reownBackgrounded: 'yes'
+  });
+  expect(report.cause).toBeUndefined();
+  expect(report.stack).toBeUndefined();
+});
+
+it('permissionClassPreservesExistingPrecedence', () => {
+  const refusal = 'Invalid permissions for call.';
+  for (const field of ['details', 'shortMessage']) {
+    expect(bridgeReceiveLibraryError(named('Error', '', { [field]: refusal }))).toBe('invalid_permissions');
+  }
+  expect(bridgeReceiveLibraryError(new Error(`first line\n${refusal}\nlast line`))).toBe('invalid_permissions');
+  expect(
+    bridgeReceiveLibraryError(named('UnknownRpcError', 'An unknown RPC error occurred.', {}, new Error(refusal)))
+  ).toBe('invalid_permissions');
+  for (const [identity, cause] of LIBRARY_CASES.filter(
+    ([identity]) => !['other', 'none', 'unknown_rpc_error', 'invalid_permissions'].includes(identity)
+  )) {
+    expect(bridgeReceiveLibraryError(new Error(refusal, { cause }))).toBe(identity);
+  }
+  expect(bridgeReceiveLibraryError(walletRaised(named('NativeSessionChainNotApprovedError', refusal)))).toBe('none');
+});
+
+it('readsOneNearestMarkedSnapshotWithoutMixingRequests', () => {
+  const innerSnapshot: ReownNativeFailure = {
+    nativeOrigin: 'publish_error',
+    requestAge: 'under_30s',
+    published: 'unobserved'
+  };
+  const nearSnapshot = nativeSnapshot;
+  const inner = new Error('inner');
+  markReownNativeFailure(inner, innerSnapshot);
+  const near = walletRaised(new Error('near', { cause: inner }));
+  markReownNativeFailure(near, nearSnapshot);
+  expect(bridgeReceiveNativeFailure(near)).toEqual(nearSnapshot);
+  expect(bridgeReceiveNativeFailure(near)).not.toBe(nearSnapshot);
+  expect(bridgeReceiveNativeFailure({ published: 'confirmed', cause: inner })).toEqual(innerSnapshot);
+});
+
+it('boundsMetadataTraversalAndSurvivesHostileAccessors', () => {
+  const innerSnapshot = nativeSnapshot;
+  const inner = new Error('inner');
+  markReownNativeFailure(inner, innerSnapshot);
+  let eighthLinkMarked: Error = inner;
+  for (let index = 0; index < 7; index++)
+    eighthLinkMarked = walletRaised(new Error('wrapper', { cause: eighthLinkMarked }));
+  const ninthLinkMarked = new Error('wrapper', { cause: eighthLinkMarked });
+  expect(bridgeReceiveNativeFailure(eighthLinkMarked)).toEqual(innerSnapshot);
+  expect(bridgeReceiveNativeFailure(ninthLinkMarked)).toBeUndefined();
+  const cycle = new Error('cycle');
+  Object.assign(cycle, { cause: cycle });
+  expect(bridgeReceiveNativeFailure(cycle)).toBeUndefined();
+  const throwingCause = Object.defineProperty(new Error('hostile'), 'cause', {
+    get() {
+      throw new Error('hostile');
+    }
+  });
+  expect(() => bridgeReceiveNativeFailure(throwingCause)).not.toThrow();
+  const hostileMark = new Proxy(
+    {},
+    {
+      getOwnPropertyDescriptor() {
+        throw new Error('hostile mark');
+      }
+    }
+  );
+  expect(() => bridgeReceiveNativeFailure(hostileMark)).not.toThrow();
+  for (const forged of [
+    'Request expired',
+    { ...nativeSnapshot, reownNativeFailure: nativeSnapshot },
+    { message: JSON.stringify(nativeSnapshot), code: `REOWN_NATIVE_REQUEST_FAILURE:${JSON.stringify(nativeSnapshot)}` }
+  ])
+    expect(bridgeReceiveNativeFailure(forged)).toBeUndefined();
+});
+
+it('keepsNativeOriginIndependentOfEvmClass', () => {
+  const walletExpired = new Error('Request expired');
+  markReownNativeFailure(walletExpired, nativeSnapshot);
+  const sdkExpired = new Error('Request expired');
+  markReownNativeFailure(sdkExpired, {
+    nativeOrigin: 'request_expired',
+    requestAge: 'over_300s',
+    published: 'confirmed'
+  });
+  expect(bridgeReceiveLibraryError(walletExpired)).toBe('request_expired');
+  expect(bridgeReceiveNativeFailure(walletExpired)?.nativeOrigin).toBe('wallet_error');
+  expect(bridgeReceiveNativeFailure(sdkExpired)?.nativeOrigin).toBe('request_expired');
+  const opaque = new Error('unrecognized wallet wording');
+  markReownNativeFailure(opaque, { ...nativeSnapshot, walletResponseCode: 'user_rejected' });
+  expect(bridgeReceiveLibraryError(opaque)).toBe('other');
+  expect(opaque).not.toHaveProperty('code');
 });

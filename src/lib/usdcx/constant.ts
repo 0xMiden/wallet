@@ -213,7 +213,7 @@ export function usdcxPayoutFeeShortfall(
 
 /**
  * The i18n key of a USDCx deposit's arrival time for its source chain: Arc (testnet or mainnet) reads ~1 min, every
- * other source ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
+ * other source ~2 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
  */
 export function usdcxArrivalKey(sourceChainId: number): 'usdcxArrivalArc' | 'usdcxArrival' {
   return sourceChainId === ARC_TESTNET.id || sourceChainId === arc.id ? 'usdcxArrivalArc' : 'usdcxArrival';
