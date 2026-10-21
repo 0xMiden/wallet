@@ -3262,6 +3262,26 @@
     "message": "Ви можете будь-коли знову змінити свого Guardian — зберігайте фразу відновлення в безпеці, вона необхідна для цього.",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "Ваш новий «Guardian» здійснює спільне підписання",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "Новий «Guardian» здійснює співпідпис після підтвердження",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "Нічого не змінилося",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "Зберігайте його у доступному місці",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "Змінюйте в будь-який час",
+    "englishSource": "Switch again anytime"
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "Пройдіть аутентифікацію, щоб затвердити це перемикання Guardian.",
     "englishSource": "Authenticate to approve this Guardian switch."

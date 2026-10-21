@@ -3262,6 +3262,26 @@
     "message": "원하는 시점에 언제든지 Guardian을 다시 교체할 수 있습니다. 이를 위해서는 복구 문구가 필요하므로 안전하게 보관하십시오.",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "새로운 ‘Guardian’이 공동 서명합니다",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "새로운 ‘Guardian’은 확인 후 한 번 공동 서명합니다",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "아무것도 이동하지 않았습니다",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "접근 가능하게 유지하십시오",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "언제든지 다시 전환할 수 있습니다",
+    "englishSource": "Switch again anytime"
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "이 Guardian 전환을 승인하려면 인증을 진행하십시오.",
     "englishSource": "Authenticate to approve this Guardian switch."
