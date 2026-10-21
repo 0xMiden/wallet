@@ -268,6 +268,15 @@ jobs:
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
 
+      - name: Upload wallet picker screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: appkit-picker-screenshots
+          path: test-results/**/appkit-picker-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
   # Required-check name `Test`. Lint/unit and mock Playwright used to run in this
   # one job (~42m sequential). They now run in parallel; this gate keeps the
   # required name and fails if either side failed or was skipped.
