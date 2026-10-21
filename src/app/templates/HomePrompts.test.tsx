@@ -4,10 +4,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { IconName } from 'app/icons/v2';
 import {
-  publishMockBridgeSnapshot,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
-  testSnapshotWithSwapPairs
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
 } from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
@@ -18,7 +16,7 @@ import {
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import {
   FaucetAmountOverCapError,
@@ -82,6 +80,16 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 });
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// Set verified price assets directly. Swap metadata does not set price assets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+});
+
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
   jest
@@ -332,12 +340,6 @@ const tokenPrices = {
   ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
 };
-
-const iethPriceSnapshot = (priceSymbol?: string): BridgeConfigSnapshot =>
-  testSnapshotWithSwapPairs({
-    tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol })],
-    pairs: []
-  });
 
 // The faucet prompt's status is per account, so its writes are asserted with the
 // account they belong to rather than through the wallet-wide prompt spies.
@@ -815,11 +817,7 @@ describe('HomePrompts', () => {
   });
 
   it('says what the mint brought in dollars once an allowlist entry names the native faucet', async () => {
-    // The registry entry a future allowlist listing of the native asset would add.
-    _setSwapTokensForTest([
-      { symbol: 'MIDEN', faucetId: NATIVE_FAUCET_ID, decimals: 6, logoSymbol: 'MIDEN', priceSymbol: 'MIDEN' },
-      ...TEST_SWAP_TOKENS
-    ]);
+    mockVerifiedPriceAssets.set(NATIVE_FAUCET_ID, 'MIDEN');
     try {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
       const renderWith = (notes: PendingNoteValue[]) => (
@@ -849,9 +847,9 @@ describe('HomePrompts', () => {
     }
   });
 
-  it('revalues the funded hero on config-only price changes and removes an unavailable total', async () => {
+  it('revalues the funded hero on verified price asset changes and removes an unavailable total', async () => {
     _setSwapTokensForTest(undefined);
-    mockBridgeSnapshot = iethPriceSnapshot('ETH');
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
     mockLegacyFeeIdentity = TEST_TOKEN_IETH.faucetId;
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const prices = {
@@ -887,16 +885,12 @@ describe('HomePrompts', () => {
       await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
       expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot('BTC');
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'BTC');
+      view.rerender(renderWith(notes));
       expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$5.00');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot();
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
+      view.rerender(renderWith(notes));
       expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
     } finally {
       jest.useRealTimers();
@@ -3818,9 +3812,9 @@ describe('HomePrompts', () => {
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
   });
 
-  it('revalues stable pending notes on config-only price changes and removes an unavailable total', async () => {
+  it('revalues stable pending notes on verified price asset changes and removes an unavailable total', async () => {
     _setSwapTokensForTest(undefined);
-    mockBridgeSnapshot = iethPriceSnapshot('ETH');
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const notes: PendingNoteValue[] = [
       {
@@ -3834,30 +3828,27 @@ describe('HomePrompts', () => {
       ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
       BTC: { price: 4, change24h: 0, percentageChange24h: 0 }
     };
+    const content = (
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={prices}
+      />
+    );
     try {
-      render(
-        <HomePrompts
-          account={account}
-          balances={fundedBalance}
-          balancesLoading={false}
-          claimableNotes={notes}
-          fundingNotes={notes}
-          tokenPrices={prices}
-        />
-      );
+      const view = render(content);
       await act(async () => {});
       expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$2.50');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot('BTC');
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'BTC');
+      view.rerender(React.cloneElement(content));
       expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$5.00');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot();
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
+      view.rerender(React.cloneElement(content));
       expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
       expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
     } finally {

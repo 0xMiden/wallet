@@ -1,13 +1,20 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { useMidenContext } from 'lib/miden/front';
+import { getPriceAssets } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { loadTokenPriceAssets, peekTokenPriceAssets } from 'lib/token-list/runtime';
+import { useLoadedList } from 'lib/token-list/useLoadedList';
 
-import { fetchKlineData, fetchTokenPrices, Timeframe } from './binance';
+import type { Timeframe } from './binance';
+import { fetchKlineData, fetchTokenPrices } from './feed';
 import { writeUsdPriceCache } from './usd';
 
-export { fetchKlineData, listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
+export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
+export { fetchKlineData } from './feed';
 export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
 
 /**
@@ -25,7 +32,9 @@ export function useTokenSparkline(symbol: string | undefined, timeframe: Timefra
   return useMemo(() => (data ?? []).map(p => p.value), [data]);
 }
 
-const TOKEN_PRICES_KEY = 'token-prices';
+const sameAssets = (a: Map<string, string> | null, b: Map<string, string> | null): boolean =>
+  a === b ||
+  (a !== null && b !== null && a.size === b.size && Array.from(a).every(([id, asset]) => b.get(id) === asset));
 
 /**
  * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.
@@ -34,23 +43,33 @@ const TOKEN_PRICES_KEY = 'token-prices';
  */
 export function PriceProvider() {
   const setTokenPrices = useWalletStore(s => s.setTokenPrices);
-  const syncDone = useRef(false);
   const { locked, ready } = useMidenContext();
 
-  const { data: prices } = useRetryableSWR(locked || ready ? TOKEN_PRICES_KEY : null, fetchTokenPrices, {
-    refreshInterval: 5 * 60_000,
-    dedupingInterval: 30_000
-  });
+  const network = getEffectiveNetworkName();
+  const enabled = locked || ready;
+  useSyncExternalStore(subscribeBridgeConfig, getBridgeConfigSnapshot);
+  useLoadedList(network, enabled ? loadTokenPriceAssets : null, peekTokenPriceAssets, sameAssets);
+  const assets = getPriceAssets();
+  const symbols = [...new Set(assets.values())].filter(symbol => symbol !== 'USDCX').sort();
+  const assetKey = JSON.stringify(Array.from(assets).sort(([a], [b]) => a.localeCompare(b)));
+  const { data: prices } = useRetryableSWR(
+    enabled ? ['token-prices', network, assetKey] : null,
+    async () => ({ network, assetKey, prices: await fetchTokenPrices(symbols) }),
+    { refreshInterval: 5 * 60_000, dedupingInterval: 30_000, keepPreviousData: false }
+  );
 
   useEffect(() => {
-    if (prices && Object.keys(prices).length > 0) {
-      syncDone.current = true;
-      setTokenPrices(prices);
+    setTokenPrices({});
+  }, [network, assetKey, setTokenPrices]);
+
+  useEffect(() => {
+    if (enabled && prices?.network === network && prices.assetKey === assetKey) {
+      setTokenPrices(prices.prices);
       // The enforcement path runs in the backend realm and cannot see this store. Writing through
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
-      void writeUsdPriceCache(prices);
+      writeUsdPriceCache(prices.prices).catch(() => undefined);
     }
-  }, [prices, setTokenPrices]);
+  }, [enabled, network, assetKey, prices, setTokenPrices]);
 
   return null;
 }
