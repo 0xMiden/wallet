@@ -733,9 +733,33 @@
     "message": "나만의 비공개 지갑 이정표입니다.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "획득",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "잠김",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "곧 제공될 예정",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "배지 컬렉션",
-    "englishSource": "Badge collection"
+    "message": "모든 배지",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Mainnet 전용",
@@ -746,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "배지는 Mainnet에서 획득할 수 있습니다. 테스트 활동은 포함되지 않습니다.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "배지는 메인넷에서 잠금 해제됩니다. 테스트 활동은 포함되지 않습니다.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, 획득함",

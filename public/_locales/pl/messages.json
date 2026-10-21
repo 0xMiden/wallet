@@ -733,9 +733,33 @@
     "message": "Prywatne osiągnięcia Twojego portfela.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Zarabiane",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Zablokowane",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Wkrótce",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Kolekcja odznak",
-    "englishSource": "Badge collection"
+    "message": "Wszystkie odznaki",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Tylko Mainnet",
@@ -746,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Odznaki odblokowują się w Mainnet. Aktywność testowa się nie liczy.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Odblokowanie odznak następuje w sieci Mainnet. Działania w sieci testowej nie są brane pod uwagę.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, zdobyta",

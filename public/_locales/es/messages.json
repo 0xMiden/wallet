@@ -733,9 +733,33 @@
     "message": "Los logros privados de tu billetera.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Ganado",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Bloqueado",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Próximamente",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Colección de insignias",
-    "englishSource": "Badge collection"
+    "message": "Todas las insignias",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Solo en Mainnet",
@@ -746,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Las insignias se desbloquean en Mainnet. La actividad de prueba no cuenta.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Las insignias se desbloquean en Mainnet. La actividad en la red de pruebas no cuenta.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, obtenida",

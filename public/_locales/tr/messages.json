@@ -733,9 +733,33 @@
     "message": "Cüzdanınızın özel dönüm noktaları.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Kazanılan",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Kilitli",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Yakında",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Rozet koleksiyonu",
-    "englishSource": "Badge collection"
+    "message": "Tüm rozetler",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Yalnızca Mainnet",
@@ -746,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Rozetler Mainnet üzerinde açılır. Test etkinlikleri sayılmaz.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Rozetler Mainnet'te açılır. Test faaliyetleri sayılmaz.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, kazanıldı",

@@ -733,9 +733,33 @@
     "message": "Os marcos privados da sua carteira.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Ganhado",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Bloqueado",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Em breve",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Coleção de emblemas",
-    "englishSource": "Badge collection"
+    "message": "Todos os emblemas",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Somente Mainnet",
@@ -747,7 +771,7 @@
   },
   "badgesMainnetNoticeDescription": {
     "message": "Os emblemas são desbloqueados na Mainnet. Atividades de teste não contam.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, conquistado",

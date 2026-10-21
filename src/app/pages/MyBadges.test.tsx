@@ -6,8 +6,18 @@ import MyBadges from './MyBadges';
 
 let mockNetworkId = 'testnet';
 const mockBack = jest.fn();
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => [] }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, unknown>) =>
+      values
+        ? `${key}(${Object.entries(values)
+            .map(([name, value]) => `${name}=${value}`)
+            .join(',')})`
+        : key
+  })
+}));
+let mockEarned: string[] = [];
+jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => mockEarned }));
 jest.mock('lib/miden/front', () => ({ useNetwork: () => ({ id: mockNetworkId }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => mockBack }));
@@ -36,6 +46,7 @@ jest.mock('components/ui', () => ({
 
 afterEach(() => {
   mockNetworkId = 'testnet';
+  mockEarned = [];
   jest.clearAllMocks();
 });
 
@@ -60,4 +71,26 @@ it('returns to the profile through the shared back handler', () => {
   render(<MyBadges />);
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+it('splits the set into earned, earnable and not-yet-available counts', () => {
+  render(<MyBadges />);
+  expect(screen.getByTestId('badges-stat-earned')).toHaveTextContent('0badgesStatEarned');
+  expect(screen.getByTestId('badges-stat-locked')).toHaveTextContent('3badgesStatLocked');
+  expect(screen.getByTestId('badges-stat-coming-soon')).toHaveTextContent('3badgesStatComingSoon');
+  expect(screen.queryByText('mainnetOnly')).not.toBeInTheDocument();
+});
+
+it('shows the earned fraction beside the All badges header', () => {
+  render(<MyBadges />);
+  expect(screen.getByTestId('badges-collection-count')).toHaveTextContent('badgesEarnedFraction(earned=0,total=6)');
+});
+
+it('counts an earned badge in the tiles and the fraction', () => {
+  mockEarned = ['first-deposit'];
+  render(<MyBadges />);
+  expect(screen.getByTestId('badges-stat-earned')).toHaveTextContent('1badgesStatEarned');
+  expect(screen.getByTestId('badges-stat-locked')).toHaveTextContent('2badgesStatLocked');
+  expect(screen.getByTestId('badges-stat-coming-soon')).toHaveTextContent('3badgesStatComingSoon');
+  expect(screen.getByTestId('badges-collection-count')).toHaveTextContent('badgesEarnedFraction(earned=1,total=6)');
 });
