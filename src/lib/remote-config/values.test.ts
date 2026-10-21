@@ -496,7 +496,7 @@ describe('getters', () => {
   // The same address registered from another network is another bridged token: with no known network the lookup
   // names none, and a saved deposit network picks its own entry whatever the chain's read says.
   it('find a registered token only on a known origin network', () => {
-    const USDC = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+    const USDC: `0x${string}` = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
     const registry = SEPOLIA_READS.agglayer.tokens.state === 'ok' ? SEPOLIA_READS.agglayer.tokens.value : [];
     const elsewhere = {
       midenFaucetId: '0xaef9b3cd67458ad14510d371c65a58',

@@ -2150,7 +2150,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       mockBridgeSnapshot = undefined;
     });
 
-    it.each([
+    it.each<{ token: string; setup: () => void; pick: DepositToken | null; reads: number }>([
       { token: 'ETH', setup: () => undefined, pick: 'ETH', reads: 1 },
       { token: "Circle's USDC", setup: offerCircleUsdc, pick: 'CIRCLE_USDC', reads: 1 },
       // Its getBalance, then the balanceOf it falls back to.
