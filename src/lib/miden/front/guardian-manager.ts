@@ -1,6 +1,7 @@
 import { MultisigService } from 'lib/miden/guardian';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { RecoveryPreparation, WalletAccount } from 'lib/shared/types';
+import { annotateCrash, withProposalStep, type ProposalGuard } from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -81,6 +82,11 @@ export interface GuardianAccountProvider {
   setGuardianEndpoint?: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
 }
 
+function refusedAtSelection(error: Error, proposalGuard: ProposalGuard): Error {
+  annotateCrash(error, { proposalStep: 'service_select', proposalGuard });
+  return error;
+}
+
 /**
  * Create a MultisigService for the given Guardian account.
  * Returns a cached instance if available.
@@ -140,19 +146,22 @@ export async function getOrCreateMultisigService(
   const owner = {};
   const initPromise = (async () => {
     // Verify this is a Guardian account
-    const accounts = await provider.getAccounts();
+    const accounts = await withProposalStep('service_select', () => provider.getAccounts());
     // Match tolerant of id form: dApp-initiated txs arrive with the bare bech32
     // address while WalletAccount.publicKey is a composite `<address>_<suffix>`.
     const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
     if (!account || account.type !== WalletType.Guardian) {
-      throw new Error('Account is not a Guardian account');
+      throw refusedAtSelection(new Error('Account is not a Guardian account'), 'account_not_guardian');
     }
     // Hot pubkey lives on the WalletAccount record (set at create time). A
     // Guardian account without one has no usable local signer, and this caller
     // needs to sign right now: it must fail loudly here rather than silently
     // fall back.
     if (!account.hotPublicKey) {
-      throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
+      throw refusedAtSelection(
+        new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey - re-create the wallet`),
+        'hot_key_missing'
+      );
     }
     const hotPublicKey = account.hotPublicKey;
     // Per-account guardian endpoint, resolved once and reused for both the cache
@@ -200,11 +209,15 @@ export async function getOrCreateMultisigService(
     const { sdkAccount, commitment, accountIdHex } = await withWasmClientLock(async hold => {
       // Use the matched account's stored publicKey (the form the in-wallet path
       // uses) rather than the possibly-bare dApp-supplied id.
-      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+      const sdkAccount = await withProposalStep('service_account_read', () =>
+        midenClientProxy.getAccount(account.publicKey)
+      );
       if (!sdkAccount) return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined };
       assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
       // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
-      const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
+      const { commitment } = await withProposalStep('service_signer_read', () =>
+        getSignerDetailsFromAccount(sdkAccount)
+      );
       // AND AGAIN AFTER THE SIGNER READ, not only after the account one. The comment above
       // calls that a genuine WASM call rather than a field access, which is exactly the
       // category every sibling merged hold in this change re-checks after: the direct-switch
@@ -221,20 +234,24 @@ export async function getOrCreateMultisigService(
     }, buildLockOptions);
 
     if (!sdkAccount || commitment === undefined) {
-      throw new Error('Account not found in local storage');
+      const missing = new Error('Account not found in local storage');
+      annotateCrash(missing, { proposalStep: sdkAccount ? 'service_signer_read' : 'service_account_read' });
+      throw missing;
     }
 
     // Bind the service to the hot signer — the popup signs with the hot key.
     console.log('creating guardian service', accountIdHex);
-    const service = await MultisigService.init(
-      sdkAccount,
-      `0x${hotPublicKey}`,
-      `0x${commitment}`,
-      provider.signWord,
-      currentEndpoint,
-      boundAtSyncCeiling
-        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
-        : { label: 'guardian-service-init' }
+    const service = await withProposalStep('service_load', () =>
+      MultisigService.init(
+        sdkAccount,
+        `0x${hotPublicKey}`,
+        `0x${commitment}`,
+        provider.signWord,
+        currentEndpoint,
+        boundAtSyncCeiling
+          ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+          : { label: 'guardian-service-init' }
+      )
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the

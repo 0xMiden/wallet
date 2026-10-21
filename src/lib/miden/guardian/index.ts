@@ -15,6 +15,7 @@ import {
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
+import { annotateCrash, withProposalStep } from 'lib/telemetry/crash-diagnostics';
 
 import {
   assertGuardianKeyCommitment,
@@ -409,11 +410,13 @@ export class MultisigService {
     noteType: NoteType
   ): Promise<Proposal> {
     return this.withChainSyncedHold('send proposal', () =>
-      this.multisig.createP2idProposal(
-        accountRefToSdk(recipientId).toString(),
-        accountRefToSdk(faucetId).toString(),
-        amount,
-        { noteType }
+      withProposalStep('proposal_create', () =>
+        this.multisig.createP2idProposal(
+          accountRefToSdk(recipientId).toString(),
+          accountRefToSdk(faucetId).toString(),
+          amount,
+          { noteType }
+        )
       )
     );
   }
@@ -422,7 +425,9 @@ export class MultisigService {
    * Create a consume notes transaction proposal.
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
-    return this.withChainSyncedHold('consume proposal', () => this.multisig.createConsumeNotesProposal(noteIds));
+    return this.withChainSyncedHold('consume proposal', () =>
+      withProposalStep('proposal_create', () => this.multisig.createConsumeNotesProposal(noteIds))
+    );
   }
 
   /** Current on-chain threshold for `procedure`, or undefined if none is set. */
@@ -456,8 +461,10 @@ export class MultisigService {
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
     return this.withChainSyncedHold('procedure-threshold proposal', () =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+      withProposalStep('proposal_create', () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+      )
     );
   }
 
@@ -476,7 +483,7 @@ export class MultisigService {
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
     return await this.withChainSyncedHold('custom proposal', () =>
-      this.multisig.createCustomProposal(requestBytes, proposalType)
+      withProposalStep('proposal_create', () => this.multisig.createCustomProposal(requestBytes, proposalType))
     );
   }
 
@@ -509,7 +516,9 @@ export class MultisigService {
       const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
       const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
-      const proposal = await this.multisig.createCustomProposal(rebased, proposalType);
+      const proposal = await withProposalStep('proposal_create', () =>
+        this.multisig.createCustomProposal(rebased, proposalType)
+      );
       return { proposal, requestBytes: rebased };
     });
   }
@@ -531,16 +540,20 @@ export class MultisigService {
     { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Proposal> {
     return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
-      const requestBytes = await midenClientProxy.buildPswapCancelRequest(
-        this.accountId,
-        noteId,
-        step => assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step),
-        { allowNodeNote }
+      const requestBytes = await withProposalStep('reclaim_build', () =>
+        midenClientProxy.buildPswapCancelRequest(
+          this.accountId,
+          noteId,
+          step => assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step),
+          { allowNodeNote }
+        )
       );
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
-      await persistRequest(requestBytes);
+      await withProposalStep('reclaim_persist', () => persistRequest(requestBytes));
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after persisting the request');
-      return this.multisig.createCustomProposal(requestBytes, 'custom_transaction');
+      return withProposalStep('proposal_create', () =>
+        this.multisig.createCustomProposal(requestBytes, 'custom_transaction')
+      );
     });
   }
 
@@ -873,7 +886,10 @@ export class MultisigService {
       // calling `createProposal` again would duplicate it (nonce collision).
       const proposal = await this.withChainSyncedHold(
         'switch-guardian proposal',
-        () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
+        () =>
+          withProposalStep('proposal_create', () =>
+            this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+          ),
         syncPhase
       );
       return { proposal, newEndpoint: newGuardianEndpoint };
@@ -962,7 +978,9 @@ export class MultisigService {
       description: 'Replace device (hot) signer'
     };
 
-    const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
+    const proposal = await withProposalStep('proposal_create', () =>
+      this.multisig.createProposal(Date.now(), summaryBase64, metadata)
+    );
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
   }
@@ -1002,7 +1020,9 @@ export class MultisigService {
           throw error;
         }
         if (isPipelineKillLink(error)) throw error;
-        throw new ProposalChainSyncError(error);
+        const failed = new ProposalChainSyncError(error);
+        annotateCrash(failed, { proposalStep: 'chain_sync' });
+        throw failed;
       } finally {
         if (phase) phase.syncing = false;
       }

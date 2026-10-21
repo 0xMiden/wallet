@@ -57,6 +57,12 @@ import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import {
+  annotateCrash,
+  withProposalStep,
+  type ProposalGuard,
+  type ProposalStep
+} from 'lib/telemetry/crash-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
 import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
@@ -1394,7 +1400,7 @@ const generateTransactionWithProvider = async (
   });
 
   // Route Guardian accounts through Guardian service
-  if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
+  if (await withProposalStep('service_select', () => isGuardianAccount(transaction.accountId, guardianProvider))) {
     try {
       // Serialize guardian transactions per account: the guardian co-signs one
       // delta per account at a time, and concurrent same-account txs make its
@@ -1994,18 +2000,41 @@ const generateTransactionWithProvider = async (
  */
 const buildColdServiceForAccount = async (
   accountId: string,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  { forProposal = false }: { forProposal?: boolean } = {}
 ): Promise<MultisigService> => {
-  const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
+  // Only a proposal's preparation names its steps; abandoning or releasing a candidate is not one.
+  const step = forProposal ? withProposalStep : <T>(_step: ProposalStep, operation: () => Promise<T>) => operation();
+  const walletAccount = (await step('service_select', () => guardianProvider.getAccounts())).find(a =>
+    sameWalletAccountId(a.publicKey, accountId)
+  );
   if (!walletAccount) {
-    throw new Error(`Guardian account ${accountId} not found in provider`);
+    throw atProposalStep(new Error(`Guardian account ${accountId} not found in provider`), forProposal, {
+      proposalStep: 'service_select',
+      proposalGuard: 'account_not_guardian'
+    });
   }
-  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
+  const sdkAccount = await step('service_account_read', () =>
+    withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
+  );
   if (!sdkAccount) {
-    throw new Error(`Guardian account ${accountId} not found in local client`);
+    throw atProposalStep(new Error(`Guardian account ${accountId} not found in local client`), forProposal, {
+      proposalStep: 'service_account_read'
+    });
   }
-  return MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+  return step('service_load', () =>
+    MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+  );
 };
+
+function atProposalStep(
+  error: Error,
+  forProposal: boolean,
+  diagnostics: { proposalStep: ProposalStep; proposalGuard?: ProposalGuard }
+): Error {
+  if (forProposal) annotateCrash(error, diagnostics);
+  return error;
+}
 
 /**
  * The generation-time half of the gate claim's native-only rule (#805): every note the
@@ -2063,13 +2092,14 @@ const consumeServiceFor = async (
   noteIds: string[],
   guardianProvider: GuardianAccountProvider
 ): Promise<MultisigService> => {
-  const account = (await guardianProvider.getAccounts()).find(a =>
+  const account = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
     sameWalletAccountId(a.publicKey, transaction.accountId)
   );
   const rotationPending = account?.requiresHotKeyRotation === true && !account.hotPublicKey;
   if (transaction.rotationFunding === true) {
     await assertRotationFundingNotesNative(transaction.accountId, noteIds);
-    if (rotationPending) return buildColdServiceForAccount(transaction.accountId, guardianProvider);
+    if (rotationPending)
+      return buildColdServiceForAccount(transaction.accountId, guardianProvider, { forProposal: true });
   } else if (rotationPending) {
     throw new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR);
   }
@@ -3190,7 +3220,7 @@ const generateGuardianTransaction = async (
   // and never route through this function, so exempting switch-guardian here only
   // affects the deliberate Settings-driven switch flow, not account recovery.
   if (transaction.type !== 'switch-guardian') {
-    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+    const walletAccount = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
       sameWalletAccountId(a.publicKey, transaction.accountId)
     );
     if (walletAccount) {
@@ -3408,17 +3438,26 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'replace-hot-key': {
-      const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+      const walletAccount = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
         sameWalletAccountId(a.publicKey, transaction.accountId)
       );
       if (!walletAccount) {
-        throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
+        throw atProposalStep(new Error(`Guardian account ${transaction.accountId} not found in provider`), true, {
+          proposalStep: 'service_select',
+          proposalGuard: 'account_not_guardian'
+        });
       }
-      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
+      const sdkAccount = await withProposalStep('service_account_read', () =>
+        withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
+      );
       if (!sdkAccount) {
-        throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
+        throw atProposalStep(new Error(`Guardian account ${transaction.accountId} not found in local client`), true, {
+          proposalStep: 'service_account_read'
+        });
       }
-      service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      service = await withProposalStep('service_load', () =>
+        MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+      );
       // Stamp the guardian this rotation runs under before anything below can fail: a switch that
       // completed after initiation moved the account's endpoint, and the row must name this one.
       const rTx = transaction as ReplaceHotKeyTransaction;
@@ -3647,7 +3686,7 @@ const generateGuardianTransaction = async (
       // Cold-routed structural change (same class as switch-guardian /
       // replace-hot-key): cold + guardian satisfies it on-chain.
       const uptTx = transaction as UpdateProcedureThresholdTransaction;
-      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
+      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider, { forProposal: true });
       await releaseUnabandonedCandidate(transaction, service);
       proposalResult = await withGuardianConflictRetry(() =>
         service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
@@ -3706,8 +3745,8 @@ const generateGuardianTransaction = async (
     }
   }
 
-  // Sign and execute the proposal
-  await setTransactionStage(transaction.id, 'signing-proposal');
+  // Sign and execute the proposal. The proposal already exists if this write fails.
+  await withProposalStep('signing_stage_write', () => setTransactionStage(transaction.id, 'signing-proposal'));
 
   // switch_guardian is on-chain threshold-2 (set at create time via
   // procedureThresholds). Hot's signAndCreateTransactionRequest below
