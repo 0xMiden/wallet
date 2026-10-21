@@ -10,7 +10,11 @@ import {
 } from 'lib/walletconnect/native-request-failure';
 
 import {
+  BACKGROUND_AGES,
   CONFIRMATION_HANDLER_STATES,
+  CONFIRMATION_REGISTRY_STATES,
+  CONFIRMATION_REQUEST_SHAPES,
+  PAGE_NAVIGATIONS,
   PAGE_VISIBILITY,
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
@@ -54,6 +58,10 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['shared memory could still grow', SHARED_MEMORY_PROBES],
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],
+  ['the shape of the id the request carried', CONFIRMATION_REQUEST_SHAPES],
+  ['what the background still remembered of recent approvals', CONFIRMATION_REGISTRY_STATES],
+  ['how long the background had been running', BACKGROUND_AGES],
+  ['how the approval window was last loaded', PAGE_NAVIGATIONS],
   ['reconnected to the background', ['true', 'false']],
   ['the preparation step that failed', PROPOSAL_STEPS],
   ['which check refused it', PROPOSAL_GUARDS],

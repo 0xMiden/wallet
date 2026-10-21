@@ -1,7 +1,7 @@
 import type { Browser } from 'webextension-polyfill';
 
 import { isDesktop, isMobile } from 'lib/platform';
-import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
+import { annotateCrash, readPageNavigation } from 'lib/telemetry/crash-diagnostics';
 
 import { deserializeInternalError, IntercomError } from './helpers';
 import { MessageType, RequestMessage } from './types';
@@ -257,11 +257,14 @@ export class IntercomClient implements IIntercomClient {
         }
       });
     } catch (error) {
+      const code = error instanceof IntercomError ? error.code : undefined;
       annotateCrash(error, {
         operation: 'intercom_request',
         requestType,
         // A dApp approval's Not Found carries the state the background held for it.
-        confirmationHandler: error instanceof IntercomError ? error.code : undefined,
+        confirmationHandler: code,
+        // A reload of an approval window is one way to ask for an approval the background no longer holds.
+        pageNavigation: code?.startsWith('confirmation_') ? readPageNavigation() : undefined,
         portReconnected: this.portRebuilt
       });
       throw error;
