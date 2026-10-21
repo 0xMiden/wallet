@@ -266,7 +266,8 @@ function keepValuesRead(
             rollupId: kept(chain.agglayer.rollupId, before.agglayer.rollupId),
             tokens: kept(chain.agglayer.tokens, before.agglayer.tokens),
             evmNetworkId: kept(chain.agglayer.evmNetworkId, before.agglayer.evmNetworkId),
-            l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode)
+            l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode),
+            depositTokens: kept(chain.agglayer.depositTokens, before.agglayer.depositTokens)
           },
           epoch: { evmUsdc: kept(chain.epoch.evmUsdc, before.epoch.evmUsdc) }
         }

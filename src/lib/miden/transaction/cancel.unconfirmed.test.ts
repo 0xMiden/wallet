@@ -1,4 +1,5 @@
 import * as Repo from 'lib/miden/repo';
+import { captureDiagnosticLog } from 'lib/telemetry/crash';
 
 import { cancelTransactionAfterPipelineStopped, markTransactionUnconfirmed } from './cancel';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -12,6 +13,10 @@ jest.mock('../back/background-notification', () => ({
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
 jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/telemetry/crash', () => ({
+  ...jest.requireActual('lib/telemetry/crash'),
+  captureDiagnosticLog: jest.fn()
+}));
 
 const ID = `0x${'ab'.repeat(32)}`;
 const indefinite = () =>
@@ -73,6 +78,16 @@ describe('entering Unconfirmed (#1081)', () => {
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.extraInputs).toEqual({ provider: 'usdcx', usdcxBurn });
     expect(notices().notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+  });
+
+  it('records a swap waiting for the verdict as unconfirmed (#1660)', async () => {
+    const swap = generating({ type: 'swap', displayIcon: 'SWAP' });
+    await Repo.transactions.put(swap);
+    await cancelTransactionAfterPipelineStopped(swap, indefinite());
+    expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(
+      jest.mocked(captureDiagnosticLog).mock.calls.map(([event, attributes]) => [event, attributes.outcome])
+    ).toEqual([['operation_end', 'unconfirmed']]);
   });
 
   it('marks an execute row`s entry with its origin', async () => {

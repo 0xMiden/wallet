@@ -89,7 +89,13 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
 
 const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
 const UNREAD_CHAIN: DerivedChainConfig = {
-  agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED },
+  agglayer: {
+    rollupId: SKIPPED,
+    tokens: SKIPPED,
+    evmNetworkId: SKIPPED,
+    l1BridgeCode: SKIPPED,
+    depositTokens: SKIPPED
+  },
   epoch: { evmUsdc: SKIPPED }
 };
 

@@ -162,7 +162,9 @@ const HEALTHY_SEPOLIA: DerivedChainConfig = {
     rollupId: { state: 'ok', value: 86 },
     tokens: { state: 'ok', value: [ETH] },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    // TESTNET lists no deposit token.
+    depositTokens: { state: 'skipped' }
   },
   epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
 };
@@ -775,5 +777,93 @@ describe('deriveBridgeConfig default I/O', () => {
     } finally {
       Object.defineProperty(globalThis, 'fetch', { value: original, configurable: true, writable: true });
     }
+  });
+});
+
+describe('deriveBridgeConfig deposit tokens', () => {
+  const USDC_ADDRESS = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+  const TRNSK_ADDRESS = '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b';
+  const USDC: BridgeToken = {
+    midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e',
+    originToken: USDC_ADDRESS,
+    originNetwork: 0,
+    scale: 10
+  };
+  const TRNSK: BridgeToken = {
+    midenFaucetId: '0x699b06a0fb524c110826e9cf7d8bc0',
+    originToken: TRNSK_ADDRESS,
+    originNetwork: 0,
+    scale: 10
+  };
+  // The same token registered from another network: never offered from Sepolia.
+  const USDC_ELSEWHERE: BridgeToken = { ...USDC, midenFaucetId: '0xaef9b3cd67458ad14510d371c65a58', originNetwork: 3 };
+  const registry = (tokens: BridgeToken[]) => jest.fn(async () => ({ rollupId: 86, tokens }));
+  const erc20 = jest.fn(async (address: string) =>
+    address === TRNSK_ADDRESS ? { symbol: 'TRNSK', decimals: 18 } : { symbol: 'USDC', decimals: 6 }
+  );
+  const listing = (tokens?: Record<string, { contractAddress: `0x${string}` }>): BridgeConfig => {
+    const sepolia = TESTNET.supportedEvmChains.sepolia;
+    const agglayer = sepolia?.bridges.agglayer;
+    if (!sepolia || !agglayer) throw new Error('fixture names no Sepolia AggLayer route');
+    return {
+      ...TESTNET,
+      supportedEvmChains: {
+        sepolia: {
+          ...sepolia,
+          bridges: { ...sepolia.bridges, agglayer: { ...agglayer, ...(tokens ? { tokens } : {}) } }
+        }
+      }
+    };
+  };
+  const BOTH = { USDC: { contractAddress: USDC_ADDRESS }, TRNSK: { contractAddress: TRNSK_ADDRESS } } as const;
+  const depositTokens = async (config: BridgeConfig, overrides: Partial<DeriveDeps> = {}) =>
+    (await deriveBridgeConfig(config, deps({ evm: () => sepoliaReads({ erc20 }), ...overrides }))).chains[SEPOLIA]
+      ?.agglayer.depositTokens;
+
+  it('offers the listed tokens the registry holds on this network, at their contract decimals', async () => {
+    const listed = listing({ ...BOTH, WBTC: { contractAddress: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599' } });
+    await expect(
+      depositTokens(listed, { readBridgeRegistry: registry([ETH, USDC, TRNSK, USDC_ELSEWHERE]) })
+    ).resolves.toEqual({
+      state: 'ok',
+      value: [
+        { symbol: 'USDC', contractAddress: USDC_ADDRESS, decimals: 6, midenFaucetId: USDC.midenFaucetId, scale: 10 },
+        { symbol: 'TRNSK', contractAddress: TRNSK_ADDRESS, decimals: 18, midenFaucetId: TRNSK.midenFaucetId, scale: 10 }
+      ]
+    });
+  });
+
+  it('skips the probe while the document lists no token', async () => {
+    await expect(depositTokens(listing(), { readBridgeRegistry: registry([ETH, USDC]) })).resolves.toEqual(SKIPPED);
+  });
+
+  it('reports nothing to offer as absent', async () => {
+    await expect(depositTokens(listing(BOTH), { readBridgeRegistry: registry([ETH]) })).resolves.toEqual({
+      state: 'absent'
+    });
+    const reads = sepoliaReads({ erc20, networkId: jest.fn(async () => 7) });
+    await expect(
+      depositTokens(listing(BOTH), { evm: () => reads, readBridgeRegistry: registry([ETH, USDC]) })
+    ).resolves.toEqual({ state: 'absent' });
+  });
+
+  it('fails the probe when a contract read fails, so no token is offered at an unchecked scale', async () => {
+    const reads = sepoliaReads({ erc20: jest.fn(async () => Promise.reject(new Error('execution reverted'))) });
+    await expect(
+      depositTokens(listing(BOTH), { evm: () => reads, readBridgeRegistry: registry([ETH, USDC, TRNSK]) })
+    ).resolves.toEqual({ state: 'error', message: expect.stringContaining('execution reverted') });
+  });
+
+  it('reports the registry read as its own', async () => {
+    await expect(
+      depositTokens(listing(BOTH), {
+        readBridgeRegistry: jest.fn(async () => Promise.reject(new NotDeployedError('no bridge')))
+      })
+    ).resolves.toEqual({ state: 'absent' });
+    await expect(
+      depositTokens(listing(BOTH), {
+        readBridgeRegistry: jest.fn(async () => Promise.reject(new Error('RPC "agglayer bridge registry" timed out')))
+      })
+    ).resolves.toEqual({ state: 'error', message: 'RPC "agglayer bridge registry" timed out' });
   });
 });

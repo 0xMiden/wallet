@@ -3,7 +3,15 @@ import { runInNewContext } from 'node:vm';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
+import {
+  PROPOSAL_GUARDS,
+  PROPOSAL_STEPS,
+  annotateCrash,
+  backgroundAgeOf,
+  readPageNavigation,
+  snapshotCrashDiagnostics,
+  withProposalStep
+} from './crash-diagnostics';
 import { USER_ERROR_SURFACES } from './user-visible-error';
 
 describe('source-bound crash diagnostics', () => {
@@ -653,6 +661,77 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(error)).toEqual({ portReconnected: false });
   });
 
+  it("reads the request shape, registry state and age the background's code carries after the state", () => {
+    const error = new Error('Not Found');
+    annotateCrash(error, {
+      confirmationHandler: 'confirmation_unknown:array_with_string:pruned:10_to_60s',
+      pageNavigation: 'reload'
+    });
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      confirmationHandler: 'unknown',
+      confirmationRequestShape: 'array_with_string',
+      confirmationRegistry: 'pruned',
+      backgroundAge: '10_to_60s',
+      pageNavigation: 'reload'
+    });
+  });
+
+  it('drops the whole code when any part after the state is not exactly one of its values', () => {
+    for (const confirmationHandler of [
+      'confirmation_unknown:',
+      'confirmation_unknown:string',
+      'confirmation_unknown:string:empty',
+      'confirmation_unknown:string:empty:under_10s:',
+      'confirmation_unknown:string:empty:under_10s:navigate',
+      'confirmation_unknown:V1StGXR8_Z5jdHi6B-myT:empty:under_10s',
+      'confirmation_unknown:string:V1StGXR8_Z5jdHi6B-myT:under_10s',
+      'confirmation_unknown:string:empty:12034',
+      'confirmation_V1StGXR8_Z5jdHi6B-myT:string:empty:under_10s'
+    ]) {
+      const error = new Error('Not Found');
+      annotateCrash(error, { confirmationHandler, pageNavigation: 'https://evil.example/' });
+      expect(snapshotCrashDiagnostics(error)).toEqual({});
+    }
+  });
+
+  it.each([
+    [0, 'under_10s'],
+    [9_999, 'under_10s'],
+    [10_000, '10_to_60s'],
+    [59_999, '10_to_60s'],
+    [60_000, '60_to_300s'],
+    [299_999, '60_to_300s'],
+    [300_000, 'over_300s'],
+    [-1, 'unknown'],
+    [Number.NaN, 'unknown'],
+    [Number.POSITIVE_INFINITY, 'unknown']
+  ])('buckets a background running for %p ms as %s', (ms, age) => {
+    expect(backgroundAgeOf(ms)).toBe(age);
+  });
+
+  it("reads the page's navigation type, and unknown for anything else", () => {
+    const withEntries = (getEntriesByType: (type: string) => unknown): string => {
+      Object.defineProperty(performance, 'getEntriesByType', { configurable: true, value: getEntriesByType });
+      try {
+        return readPageNavigation();
+      } finally {
+        Reflect.deleteProperty(performance, 'getEntriesByType');
+      }
+    };
+    for (const type of ['navigate', 'reload', 'back_forward', 'prerender']) {
+      expect(withEntries(kind => (kind === 'navigation' ? [{ type }] : []))).toBe(type);
+    }
+    expect(withEntries(() => [{ type: 'https://evil.example/' }])).toBe('unknown');
+    expect(withEntries(() => [])).toBe('unknown');
+    expect(withEntries(() => [null])).toBe('unknown');
+    expect(
+      withEntries(() => {
+        throw new Error('no timeline');
+      })
+    ).toBe('unknown');
+    expect(readPageNavigation()).toBe('unknown');
+  });
+
   it('returns detached snapshots and preserves annotations across wrappers', () => {
     const cause = new Error('cause');
     annotateCrash(cause, { operation: 'sdk_initialize', stage: 'client_create', workerMode: 'disabled' });
@@ -663,6 +742,38 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
     Object.defineProperty(cause, 'cause', { value: outer });
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
+  });
+
+  it('accepts every proposal step and guard, and a guard only beside its step', () => {
+    for (const proposalStep of PROPOSAL_STEPS) {
+      for (const proposalGuard of PROPOSAL_GUARDS) {
+        const error = new Error('refused');
+        annotateCrash(error, { proposalStep, proposalGuard });
+        expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep, proposalGuard });
+      }
+    }
+    const guardOnly = new Error('guard only');
+    annotateCrash(guardOnly, { proposalGuard: 'hot_key_missing' });
+    expect(snapshotCrashDiagnostics(guardOnly)).toEqual({});
+    const unlisted = new Error('unlisted');
+    annotateCrash(unlisted, { proposalStep: 'consume_build 0xabcdef', proposalGuard: 'other' });
+    annotateCrash(unlisted, { proposalStep: { toString: () => 'service_load' } });
+    expect(snapshotCrashDiagnostics(unlisted)).toEqual({});
+  });
+
+  it('keeps the innermost proposal step when an outer boundary names a broader one', async () => {
+    const error = new Error('load failed');
+    const inner = withProposalStep('service_load', () => Promise.reject(error));
+    await expect(withProposalStep('service_select', () => inner)).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load' });
+    annotateCrash(error, { proposalStep: 'chain_sync', proposalGuard: 'account_not_guardian', portReconnected: true });
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load', portReconnected: true });
+  });
+
+  it('returns the operation result and rethrows a non-Error rejection untouched', async () => {
+    await expect(withProposalStep('proposal_create', async () => 7)).resolves.toBe(7);
+    const refusal = { status: 409 };
+    await expect(withProposalStep('proposal_create', () => Promise.reject(refusal))).rejects.toBe(refusal);
   });
 });
 

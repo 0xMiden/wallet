@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "此转账不支持此路径。您可以选择其他可用路径继续操作。此界面尚未提交任何交易。",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "此转账无法通过此路径进行，且目前也没有其他可用路径。此界面尚未提交任何交易。",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "通过 Agglayer 继续",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "通过 Epoch 继续",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "销毁 USDCx",
     "englishSource": "Burn USDCx"
@@ -709,9 +733,33 @@
     "message": "你的私人钱包里程碑。",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "赚取",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "已锁定",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "即将推出",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "徽章收藏",
-    "englishSource": "Badge collection"
+    "message": "所有标识",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "仅限 Mainnet",
@@ -722,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "徽章可在 Mainnet 解锁。测试活动不计入。",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "徽章在主网（Mainnet）上解锁。测试活动不计入其中。",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$，已获得",
@@ -6891,6 +6939,14 @@
   "bridgeInTitle": {
     "message": "桥接",
     "englishSource": "Bridge in"
+  },
+  "bridgeDepositTokensUnavailable": {
+    "message": "无法加载桥接器的代币列表，因此可能存在部分代币缺失。请稍后重试。",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "该桥接服务未将此代币上架至该网络。",
+    "englishSource": "The bridge does not list this token on this network."
   },
   "bridgeConnectWalletTitle": {
     "message": "连接您的钱包",

@@ -9,7 +9,26 @@ import {
   REOWN_BACKGROUND_ANSWERS
 } from 'lib/walletconnect/native-request-failure';
 
-import { CONFIRMATION_HANDLER_STATES, PAGE_VISIBILITY, STORAGE_OPERATIONS, STORAGE_OWNERS } from './crash-diagnostics';
+import {
+  BACKGROUND_AGES,
+  CONFIRMATION_HANDLER_STATES,
+  CONFIRMATION_REGISTRY_STATES,
+  CONFIRMATION_REQUEST_SHAPES,
+  PAGE_NAVIGATIONS,
+  PAGE_VISIBILITY,
+  PROPOSAL_GUARDS,
+  PROPOSAL_STEPS,
+  STORAGE_OPERATIONS,
+  STORAGE_OWNERS
+} from './crash-diagnostics';
+import {
+  DIAGNOSTIC_DURATIONS,
+  DIAGNOSTIC_END_OUTCOMES,
+  DIAGNOSTIC_LOG_EVENTS,
+  DIAGNOSTIC_OPERATIONS,
+  DIAGNOSTIC_STEP_OUTCOMES,
+  DIAGNOSTIC_STEPS
+} from './diagnostic-log-contract';
 import {
   RELAY_CONNECTIVITY,
   RELAY_FAILURE_BUCKETS,
@@ -47,7 +66,19 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['shared memory could still grow', SHARED_MEMORY_PROBES],
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],
+  ['the shape of the id the request carried', CONFIRMATION_REQUEST_SHAPES],
+  ['what the background still remembered of recent approvals', CONFIRMATION_REGISTRY_STATES],
+  ['how long the background had been running', BACKGROUND_AGES],
+  ['how the approval window was last loaded', PAGE_NAVIGATIONS],
   ['reconnected to the background', ['true', 'false']],
+  ['the preparation step that failed', PROPOSAL_STEPS],
+  ['which check refused it', PROPOSAL_GUARDS],
+  ['two fixed events', DIAGNOSTIC_LOG_EVENTS],
+  ['the operation it is about', DIAGNOSTIC_OPERATIONS],
+  ['the step it describes', DIAGNOSTIC_STEPS],
+  ['how that step ended', DIAGNOSTIC_STEP_OUTCOMES],
+  ['how the operation ended', DIAGNOSTIC_END_OUTCOMES],
+  ['how long it took, as a range', DIAGNOSTIC_DURATIONS],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],

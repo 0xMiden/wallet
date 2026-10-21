@@ -15,10 +15,12 @@ import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import type { TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { AgglayerDepositToken } from 'lib/remote-config/values';
 import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
+import type { DepositToken } from './deposit-token';
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
 // Covers the deposit submission (the tap that turns a quoted/valid amount into a
@@ -157,6 +159,8 @@ let mockAgglayerChainId: number | null = 11155111;
 let mockAgglayerUsdc: string | undefined;
 // The document's bridge-in ceiling: none unless a case sets one.
 let mockBridgeInCapUsd: number | null = null;
+// The ERC-20s the document lists for the AggLayer chain, as the derivation verified them.
+let mockDepositTokens: AgglayerDepositToken[] = [];
 jest.mock('lib/remote-config/values', () => ({
   selectAgglayerRecoveryConfig: () =>
     mockAgglayerChainId === null
@@ -202,7 +206,12 @@ jest.mock('lib/remote-config/values', () => ({
         }
       : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 }),
-  selectBridgeInMaxBalanceUsd: () => mockBridgeInCapUsd
+  selectBridgeInMaxBalanceUsd: () => mockBridgeInCapUsd,
+  // Unless a case lists one, the document lists no deposit token and the registry holds none: the picker offers ETH
+  // and the USDC rows alone. Each call returns a new list, as the selector does for an absent read, to test that
+  // balance updates stop.
+  selectAgglayerDepositTokens: () => mockDepositTokens.map(token => ({ ...token })),
+  selectAgglayerRegistryToken: () => null
 }));
 // The receiving account holds nothing, so a ceiling weighs the deposit alone.
 jest.mock('lib/miden/front', () => ({
@@ -296,7 +305,7 @@ jest.mock('lib/walletconnect/config', () => ({
 
 /** The handlers the screen last rendered into the form and the drawers: a guard is driven through them directly. */
 let mockLastOpenTokenDrawer: () => void = () => undefined;
-let mockLastTokenSelect: (token: string) => void = () => undefined;
+let mockLastTokenSelect: (token: DepositToken) => void = () => undefined;
 let mockLastConnectAnother: () => void = () => undefined;
 
 // Step components stubbed down to the affordances the deposit path needs.
@@ -449,7 +458,7 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: string) => void }) => {
+  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: DepositToken) => void }) => {
     mockLastTokenSelect = onSelect;
     return open ? (
       <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
@@ -2200,7 +2209,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       mockBridgeSnapshot = undefined;
     });
 
-    it.each([
+    it.each<{ token: string; setup: () => void; pick: DepositToken | null; reads: number }>([
       { token: 'ETH', setup: () => undefined, pick: 'ETH', reads: 1 },
       { token: "Circle's USDC", setup: offerCircleUsdc, pick: 'CIRCLE_USDC', reads: 1 },
       // Its getBalance, then the balanceOf it falls back to.
@@ -2722,5 +2731,143 @@ describe('user-visible bridge deposit producers', () => {
       jest.advanceTimersByTime(2000);
     });
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
+  const EVM_WALLET = '0x00000000000000000000000000000000000000e1';
+  const L1_BRIDGE = '0x00000000000000000000000000000000000000b2';
+  const WBTC = '0x00000000000000000000000000000000000000d1';
+  const WBTC_LISTING: AgglayerDepositToken = {
+    symbol: 'WBTC',
+    contractAddress: WBTC,
+    decimals: 8,
+    midenFaucetId: '0x00000000000000000000000000f1f1',
+    scale: 2
+  };
+  /** The typed 1.5 at the token's own 8 decimals. */
+  const DEPOSIT = 150_000_000n;
+  const DECIMALS_SELECTOR = '0x313ce567';
+
+  /** Every balance read answers FUNDED, and the token's `decimals()` answers `decimals`. */
+  const answerRpc = (decimals: bigint) => {
+    global.fetch = jest.fn(async (_url: unknown, init?: RequestInit) => {
+      const { params } = JSON.parse(String(init?.body));
+      const data: unknown = params?.[0]?.data;
+      const value = typeof data === 'string' && data.startsWith(DECIMALS_SELECTOR) ? decimals : FUNDED;
+      return { json: async () => ({ result: word(value) }) };
+    }) as never;
+  };
+
+  const confirmErc20Deposit = async () => {
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    act(() => mockLastTokenSelect({ kind: 'erc20', contractAddress: WBTC }));
+    await settle();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+    fireEvent.click(await screen.findByTestId('confirm-route'));
+    fireEvent.click(await screen.findByTestId('confirm-deposit'));
+    await settle();
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAvailability = {};
+    mockAgglayerChainId = 11155111;
+    mockSnapshot = READY_SNAPSHOT;
+    mockNativeReown = false;
+    mockDepositTokens = [WBTC_LISTING];
+    answerRpc(8n);
+    jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
+    jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
+    mockMutateAsync.mockReset().mockResolvedValue('0xhash');
+    jest.mocked(waitForEvmReceipt).mockReset().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    Object.assign(epochState, idleEpoch);
+    mockDepositTokens = [];
+  });
+
+  it('approves and bridges a listed ERC-20 at its own decimals and saves its delivery faucet', async () => {
+    await confirmErc20Deposit();
+
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ address: WBTC, functionName: 'approve', args: [L1_BRIDGE, DEPOSIT] })
+    );
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: L1_BRIDGE,
+        functionName: 'bridgeAsset',
+        args: [77, '0x00000000000000000000000000000000000000a1', DEPOSIT, WBTC, true, '0x']
+      })
+    );
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'agglayer',
+        sourceSymbol: 'WBTC',
+        agglayerDelivery: { originToken: WBTC, faucetId: WBTC_LISTING.midenFaucetId, scale: 2 }
+      })
+    );
+  });
+
+  const BALANCE_OF_SELECTOR = '0x70a08231';
+  /** The balanceOf reads the screen sent, by token contract. */
+  const balanceReads = (contract?: string) =>
+    jest.mocked(global.fetch).mock.calls.filter(([, init]) => {
+      const { params } = JSON.parse(String((init as RequestInit).body));
+      const call = params?.[0];
+      return (
+        typeof call?.data === 'string' &&
+        call.data.startsWith(BALANCE_OF_SELECTOR) &&
+        (contract === undefined || call.to === contract)
+      );
+    }).length;
+
+  // A publish rebuilds the listed token array from the same document: the set is unchanged, so nothing is read again.
+  it('reads each ERC-20 balance once across a publish that lists the same tokens', async () => {
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+    expect(balanceReads(WBTC)).toBe(1);
+
+    act(() => publishSnapshot({ ...mockSnapshot, lastFetch: { at: 1, ok: true } }));
+    await settle();
+
+    expect(balanceReads(WBTC)).toBe(1);
+  });
+
+  const tokenAddress = (index: number): `0x${string}` => `0x${(0xd1 + index).toString(16).padStart(40, '0')}`;
+
+  it('keeps at most four ERC-20 balance reads in flight', async () => {
+    mockDepositTokens = Array.from({ length: 6 }, (_, index) => ({
+      ...WBTC_LISTING,
+      symbol: `T${index}`,
+      contractAddress: tokenAddress(index)
+    }));
+    global.fetch = jest.fn(() => new Promise<Response>(() => undefined)) as never;
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+
+    expect(balanceReads()).toBe(4);
+  });
+
+  // The decimals a token was offered at may be an indexer's: the contract's own decide what 1.5 means, so a token
+  // whose contract reports others is refused before any prompt.
+  it('refuses an ERC-20 whose contract reports other decimals than it was offered at', async () => {
+    answerRpc(18n);
+
+    await confirmErc20Deposit();
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      expect.objectContaining({ failure: expect.objectContaining({ step: 'precheck_route' }) })
+    );
   });
 });

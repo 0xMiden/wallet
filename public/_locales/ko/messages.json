@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "이 이체에는 이 경로를 사용할 수 없습니다. 사용 가능한 다른 경로를 통해 계속 진행할 수 있습니다. 이 화면에서는 아직 거래가 제출되지 않았습니다.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "이 전송에 대해서는 이 경로를 사용할 수 없으며, 현재 다른 경로도 사용할 수 없습니다. 이 화면에서는 아직 어떤 거래도 제출되지 않았습니다.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Agglayer로 계속",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Epoch로 계속",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "USDCx 소각",
     "englishSource": "Burn USDCx"
@@ -709,9 +733,33 @@
     "message": "나만의 비공개 지갑 이정표입니다.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "획득",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "잠김",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "곧 제공될 예정",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "배지 컬렉션",
-    "englishSource": "Badge collection"
+    "message": "모든 배지",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Mainnet 전용",
@@ -722,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "배지는 Mainnet에서 획득할 수 있습니다. 테스트 활동은 포함되지 않습니다.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "배지는 메인넷에서 잠금 해제됩니다. 테스트 활동은 포함되지 않습니다.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, 획득함",
@@ -6891,6 +6939,14 @@
   "bridgeInTitle": {
     "message": "브리지 인",
     "englishSource": "Bridge in"
+  },
+  "bridgeDepositTokensUnavailable": {
+    "message": "브리지의 토큰 목록을 불러올 수 없어 일부 토큰이 누락되었을 수 있습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "이 브리지는 해당 네트워크에 이 토큰을 상장하지 않습니다.",
+    "englishSource": "The bridge does not list this token on this network."
   },
   "bridgeConnectWalletTitle": {
     "message": "지갑 연결하기",

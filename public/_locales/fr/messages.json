@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Rapide · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Lent · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Cet itinéraire n’est pas disponible pour ce transfert. Vous pouvez continuer avec un autre itinéraire disponible. Aucune transaction n’a été soumise à partir de cet écran.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Cet itinéraire n’est pas disponible pour ce transfert, et aucun autre itinéraire n’est disponible pour le moment. Aucune transaction n’a été soumise à partir de cet écran.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Continuer via Agglayer",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Continuer via Epoch",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "Brûler des USDCx",
     "englishSource": "Burn USDCx"
@@ -709,9 +733,33 @@
     "message": "Les étapes privées de votre portefeuille.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Gagné",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Verrouillé",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "À venir",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Collection de badges",
-    "englishSource": "Badge collection"
+    "message": "Tous les badges",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Mainnet uniquement",
@@ -722,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Les badges se débloquent sur Mainnet. Les activités de test ne comptent pas.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Les badges se débloquent sur le Mainnet. Les activités de test ne comptent pas.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, obtenu",
@@ -6891,6 +6939,14 @@
   "bridgeInTitle": {
     "message": "Bridge in",
     "englishSource": "Bridge in"
+  },
+  "bridgeDepositTokensUnavailable": {
+    "message": "La liste des jetons du pont n’a pas pu être chargée ; certains jetons peuvent donc manquer. Veuillez réessayer plus tard.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "Le pont ne liste pas ce jeton sur ce réseau.",
+    "englishSource": "The bridge does not list this token on this network."
   },
   "bridgeConnectWalletTitle": {
     "message": "Connectez votre portefeuille",

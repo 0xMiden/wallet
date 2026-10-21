@@ -1076,6 +1076,23 @@ describe('bridge rows testnet bridge USDC label', () => {
     });
   });
 
+  // An AggLayer row saves the ERC-20 it deposited: only the bridge's own USDC takes the testnet label.
+  it('names an AggLayer ERC-20 bridge-in by its own symbol unless it is the bridge USDC', () => {
+    const agglayerIn = (symbol: string, token: string) =>
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: symbol,
+          bridgeInSourceToken: token
+        })
+      ).inLabel;
+    expect(agglayerIn('WBTC', '0x00000000000000000000000000000000000000d1')).toBe('WBTC');
+    expect(agglayerIn('USDC', TEST_EVM_USDC.address.toLowerCase())).toBe('Test Epoch USDC');
+  });
+
   it.each(['USDC', TEST_EVM_USDC.address])(
     'labels an old Epoch bridge-in row saved with USDC or with the token address (%s)',
     saved => {

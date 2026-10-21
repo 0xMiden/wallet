@@ -260,18 +260,24 @@ describe('NativeNoteAutoConsumeManager', () => {
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
-  it('auto-consumes a backlog of individually-marginal notes, since one fee settles it', async () => {
+  it('auto-consumes a backlog of individually-marginal notes, at most MAX_NOTES_PER_UNATTENDED_CLAIM to a transaction', async () => {
     // The stranding bug: judged per note these were ALL refused, yet they total well
-    // above one transaction's cost and a single transaction collects them.
+    // above one transaction's cost. Over the claim cap the backlog is several transactions
+    // (#1644), each measured on its own: the two full chunks of 8 are worth 40 fees each and
+    // go, the 4 left over are worth exactly the floor and wait for more notes.
     mockBaseFee = 10000;
     mockClaimable = Array.from({ length: 20 }, (_unused, index) =>
-      note(`n${index}`, 'native-faucet', { amount: String(10000 * 5) })
+      note(`n${String(index).padStart(2, '0')}`, 'native-faucet', { amount: String(10000 * 5) })
     );
 
     render(<NativeNoteAutoConsumeManager />);
 
-    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
-    expect(mockInitiateConsumeBatch.mock.calls[0]![1]).toHaveLength(20);
+    await waitFor(() => expect(mockStartBg).toHaveBeenCalled());
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(2);
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(
+      Array.from({ length: 8 }, (_unused, index) => `n${String(index).padStart(2, '0')}`)
+    );
+    expect(mockInitiateConsumeBatch.mock.calls[1]![1]).toHaveLength(8);
   });
 
   it('auto-consumes every native note on a chain that charges no fee', async () => {

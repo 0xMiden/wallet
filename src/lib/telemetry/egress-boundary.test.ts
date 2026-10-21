@@ -2072,7 +2072,7 @@ describe('crash-report egress', () => {
         undefined,
         'Error',
         undefined,
-        { code: 'confirmation_unknown' }
+        { code: 'confirmation_unknown:array_with_string:pruned:over_300s' }
       ]);
       failure.stack = [
         'Error: Not Found',
@@ -2084,6 +2084,7 @@ describe('crash-report egress', () => {
         operation: 'intercom_request',
         requestType: MidenMessageType.DAppGetPayloadRequest,
         confirmationHandler: failure.code,
+        pageNavigation: 'reload',
         portReconnected: true,
         confirmationId: CONFIRMATION_ID,
         approval: NOTE_ID
@@ -2093,7 +2094,9 @@ describe('crash-report egress', () => {
       const hostileCodes = [
         `0x${'ab'.repeat(32)}`,
         `confirmation_unknown ${NOTE_ID}`,
-        `confirmation_${CONFIRMATION_ID}`
+        `confirmation_${CONFIRMATION_ID}`,
+        `confirmation_unknown:${CONFIRMATION_ID}:empty:under_10s`,
+        `confirmation_unknown:array_with_string:empty:${NOTE_ID}`
       ];
       hostileCodes.forEach((code, index) => {
         const hostile = deserializeInternalError(['Not Found', undefined, 'Error', undefined, { code }]);
@@ -2102,6 +2105,7 @@ describe('crash-report egress', () => {
         annotateCrash(hostile, {
           operation: 'intercom_request',
           confirmationHandler: hostile.code,
+          pageNavigation: EXTENSION_ORIGIN,
           portReconnected: 'true'
         });
         captureCrash(hostile, 'react');
@@ -2112,7 +2116,13 @@ describe('crash-report egress', () => {
       expect(text).toContain('"confirmationHandler":"unknown"');
       expect(text).toContain('"portReconnected":true');
       expect(text).toContain(`"requestType":"${MidenMessageType.DAppGetPayloadRequest}"`);
+      expect(text).toContain('"confirmationRequestShape":"array_with_string"');
+      expect(text).toContain('"confirmationRegistry":"pruned"');
+      expect(text).toContain('"backgroundAge":"over_300s"');
+      expect(text).toContain('"pageNavigation":"reload"');
       expect(text.match(/"confirmationHandler"/g)).toHaveLength(1);
+      expect(text.match(/"confirmationRequestShape"/g)).toHaveLength(1);
+      expect(text.match(/"pageNavigation"/g)).toHaveLength(1);
       expect(text.match(/"portReconnected"/g)).toHaveLength(1);
       expect(text).not.toContain('"confirmationId"');
       expect(text).not.toContain('"approval"');

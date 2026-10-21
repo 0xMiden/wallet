@@ -26,7 +26,10 @@ import {
   selectInviteOnlyOnboarding,
   selectMidenUsdc,
   selectMidenUsdcFaucetId,
+  selectAgglayerDeliveryFaucets,
+  selectAgglayerDepositTokens,
   selectAgglayerRecoveryConfig,
+  selectAgglayerRegistryToken,
   selectNativeEthFaucet,
   selectNativeEthFaucets,
   selectNativeEthToken
@@ -90,7 +93,8 @@ const SEPOLIA_READS: DerivedChainConfig = {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    depositTokens: { state: 'skipped' }
   },
   epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
 };
@@ -413,7 +417,8 @@ describe('getters', () => {
           ]
         },
         evmNetworkId: { state: 'ok', value: 6 },
-        l1BridgeCode: { state: 'ok', value: true }
+        l1BridgeCode: { state: 'ok', value: true },
+        depositTokens: { state: 'skipped' }
       },
       epoch: { evmUsdc: { state: 'skipped' } }
     };
@@ -457,5 +462,66 @@ describe('getters', () => {
     expect(saved).toMatchObject({ chainId: 11155111, rollupId: 86, evmNetworkId: 0 });
     expect(saved).not.toHaveProperty('nativeEthFaucetId');
     expect(saved).not.toHaveProperty('nativeEthScale');
+  });
+
+  it('select the verified deposit tokens, nothing for a skipped or absent read, and null for a failed one', () => {
+    const usdc = {
+      symbol: 'USDC',
+      contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' as const,
+      decimals: 18,
+      midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e',
+      scale: 10
+    };
+    expect(
+      selectAgglayerDepositTokens(withDerived({ agglayer: { depositTokens: { state: 'ok', value: [usdc] } } }))
+    ).toEqual([usdc]);
+    expect(selectAgglayerDepositTokens(snapshot())).toEqual([]);
+    expect(selectAgglayerDepositTokens(withDerived({ agglayer: { depositTokens: { state: 'absent' } } }))).toEqual([]);
+    expect(selectAgglayerDepositTokens(withDerived({ agglayer: { depositTokens: ERROR } }))).toBeNull();
+    expect(selectAgglayerDepositTokens(EMPTY)).toBeNull();
+  });
+
+  it('find a registered token by its origin address on the chain network, and every delivery faucet', () => {
+    expect(
+      selectAgglayerRegistryToken(snapshot(), '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', 11155111)
+    ).toMatchObject({
+      midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e',
+      originNetwork: 0
+    });
+    expect(selectAgglayerRegistryToken(snapshot(), '0x21472df1b5d2b673f6444b41258c6460294a2c06', 11155111)).toBeNull();
+    expect(
+      selectAgglayerRegistryToken(
+        withDerived({ agglayer: { tokens: ERROR } }),
+        '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'
+      )
+    ).toBeNull();
+    const faucets = selectAgglayerDeliveryFaucets(snapshot());
+    expect(faucets).toContain(ETH_FAUCET);
+    expect(faucets).toContain('0x36bb3163d7ef0ad102f35bf507c61e');
+    expect(new Set(faucets).size).toBe(faucets.length);
+    expect(selectAgglayerDeliveryFaucets(withDerived({ agglayer: { tokens: ERROR } }))).toEqual([]);
+  });
+
+  // The same address registered from another network is another bridged token: with no known network the lookup
+  // names none, and a saved deposit network picks its own entry whatever the chain's read says.
+  it('find a registered token only on a known origin network', () => {
+    const USDC: `0x${string}` = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+    const registry = SEPOLIA_READS.agglayer.tokens.state === 'ok' ? SEPOLIA_READS.agglayer.tokens.value : [];
+    const elsewhere = {
+      midenFaucetId: '0xaef9b3cd67458ad14510d371c65a58',
+      originToken: USDC,
+      originNetwork: 3,
+      scale: 10
+    };
+    const unread = withDerived({
+      agglayer: { tokens: { state: 'ok', value: [elsewhere, ...registry] }, evmNetworkId: ERROR }
+    });
+    expect(selectAgglayerRegistryToken(unread, USDC, 11155111)).toBeNull();
+    expect(selectAgglayerRegistryToken(unread, USDC, 11155111, 0)).toMatchObject({
+      midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e'
+    });
+    expect(selectAgglayerRegistryToken(unread, USDC, 11155111, 3)).toMatchObject({
+      midenFaucetId: elsewhere.midenFaucetId
+    });
   });
 });

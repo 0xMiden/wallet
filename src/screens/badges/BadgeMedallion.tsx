@@ -14,7 +14,7 @@ const medallionVariants = cva(
     variants: {
       size: {
         preview: 'h-14 w-14',
-        card: 'h-16 w-16'
+        card: 'h-20 w-20'
       },
       earned: {
         true: '',
@@ -44,7 +44,17 @@ export const BadgeMedallion: React.FC<BadgeMedallionProps> = ({ badge, earned = 
       data-earned={String(earned)}
       className={medallionVariants({ size, earned })}
     >
-      <Icon name={badge.icon} aria-hidden="true" className={size === 'preview' ? 'h-7 w-7' : 'h-8 w-8'} fill="none" />
+      {badge.art ? (
+        <img
+          src={badge.art}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="absolute inset-0 h-full w-full rounded-full object-cover"
+        />
+      ) : (
+        <Icon name={badge.icon} aria-hidden="true" className={size === 'preview' ? 'h-7 w-7' : 'h-8 w-8'} fill="none" />
+      )}
       {!earned && (
         <span
           aria-hidden="true"

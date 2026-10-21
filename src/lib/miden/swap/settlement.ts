@@ -9,7 +9,12 @@ import {
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isRotationPendingAccount } from '../back/rotation-pending';
-import { type ITransaction, ITransactionStatus } from '../db/types';
+import {
+  type IConsumeSwapSettleExtraInputs,
+  isOpenSettlementClaim,
+  type ITransaction,
+  ITransactionStatus
+} from '../db/types';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess, type SyncFuseKey } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
@@ -18,6 +23,7 @@ import type { WasmLockHold } from '../sdk/miden-client';
 import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
+import { chunkNotesForClaim } from '../transaction/constants';
 import {
   initiateConsumeNotesTransaction,
   initiatePswapReclaimTransaction,
@@ -237,35 +243,44 @@ export async function classifySwapSettlementSnapshot(
 }
 
 /**
- * Self-heal a lost settlement stamp. `completeConsumeTransaction`'s stamp on
+ * Self-heal a lost or outranked settlement stamp. `completeConsumeTransaction`'s stamp on
  * the swap row is best-effort and runs exactly once (the consume row goes
  * Completed and is never reprocessed), so a single swallowed write failure
- * would otherwise pin the swap row's chip on Pending forever. When an order
- * has no consumable notes left and no stamp, look for its completed tagged
- * consume and re-stamp from it. A settle consume outranks a reclaim one —
- * funds were received.
+ * would otherwise pin the swap row's chip on Pending forever, and the chunks of a
+ * split settlement stamp nothing themselves (#1644). When an order has no
+ * consumable notes left and no settledAt, look for its completed tagged consume and
+ * stamp from it. A settle consume outranks a reclaim one, funds were received, so
+ * settledAt is written whatever reclaimedAt holds (a reclaim's completion or Guardian
+ * history recovery can write that first); a claim of the kind still in flight, its
+ * notes already off the consumable list, holds the stamp. Writes nothing when no
+ * stamp would change, since this runs on every lap for a reclaimed order.
  */
 async function repairSettlementStamp(order: SwapOrder): Promise<void> {
   if (isRecoveredSwapOrder(order)) return;
-  const consumes = await Repo.transactions
-    .filter(
-      tx =>
-        tx.type === 'consume' &&
-        tx.status === ITransactionStatus.Completed &&
-        tx.extraInputs?.swapOrderTxId === order.id
-    )
-    .toArray();
-  const settle = consumes.find(tx => tx.extraInputs?.swapSettleKind !== 'reclaim') ?? consumes[0];
-  if (!settle) return;
-  const stampedAt = settle.completedAt ?? Math.floor(Date.now() / 1000);
+  const linked = (await Repo.transactions.where('extraInputs.swapOrderTxId').equals(order.id).toArray()).filter(
+    tx => tx.type === 'consume'
+  );
+  const open = (swapSettleKind: 'settle' | 'reclaim') =>
+    linked.some(tx => isOpenSettlementClaim(tx, { swapOrderTxId: order.id, swapSettleKind }));
+  const completed = (reclaim: boolean) =>
+    linked.find(
+      tx => tx.status === ITransactionStatus.Completed && (tx.extraInputs?.swapSettleKind === 'reclaim') === reclaim
+    );
+  const payback = completed(false);
+  const tip = completed(true);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const stamp =
+    payback && !open('settle')
+      ? { settledAt: payback.completedAt ?? nowSeconds }
+      : order.extraInputs.reclaimedAt == null && tip && !open('settle') && !open('reclaim')
+        ? { reclaimedAt: tip.completedAt ?? nowSeconds }
+        : undefined;
+  if (!stamp) return;
   await Repo.transactions.where({ id: order.id }).modify(tx => {
     // `false`, not a bare return - dexie re-puts the deep clone for any other value, and this
     // runs off the sync tick, so a bare return rewrites the row on every cadence.
     if (!isSwapTransaction(tx)) return false;
-    tx.extraInputs = {
-      ...tx.extraInputs,
-      ...(settle.extraInputs?.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
-    };
+    tx.extraInputs = { ...tx.extraInputs, ...stamp };
     return undefined;
   });
 }
@@ -358,10 +373,11 @@ export async function reconcileSwapOrderNotes(
         }
         continue;
       }
-      // Nothing consumable left but no settlement stamp: either the stamp
-      // write was lost after the consume completed, or nothing was tagged
-      // (nothing to repair — the lookup no-ops until the state changes).
-      if (order.extraInputs.settledAt == null && order.extraInputs.reclaimedAt == null) {
+      // Nothing consumable left but no settledAt: the stamp write was lost after
+      // the consume completed, a split settlement's chunks left it to this repair,
+      // a reclaimedAt landed first, or nothing was tagged (nothing to repair; the
+      // indexed lookup no-ops until the state changes).
+      if (order.extraInputs.settledAt == null) {
         await repairSettlementStamp(order);
       }
       continue;
@@ -385,9 +401,9 @@ export async function reconcileSwapOrderNotes(
 
     const settleable = expired ? orderNotes : orderNotes.filter(note => note.swapOrder?.role === 'payback');
     if (settleable.length === 0) continue;
-    // The service worker cannot read the delegated-proving setting
-    // (localStorage-backed), so fall back to the preference captured on the
-    // swap row at initiate time.
+    // The caller passes the live delegated-proving setting (the service worker reads it from the mirrored
+    // setting, as its native auto-consume does); only a caller with no reading falls back to the preference
+    // captured on the swap row when the order was placed (#1644).
     const delegate = delegateTransaction ?? order.delegateTransaction;
     // ONE consume per ROLE, never one covering both. A Miden transaction is
     // atomic and an expired order's remainder tip is still publicly fillable, so
@@ -406,7 +422,22 @@ export async function reconcileSwapOrderNotes(
     const reclaimNotes = settleable.filter(note => note.swapOrder?.role !== 'payback');
     // Paybacks first: they are the funds the user is owed, the tip reclaim is
     // the leftover.
-    for (const batch of [paybackNotes, reclaimNotes]) {
+    //
+    // And at most MAX_NOTES_PER_UNATTENDED_CLAIM notes per row (#1644). The count of
+    // paybacks is the counterparty's to set: a solver that fills one order in dozens
+    // of partial fills leaves dozens of notes, and one consume of them all proved for
+    // longer than the extension's write deadline on every attempt, each cut-off
+    // keeping a Guardian proposal that blocked the account. A set over the cap is
+    // several rows, each tagged to the order, and the settlement stamp waits for the
+    // last of them (`completeConsumeTransaction`). The chunks are stable across ticks,
+    // so a chunk already queued is deduplicated whole on the next lap.
+    const paybackChunks = chunkNotesForClaim(paybackNotes);
+    const reclaimChunks = chunkNotesForClaim(reclaimNotes);
+    // Split over several rows, the order is stamped by the repair, never by one row's completion, and that holds
+    // for both kinds: a lone tip row that stamped Reclaimed would leave the order Reclaimed for good, since the
+    // payback chunks never stamp and the repair runs only while both stamps are absent.
+    const splitOrder = paybackChunks.length > 1 || reclaimChunks.length > 1;
+    for (const batch of [...paybackChunks, ...reclaimChunks]) {
       if (batch.length === 0) continue;
       // No `verificationBaseFee`, so no claim floor — unlike the three native
       // auto-consumers. Deliberate, and the reason is the RISK, not the plumbing.
@@ -419,6 +450,23 @@ export async function reconcileSwapOrderNotes(
       // a trickle of fills costs one fee per lap rather than one per note. What
       // remains is that one lap's fee can exceed a very small fill, which is the
       // price of settling promptly on funds the user is owed.
+      // A batch of payback notes delivered funds — it settles (Confirmed), it
+      // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
+      // Partial fills stay lineage-'active' until expiry, so this same-tick pair
+      // of consumes is their normal settlement path.
+      const hasPayback = batch.some(note => note.swapOrder?.role === 'payback');
+      // Link the consume row back to its swap order so history renders the
+      // order as a single swap row (the linked consume is suppressed) and
+      // `completeConsumeTransaction` can stamp the settlement on the swap row.
+      // The queue writes the link in the insert that creates the row, so a
+      // processor already running never completes an unlinked chunk (#1644).
+      // Every row of a split order is partial: none of them alone may stamp it
+      // (`completeConsumeTransaction`).
+      const settlementLink: IConsumeSwapSettleExtraInputs = {
+        swapOrderTxId: order.id,
+        swapSettleKind: hasPayback ? 'settle' : 'reclaim',
+        ...(splitOrder ? { swapSettlePartial: true } : {})
+      };
       let txId: string;
       try {
         txId = await initiateConsumeNotesTransaction(
@@ -429,31 +477,21 @@ export async function reconcileSwapOrderNotes(
           undefined,
           undefined,
           'swap_settlement',
-          canSign
+          canSign,
+          settlementLink
         );
       } catch (error) {
         if (!(error instanceof ClaimFeeRefusedError)) throw error;
         continue;
       }
-      // A batch of payback notes delivered funds — it settles (Confirmed), it
-      // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
-      // Partial fills stay lineage-'active' until expiry, so this same-tick pair
-      // of consumes is their normal settlement path.
-      const hasPayback = batch.some(note => note.swapOrder?.role === 'payback');
-      // Link the consume row back to its swap order so history renders the
-      // order as a single swap row (the linked consume is suppressed) and
-      // `completeConsumeTransaction` can stamp the settlement on the swap row.
-      // The id may be a dedup winner from an earlier tick — re-tagging is
-      // idempotent. Swap-managed notes never reach manual claim paths, so a
-      // consume covering them is always a settlement consume.
+      // The id may be a dedup winner from an earlier tick, inserted before the
+      // link moved into the insert: re-tagging heals it and is idempotent.
+      // Swap-managed notes never reach manual claim paths, so a consume covering
+      // them is always a settlement consume.
       await Repo.transactions.where({ id: txId }).modify(tx => {
         // `false`, not a bare return - see above; same sync-tick cadence.
         if (tx.type !== 'consume') return false;
-        tx.extraInputs = {
-          ...(tx.extraInputs ?? {}),
-          swapOrderTxId: order.id,
-          swapSettleKind: hasPayback ? 'settle' : 'reclaim'
-        };
+        tx.extraInputs = { ...(tx.extraInputs ?? {}), ...settlementLink };
         return undefined;
       });
       queuedTransactionIds.push(txId);

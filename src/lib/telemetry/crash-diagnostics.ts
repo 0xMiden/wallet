@@ -28,6 +28,44 @@ export const CONFIRMATION_HANDLER_STATES = [
 ] as const;
 export type ConfirmationHandlerState = (typeof CONFIRMATION_HANDLER_STATES)[number];
 
+/** What the request a background found no handler for carried as the approval's id. */
+export const CONFIRMATION_REQUEST_SHAPES = [
+  'string',
+  'array_with_string',
+  'array_without_string',
+  'missing',
+  'other'
+] as const;
+export type ConfirmationRequestShape = (typeof CONFIRMATION_REQUEST_SHAPES)[number];
+
+/** Whether the background's memory of recent approvals is empty, holds some, or has dropped older ones. */
+export const CONFIRMATION_REGISTRY_STATES = ['empty', 'holding', 'pruned'] as const;
+export type ConfirmationRegistryState = (typeof CONFIRMATION_REGISTRY_STATES)[number];
+
+export const BACKGROUND_AGES = ['under_10s', '10_to_60s', '60_to_300s', 'over_300s', 'unknown'] as const;
+export type BackgroundAge = (typeof BACKGROUND_AGES)[number];
+
+export const PAGE_NAVIGATIONS = ['navigate', 'reload', 'back_forward', 'prerender', 'unknown'] as const;
+export type PageNavigation = (typeof PAGE_NAVIGATIONS)[number];
+
+/** The step a Guardian proposal's preparation was in when it failed, from the service lookup to the signing stage. */
+export const PROPOSAL_STEPS = [
+  'service_select',
+  'service_account_read',
+  'service_signer_read',
+  'service_load',
+  'chain_sync',
+  'reclaim_build',
+  'reclaim_persist',
+  'proposal_create',
+  'signing_stage_write'
+] as const;
+export type ProposalStep = (typeof PROPOSAL_STEPS)[number];
+
+/** The wallet's own checks that refuse to build a Guardian service for an account. */
+export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing'] as const;
+export type ProposalGuard = (typeof PROPOSAL_GUARDS)[number];
+
 export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
 export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
 export type PageVisibility = 'visible' | 'hidden' | 'unknown';
@@ -51,6 +89,10 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   stage?: 'wasm_ready' | 'mock_import' | 'mock_create' | 'client_create';
   workerMode?: 'enabled' | 'disabled';
   confirmationHandler?: ConfirmationHandlerState;
+  confirmationRequestShape?: ConfirmationRequestShape;
+  confirmationRegistry?: ConfirmationRegistryState;
+  backgroundAge?: BackgroundAge;
+  pageNavigation?: PageNavigation;
   portReconnected?: boolean;
   reownNativeOrigin?: ReownNativeOrigin;
   reownWalletResponseCode?: ReownWalletResponseCode;
@@ -61,6 +103,8 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   storageOperation?: StorageOperation;
   userErrorId?: UserErrorId;
   userErrorSurface?: UserErrorSurface;
+  proposalStep?: ProposalStep;
+  proposalGuard?: ProposalGuard;
 };
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
@@ -106,6 +150,31 @@ function nativeDiagnostics(diagnostics: Record<string, unknown>): CrashDiagnosti
 
 export type StorageCrashDiagnostics = Pick<CrashDiagnostics, 'storageOwner' | 'storageOperation'>;
 
+type ConfirmationDiagnostics = Pick<
+  CrashDiagnostics,
+  'confirmationHandler' | 'confirmationRequestShape' | 'confirmationRegistry' | 'backgroundAge'
+>;
+
+/**
+ * The background's Not Found code: `confirmation_<state>`, or that followed by `:<shape>:<registry>:<age>`. Anything
+ * else, including one wrong part, carries nothing.
+ */
+function readConfirmationCode(code: unknown): ConfirmationDiagnostics {
+  if (typeof code !== 'string') return {};
+  const [stateCode, ...labels] = code.split(':');
+  const confirmationHandler = CONFIRMATION_HANDLER_STATES.find(state => `confirmation_${state}` === stateCode);
+  if (confirmationHandler === undefined) return {};
+  if (labels.length === 0) return { confirmationHandler };
+  if (labels.length !== 3) return {};
+  const [shape, registry, age] = labels;
+  const confirmationRequestShape = CONFIRMATION_REQUEST_SHAPES.find(value => value === shape);
+  const confirmationRegistry = CONFIRMATION_REGISTRY_STATES.find(value => value === registry);
+  const backgroundAge = BACKGROUND_AGES.find(value => value === age);
+  if (confirmationRequestShape === undefined || confirmationRegistry === undefined || backgroundAge === undefined)
+    return {};
+  return { confirmationHandler, confirmationRequestShape, confirmationRegistry, backgroundAge };
+}
+
 const diagnosticsByError = new WeakMap<Error, CrashDiagnostics>();
 const requestTypes = [
   ...Object.entries(WalletMessageType)
@@ -129,11 +198,14 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       sharedMemoryProbe: suppliedProbe,
       extensionViews: suppliedViews,
       confirmationHandler: suppliedCode,
+      pageNavigation: suppliedNavigation,
       portReconnected,
       storageOwner: suppliedOwner,
       storageOperation: suppliedStorageOperation,
       userErrorId,
-      userErrorSurface: suppliedSurface
+      userErrorSurface: suppliedSurface,
+      proposalStep: suppliedStep,
+      proposalGuard: suppliedGuard
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -148,8 +220,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     if (sharedMemoryProbe !== undefined) safe.sharedMemoryProbe = sharedMemoryProbe;
     const extensionViews = EXTENSION_VIEW_COUNTS.find(value => value === suppliedViews);
     if (extensionViews !== undefined) safe.extensionViews = extensionViews;
-    const confirmationHandler = CONFIRMATION_HANDLER_STATES.find(state => `confirmation_${state}` === suppliedCode);
-    if (confirmationHandler !== undefined) safe.confirmationHandler = confirmationHandler;
+    Object.assign(safe, readConfirmationCode(suppliedCode));
+    const pageNavigation = PAGE_NAVIGATIONS.find(value => value === suppliedNavigation);
+    if (pageNavigation !== undefined) safe.pageNavigation = pageNavigation;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
@@ -168,11 +241,28 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       safe.storageOwner = storageOwner;
       safe.storageOperation = storageOperation;
     }
+    // The innermost boundary names the step first; an outer one it propagates through only knows a broader one.
+    const proposalStep = PROPOSAL_STEPS.find(step => step === suppliedStep);
+    if (proposalStep !== undefined && previous.proposalStep === undefined) {
+      safe.proposalStep = proposalStep;
+      const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
+      if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
+    }
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
     diagnosticsByError.set(error, { ...previous, ...safe, ...nativeDiagnostics(diagnostics) });
   } catch {
     // Reporting cannot change the failure being handled.
+  }
+}
+
+/** Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did. */
+export async function withProposalStep<T>(step: ProposalStep, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    annotateCrash(error, { proposalStep: step });
+    throw error;
   }
 }
 
@@ -277,6 +367,26 @@ export function readPageVisibility(): PageVisibility {
     if (typeof document === 'undefined') return 'unknown';
     const visibility = document.visibilityState;
     return visibility === 'visible' || visibility === 'hidden' ? visibility : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** How long a background has run, from `performance.now()`, whose origin in a worker is the worker's start. */
+export function backgroundAgeOf(ms: number): BackgroundAge {
+  if (!Number.isFinite(ms) || ms < 0) return 'unknown';
+  if (ms < 10_000) return 'under_10s';
+  if (ms < 60_000) return '10_to_60s';
+  if (ms < 300_000) return '60_to_300s';
+  return 'over_300s';
+}
+
+/** How this page was last loaded, from its navigation timing entry. */
+export function readPageNavigation(): PageNavigation {
+  try {
+    const [entry]: unknown[] = performance.getEntriesByType('navigation');
+    const type: unknown = typeof entry === 'object' && entry !== null && 'type' in entry ? entry.type : undefined;
+    return PAGE_NAVIGATIONS.find(value => value === type) ?? 'unknown';
   } catch {
     return 'unknown';
   }
