@@ -1,0 +1,1334 @@
+name: NEVER-MERGE 1616 Earn first-query scoped positive and sensitivity
+on:
+  push:
+    branches: [ci/1616-earn-first-query-positive]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+      CI: 'true'
+      FORCE_COLOR: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Bind exact signed four-file source and inert transport
+        id: bind
+        run: |
+          set -euo pipefail
+          umask 077
+          proof="$RUNNER_TEMP/1616-earn-first-query-positive"
+          test ! -e "$proof"
+          mkdir "$proof"
+          printf 'PROOF_DIR=%s\n' "$proof" >> "$GITHUB_ENV"
+          cat > "$proof/capture.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          ROOT = Path.cwd().resolve()
+          OUT = Path(os.environ['PROOF_DIR'])
+          BIND = json.loads((OUT / 'bindings.json').read_text())
+          SOURCE = BIND['source']
+          FRAMEWORK = ['jest', 'expect', 'jest-circus', 'jest-config', 'jest-runtime', 'jest-resolve',
+                       'jest-runner', 'jest-environment-jsdom', '@jest', '@swc', 'typescript', 'prettier',
+                       'eslint', 'eslint-plugin-import', 'react', 'react-dom', '@testing-library/react',
+                       '@testing-library/dom', 'dexie', 'fake-indexeddb', 'constate',
+                       '@epoch-protocol/epoch-intents-sdk', 'viem', '@miden-sdk/miden-sdk']
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], cwd=ROOT,
+                                             env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+
+          def save(name, value):
+              (OUT / name).write_text(json.dumps(value, indent=2) + '\n')
+
+
+          def validate_binding():
+              assert BIND.get('ready') is True
+              for key in ['source', 'tree', 'parent']:
+                  assert re.fullmatch(r'[0-9a-f]{40}', BIND[key]), key
+              assert BIND['source_inputs'] and len(BIND['phases']) == 5
+              assert set(BIND['mutants']) == {'caller', 'consumer'}
+              for mutant in BIND['mutants'].values():
+                  assert re.fullmatch(r'[0-9a-f]{64}', mutant['sha256'])
+                  assert digest((OUT / mutant['patch']).read_bytes()) == mutant['patch_sha256']
+              assert git('rev-parse', 'HEAD').decode().strip() == SOURCE
+              assert git('rev-parse', 'HEAD^{tree}').decode().strip() == BIND['tree']
+              headers = git('cat-file', '-p', 'HEAD').split(b'\n\n', 1)[0].splitlines()
+              parents = [line[7:].decode() for line in headers if line.startswith(b'parent ')]
+              assert parents == [BIND['parent']]
+
+
+          def source_records(state):
+              validate_binding()
+              assert state in ['positive', 'caller', 'consumer']
+              mutant = None if state == 'positive' else BIND['mutants'][state]
+              assert not git('diff', '--cached', '--name-only')
+              dirty = [] if mutant is None else [mutant['path']]
+              assert git('diff', '--name-only').decode().splitlines() == dirty
+              expected_status = ''.join(' M ' + path + '\n' for path in dirty).encode()
+              assert git('status', '--porcelain=v1', '--untracked-files=all') == expected_status
+              stage = git('ls-files', '--stage', '-z')
+              files = {}
+              for record in stage.split(b'\0'):
+                  if not record:
+                      continue
+                  header, raw_path = record.split(b'\t', 1)
+                  mode, oid, number = header.decode().split()
+                  assert number == '0' and mode in ['100644', '100755', '120000']
+                  path = raw_path.decode()
+                  p = ROOT / path
+                  info = p.lstat()
+                  if mode == '120000':
+                      assert stat.S_ISLNK(info.st_mode)
+                      data = os.readlink(p).encode()
+                      kind = 'symlink'
+                  else:
+                      assert stat.S_ISREG(info.st_mode) and not p.is_symlink()
+                      assert bool(info.st_mode & 0o111) == (mode == '100755')
+                      data = p.read_bytes()
+                      kind = 'regular'
+                  if mutant is not None and path == mutant['path']:
+                      assert kind == 'regular' and mode == '100644'
+                      assert digest(data) == mutant['sha256'] and len(data) == mutant['bytes']
+                      assert format(stat.S_IMODE(info.st_mode), '04o') == mutant['mode']
+                  else:
+                      assert data == git('cat-file', 'blob', oid), path
+                  files[path] = {'git_mode': mode, 'oid': oid, 'sha256': digest(data), 'bytes': len(data),
+                                 'physical_mode': format(stat.S_IMODE(info.st_mode), '04o'), 'type': kind}
+              for entry in BIND['source_inputs']:
+                  wanted = mutant['sha256'] if mutant is not None and entry['path'] == mutant['path'] else entry['sha256']
+                  assert files[entry['path']]['sha256'] == wanted
+                  assert files[entry['path']]['git_mode'] == entry['git_mode']
+              return stage, files
+
+
+          def snapshot(phase, label):
+              state = 'positive' if phase in ['gates', 'cleanup'] else BIND['phases'][phase]['state']
+              stage, files = source_records(state)
+              prefix = phase + '.' + label
+              (OUT / (prefix + '.stage.nul')).write_bytes(stage)
+              framework = {}
+              versions = {}
+              for package in FRAMEWORK:
+                  base = ROOT / 'node_modules' / package
+                  assert base.is_dir() and not base.is_symlink(), package
+                  metadata = base / 'package.json'
+                  if metadata.is_file():
+                      value = json.loads(metadata.read_text())
+                      versions[package] = {'name': value['name'], 'version': value['version'],
+                                           'package_json_sha256': digest(metadata.read_bytes())}
+                  for p in sorted(base.rglob('*')):
+                      info = p.lstat()
+                      if p.is_symlink():
+                          raw_link = os.readlink(p)
+                          target = p.resolve(strict=True)
+                          assert target.is_relative_to(ROOT) and target != ROOT, str(p)
+                          target_info = target.stat()
+                          assert stat.S_ISREG(target_info.st_mode), str(p)
+                          data = target.read_bytes()
+                          target_hash = digest(data)
+                          retained = OUT / 'framework-symlink-target-bytes' / target_hash
+                          retained.parent.mkdir(exist_ok=True)
+                          if retained.exists():
+                              assert retained.read_bytes() == data
+                          else:
+                              retained.write_bytes(data)
+                          framework[str(p.relative_to(ROOT))] = {
+                              'type': 'symlink', 'lstat_mode': format(stat.S_IMODE(info.st_mode), '04o'),
+                              'raw_link_text': raw_link, 'raw_link_sha256': digest(os.fsencode(raw_link)),
+                              'resolved_root_relative_path': str(target.relative_to(ROOT)),
+                              'target_bytes': len(data), 'target_sha256': target_hash,
+                              'target_mode': format(stat.S_IMODE(target_info.st_mode), '04o'),
+                              'target_byte_copy': str(retained.relative_to(OUT))}
+                      elif p.is_file():
+                          assert p.resolve().is_relative_to(ROOT)
+                          data = p.read_bytes()
+                          framework[str(p.relative_to(ROOT))] = {
+                              'sha256': digest(data), 'bytes': len(data), 'type': 'regular',
+                              'mode': format(stat.S_IMODE(info.st_mode), '04o')}
+              matcher = BIND['expected_framework_matcher']
+              assert versions['expect']['version'] == matcher['version']
+              assert framework[matcher['path']]['sha256'] == matcher['sha256']
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              if not index.is_absolute():
+                  index = ROOT / index
+              raw_index = index.read_bytes()
+              (OUT / (prefix + '.index')).write_bytes(raw_index)
+              save(prefix + '.json', {'head': SOURCE, 'tree': BIND['tree'], 'stage_sha256': digest(stage),
+                                    'physical_index_sha256': digest(raw_index), 'source': files,
+                                    'framework': framework, 'framework_versions': versions})
+              if label == 'before':
+                  with tarfile.open(OUT / (phase + '.bound-source.tar'), 'w') as archive:
+                      for entry in BIND['source_inputs']:
+                          archive.add(ROOT / entry['path'], arcname=entry['path'], recursive=False)
+
+
+          def prepare(phase):
+              wanted = 'positive' if phase == 'cleanup' else BIND['phases'][phase]['state']
+              current = []
+              for state in ['positive', 'caller', 'consumer']:
+                  try:
+                      source_records(state)
+                      current.append(state)
+                  except AssertionError:
+                      pass
+              if len(current) != 1:
+                  (OUT / (phase + '.unrecognized-source.diff')).write_bytes(git('diff', '--binary'))
+                  (OUT / (phase + '.unrecognized-stage.diff')).write_bytes(git('diff', '--cached', '--binary'))
+                  (OUT / (phase + '.unrecognized-stage.nul')).write_bytes(git('ls-files', '--stage', '-z'))
+                  (OUT / (phase + '.unrecognized-status.nul')).write_bytes(git('status', '--porcelain=v1', '-z'))
+                  raise AssertionError('source does not match one exact recognized state; no files restored')
+              previous = current[0]
+              if previous != 'positive':
+                  path = BIND['mutants'][previous]['path']
+                  raw = (ROOT / path).read_bytes()
+                  (OUT / (phase + '.restored-from-' + previous + '.bytes')).write_bytes(raw)
+                  (ROOT / path).write_bytes(git('show', SOURCE + ':' + path))
+              source_records('positive')
+              if wanted != 'positive':
+                  mutant = BIND['mutants'][wanted]
+                  patch = OUT / mutant['patch']
+                  assert digest(patch.read_bytes()) == mutant['patch_sha256']
+                  subprocess.run(['git', 'apply', '--check', str(patch)], cwd=ROOT, check=True)
+                  subprocess.run(['git', 'apply', str(patch)], cwd=ROOT, check=True)
+              source_records(wanted)
+              save(phase + '.transition.json', {'previous': previous, 'state': wanted, 'exact_source_verified': True})
+
+
+          def bookends(phase):
+              before = json.loads((OUT / (phase + '.before.json')).read_text())
+              after = json.loads((OUT / (phase + '.after.json')).read_text())
+              baseline = json.loads((OUT / 'gates.before.json').read_text())
+              for key in ['head', 'tree', 'stage_sha256', 'source', 'framework', 'framework_versions']:
+                  assert before[key] == after[key], (phase, key)
+              for key in ['head', 'tree', 'stage_sha256', 'framework', 'framework_versions']:
+                  assert before[key] == baseline[key], (phase, key)
+              differences = [path for path in baseline['source'] if baseline['source'][path] != before['source'][path]]
+              state = 'positive' if phase in ['gates', 'cleanup'] else BIND['phases'][phase]['state']
+              wanted = [] if state == 'positive' else [BIND['mutants'][state]['path']]
+              assert differences == wanted
+              save(phase + '.bookends.json', {'exact_phase_source_and_framework_equal': True,
+                   'source_difference_from_positive': differences,
+                   'raw_index_equal': before['physical_index_sha256'] == after['physical_index_sha256'],
+                   'raw_index_matches_initial': before['physical_index_sha256'] == baseline['physical_index_sha256'],
+                   'raw_index_policy': 'Complete raw bytes retained separately from exact textual stage and physical source maps.'})
+
+
+          def prerequisites():
+              gates = ['install', 'format', 'lint', 'types']
+              values = {name: {'exit': (OUT / (name + '.exit')).read_text().strip(),
+                               'tee': (OUT / (name + '.tee.exit')).read_text().strip()}
+                        for name in gates if (OUT / (name + '.exit')).exists()}
+              save('prerequisite-exits.json', values)
+              assert len(values) == len(gates) and all(v == {'exit': '0', 'tee': '0'} for v in values.values())
+              bookends('gates')
+
+
+          def check_failure(record, target):
+              row = record['assertion']
+              assert row['numPassingAsserts'] == target['numPassingAsserts']
+              assert len(row['failureDetails']) == 1 and len(row['failureMessages']) == 1
+              result = row['failureDetails'][0]['matcherResult']
+              assert result['pass'] is False and isinstance(result['message'], str) and result['message']
+              frames = re.findall(re.escape(target['file']) + r':(\d+):(\d+)', row['failureMessages'][0])
+              first = target['first_frame']
+              assert frames and frames[0] == (str(first['line']), str(first['column']))
+              if target['file'].endswith('EarnWithdrawReview.test.tsx'):
+                  assert set(result) == {'message', 'pass'}
+                  message = re.sub(r'\x1b\[[0-9;]*m', '', result['message'])
+                  for token in target['matcherResult']['message_required_tokens']:
+                      assert token in message, token
+                  expected = [line[len('Expected: '):] for line in message.splitlines() if line.startswith('Expected: ')]
+                  received = [line[len('Received: '):] for line in message.splitlines() if line.startswith('Received: ')]
+                  assert len(expected) == 1 and json.loads(expected[0]) == target['expected_navigation_argument']
+                  assert len(received) == 1 and json.loads(received[0]) == target['omitted_caller_actual_argument']
+                  assert message.splitlines().count('Number of calls: 1') == 1
+              else:
+                  assert result['name'] == 'toEqual' and result['actual'] == []
+                  assert result['expected'] == [['raw_earn_withdraw_failed', 'status_screen']]
+
+
+          def classify(phase):
+              prerequisites()
+              bookends(phase)
+              arm = BIND['phases'][phase]
+              x = json.loads((OUT / (phase + '.jest.json')).read_text())
+              rows = []
+              for suite in x['testResults']:
+                  path = str(Path(suite['name']).relative_to(ROOT))
+                  for ordinal, row in enumerate(suite['assertionResults']):
+                      rows.append({'file': path, 'ordinal': ordinal, 'assertion': row})
+              save(phase + '.inventory.json', rows)
+              assert {str(Path(s['name']).relative_to(ROOT)) for s in x['testResults']} == set(arm['tests'])
+              assert len(x['testResults']) == 3 and x['numTotalTestSuites'] == 3
+              assert x['numRuntimeErrorTestSuites'] == 0 and x['wasInterrupted'] is False
+              assert x['numPendingTests'] == 0 and x['numTodoTests'] == 0
+              assert x['numTotalTests'] == arm['total'] and len(rows) == arm['total']
+              assert x['numFailedTests'] == arm['failed'] and x['numPassedTests'] == arm['passed']
+              assert x['success'] is (arm['failed'] == 0)
+              failed_files = {t['file'] for t in arm['targets']}
+              assert x['numFailedTestSuites'] == len(failed_files)
+              assert x['numPassedTestSuites'] == 3 - len(failed_files)
+              if arm['expected_names'] is not None:
+                  for path, names in BIND['expected_names'].items():
+                      assert [r['assertion']['fullName'] for r in rows if r['file'] == path] == names
+                  integration = [r['assertion'] for r in rows if r['file'] == arm['tests'][0]]
+                  assert len(integration) == 8
+                  assert sum(a['numPassingAsserts'] for a in integration) == arm['integration_passing_assertions']
+                  for case, row in zip(BIND['new_suite_cases'], integration):
+                      wanted = 13 if row['status'] == 'failed' else case['authored_assertion_count']
+                      assert row['numPassingAsserts'] == wanted
+              else:
+                  for path, count in arm['expected_per_suite'].items():
+                      assert len([r for r in rows if r['file'] == path]) == count
+              observed_failures = []
+              for record in rows:
+                  row = record['assertion']
+                  assert row['invocations'] == 1 and row['retryReasons'] == []
+                  target = [t for t in arm['targets'] if (t['file'], t['fullName']) == (record['file'], row['fullName'])]
+                  if target:
+                      assert len(target) == 1 and row['status'] == 'failed'
+                      check_failure(record, target[0])
+                      observed_failures.append((record['file'], row['fullName']))
+                  else:
+                      assert row['status'] == 'passed' and not row['failureMessages'] and not row['failureDetails']
+              assert len(observed_failures) == arm['failed']
+              assert (OUT / (phase + '.jest.exit')).read_text().strip() == str(arm['natural_exit'])
+              assert (OUT / (phase + '.jest.tee.exit')).read_text().strip() == '0'
+              save(phase + '.classification.json', {'status': 'EXACT_EXPECTED_SCOPED_RESULT', 'source': SOURCE,
+                   'phase': phase, 'cases': len(rows), 'passed': arm['passed'], 'failed': arm['failed'],
+                   'no_whole_head_acceptance': True})
+
+
+          def final():
+              try:
+                  prerequisites()
+              except (AssertionError, FileNotFoundError):
+                  save('classification.json', {'status': 'UNRUN_RUNTIME_PREREQUISITE', 'source': SOURCE,
+                       'no_whole_head_acceptance': True})
+                  raise
+              baseline = json.loads((OUT / 'gates.before.json').read_text())
+              restored = json.loads((OUT / 'cleanup.after.json').read_text())
+              for key in ['head', 'tree', 'stage_sha256', 'source', 'framework', 'framework_versions']:
+                  assert restored[key] == baseline[key], ('final restoration', key)
+              for name in ['prepare.cleanup', 'snapshot.cleanup.after']:
+                  assert (OUT / (name + '.exit')).read_text().strip() == '0'
+                  assert (OUT / (name + '.tee.exit')).read_text().strip() == '0'
+              save('final-restoration.json', {'complete_source_stage_framework_equal': True,
+                   'raw_index_equal': restored['physical_index_sha256'] == baseline['physical_index_sha256']})
+              count = 0
+              for phase, arm in BIND['phases'].items():
+                  value = json.loads((OUT / (phase + '.classification.json')).read_text())
+                  assert value['status'] == 'EXACT_EXPECTED_SCOPED_RESULT'
+                  count += value['cases']
+              assert count == 357
+              source_records('positive')
+              save('classification.json', {'status': 'EXACT_SCOPED_POSITIVE_SENSITIVITY_RESTORATION',
+                   'source': SOURCE, 'actual_method_records': count, 'normal_positive': 78,
+                   'caller_omission': {'passed': 76, 'failed': 2}, 'consumer_omission': {'passed': 77, 'failed': 1},
+                   'restored': 78, 'shared_compatibility': 45, 'whole_head_coverage_platform_review_merge': 'PENDING'})
+
+
+          def seal():
+              files = []
+              for p in sorted(OUT.rglob('*')):
+                  if p.is_file() and p.name != 'hashes.json':
+                      assert not p.is_symlink()
+                      files.append({'path': str(p.relative_to(OUT)), 'bytes': p.stat().st_size,
+                                    'sha256': digest(p.read_bytes()), 'type': 'regular',
+                                    'mode': format(stat.S_IMODE(p.stat().st_mode), '04o')})
+              save('hashes.json', files)
+
+
+          try:
+              command = sys.argv[1]
+              if command == 'snapshot':
+                  snapshot(sys.argv[2], sys.argv[3])
+              elif command == 'prepare':
+                  prepare(sys.argv[2])
+              elif command == 'prerequisites':
+                  prerequisites()
+              elif command == 'classify':
+                  classify(sys.argv[2])
+              elif command == 'final':
+                  final()
+              elif command == 'seal':
+                  seal()
+              else:
+                  raise SystemExit('unknown operation')
+          except Exception as error:
+              save('.'.join(sys.argv[1:]) + '.refusal.json', {'status': 'NOT_ACCEPTED',
+                   'error_type': type(error).__name__, 'detail': str(error)})
+              raise
+          PY
+          cat > "$proof/record.sh" <<'SH'
+          record() {
+            local name="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$name.argv.nul"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$name.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$name.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$name.tee.exit"
+            if test "${codes[1]}" -ne 0; then
+              return "${codes[1]}"
+            fi
+            return "${codes[0]}"
+          }
+          SH
+          cat > "$proof/bindings.json" <<'JSON'
+          {
+            "schema": 2,
+            "ready": true,
+            "source": "135949ab445af8553daf89917f27db0b3b4a338c",
+            "tree": "35eee92233fc6b65228fba3e595b5708e76dafcd",
+            "parent": "ac1fffca303cc91f0d7e109678496ef5bc81bce7",
+            "branch": "ci/1616-earn-first-query-positive",
+            "workflow_path": ".github/workflows/ci-1616-earn-first-query-positive.yml",
+            "source_inputs": [
+              {
+                "path": "AGENTS.md",
+                "sha256": "603055343b022dd9fc1872d78bdf73e8ee8aceff93185da196daa3c59aecb155",
+                "bytes": 16945,
+                "git_mode": "100644"
+              },
+              {
+                "path": "skills/miden-wallet-frontend/SKILL.md",
+                "sha256": "a8d8ba4229f01d08ed05d78304bedf6eda25d469db3fd7512954b6f278674b6a",
+                "bytes": 3652,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawReview.tsx",
+                "sha256": "3ed74d1b2928d40541975c7cd324e7daed693893248dca6d16fd2aa74947dfde",
+                "bytes": 14339,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+                "sha256": "bf635515ddeb916e17e1cf7893b8d8eeb09cb8ab4d84aac1a2c33cf28480569c",
+                "bytes": 41286,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawStatus.tsx",
+                "sha256": "26d6d18d13fe685b8a2132864a49b9f171b844bcca7a49884a8fecaabab933eb",
+                "bytes": 8608,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawStatus.test.tsx",
+                "sha256": "66f99082c6be7d97aa15e019c9c633b5c91bcce0a7f003b61e37ac3d7cbddd56",
+                "bytes": 19580,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw.ts",
+                "sha256": "7f094500af41ae0e8750486713bb8257ded9ab2c0a3442105aeab46f7b05738b",
+                "bytes": 43543,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw.test.ts",
+                "sha256": "9edcf4d95cd3294fabde428afc4372544ada74775462634d96420408231c6bb1",
+                "bytes": 86387,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/generating-transaction/useTransactionRow.ts",
+                "sha256": "652d94fed29bec87fa61067cc74c1612fd6be435e3dca591b6711d3b7d69f802",
+                "bytes": 1371,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/dexie-live-query.ts",
+                "sha256": "31ddf15bab0c5a92335cb89aedb628dddeb74299c97c43e1f947f5f266261fe0",
+                "bytes": 1485,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/transaction/initiate.ts",
+                "sha256": "32ab81b992b3cb51bf5dfc6ec8b4e6fd476e33be1279a627b5cdde4fa8020190",
+                "bytes": 58929,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/transaction/complete.ts",
+                "sha256": "c7c3b0c6f98824783a0e5410b6a04e98701b353f5105083a09ba9e143c70fbd3",
+                "bytes": 94114,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/db/types.ts",
+                "sha256": "936e3f6a4ebe3c76620996344adbcc251b2c6375310a20dc9923b64003af10aa",
+                "bytes": 80856,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/repo.ts",
+                "sha256": "1c827e9ef0edb5cd34d2a971e45b63b471821bd6c37197a1d7bb8f6b75f0cf7e",
+                "bytes": 28996,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx",
+                "sha256": "ff91f9b0185da4363ed57e7820df33cb0788587c567d86c11863aa2d364a00e8",
+                "bytes": 94777,
+                "git_mode": "100644"
+              },
+              {
+                "path": "jest.config.ts",
+                "sha256": "73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6",
+                "bytes": 10839,
+                "git_mode": "100644"
+              },
+              {
+                "path": "jest.setup.js",
+                "sha256": "247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0",
+                "bytes": 1959,
+                "git_mode": "100644"
+              },
+              {
+                "path": "package.json",
+                "sha256": "9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e",
+                "bytes": 23234,
+                "git_mode": "100644"
+              },
+              {
+                "path": "yarn.lock",
+                "sha256": "624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7",
+                "bytes": 785240,
+                "git_mode": "100644"
+              },
+              {
+                "path": ".prettierrc",
+                "sha256": "7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf",
+                "bytes": 361,
+                "git_mode": "100644"
+              },
+              {
+                "path": ".eslintrc",
+                "sha256": "2b70aa065506346da75d71f19f3a138f71b5b5be0889e4074cc04a26fddca629",
+                "bytes": 13286,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw-quote.ts",
+                "sha256": "ef00aed13e12e4618de305aedcd085b4cd00347cef883ad99f1737989f8ba1d9",
+                "bytes": 7890,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-submission-lock.ts",
+                "sha256": "217e1cf6ab2a3e6c5136c6a566101d81d9413d335bdb352283e2fd9fff900768",
+                "bytes": 3741,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/testing/bridge-config.ts",
+                "sha256": "c2e526f2fc9b16452d8083f6f55da7e13825fa20bb0ac0ad601197bc71f92b99",
+                "bytes": 7118,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/testing/earn-prepared.ts",
+                "sha256": "83b997140846ccfa3b73749593a501ab972ee8fd120ac077acee0384202397a7",
+                "bytes": 1787,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/use-user-visible-error.ts",
+                "sha256": "4a4a8dfa192ff6ae7ec942b1298a1c8b9cc740f437fa608bbe3b858c115dcb09",
+                "bytes": 1130,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/index.ts",
+                "sha256": "f5d1d25e101bd19d991396b8ae93ab9b816cd9868122aabf47986138e8fbbcaa",
+                "bytes": 969,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/Provider.tsx",
+                "sha256": "3707d7e5374d4370a9c8dbd4d0755009d6a23ee981a3281b3170fe9eba5efdcf",
+                "bytes": 287,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/config.ts",
+                "sha256": "5d6113399cccdae1bceac276fc77e4b5c9b5ae5652c7d44e002e462d0670b4f9",
+                "bytes": 46,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/history.ts",
+                "sha256": "52546c769a936fa5603ed1ddebc4ef2b7c6ffc7d45259c813d7e1b47ab60a20c",
+                "bytes": 3511,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/location.ts",
+                "sha256": "19711019fafa36851623c1965daee8d6c0a6628b7fe33d070cb6af84534546c8",
+                "bytes": 2450,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/layouts/page-active.ts",
+                "sha256": "0acf8a2dd53b0b23f7533b8666a8b093c466889f1806eb4ce50fdc5c9b79b3f0",
+                "bytes": 4225,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/layouts/MobilePageLayers.tsx",
+                "sha256": "d8f99d05e36b01ed7bc71ce4f6f321cd5ffdb2e09b1ce42a21652b5a15e59c4e",
+                "bytes": 12837,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/layouts/MobilePageLayers.test.tsx",
+                "sha256": "3fc2fb14c70b78cc3f25cf5198b237bd89ae13a1dbb5bdf82840900ff2d5cbd3",
+                "bytes": 31987,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw-policy.ts",
+                "sha256": "89df75e76892f1b8902ccd1850d92344aaa494458ccc322708aba18dbc9b58c0",
+                "bytes": 10066,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/types.ts",
+                "sha256": "6caa4230ab7993c88127beb3e0f69d7216b674372dd578577fc16157488978bb",
+                "bytes": 2420,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/components.tsx",
+                "sha256": "4cab5972f8f6127075b0887e4aa16fc703efd22901bb3f24622b0e426d33762e",
+                "bytes": 10766,
+                "git_mode": "100644"
+              },
+              {
+                "path": "tsconfig.json",
+                "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+                "bytes": 1390,
+                "git_mode": "100644"
+              },
+              {
+                "path": "__mocks__/wasmMock.js",
+                "sha256": "57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66",
+                "bytes": 3946,
+                "git_mode": "100644"
+              },
+              {
+                "path": "__mocks__/lib/i18n/numbers.ts",
+                "sha256": "19e54ae19bc1917b51dd94086b2d1f824358ec5e46811afe886c90a468bdd3ec",
+                "bytes": 1797,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/i18n/numbers.ts",
+                "sha256": "eab717f7b871f2994c916a8255cbe69524471839056f0d312801dc12e22f98be",
+                "bytes": 8164,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+                "sha256": "9fc366dd3677d6daf3ee67cb5935fdc910696f083a78c0ec79e594e91262b1b7",
+                "bytes": 7036,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                "sha256": "6c0de1c8bf6c3d598cf16e32a442d9a6edd9859de64f069ff15766d3a2305d9f",
+                "bytes": 18797,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/user-visible-error.test.ts",
+                "sha256": "b9ffcbb099a744dab16fd50541431fb81a5f6cf01beaf7c5df800ff8b6d2c40b",
+                "bytes": 7070,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+                "sha256": "6a93cd68a52e267c1853613f3d4c033dd3d901095adc368282627f40c1ce2bc6",
+                "bytes": 3099,
+                "git_mode": "100644"
+              },
+              {
+                "path": "docs/privacy/index.md",
+                "sha256": "cfa9ec3cd808d2621a874184754fe5323745819ddf740c15849db6157a43d5ee",
+                "bytes": 63431,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/user-visible-error.ts",
+                "sha256": "b9d92bcbb039bfec79bfe44cc2e523998e6a3d8fd4ef84ce9480e9b6be2d3359",
+                "bytes": 2094,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.ts",
+                "sha256": "6365247310020700eee6398b4d76b7c1d32568a1f306f371554c32d2516808b1",
+                "bytes": 4381,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/relay-diagnostics.ts",
+                "sha256": "ab7f57895cb949bd16987ec48d441f94738b0e96c80a13ae3ebfa5b99560f6da",
+                "bytes": 6412,
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/wasm-startup.ts",
+                "sha256": "8cf8191223116e09648e06f32a21c6e3f5e92b86d4cc73c7eb71c77ccc0a24f5",
+                "bytes": 2325,
+                "git_mode": "100644"
+              }
+            ],
+            "gate_files": [
+              "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+              "src/screens/earn-flow/EarnWithdrawReview.tsx",
+              "src/screens/earn-flow/EarnWithdrawStatus.test.tsx",
+              "src/screens/earn-flow/EarnWithdrawStatus.tsx"
+            ],
+            "mutants": {
+              "caller": {
+                "path": "src/screens/earn-flow/EarnWithdrawReview.tsx",
+                "patch": "caller.patch",
+                "patch_sha256": "2dfd10a8935c255a03104cecbc55e7e3fef60b023a78393607a20fc915a0f6ee",
+                "sha256": "bc79b6a237e2e50bf3c0abee178e90be63fc26b117379ade074476acdc30ba14",
+                "bytes": 14245,
+                "mode": "0644"
+              },
+              "consumer": {
+                "path": "src/screens/earn-flow/EarnWithdrawStatus.tsx",
+                "patch": "consumer.patch",
+                "patch_sha256": "0cd83a0d2b5d0add63438e9d396cd8bb2088e047c1ffcd0a6031a9ec3bf1fbb6",
+                "sha256": "19bb05593290a88bc95f7fb87acbb019b65f6f470a4f4ba97d7b3b9e697d8455",
+                "bytes": 8186,
+                "mode": "0644"
+              }
+            },
+            "phases": {
+              "positive": {
+                "state": "positive",
+                "tests": [
+                  "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawStatus.test.tsx"
+                ],
+                "expected_names": true,
+                "total": 78,
+                "passed": 78,
+                "failed": 0,
+                "natural_exit": 0,
+                "targets": [],
+                "integration_passing_assertions": 43,
+                "integration_reached_assertions": 43
+              },
+              "caller_omitted": {
+                "state": "caller",
+                "tests": [
+                  "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawStatus.test.tsx"
+                ],
+                "expected_names": true,
+                "total": 78,
+                "passed": 76,
+                "failed": 2,
+                "natural_exit": 1,
+                "targets": [
+                  {
+                    "file": "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+                    "fullName": "EarnWithdrawReview submits the reviewed full position and routes as soon as the tracking row exists",
+                    "first_frame": {
+                      "line": 289,
+                      "column": 22
+                    },
+                    "numPassingAsserts": 4,
+                    "matcherResult": {
+                      "keys": [
+                        "message",
+                        "pass"
+                      ],
+                      "pass": false,
+                      "message_required_tokens": [
+                        "toHaveBeenCalledWith",
+                        "Expected:",
+                        "pathname",
+                        "/earn/withdraw-status/tx%2F1",
+                        "newSubmissionTxId",
+                        "tx/1",
+                        "Received:",
+                        "Number of calls: 1"
+                      ],
+                      "fields_NOT_published_by_this_matcher": [
+                        "actual",
+                        "expected",
+                        "name"
+                      ]
+                    },
+                    "expected_navigation_argument": {
+                      "pathname": "/earn/withdraw-status/tx%2F1",
+                      "state": {
+                        "newSubmissionTxId": "tx/1"
+                      }
+                    },
+                    "omitted_caller_actual_argument": "/earn/withdraw-status/tx%2F1",
+                    "causal_basis": "Pinned expect30.4.1 spy matcher1386-1428 returns message/pass only; wrapper2211-2214 keeps those. Prior actual old passing row has 5 passing assertions. New assertion replaces old one at the same line, with 4 prior assertions including confirmEnabled175. No new runtime observed."
+                  },
+                  {
+                    "file": "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                    "fullName": "Earn withdrawal first-query reporting reports a new Review submission whose actual producer fails before the first row query",
+                    "first_frame": {
+                      "line": 367,
+                      "column": 62
+                    },
+                    "numPassingAsserts": 13,
+                    "matcherResult": {
+                      "actual": [],
+                      "expected": [
+                        [
+                          "raw_earn_withdraw_failed",
+                          "status_screen"
+                        ]
+                      ],
+                      "name": "toEqual",
+                      "pass": false
+                    },
+                    "causal_basis": "Exact first failure and 13 prior passing assertions observed in accepted actual red39546067033; omission repeats are predictions until new CI."
+                  }
+                ],
+                "integration_passing_assertions": 41,
+                "integration_reached_assertions": 42
+              },
+              "consumer_omitted": {
+                "state": "consumer",
+                "tests": [
+                  "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawStatus.test.tsx"
+                ],
+                "expected_names": true,
+                "total": 78,
+                "passed": 77,
+                "failed": 1,
+                "natural_exit": 1,
+                "targets": [
+                  {
+                    "file": "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                    "fullName": "Earn withdrawal first-query reporting reports a new Review submission whose actual producer fails before the first row query",
+                    "first_frame": {
+                      "line": 367,
+                      "column": 62
+                    },
+                    "numPassingAsserts": 13,
+                    "matcherResult": {
+                      "actual": [],
+                      "expected": [
+                        [
+                          "raw_earn_withdraw_failed",
+                          "status_screen"
+                        ]
+                      ],
+                      "name": "toEqual",
+                      "pass": false
+                    },
+                    "causal_basis": "Exact first failure and 13 prior passing assertions observed in accepted actual red39546067033; omission repeats are predictions until new CI."
+                  }
+                ],
+                "integration_passing_assertions": 41,
+                "integration_reached_assertions": 42
+              },
+              "restored": {
+                "state": "positive",
+                "tests": [
+                  "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+                  "src/screens/earn-flow/EarnWithdrawStatus.test.tsx"
+                ],
+                "expected_names": true,
+                "total": 78,
+                "passed": 78,
+                "failed": 0,
+                "natural_exit": 0,
+                "targets": [],
+                "integration_passing_assertions": 43,
+                "integration_reached_assertions": 43
+              },
+              "shared_compatibility": {
+                "state": "positive",
+                "tests": [
+                  "src/lib/telemetry/user-visible-error.test.ts",
+                  "src/lib/telemetry/use-user-visible-error.test.tsx",
+                  "src/lib/telemetry/crash-diagnostics.policy.test.ts"
+                ],
+                "expected_names": null,
+                "expected_per_suite": {
+                  "src/lib/telemetry/user-visible-error.test.ts": 18,
+                  "src/lib/telemetry/use-user-visible-error.test.tsx": 13,
+                  "src/lib/telemetry/crash-diagnostics.policy.test.ts": 14
+                },
+                "total": 45,
+                "passed": 45,
+                "failed": 0,
+                "natural_exit": 0,
+                "targets": [],
+                "inventory_policy": "Retain and classify every actual raw identity; no claimed invented fullNames for this fresh compatibility invocation."
+              }
+            },
+            "new_suite_cases": [
+              {
+                "id": "EWQ-1",
+                "fullName": "Earn withdrawal first-query reporting reports a new Review submission whose actual producer fails before the first row query",
+                "prediction": "failed",
+                "authored_assertion_count": 15
+              },
+              {
+                "id": "EWQ-2",
+                "fullName": "Earn withdrawal first-query reporting keeps a historical first failed query quiet after loading and reopening",
+                "prediction": "passed",
+                "authored_assertion_count": 6
+              },
+              {
+                "id": "EWQ-3",
+                "fullName": "Earn withdrawal first-query reporting keeps Pop with a saved matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-4",
+                "fullName": "Earn withdrawal first-query reporting keeps reload with a saved matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-5",
+                "fullName": "Earn withdrawal first-query reporting keeps Replace with a matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-6",
+                "fullName": "Earn withdrawal first-query reporting keeps Push with a mismatched marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-7",
+                "fullName": "Earn withdrawal first-query reporting keeps a revealed return mount on Push with a matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-8",
+                "fullName": "Earn withdrawal first-query reporting does not reuse an old Push qualification when the same hidden status node returns by Pop",
+                "prediction": "passed",
+                "authored_assertion_count": 7
+              }
+            ],
+            "expected_framework_matcher": {
+              "path": "node_modules/expect/build/index.js",
+              "version": "30.4.1",
+              "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4",
+              "bytes": 112845,
+              "archive_evidence": "accepted actual v3 before.json hash matches existing physical reader file"
+            },
+            "runtime_status": "UNRUN",
+            "no_whole_head_acceptance": true,
+            "expected_names": {
+              "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx": [
+                "Earn withdrawal first-query reporting reports a new Review submission whose actual producer fails before the first row query",
+                "Earn withdrawal first-query reporting keeps a historical first failed query quiet after loading and reopening",
+                "Earn withdrawal first-query reporting keeps Pop with a saved matching marker quiet",
+                "Earn withdrawal first-query reporting keeps reload with a saved matching marker quiet",
+                "Earn withdrawal first-query reporting keeps Replace with a matching marker quiet",
+                "Earn withdrawal first-query reporting keeps Push with a mismatched marker quiet",
+                "Earn withdrawal first-query reporting keeps a revealed return mount on Push with a matching marker quiet",
+                "Earn withdrawal first-query reporting does not reuse an old Push qualification when the same hidden status node returns by Pop"
+              ],
+              "src/screens/earn-flow/EarnWithdrawReview.test.tsx": [
+                "EarnWithdrawReview sends a review URL with no amount back to the amount step and submits nothing",
+                "EarnWithdrawReview renders the selected position and the full-withdraw route details",
+                "EarnWithdrawReview rounds the full withdrawable down from its exact string",
+                "EarnWithdrawReview gives the withdraw confirm the earn flow colour",
+                "EarnWithdrawReview falls back to an empty position and disables withdrawal for an unknown id",
+                "EarnWithdrawReview submits the reviewed full position and routes as soon as the tracking row exists",
+                "EarnWithdrawReview rejects a position not owned by the current wallet account",
+                "EarnWithdrawReview reports user-visible error: rejects a position not owned by the current wallet account",
+                "EarnWithdrawReview handles an account without a derived EVM address",
+                "EarnWithdrawReview surfaces SDK errors and restores the CTA once the amount is quoted again",
+                "EarnWithdrawReview reports user-visible error: surfaces SDK errors and restores the CTA once the amount is quoted again",
+                "EarnWithdrawReview uses the fallback message for non-Error failures",
+                "EarnWithdrawReview reports user-visible error: uses the fallback message for non-Error failures",
+                "EarnWithdrawReview ignores a second tap while the first withdrawal is in flight",
+                "EarnWithdrawReview pins the CTA in the shared frame footer, on the page margin rather than a per-platform one",
+                "EarnWithdrawReview names the network it will commit on",
+                "EarnWithdrawReview after a failed load says a per-owner positions failure too, which is not a request failure",
+                "EarnWithdrawReview after a failed load says the load failed, with Retry, instead of offering to withdraw a placeholder position",
+                "EarnWithdrawReview after a failed load reports user-visible error: says the load failed, with Retry, instead of offering to withdraw a placeholder position",
+                "EarnWithdrawReview after a failed load keeps the failure said while a retry is out, and names only the route in the header",
+                "EarnWithdrawReview after a failed load draws nothing it has not loaded during a first load with no error",
+                "EarnWithdrawReview after a failed load reports user-visible error: draws nothing it has not loaded during a first load with no error",
+                "EarnWithdrawReview after a failed load keeps a position it already has, under the notice",
+                "EarnWithdrawReview after a failed load disables Withdraw for a position the latest read did not load, under the notice with Retry",
+                "EarnWithdrawReview after a failed load never signs for a position the latest read did not load, even when its confirm is called",
+                "EarnWithdrawReview with no position to name keeps a route heading and no placeholder name after a failed load",
+                "EarnWithdrawReview with no position to name keeps a route heading and no placeholder name after a load in flight",
+                "EarnWithdrawReview with no position to name keeps a route heading and no placeholder name after a settled load without it",
+                "selected withdrawal review reports the visible quote refresh when an empty submit error leaves no owning submit notice",
+                "selected withdrawal review reports a new balance validation after a submit failure remains visible, with its own full dwell",
+                "selected withdrawal review reports an independent quote failure after balance recovery while the submit failure remains visible",
+                "selected withdrawal review reports user-visible recognized SDK error by its translation key",
+                "selected withdrawal review reports user-visible review validation 0",
+                "selected withdrawal review reports user-visible review validation 43",
+                "selected withdrawal review reports user-visible review validation 1.0000001",
+                "selected withdrawal review reports user-visible quote failure earnWithdrawRefresh",
+                "selected withdrawal review reports user-visible quote failure earnWithdrawQuoteUnavailable",
+                "selected withdrawal review reviews and submits the same selected amount and payout floor",
+                "selected withdrawal review leads with the receipt and keeps exact technical amounts in an accessible disclosure",
+                "selected withdrawal review preserves the amount on quote failure and allows refresh",
+                "selected withdrawal review shows a compact full-balance summary and submits every selected base unit",
+                "selected withdrawal review expires a quote without changing the selected amount",
+                "selected withdrawal review blocks duplicate confirms while submission is pending",
+                "selected withdrawal review keeps the reviewed quote when availability changes but still covers the amount",
+                "selected withdrawal review keeps the reviewed quote when availability falls but still covers the amount",
+                "selected withdrawal review quotes against the new balance once availability rises from below the amount to cover it",
+                "selected withdrawal review keeps the reviewed quote when a positions refresh rebuilds the position with the same values",
+                "selected withdrawal review disables Withdraw when availability falls below the reviewed amount"
+              ],
+              "src/screens/earn-flow/EarnWithdrawStatus.test.tsx": [
+                "EarnWithdrawStatus shows a spinner until a transaction row is available",
+                "EarnWithdrawStatus shows the processing state before the intent is submitted",
+                "EarnWithdrawStatus shows a failed intent and its recorded error",
+                "EarnWithdrawStatus wraps a recorded error with an unbreakable token",
+                "EarnWithdrawStatus falls back to the generic transaction error for an unstamped failure",
+                "EarnWithdrawStatus shows a submitted redeeming intent in the success layout",
+                "EarnWithdrawStatus keeps a saved but unaccepted withdrawal in processing until acceptance arrives",
+                "EarnWithdrawStatus shows the delivering status after Epoch settlement",
+                "EarnWithdrawStatus shows the received status after the Miden note is consumed",
+                "EarnWithdrawStatus shows the credited amount beside the withdrawn source once received",
+                "EarnWithdrawStatus keeps native delivery on the network until its scale is known",
+                "EarnWithdrawStatus scales a credited native USDCX delivery with authoritative eight decimals",
+                "EarnWithdrawStatus reads a delivered non-native faucet from the store once received",
+                "EarnWithdrawStatus keeps the arrow on Miden while the delivered faucet scale is unknown",
+                "invalidates only this account positions after the actual withdrawal receipt",
+                "user-visible withdrawal failure reports reports a failure watched while mounted once without leaking private solver reason 123.45",
+                "user-visible withdrawal failure reports reports a failure watched while mounted once without leaking undefined",
+                "user-visible withdrawal failure reports does not report a first loaded persisted failure after spinner or after reopening",
+                "user-visible withdrawal failure reports does not report a persisted failure when opened or reopened",
+                "user-visible withdrawal failure reports does not report the redeeming progress state",
+                "user-visible withdrawal failure reports does not report the delivering progress state",
+                "user-visible withdrawal failure reports does not report the received progress state"
+              ]
+            }
+          }
+          JSON
+          cat > "$proof/caller.patch" <<'CALLER'
+          --- a/src/screens/earn-flow/EarnWithdrawReview.tsx
+          +++ b/src/screens/earn-flow/EarnWithdrawReview.tsx
+          @@ -153,11 +153,7 @@
+                   // No Miden-side transaction happens (gasless EVM intent sign), so the
+                   // handoff goes to the bespoke withdraw status screen — not the
+                   // prove/submit generating-transaction page.
+          -        onRowCreated: txId =>
+          -          navigate({
+          -            pathname: `/earn/withdraw-status/${encodeURIComponent(txId)}`,
+          -            state: { newSubmissionTxId: txId }
+          -          })
+          +        onRowCreated: txId => navigate(`/earn/withdraw-status/${encodeURIComponent(txId)}`)
+                 });
+               } catch (e) {
+                 // If the row was already created we have navigated away and the
+          CALLER
+          cat > "$proof/consumer.patch" <<'CONSUMER'
+          --- a/src/screens/earn-flow/EarnWithdrawStatus.tsx
+          +++ b/src/screens/earn-flow/EarnWithdrawStatus.tsx
+          @@ -4,7 +4,6 @@
+           import { useSWRConfig } from 'swr';
+           
+           import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+          -import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
+           import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
+           import { Button, ButtonVariant } from 'components/Button';
+           import { accentForTransactionType } from 'components/flow/accent';
+          @@ -18,7 +17,7 @@
+           import { useWalletStore } from 'lib/store';
+           import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+           import { cn } from 'lib/ui/util';
+          -import { HistoryAction, navigate, useLocation } from 'lib/woozie';
+          +import { navigate } from 'lib/woozie';
+           import { TransactionHeroIcon } from 'screens/generating-transaction/components';
+           import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
+           import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
+          @@ -46,18 +45,13 @@
+           export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
+             const { t } = useTranslation();
+             const { row, loaded } = useTransactionRow(txId);
+          -  const { trigger, state } = useLocation();
+          -  const mountedByReturn = usePageMountedByReturn();
+          -  const revealedByLayer = usePageRevealedByLayer();
+          -  const newSubmission =
+          -    trigger === HistoryAction.Push && state?.newSubmissionTxId === txId && !mountedByReturn && !revealedByLayer;
+             // The spinner is not a nonfailed row: the first database result may already be a persisted failure.
+             const firstLoadedFailed = useRef<boolean>();
+             if (loaded && row && firstLoadedFailed.current === undefined) {
+               firstLoadedFailed.current = row.extraInputs.phase === 'failed';
+             }
+             useUserVisibleError(
+          -    loaded && row?.extraInputs.phase === 'failed' && (firstLoadedFailed.current === false || newSubmission)
+          +    loaded && row?.extraInputs.phase === 'failed' && firstLoadedFailed.current === false
+                 ? 'raw_earn_withdraw_failed'
+                 : null,
+               'status_screen'
+          CONSUMER
+          printf '%s  %s\n' '7e61eb647e80c02e1a6fa10e0fe63c86f11614f1caf47d675b610a7df6587608' "$proof/capture.py" | sha256sum --check
+          printf '%s  %s\n' 'e00464833c124ef521607fba47688b25607119cfa78dfcfbe5c8d6921baa5685' "$proof/record.sh" | sha256sum --check
+          printf '%s  %s\n' '2558135d7290ac5da7f98b2c25018ca43dd36419307240a74b846986c8fb78e7' "$proof/bindings.json" | sha256sum --check
+          printf '%s  %s\n' '2dfd10a8935c255a03104cecbc55e7e3fef60b023a78393607a20fc915a0f6ee' "$proof/caller.patch" | sha256sum --check
+          printf '%s  %s\n' '0cd83a0d2b5d0add63438e9d396cd8bb2088e047c1ffcd0a6031a9ec3bf1fbb6' "$proof/consumer.patch" | sha256sum --check
+          cp .github/workflows/ci-1616-earn-first-query-positive.yml "$proof/workflow.yml"
+          printf '%s\n' "$GITHUB_SHA" "$GITHUB_REF" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$proof/github-run.txt"
+          git rev-parse HEAD HEAD^{tree} HEAD^ > "$proof/transport.txt"
+          git log -1 --format=fuller --show-signature > "$proof/transport-commit.txt" 2>&1
+          git diff-tree --no-commit-id --name-status -r HEAD^ HEAD > "$proof/transport-paths.txt"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = 'refs/heads/ci/1616-earn-first-query-positive'
+          test "$(git rev-parse HEAD^)" = '135949ab445af8553daf89917f27db0b3b4a338c'
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD^ HEAD)" = '.github/workflows/ci-1616-earn-first-query-positive.yml'
+          test "$(git ls-tree HEAD -- .github/workflows/ci-1616-earn-first-query-positive.yml | cut -d' ' -f1)" = '100644'
+          git checkout --detach '135949ab445af8553daf89917f27db0b3b4a338c'
+          test "$(git rev-parse HEAD^{tree})" = '35eee92233fc6b65228fba3e595b5708e76dafcd'
+          git log -1 --format=fuller --show-signature > "$proof/source-commit.txt" 2>&1
+      - name: Install exact frozen dependencies
+        id: install
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          node --version | tee "$PROOF_DIR/node-version.txt"
+          yarn --version | tee "$PROOF_DIR/yarn-version.txt"
+          record install yarn install --frozen-lockfile --network-timeout 600000
+      - name: Named four-file format lint and whole typecheck
+        id: preflight
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.gates.before python3 "$PROOF_DIR/capture.py" snapshot gates before
+          failed=0
+          record format yarn prettier --check src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawReview.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx src/screens/earn-flow/EarnWithdrawStatus.tsx || failed=1
+          record lint yarn eslint src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawReview.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx src/screens/earn-flow/EarnWithdrawStatus.tsx --max-warnings 0 || failed=1
+          record types yarn ts --noEmit || failed=1
+          test "$failed" -eq 0
+      - name: Retain complete source and framework after prerequisites
+        id: gates_after
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.gates.after python3 "$PROOF_DIR/capture.py" snapshot gates after
+      - name: Require all natural prerequisite exits and exact bookends
+        id: gates_check
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record prerequisites python3 "$PROOF_DIR/capture.py" prerequisites
+      - name: Run complete unfiltered suites positive
+        id: positive_tests
+        if: always() && steps.gates_check.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.positive.before python3 "$PROOF_DIR/capture.py" snapshot positive before
+          printf '%s\n' 'yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile=$PROOF_DIR/positive.jest.json' > "$PROOF_DIR/positive.jest-argv.txt"
+          record positive.jest yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/positive.jest.json"
+      - name: Retain exact after bookends positive
+        id: positive_after
+        if: always() && steps.positive_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.positive.after python3 "$PROOF_DIR/capture.py" snapshot positive after
+      - name: Independently classify exact outcome positive
+        id: positive_check
+        if: always() && steps.positive_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classify.positive python3 "$PROOF_DIR/capture.py" classify positive
+      - name: Prepare exact source state caller_omitted
+        id: caller_omitted_prepare
+        if: always() && steps.positive_check.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record prepare.caller_omitted python3 "$PROOF_DIR/capture.py" prepare caller_omitted
+      - name: Run complete unfiltered suites caller_omitted
+        id: caller_omitted_tests
+        if: always() && steps.caller_omitted_prepare.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.caller_omitted.before python3 "$PROOF_DIR/capture.py" snapshot caller_omitted before
+          printf '%s\n' 'yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile=$PROOF_DIR/caller_omitted.jest.json' > "$PROOF_DIR/caller_omitted.jest-argv.txt"
+          record caller_omitted.jest yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/caller_omitted.jest.json"
+      - name: Retain exact after bookends caller_omitted
+        id: caller_omitted_after
+        if: always() && steps.caller_omitted_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.caller_omitted.after python3 "$PROOF_DIR/capture.py" snapshot caller_omitted after
+      - name: Independently classify exact outcome caller_omitted
+        id: caller_omitted_check
+        if: always() && steps.caller_omitted_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classify.caller_omitted python3 "$PROOF_DIR/capture.py" classify caller_omitted
+      - name: Prepare exact source state consumer_omitted
+        id: consumer_omitted_prepare
+        if: always() && steps.caller_omitted_check.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record prepare.consumer_omitted python3 "$PROOF_DIR/capture.py" prepare consumer_omitted
+      - name: Run complete unfiltered suites consumer_omitted
+        id: consumer_omitted_tests
+        if: always() && steps.consumer_omitted_prepare.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.consumer_omitted.before python3 "$PROOF_DIR/capture.py" snapshot consumer_omitted before
+          printf '%s\n' 'yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile=$PROOF_DIR/consumer_omitted.jest.json' > "$PROOF_DIR/consumer_omitted.jest-argv.txt"
+          record consumer_omitted.jest yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/consumer_omitted.jest.json"
+      - name: Retain exact after bookends consumer_omitted
+        id: consumer_omitted_after
+        if: always() && steps.consumer_omitted_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.consumer_omitted.after python3 "$PROOF_DIR/capture.py" snapshot consumer_omitted after
+      - name: Independently classify exact outcome consumer_omitted
+        id: consumer_omitted_check
+        if: always() && steps.consumer_omitted_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classify.consumer_omitted python3 "$PROOF_DIR/capture.py" classify consumer_omitted
+      - name: Prepare exact source state restored
+        id: restored_prepare
+        if: always() && steps.consumer_omitted_check.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record prepare.restored python3 "$PROOF_DIR/capture.py" prepare restored
+      - name: Run complete unfiltered suites restored
+        id: restored_tests
+        if: always() && steps.restored_prepare.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.restored.before python3 "$PROOF_DIR/capture.py" snapshot restored before
+          printf '%s\n' 'yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile=$PROOF_DIR/restored.jest.json' > "$PROOF_DIR/restored.jest-argv.txt"
+          record restored.jest yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/restored.jest.json"
+      - name: Retain exact after bookends restored
+        id: restored_after
+        if: always() && steps.restored_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.restored.after python3 "$PROOF_DIR/capture.py" snapshot restored after
+      - name: Independently classify exact outcome restored
+        id: restored_check
+        if: always() && steps.restored_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classify.restored python3 "$PROOF_DIR/capture.py" classify restored
+      - name: Prepare exact source state shared_compatibility
+        id: shared_compatibility_prepare
+        if: always() && steps.restored_check.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record prepare.shared_compatibility python3 "$PROOF_DIR/capture.py" prepare shared_compatibility
+      - name: Run complete unfiltered suites shared_compatibility
+        id: shared_compatibility_tests
+        if: always() && steps.shared_compatibility_prepare.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.shared_compatibility.before python3 "$PROOF_DIR/capture.py" snapshot shared_compatibility before
+          printf '%s\n' 'yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --watch=false --json --outputFile=$PROOF_DIR/shared_compatibility.jest.json' > "$PROOF_DIR/shared_compatibility.jest-argv.txt"
+          record shared_compatibility.jest yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/shared_compatibility.jest.json"
+      - name: Retain exact after bookends shared_compatibility
+        id: shared_compatibility_after
+        if: always() && steps.shared_compatibility_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot.shared_compatibility.after python3 "$PROOF_DIR/capture.py" snapshot shared_compatibility after
+      - name: Independently classify exact outcome shared_compatibility
+        id: shared_compatibility_check
+        if: always() && steps.shared_compatibility_tests.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classify.shared_compatibility python3 "$PROOF_DIR/capture.py" classify shared_compatibility
+      - name: Always restore only an exact recognized controlled source state
+        id: cleanup
+        if: always() && steps.gates_check.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record prepare.cleanup python3 "$PROOF_DIR/capture.py" prepare cleanup
+          record snapshot.cleanup.after python3 "$PROOF_DIR/capture.py" snapshot cleanup after
+      - name: Classify all five scoped arms without changing sensitivity exits
+        id: final
+        if: always() && steps.bind.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classification python3 "$PROOF_DIR/capture.py" final
+      - name: Seal complete raw proof independently
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/1616-earn-first-query-positive/capture.py" seal
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 1616-earn-first-query-positive
+          path: ${{ runner.temp }}/1616-earn-first-query-positive/
+          include-hidden-files: true
+          if-no-files-found: error
