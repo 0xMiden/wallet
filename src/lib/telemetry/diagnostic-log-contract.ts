@@ -9,7 +9,14 @@ export const DIAGNOSTIC_STEPS = [
   'proposal_execute'
 ] as const;
 export const DIAGNOSTIC_STEP_OUTCOMES = ['ok', 'failed', 'timeout', 'aborted', 'locked'] as const;
-export const DIAGNOSTIC_END_OUTCOMES = ['completed', 'failed', 'timeout', 'cancelled', 'interrupted'] as const;
+export const DIAGNOSTIC_END_OUTCOMES = [
+  'completed',
+  'failed',
+  'timeout',
+  'cancelled',
+  'interrupted',
+  'unconfirmed'
+] as const;
 export const DIAGNOSTIC_DURATIONS = ['under_1s', '1_to_5s', '5_to_30s', '30s_to_2m', '2_to_10m', 'over_10m'] as const;
 
 export type DiagnosticOperation = (typeof DIAGNOSTIC_OPERATIONS)[number];
