@@ -67,7 +67,8 @@ it.each([
     const event: Record<string, unknown> = {};
     scrubEvent(event, { originalException: captured[0] });
     expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining({ pageVisibility: expected }) });
-    expect(event.tags).toEqual({ network: 'testnet', page_visibility: expected });
+    expect(event.tags).toEqual({ network: 'testnet' });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(visibilityReads).toBe(expectedReads);
   } finally {
     if (descriptor) Object.defineProperty(globalThis, 'document', descriptor);

@@ -1506,14 +1506,6 @@ describe('crash-report egress', () => {
           userErrorId: 'usdcxFaucetUnavailable',
           userErrorSurface: 'review'
         });
-        expect(event.tags).toEqual({
-          network: 'testnet',
-          storage_owner: 'wallet_transactions',
-          storage_operation: 'transaction',
-          page_visibility: 'unknown',
-          'user_error.id': 'usdcxFaucetUnavailable',
-          'user_error.surface': 'review'
-        });
         expect(objectAt(event, 'exception').values).toEqual([
           expect.objectContaining({
             type: 'WalletUserVisibleError',
@@ -1529,6 +1521,14 @@ describe('crash-report egress', () => {
           userErrorSurface: 'review'
         });
         expect(increment).toBeLessThanOrEqual(192);
+        expect(event.tags).toEqual({
+          network: 'testnet',
+          storage_owner: 'wallet_transactions',
+          storage_operation: 'transaction',
+          'user_error.id': 'usdcxFaucetUnavailable',
+          'user_error.surface': 'review'
+        });
+        expect(event.tags).not.toHaveProperty('page_visibility');
       } finally {
         if (previousTarget === undefined) delete process.env.WALLET_BUILD_TARGET;
         else process.env.WALLET_BUILD_TARGET = previousTarget;
@@ -1555,9 +1555,9 @@ describe('crash-report egress', () => {
         expect(event.tags).toEqual({
           network: 'testnet',
           storage_owner: 'wallet_transactions',
-          storage_operation: 'cursor',
-          page_visibility: 'hidden'
+          storage_operation: 'cursor'
         });
+        expect(event.tags).not.toHaveProperty('page_visibility');
         expect(increment).toBeGreaterThan(0);
         expect(increment).toBeLessThanOrEqual(192);
       });
@@ -1574,7 +1574,8 @@ describe('crash-report egress', () => {
       expect(diagnostics).not.toHaveProperty('storageOwner');
       expect(diagnostics).not.toHaveProperty('storageOperation');
       expect(diagnostics.pageVisibility).toBe('hidden');
-      expect(event.tags).toEqual({ network: 'testnet', page_visibility: 'hidden' });
+      expect(event.tags).toEqual({ network: 'testnet' });
+      expect(event.tags).not.toHaveProperty('page_visibility');
       expect(event).not.toHaveProperty('fingerprint');
       expect(increment).toBeGreaterThan(0);
       expect(increment).toBeLessThanOrEqual(192);
@@ -1598,7 +1599,7 @@ describe('crash-report egress', () => {
         expect(wireText()).toContain('continuation failed');
         expect(wireText()).toContain('"type":"onunhandledrejection","handled":false');
         expect(wireText()).toContain('"pageVisibility":"hidden"');
-        expect(wireText()).toContain('"page_visibility":"hidden"');
+        expect(wireText()).not.toContain('"page_visibility"');
         expect(wireText()).toContain('"storageOwner":"wallet_transactions"');
         expect(wireText()).toContain('"storageOperation":"cursor"');
         expect(wireText()).toContain('"storage_owner":"wallet_transactions"');
@@ -1676,7 +1677,7 @@ describe('crash-report egress', () => {
       const tags = objectAt(event, 'tags');
       expect(tags).not.toHaveProperty('storage_owner');
       expect(tags).not.toHaveProperty('storage_operation');
-      expect(tags.page_visibility).toBe('hidden');
+      expect(tags).not.toHaveProperty('page_visibility');
       expectNoStoragePoison(wireText());
     });
 
@@ -1701,7 +1702,7 @@ describe('crash-report egress', () => {
         const [first, second] = events;
         if (first === undefined || second === undefined) throw new Error('missing sequential reports');
         expect(objectAt(objectAt(first, 'extra'), 'walletDiagnostics').pageVisibility).toBe('hidden');
-        expect(objectAt(first, 'tags').page_visibility).toBe('hidden');
+        expect(objectAt(first, 'tags')).not.toHaveProperty('page_visibility');
         const diagnostics = objectAt(objectAt(second, 'extra'), 'walletDiagnostics');
         expect(diagnostics).not.toHaveProperty('storageOwner');
         expect(diagnostics).not.toHaveProperty('storageOperation');
@@ -1709,7 +1710,7 @@ describe('crash-report egress', () => {
         const tags = objectAt(second, 'tags');
         expect(tags).not.toHaveProperty('storage_owner');
         expect(tags).not.toHaveProperty('storage_operation');
-        expect(tags.page_visibility).toBe('visible');
+        expect(tags).not.toHaveProperty('page_visibility');
         expectNoStoragePoison(wireText());
       });
     });
@@ -2017,7 +2018,8 @@ describe('crash-report egress', () => {
 
     const text = wireText();
     expect(captured.length).toBeGreaterThan(0);
-    expect(text).toContain('"tags":{"network":"mainnet","page_visibility":"visible"}');
+    expect(text).toContain('"tags":{"network":"mainnet"}');
+    expect(text).not.toContain('"page_visibility"');
     expect(text).toMatch(/"walletDiagnostics":\{[^}]*"network":"mainnet"/);
     expect(leaksIn(text)).toEqual([]);
   });
@@ -2063,10 +2065,10 @@ describe('user-visible error reports', () => {
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(event.tags).toEqual({
       network: 'testnet',
-      page_visibility: 'visible',
       'user_error.id': 'raw_send_submit_failed',
       'user_error.surface': 'inline'
     });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_send_submit_failed', 'inline']);
     expect(wireText()).toContain('raw_send_submit_failed');
     expect(leaksIn(wireText())).toEqual([]);
@@ -2090,10 +2092,10 @@ describe('user-visible error reports', () => {
     expect(event.level).toBe('warning');
     expect(event.tags).toEqual({
       network: 'testnet',
-      page_visibility: 'visible',
       'user_error.id': 'usdcxFaucetUnavailable',
       'user_error.surface': 'review'
     });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toEqual({
       ...resolveTelemetryContext(),
@@ -2204,10 +2206,10 @@ describe('user-visible error reports', () => {
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(event.tags).toEqual({
       network: 'testnet',
-      page_visibility: 'visible',
       'user_error.id': 'raw_account_export_failed',
       'user_error.surface': 'review'
     });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_account_export_failed', 'review']);
     expect(objectAt(event, 'exception').values).toEqual([
       expect.objectContaining({
@@ -2338,9 +2340,9 @@ describe('WalletConnect relay failure reports', () => {
     const event = sentryEvent(captured[0]);
     expect(objectAt(event, 'tags')).toEqual({
       network: resolveTelemetryContext().network,
-      page_visibility: 'visible',
       service: 'walletconnect_relay'
     });
+    expect(objectAt(event, 'tags')).not.toHaveProperty('page_visibility');
     const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
     expect(Object.fromEntries(Object.entries(diagnostics).filter(([key]) => !EVERY_REPORT_KEYS.includes(key)))).toEqual(
       {

@@ -689,7 +689,8 @@ describe('diagnostic snapshots', () => {
       scrubEvent(later, {
         originalException: captured.find(error => error instanceof Error && error.message === 'later failure')
       });
-      expect(later.tags).toEqual({ network: 'testnet', page_visibility: 'visible' });
+      expect(later.tags).toEqual({ network: 'testnet' });
+      expect(later.tags).not.toHaveProperty('page_visibility');
     } finally {
       if (descriptor) Object.defineProperty(document, 'visibilityState', descriptor);
       else Reflect.deleteProperty(document, 'visibilityState');
@@ -718,9 +719,9 @@ describe('diagnostic snapshots', () => {
         kept: 'yes',
         network: 'mainnet',
         storage_owner: 'wallet_transactions',
-        storage_operation: 'cursor',
-        page_visibility: 'hidden'
+        storage_operation: 'cursor'
       });
+      expect(event.tags).not.toHaveProperty('page_visibility');
       expect(event.extra).toEqual({
         walletDiagnostics: expect.objectContaining({
           storageOwner: 'wallet_transactions',
@@ -759,9 +760,9 @@ describe('diagnostic snapshots', () => {
     expect(event.tags).toEqual({
       network: 'testnet',
       storage_owner: 'wallet_transactions',
-      storage_operation: 'cursor',
-      page_visibility: 'visible'
+      storage_operation: 'cursor'
     });
+    expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.extra).toEqual({
       walletDiagnostics: expect.objectContaining({ storageOwner: 'wallet_transactions', storageOperation: 'cursor' })
     });
@@ -804,10 +805,11 @@ describe('diagnostic snapshots', () => {
       expect(events[1]?.tags).toEqual({
         network: 'testnet',
         storage_owner: 'wallet_transactions',
-        storage_operation: 'cursor',
-        page_visibility: 'hidden'
+        storage_operation: 'cursor'
       });
-      expect(events[2]?.tags).toEqual({ network: 'testnet', page_visibility: 'visible' });
+      expect(events[1]?.tags).not.toHaveProperty('page_visibility');
+      expect(events[2]?.tags).toEqual({ network: 'testnet' });
+      expect(events[2]?.tags).not.toHaveProperty('page_visibility');
       expect(events[2]?.extra).toEqual({
         walletDiagnostics: expect.objectContaining({ pageVisibility: 'visible' })
       });
@@ -868,7 +870,8 @@ describe('diagnostic snapshots', () => {
     const event: Record<string, unknown> = { tags: { kept: 'yes' }, exception: { values: [{ type: 'Error' }] } };
     scrubEvent(event, { originalException: captured[0] });
     expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining({ network: 'mainnet' }) });
-    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet', page_visibility: 'visible' });
+    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet' });
+    expect(event.tags).not.toHaveProperty('page_visibility');
   });
 
   it('reads each raw error field only once before asynchronous browser permission', async () => {
