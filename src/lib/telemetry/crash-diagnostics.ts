@@ -1,5 +1,13 @@
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
+import {
+  validateReownNativeFailure,
+  type ReownNativeOrigin,
+  type ReownWalletResponseCode,
+  type ReownRequestAge,
+  type ReownPublication,
+  type ReownBackgroundAnswer
+} from 'lib/walletconnect/native-request-failure';
 
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES, type WasmStartupEvidence } from './wasm-startup';
 
@@ -22,7 +30,53 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   workerMode?: 'enabled' | 'disabled';
   confirmationHandler?: ConfirmationHandlerState;
   portReconnected?: boolean;
+  reownNativeOrigin?: ReownNativeOrigin;
+  reownWalletResponseCode?: ReownWalletResponseCode;
+  reownRequestAge?: ReownRequestAge;
+  reownPublished?: ReownPublication;
+  reownBackgrounded?: ReownBackgroundAnswer;
 };
+
+const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
+  'reownNativeOrigin',
+  'reownWalletResponseCode',
+  'reownRequestAge',
+  'reownPublished',
+  'reownBackgrounded'
+];
+
+function clearNativeDiagnostics(diagnostics: CrashDiagnostics): void {
+  for (const key of nativeKeys) delete diagnostics[key];
+}
+
+function nativeDiagnostics(diagnostics: Record<string, unknown>): CrashDiagnostics {
+  const native = validateReownNativeFailure({
+    get nativeOrigin() {
+      return diagnostics.reownNativeOrigin;
+    },
+    get walletResponseCode() {
+      return diagnostics.reownWalletResponseCode;
+    },
+    get requestAge() {
+      return diagnostics.reownRequestAge;
+    },
+    get published() {
+      return diagnostics.reownPublished;
+    },
+    get backgrounded() {
+      return diagnostics.reownBackgrounded;
+    }
+  });
+  if (native === undefined) return {};
+  const safe: CrashDiagnostics = {
+    reownNativeOrigin: native.nativeOrigin,
+    reownRequestAge: native.requestAge,
+    reownPublished: native.published
+  };
+  if (native.nativeOrigin === 'wallet_error') safe.reownWalletResponseCode = native.walletResponseCode;
+  if (native.backgrounded !== undefined) safe.reownBackgrounded = native.backgrounded;
+  return safe;
+}
 
 const diagnosticsByError = new WeakMap<Error, CrashDiagnostics>();
 const requestTypes = [
@@ -65,7 +119,10 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     const confirmationHandler = CONFIRMATION_HANDLER_STATES.find(state => `confirmation_${state}` === suppliedCode);
     if (confirmationHandler !== undefined) safe.confirmationHandler = confirmationHandler;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
-    diagnosticsByError.set(error, { ...diagnosticsByError.get(error), ...safe });
+    const previous = { ...diagnosticsByError.get(error) };
+    // A native annotation replaces a request's whole group, including absent optional observations.
+    if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
+    diagnosticsByError.set(error, { ...previous, ...safe, ...nativeDiagnostics(diagnostics) });
   } catch {
     // Reporting cannot change the failure being handled.
   }
@@ -88,10 +145,18 @@ export function errorChain(error: unknown): Error[] {
 }
 
 export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
-  return Object.assign(
-    {},
-    ...errorChain(error)
-      .reverse()
-      .map(link => diagnosticsByError.get(link))
-  );
+  const snapshot: CrashDiagnostics = {};
+  for (const link of errorChain(error).reverse()) {
+    const stored = diagnosticsByError.get(link);
+    if (stored === undefined) continue;
+    const unrelated = { ...stored };
+    clearNativeDiagnostics(unrelated);
+    Object.assign(snapshot, unrelated);
+    const native = nativeDiagnostics(stored);
+    if (native.reownNativeOrigin !== undefined) {
+      clearNativeDiagnostics(snapshot);
+      Object.assign(snapshot, native);
+    }
+  }
+  return snapshot;
 }

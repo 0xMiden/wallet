@@ -80,6 +80,9 @@ android {
             signingConfig signingConfigs.release
         }
     }
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
     packaging {
         jniLibs {
             pickFirsts += [
@@ -110,6 +113,8 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.robolectric:robolectric:4.17"
+    testImplementation "org.mockito:mockito-core:5.24.0"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

@@ -1,3 +1,19 @@
+import { readReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
+
+export {
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS,
+  type ReownNativeOrigin,
+  type ReownWalletResponseCode,
+  type ReownRequestAge,
+  type ReownPublication,
+  type ReownBackgroundAnswer,
+  type ReownNativeFailure
+} from 'lib/walletconnect/native-request-failure';
+
 /** The routes an inbound bridge's row names as its `provider`. */
 export const BRIDGE_RECEIVE_ROUTES = ['epoch', 'agglayer', 'usdcx'] as const;
 
@@ -43,10 +59,14 @@ export interface BridgeReceiveFailure extends Partial<BridgeReceiveFailureSource
 // A registered symbol rather than a module-local set: every copy of this module in a realm reads the same mark, and a
 // failure's write and its report run in one realm.
 const WALLET_RAISED = Symbol.for('miden.bridge-receive.wallet-raised');
+const ORIGINAL_REJECTIONS = new WeakMap<object, object>();
 
 /** Marks an error raised in the wallet's own words, never an answer's: the report reads only the answer it wraps. */
-export function walletRaised<E extends Error>(error: E): E {
+export function walletRaised<E extends Error>(error: E, originalRejection?: object): E {
   Object.defineProperty(error, WALLET_RAISED, { value: true });
+  // A display-only wrapper must leave its original rejection's bounded traversal unchanged.
+  if (originalRejection !== undefined)
+    ORIGINAL_REJECTIONS.set(error, ORIGINAL_REJECTIONS.get(originalRejection) ?? originalRejection);
   return error;
 }
 
@@ -60,6 +80,7 @@ export const BRIDGE_RECEIVE_LIBRARY_ERRORS = [
   'reverted',
   'timeout',
   'http_',
+  'invalid_permissions',
   'unknown_rpc_error'
 ] as const;
 
@@ -73,6 +94,7 @@ interface Link {
 }
 
 const MAX_LINKS = 8;
+const MAX_VISITS = MAX_LINKS * 2;
 const TEXT_LIMIT = 16_384;
 
 const REVERTED_ERRORS = new Set<unknown>([
@@ -105,6 +127,7 @@ const LIBRARY_ERROR_RULES: ReadonlyArray<readonly [LibraryError, (link: Link) =>
   ['reverted', link => REVERTED_ERRORS.has(link.name) || /\breverted\b/i.test(link.text)],
   ['timeout', link => TIMEOUT_ERRORS.has(link.name) || TIMED_OUT.test(link.text)],
   ['http_', link => link.name === 'HttpRequestError' || /^HTTP request failed\.$/m.test(link.text)],
+  ['invalid_permissions', link => /^Invalid permissions for call\.$/m.test(link.text)],
   ['unknown_rpc_error', link => link.name === 'UnknownRpcError' || link.text.includes('An unknown RPC error occurred.')]
 ];
 
@@ -124,12 +147,14 @@ function readLink(source: object): Link {
 }
 
 // The cause chain, objects included: an EIP-1193 rejection's code sits on the provider's plain error object. A link the
-// wallet raised is no answer, so only what it wraps is read.
+// wallet raised is no answer, so only what it wraps is read. A separate visit cap bounds fresh-object causes.
 function linksOf(error: unknown): Link[] {
   const chain: Link[] = [];
   const seen = new Set<unknown>();
   let current = error;
-  while (seen.size < MAX_LINKS && !seen.has(current)) {
+  while (chain.length < MAX_LINKS && seen.size < MAX_VISITS) {
+    if (typeof current === 'object' && current !== null) current = ORIGINAL_REJECTIONS.get(current) ?? current;
+    if (seen.has(current)) break;
     seen.add(current);
     if (typeof current === 'string') {
       if (current !== '') chain.push({ text: current.slice(0, TEXT_LIMIT) });
@@ -161,6 +186,23 @@ export function bridgeReceiveLibraryError(error: unknown): string {
     if (link !== undefined) return identity === 'http_' ? `http_${httpStatus(link)}` : identity;
   }
   return 'other';
+}
+
+/** The nearest boundary-marked native snapshot, independently of wallet-authored display text. */
+export function bridgeReceiveNativeFailure(cause: unknown): ReownNativeFailure | undefined {
+  const seen = new Set<object>();
+  let current = cause;
+  while (typeof current === 'object' && current !== null && seen.size < MAX_LINKS && !seen.has(current)) {
+    seen.add(current);
+    const snapshot = readReownNativeFailure(current);
+    if (snapshot !== undefined) return snapshot;
+    try {
+      current = Reflect.get(current, 'cause');
+    } catch {
+      break;
+    }
+  }
+  return undefined;
 }
 
 const listed = (value: unknown, allowed: readonly string[]): string =>

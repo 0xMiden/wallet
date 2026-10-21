@@ -623,6 +623,103 @@ describe('scrubEvent — the beforeSend hook', () => {
 });
 
 describe('diagnostic snapshots', () => {
+  it('snapshotsBeforePermissionAndDoesNotReuseNativeTags', async () => {
+    let allowPermission = (_value: boolean) => {};
+    jest.mocked(isCrashReportingEnabledAsync).mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        allowPermission = resolve;
+      })
+    );
+    initCrashReporting();
+    const error = new Error('native failure');
+    const nativeGroup = {
+      reownNativeOrigin: 'wallet_error',
+      reownWalletResponseCode: 'internal_error',
+      reownRequestAge: '120_to_300s',
+      reownPublished: 'confirmed',
+      reownBackgrounded: 'yes'
+    };
+    annotateCrash(error, nativeGroup);
+    captureCrash(error);
+    annotateCrash(error, {
+      reownNativeOrigin: 'publish_error',
+      reownRequestAge: 'under_30s',
+      reownPublished: 'unobserved'
+    });
+    allowPermission(true);
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    const firstEvent = { tags: { kept: 'yes' }, extra: { arbitrary: 'private' } };
+    expect(scrubEvent(firstEvent, { originalException: captured[0] })).toBe(firstEvent);
+    expect(firstEvent.extra).toEqual({ walletDiagnostics: expect.objectContaining(nativeGroup) });
+    expect(firstEvent.tags).toEqual({
+      kept: 'yes',
+      network: 'testnet',
+      reown_native_origin: 'wallet_error',
+      reown_wallet_response_code: 'internal_error',
+      reown_request_age: '120_to_300s',
+      reown_published: 'confirmed',
+      reown_backgrounded: 'yes'
+    });
+    grantBrowserPermission();
+    captureCrash(new Error('unrelated failure'));
+    await flushMicrotasks();
+    expect(captured).toHaveLength(2);
+    const secondEvent = {
+      tags: {
+        reown_native_origin: 'wallet_error',
+        reown_wallet_response_code: 'internal_error',
+        reown_request_age: 'under_30s',
+        reown_published: 'confirmed',
+        reown_backgrounded: 'no'
+      },
+      extra: { walletDiagnostics: {} }
+    };
+    scrubEvent(secondEvent, { originalException: captured[1] });
+    for (const [field, tag] of [
+      ['reownNativeOrigin', 'reown_native_origin'],
+      ['reownWalletResponseCode', 'reown_wallet_response_code'],
+      ['reownRequestAge', 'reown_request_age'],
+      ['reownPublished', 'reown_published'],
+      ['reownBackgrounded', 'reown_backgrounded']
+    ]) {
+      expect(secondEvent.tags).not.toHaveProperty(tag!);
+      expect(secondEvent.extra.walletDiagnostics).not.toHaveProperty(field!);
+    }
+  });
+
+  it('restoresOnlyThePresentValidatedNativeTags', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    const error = new Error('publisher failed');
+    annotateCrash(error, {
+      reownNativeOrigin: 'publish_error',
+      reownWalletResponseCode: 'internal_error',
+      reownRequestAge: 'unknown',
+      reownPublished: 'unobserved',
+      reownBackgrounded: 'unavailable'
+    });
+    captureCrash(error);
+    await flushMicrotasks();
+    const event = { tags: { reown_wallet_response_code: 'internal_error', reown_backgrounded: 'yes' }, extra: {} };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      reown_native_origin: 'publish_error',
+      reown_request_age: 'unknown',
+      reown_published: 'unobserved'
+    });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({
+        reownNativeOrigin: 'publish_error',
+        reownRequestAge: 'unknown',
+        reownPublished: 'unobserved'
+      })
+    });
+    expect(event.extra).not.toHaveProperty('walletDiagnostics.reownWalletResponseCode');
+    expect(event.extra).not.toHaveProperty('walletDiagnostics.reownBackgrounded');
+  });
+
   it('captures scrubbed bounded cause chains synchronously before browser permission resolves', async () => {
     let allowPermission = (_value: boolean) => {};
     jest.mocked(isCrashReportingEnabledAsync).mockReturnValue(

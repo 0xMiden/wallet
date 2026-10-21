@@ -5,12 +5,23 @@ import { join } from 'node:path';
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { isIOS } from 'lib/platform';
+import { isDesktop, isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
 import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFallback';
+import {
+  markReownNativeFailure,
+  type ReownNativeFailure,
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS
+} from 'lib/walletconnect/native-request-failure';
 
+import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
+import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
 import {
   ACCOUNT_AUTH_CODES,
@@ -50,7 +61,12 @@ import { TELEMETRY_ERROR_KINDS } from './types';
 import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
-jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isIOS: jest.fn(() => false) }));
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isIOS: jest.fn(() => false),
+  isDesktop: jest.fn(() => false)
+}));
+jest.mock('./context', () => ({ resolveTelemetryContext: jest.fn() }));
 jest.mock('lib/secure-hot-key/hotKeyPlugin', () => ({ HotKey: { signWithHotKey: jest.fn() } }));
 jest.mock('lib/secure-hot-key/jsFallback', () => ({ signHotDigest: jest.fn() }));
 
@@ -116,6 +132,10 @@ const nativeHotKeyCodes = (): string[] => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(isDesktop).mockReturnValue(false);
+  jest
+    .mocked(resolveTelemetryContext)
+    .mockReturnValue({ platform: 'extension', network: 'testnet', appVersion: '1.17.6' });
 });
 
 it('reports the screenshot assertion as a fixed diagnostic instead of redacted numeric text', async () => {
@@ -177,7 +197,13 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     AUTH_PREPARATIONS,
     AUTH_LAYOUTS,
     COMMITMENT_MATCHES,
-    ACCOUNT_AUTH_CODES
+    ACCOUNT_AUTH_CODES,
+    REOWN_NATIVE_ORIGINS,
+    REOWN_WALLET_RESPONSE_CODES,
+    REOWN_REQUEST_AGES,
+    REOWN_PUBLICATIONS,
+    REOWN_BACKGROUND_ANSWERS,
+    ['invalid_permissions']
   ];
   expect([...(closedNames ?? [])].sort()).toEqual([...new Set(closedLists.flat())].sort());
 });
@@ -1860,4 +1886,91 @@ it('never makes a telemetry failure escape into the transaction', async () => {
   });
   expect(() => reportTransactionFailure({ type: 'swap' })).not.toThrow();
   await settle();
+});
+
+const nativeFailure: ReownNativeFailure = {
+  nativeOrigin: 'wallet_error',
+  walletResponseCode: 'internal_error',
+  requestAge: '120_to_300s',
+  published: 'confirmed',
+  backgrounded: 'yes'
+};
+const nativeDiagnostics = {
+  reownNativeOrigin: 'wallet_error',
+  reownWalletResponseCode: 'internal_error',
+  reownRequestAge: '120_to_300s',
+  reownPublished: 'confirmed',
+  reownBackgrounded: 'yes'
+};
+
+it('gatesNativeDiagnosticsToAndroidInboundBridgeCause', () => {
+  const cause = new Error('opaque');
+  markReownNativeFailure(cause, nativeFailure);
+  annotateCrash(cause, { ...nativeDiagnostics, workerMode: 'disabled' });
+  const bridgeReceive = { route: 'usdcx', step: 'wallet_approve', cause } satisfies NonNullable<
+    TransactionFailure['bridgeReceive']
+  >;
+  const cases: ReadonlyArray<readonly ['android' | 'ios' | 'extension', boolean, TransactionFailure]> = [
+    ['ios', false, { type: 'bridged-receive', error: cause, bridgeReceive }],
+    ['extension', false, { type: 'bridged-receive', error: cause, bridgeReceive }],
+    ['android', true, { type: 'bridged-receive', error: cause, bridgeReceive }],
+    ['android', false, { type: 'send', error: cause, bridgeReceive }],
+    ['android', false, { type: 'bridged-receive', error: cause }],
+    ['android', false, { type: 'bridged-receive', error: cause, bridgeReceive: { route: 'usdcx' } }]
+  ];
+  for (const [platform, desktop, failure] of cases) {
+    jest.mocked(resolveTelemetryContext).mockReturnValue({ platform, network: 'testnet', appVersion: '1.17.6' });
+    jest.mocked(isDesktop).mockReturnValue(desktop);
+    reportTransactionFailure(failure);
+    const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+    expect(report).toBeInstanceOf(Error);
+    expect(snapshotCrashDiagnostics(report)).toEqual({ workerMode: 'disabled' });
+  }
+  jest.mocked(isDesktop).mockReturnValue(false);
+  reportTransactionFailure({ type: 'bridged-receive', bridgeReceive });
+  expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0])).toEqual(nativeDiagnostics);
+});
+
+it('nativeDimensionsDoNotChangeTitleSeverityOrFingerprint', () => {
+  jest
+    .mocked(resolveTelemetryContext)
+    .mockReturnValue({ platform: 'android', network: 'testnet', appVersion: '1.17.6' });
+  const snapshots: ReownNativeFailure[] = [
+    nativeFailure,
+    { nativeOrigin: 'publish_error', requestAge: '120_to_300s', published: 'confirmed', backgrounded: 'yes' },
+    { ...nativeFailure, walletResponseCode: 'user_rejected' },
+    { ...nativeFailure, requestAge: 'unknown' },
+    { ...nativeFailure, published: 'unobserved' },
+    { ...nativeFailure, backgrounded: 'no' }
+  ];
+  for (const snapshot of snapshots) {
+    const cause = new Error('opaque');
+    markReownNativeFailure(cause, snapshot);
+    reportTransactionFailure({
+      type: 'bridged-receive',
+      bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause }
+    });
+  }
+  const firstReport = jest.mocked(captureCrash).mock.calls[0]?.[0];
+  const firstCaptureOptions = jest.mocked(captureCrash).mock.calls[0]?.[2];
+  expect(firstReport).toBeInstanceOf(Error);
+  if (!(firstReport instanceof Error) || firstCaptureOptions === undefined) throw new Error('Missing first capture');
+  for (const [secondReport, , secondCaptureOptions] of jest.mocked(captureCrash).mock.calls.slice(1)) {
+    expect(secondReport).toBeInstanceOf(Error);
+    if (!(secondReport instanceof Error) || secondCaptureOptions === undefined)
+      throw new Error('Missing second capture');
+    expect(firstReport.message).toBe(secondReport.message);
+    expect(firstCaptureOptions.level).toBe(secondCaptureOptions.level);
+    expect(firstCaptureOptions).not.toHaveProperty('fingerprint');
+    expect(secondCaptureOptions).not.toHaveProperty('fingerprint');
+    expect(secondReport.cause).toBeUndefined();
+    expect(secondReport.stack).toBeUndefined();
+  }
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    bridgeReceive: { route: 'usdcx', step: 'wallet_approve', cause: new Error('Invalid permissions for call.') }
+  });
+  expect(capturedMessage(snapshots.length)).toBe(
+    firstReport.message.replace('evm error other', 'evm error invalid_permissions')
+  );
 });

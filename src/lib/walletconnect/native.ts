@@ -6,6 +6,7 @@ import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { getChain, type EvmChain } from './config';
 import { readNativeFeeFields } from './fees';
+import { decodeReownNativeFailureCode, markReownNativeFailure } from './native-request-failure';
 
 export interface ReownConfigureOptions {
   projectId: string;
@@ -107,7 +108,54 @@ export interface ReownPlugin {
   removeAllListeners(): Promise<void>;
 }
 
-export const NativeReown = registerPlugin<ReownPlugin>('Reown');
+const rawNativeReown: ReownPlugin = registerPlugin<ReownPlugin>('Reown');
+
+function nativeRequestRejection(rejection: unknown): unknown {
+  if (!isAndroid() || rejection === null || (typeof rejection !== 'object' && typeof rejection !== 'function'))
+    return rejection;
+
+  try {
+    // An inherited code belongs to another answer; getters are not a safe wire envelope.
+    const code: unknown = Object.getOwnPropertyDescriptor(rejection, 'code')?.value;
+    const snapshot = decodeReownNativeFailureCode(code);
+    if (snapshot === undefined || markReownNativeFailure(rejection, snapshot)) return rejection;
+
+    let message = '';
+    for (const key of ['details', 'shortMessage', 'message']) {
+      const value: unknown = Reflect.get(rejection, key);
+      if (typeof value === 'string' && value.trim()) {
+        message = value;
+        break;
+      }
+    }
+    // The classifier skips our display wrapper and reads the original wallet answer.
+    const wrapped = walletRaised(new Error(message, { cause: rejection }), rejection);
+    const name: unknown = Reflect.get(rejection, 'name');
+    if (typeof name === 'string') wrapped.name = name;
+    return markReownNativeFailure(wrapped, snapshot) ? wrapped : rejection;
+  } catch {
+    // Diagnostics must not replace a bridge rejection with an accessor's exception.
+    return rejection;
+  }
+}
+
+export const NativeReown: ReownPlugin = new Proxy(rawNativeReown, {
+  get(target, key) {
+    if (key === 'request') {
+      return (options: ReownRequestOptions) =>
+        target.request(options).catch((rejection: unknown) => {
+          throw nativeRequestRejection(rejection);
+        });
+    }
+    if (key === 'sendTransaction') {
+      return (options: ReownSendTransactionOptions) =>
+        target.sendTransaction(options).catch((rejection: unknown) => {
+          throw nativeRequestRejection(rejection);
+        });
+    }
+    return Reflect.get(target, key);
+  }
+});
 
 export function isNativeReownAvailable(): boolean {
   return isIOS() || isAndroid();
@@ -284,7 +332,7 @@ export interface NativeReownProviderOptions {
   rpcUrl: string;
 }
 
-// Methods the external wallet must sign — routed over the WalletConnect relay.
+// Methods the external wallet must sign - routed over the WalletConnect relay.
 const NATIVE_SIGN_METHODS = new Set([
   'personal_sign',
   'eth_sign',
@@ -300,7 +348,7 @@ function txField(tx: object, key: string): string | undefined {
 
 /**
  * The native plugins hand back the wallet's JSON-RPC result verbatim, which for
- * a string value (tx hash, signature) is JSON-encoded — i.e. wrapped in quotes
+ * a string value (tx hash, signature) is JSON-encoded - i.e. wrapped in quotes
  * (`"\"0x…\""`). Decode it back to the raw hex so viem can consume it (e.g.
  * `waitForTransactionReceipt` → `eth_getTransactionByHash` rejects a quoted
  * hash). A value that is already raw hex is returned untouched.
@@ -312,7 +360,7 @@ export function unwrapNativeResult(value: unknown): string {
       const parsed: unknown = JSON.parse(value);
       if (typeof parsed === 'string') return parsed;
     } catch {
-      // Not valid JSON — fall through and return the original string.
+      // Not valid JSON - fall through and return the original string.
     }
   }
   return value;
