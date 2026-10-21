@@ -8,6 +8,9 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
@@ -67,11 +70,35 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   // are swapped for "once the switch is confirmed" phrasings. info2 (nothing
   // moved) and info4 (you can rotate again) hold either way, except that info4 contradicts the
   // unrecoverable state's "do not run the switch again".
-  const infoKeys = [
-    commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1' : 'guardianSwitchSuccessInfo1',
-    'guardianSwitchSuccessInfo2',
-    commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo3' : 'guardianSwitchSuccessInfo3',
-    ...(localStateUnrecoverable ? [] : ['guardianSwitchSuccessInfo4'])
+  const infoRows = [
+    {
+      id: 'cosign',
+      icon: IconName.ShieldCheck,
+      titleKey: commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1Title' : 'guardianSwitchSuccessInfo1Title',
+      bodyKey: commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1' : 'guardianSwitchSuccessInfo1'
+    },
+    {
+      id: 'unchanged',
+      icon: IconName.Coins,
+      titleKey: 'guardianSwitchSuccessInfo2Title',
+      bodyKey: 'guardianSwitchSuccessInfo2'
+    },
+    {
+      id: 'reachable',
+      icon: IconName.Globe,
+      titleKey: 'guardianSwitchSuccessInfo3Title',
+      bodyKey: commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo3' : 'guardianSwitchSuccessInfo3'
+    },
+    ...(localStateUnrecoverable
+      ? []
+      : [
+          {
+            id: 'again',
+            icon: IconName.Refresh,
+            titleKey: 'guardianSwitchSuccessInfo4Title',
+            bodyKey: 'guardianSwitchSuccessInfo4'
+          }
+        ])
   ];
 
   return (
@@ -165,15 +192,24 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
       )}
 
       <div className="mt-6 w-full text-left">
-        <p className="text-base font-semibold text-ink">{t('guardianSwitchSuccessInfoTitle')}</p>
-        <ul className="mt-2 flex flex-col gap-2">
-          {infoKeys.map(key => (
-            <li key={key} className="flex gap-2 text-sm leading-5 text-ink">
-              <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full bg-ink" />
-              <span>{t(key)}</span>
-            </li>
+        <SectionHeader as="h2" size="lg">
+          {t('guardianSwitchSuccessInfoTitle')}
+        </SectionHeader>
+        <ListGroup as="ul" surface="plain" insetHairlines className="mt-2">
+          {infoRows.map(row => (
+            <FactRow
+              key={row.id}
+              as="li"
+              leading={
+                <IconCircle>
+                  <Icon name={row.icon} size="xs" fill="currentColor" />
+                </IconCircle>
+              }
+              title={t(row.titleKey)}
+              description={t(row.bodyKey)}
+            />
           ))}
-        </ul>
+        </ListGroup>
       </div>
     </TransactionSuccessLayout>
   );

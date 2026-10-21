@@ -54,7 +54,10 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="transition-icon">{name}</span>,
+  // Only the pair's arrow is the "transition-icon"; the fact rows' glyphs must not collide with it.
+  Icon: ({ name }: { name: string }) => (
+    <span data-testid={name === 'ArrowRight' ? 'transition-icon' : 'row-icon'}>{name}</span>
+  ),
   IconName: { ArrowRight: 'ArrowRight', ShieldCheck: 'ShieldCheck', Coins: 'Coins', Globe: 'Globe', Refresh: 'Refresh' }
 }));
 
@@ -266,7 +269,7 @@ describe('GuardianSwitchSuccess', () => {
         expect(rows[index]).toHaveTextContent(title);
         expect(rows[index]).toHaveTextContent(description);
       });
-      expect(rows.map(row => row.querySelector('[data-testid="transition-icon"]')?.textContent)).toEqual([
+      expect(rows.map(row => row.querySelector('[data-testid="row-icon"]')?.textContent)).toEqual([
         'ShieldCheck',
         'Coins',
         'Globe',
