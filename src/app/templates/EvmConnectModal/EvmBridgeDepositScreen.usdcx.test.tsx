@@ -2223,8 +2223,8 @@ describe('user-visible USDCx deposit producers', () => {
       };
       const driverEntered = deferred();
       const releaseDriver = deferred();
-      const firstReadStarted = deferred();
-      const releaseFirstRead = deferred();
+      const subscriptionScheduled = deferred();
+      const releaseSubscriptionStart = deferred();
       const firstRowDelivered = deferred();
       const failureStored = deferred();
       const deliveredRows: unknown[] = [];
@@ -2260,26 +2260,36 @@ describe('user-visible USDCx deposit producers', () => {
       jest
         .mocked(subscribeToLiveQuery)
         .mockImplementationOnce(
-          <T,>(query: () => T | Promise<T>, observer: { next: (value: T) => void; error: (error: unknown) => void }) =>
-            actualSubscribe(
-              async () => {
-                firstReadStarted.resolve();
-                await releaseFirstRead.promise;
-                return query();
-              },
-              {
-                next: value => {
-                  if (deliveredRows.length === 0) jest.useFakeTimers();
-                  deliveredRows.push(value);
-                  observer.next(value);
-                  firstRowDelivered.resolve();
-                },
-                error: error => {
-                  observer.error(error);
-                  firstRowDelivered.reject(error);
-                }
-              }
-            )
+          <T,>(query: () => T | Promise<T>, observer: { next: (value: T) => void; error: (error: unknown) => void }) => {
+            let disposed = false;
+            let unsubscribe: (() => void) | undefined;
+            subscriptionScheduled.resolve();
+            void releaseSubscriptionStart.promise
+              .then(() => {
+                if (disposed) return;
+                unsubscribe = actualSubscribe(query, {
+                  next: value => {
+                    if (deliveredRows.length === 0) jest.useFakeTimers();
+                    deliveredRows.push(value);
+                    observer.next(value);
+                    firstRowDelivered.resolve();
+                  },
+                  error: error => {
+                    observer.error(error);
+                    firstRowDelivered.reject(error);
+                  }
+                });
+              })
+              .catch(error => {
+                if (disposed) return;
+                observer.error(error);
+                firstRowDelivered.reject(error);
+              });
+            return () => {
+              disposed = true;
+              unsubscribe?.();
+            };
+          }
         );
       try {
         await realUsdcxReview(executor);
@@ -2287,7 +2297,7 @@ describe('user-visible USDCx deposit producers', () => {
           fireEvent.click(screen.getByTestId('bridge-deposit-review-confirm'));
           await driverEntered.promise;
         });
-        await firstReadStarted.promise;
+        await subscriptionScheduled.promise;
         expect(deliveredRows).toEqual([]);
         expect(mockReportUserVisibleError.mock.calls).toEqual([]);
         await act(async () => {
@@ -2308,7 +2318,7 @@ describe('user-visible USDCx deposit producers', () => {
         });
         expect(deliveredRows).toEqual([]);
         await act(async () => {
-          releaseFirstRead.resolve();
+          releaseSubscriptionStart.resolve();
           await firstRowDelivered.promise;
         });
         expect(deliveredRows).toEqual([
@@ -2331,7 +2341,7 @@ describe('user-visible USDCx deposit producers', () => {
         expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_deposit_failed', 'status_screen']]);
       } finally {
         releaseDriver.resolve();
-        releaseFirstRead.resolve();
+        releaseSubscriptionStart.resolve();
         cleanup();
         jest.useRealTimers();
         mockRealBridgeRowQuery = false;
