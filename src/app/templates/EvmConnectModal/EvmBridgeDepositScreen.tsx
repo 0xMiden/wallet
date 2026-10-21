@@ -1034,6 +1034,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
       // The step a failure is reported at, moved on as the deposit enters each one.
       let step: BridgeReceiveFailureStep = 'precheck_route';
+      let depositHash: `0x${string}` | undefined;
       try {
         // AggLayer bridges any asset: native ETH rides as `msg.value` with the zero
         // token address; an ERC-20 is approved to the bridge first, unless its allowance
@@ -1173,15 +1174,24 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // The bridge prompt has been answered; what follows is a chain wait, not a wallet wait.
         setAwaitingNextConfirmation(false);
         step = 'deposit_receipt';
+        depositHash = hash;
 
         await updateBridgedReceivePhase(trackingTxId, 'submitting', { evmTxHash: hash });
         await waitForEvmReceipt(hash, chain);
         await updateBridgedReceivePhase(trackingTxId, 'delivering', { evmTxHash: hash });
         setSlowStatus('submitted');
       } catch (err) {
+        setAwaitingNextConfirmation(false);
+        if (depositHash && !(err instanceof EvmTransactionRevertedError)) {
+          // Keep the deposit open for background checks when its receipt cannot be read.
+          await updateBridgedReceivePhase(trackingTxId, 'submitting', { evmTxHash: depositHash }).catch(
+            () => undefined
+          );
+          setSlowStatus('submitted');
+          return;
+        }
         console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
         const failure = depositError(err);
-        setAwaitingNextConfirmation(false);
         setSlowError(failure);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', {

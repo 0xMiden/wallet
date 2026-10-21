@@ -22,7 +22,14 @@ const note: ClaimableNoteWithMetadata = {
   type: 'unknown',
   metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
 };
-type MockRow = { id: string; status: number; completedAt?: number; held?: boolean };
+type MockRow = {
+  id: string;
+  status: number;
+  completedAt?: number;
+  held?: boolean;
+  guardianBusy?: true;
+  lastDeferral?: 'guardian_backpressure';
+};
 const mockQueue = jest.fn();
 const mockRequeue = jest.fn();
 const mockStart = jest.fn();
@@ -1964,5 +1971,143 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     advance(1);
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+  });
+});
+
+describe('Guardian wait on Activity claims (#1666)', () => {
+  it('projects the queued Guardian wait only onto notes linked to that transaction', async () => {
+    mockClaim.safeClaimableNotes = [
+      { ...note, isBeingClaimed: true, claimingTxId: 'tx-first' },
+      { ...note, id: 'note-two', isBeingClaimed: true, claimingTxId: 'tx-second' }
+    ];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      { id: 'tx-first', status: 0, guardianBusy: true },
+      { id: 'tx-second', status: 0 }
+    ]);
+
+    expect(mockAnyOf).toHaveBeenCalledWith('id', ['tx-first', 'tx-second']);
+    expect(result.current.items).toHaveLength(2);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-first' });
+    expect(result.current.items[0]).toMatchObject({ guardianBusy: true });
+    expect(result.current.items[1]).toMatchObject({ status: 'claiming', txId: 'tx-second' });
+    expect(result.current.items[1]).not.toMatchObject({ guardianBusy: true });
+  });
+
+  it('keeps the wait on its card when another claim starts watching a second transaction', async () => {
+    const waiting = { ...note, isBeingClaimed: true, claimingTxId: 'tx-first' };
+    mockClaim.safeClaimableNotes = [waiting];
+    const { result, rerender } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-first', status: 0, guardianBusy: true }]);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-first', guardianBusy: true });
+
+    mockClaim.safeClaimableNotes = [waiting, { ...note, id: 'note-two', isBeingClaimed: true, claimingTxId: 'tx-two' }];
+    rerender();
+    await latestSubscription().query();
+    expect(mockAnyOf).toHaveBeenLastCalledWith('id', ['tx-first', 'tx-two']);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-first', guardianBusy: true });
+    expect(result.current.items[1]).toMatchObject({ status: 'claiming', txId: 'tx-two' });
+    expect(result.current.items[1]).not.toMatchObject({ guardianBusy: true });
+  });
+
+  it('clears the wait on pickup, another requeue, missing row and both terminal outcomes', () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-wait' }];
+    const transitions: MockRow[][] = [
+      [{ id: 'tx-wait', status: 1 }],
+      [{ id: 'tx-wait', status: 0 }],
+      [],
+      [{ id: 'tx-wait', status: 2, completedAt: 123 }],
+      [{ id: 'tx-wait', status: 3, held: false, guardianBusy: true }]
+    ];
+
+    for (const rows of transitions) {
+      const { result, unmount } = renderHook(() => useActivityClaims());
+      expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-wait' });
+      settle([{ id: 'tx-wait', status: 0, guardianBusy: true }]);
+      expect(result.current.items[0]).toMatchObject({ guardianBusy: true });
+      settle(rows);
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.items[0]).not.toMatchObject({ guardianBusy: true });
+      unmount();
+    }
+  });
+
+  it('forgets the wait when no transaction is watched, before the same id is watched again', () => {
+    const claiming = { ...note, isBeingClaimed: true, claimingTxId: 'tx-wait' };
+    mockClaim.safeClaimableNotes = [claiming];
+    const { result, rerender } = renderHook(() => useActivityClaims());
+    const previous = latestSubscription();
+    settle([{ id: 'tx-wait', status: 0, guardianBusy: true }]);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-wait' });
+    expect(result.current.items[0]).toMatchObject({ guardianBusy: true });
+
+    mockClaim.safeClaimableNotes = [note];
+    rerender();
+    expect(previous.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(result.current.items[0]).toMatchObject({ status: 'pending' });
+    expect(result.current.items[0]).not.toMatchObject({ guardianBusy: true });
+    mockClaim.safeClaimableNotes = [claiming];
+    rerender();
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-wait' });
+    expect(result.current.items[0]).not.toMatchObject({ guardianBusy: true });
+    settle([{ id: 'tx-wait', status: 0, guardianBusy: true }]);
+    expect(result.current.items[0]).toMatchObject({ guardianBusy: true });
+  });
+
+  it.each<[string, () => void]>([
+    ['account', () => (mockClaim.account = { publicKey: 'account-other' })],
+    ['RPC endpoint', () => (mockEndpoint.rpc = 'rpc-other')],
+    ['network', () => (mockEndpoint.network = 'devnet')]
+  ])('does not carry the wait into another %s with the same watched transaction id', (_part, change) => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-wait' }];
+    const { result, rerender } = renderHook(() => useActivityClaims());
+    const previous = latestSubscription();
+    settle([{ id: 'tx-wait', status: 0, guardianBusy: true }]);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-wait' });
+    expect(result.current.items[0]).toMatchObject({ guardianBusy: true });
+
+    change();
+    rerender();
+    expect(previous.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-wait' });
+    expect(result.current.items[0]).not.toMatchObject({ guardianBusy: true });
+    settle([{ id: 'tx-wait', status: 0, guardianBusy: true }]);
+    expect(result.current.items[0]).toMatchObject({ guardianBusy: true });
+  });
+
+  it('does not turn historical deferral or a held terminal row into a current Guardian wait', () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-wait' }];
+    const { result } = renderHook(() => useActivityClaims());
+    for (const status of [0, 1]) {
+      settle([{ id: 'tx-wait', status, lastDeferral: 'guardian_backpressure' }]);
+      expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-wait' });
+      expect(result.current.items[0]).not.toMatchObject({ guardianBusy: true });
+    }
+    for (const status of [3, 4]) {
+      settle([{ id: 'tx-wait', status, held: true, guardianBusy: true }]);
+      expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-wait', held: true });
+      expect(result.current.items[0]).not.toMatchObject({ guardianBusy: true });
+    }
+  });
+
+  it('shows a real queued claim waiting on Guardian while the card is closed without queueing twice', async () => {
+    const { container } = render(React.createElement(ClaimCards));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'activityAcceptTransfer' }));
+    });
+    settle([{ id: 'tx-one', status: 0, guardianBusy: true }]);
+
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { expanded: false })).toHaveAttribute('aria-expanded', 'false');
+    const accepting = screen.getByRole('button', { name: 'activityAcceptingTransfer' });
+    expect(accepting).toHaveAttribute('aria-busy', 'true');
+    await act(async () => {
+      fireEvent.click(accepting);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockRequeue).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('guardianBusyStep');
+    expect(screen.getByText('guardianBusyStep')).toBeVisible();
   });
 });

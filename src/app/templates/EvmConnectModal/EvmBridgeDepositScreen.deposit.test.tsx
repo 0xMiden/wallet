@@ -17,7 +17,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerDepositToken } from 'lib/remote-config/values';
 import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
-import { readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import type { DepositToken } from './deposit-token';
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
@@ -281,6 +281,7 @@ jest.mock('lib/walletconnect/native', () => ({
 }));
 
 jest.mock('lib/walletconnect/receipt', () => ({
+  EvmTransactionRevertedError: jest.requireActual('lib/walletconnect/receipt').EvmTransactionRevertedError,
   waitForEvmReceipt: jest.fn().mockResolvedValue(undefined),
   readEvmErc20Allowance: jest.fn()
 }));
@@ -1711,25 +1712,73 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     );
   });
 
+  it.each([false, true])('fails the row at the deposit receipt when the deposit reverted (native=%s)', async native => {
+    mockNativeReown = native;
+    jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(new EvmTransactionRevertedError('Sepolia'));
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'submitting', { evmTxHash: '0xhash' });
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('deposit_receipt', 'The Sepolia transaction reverted')
+    );
+  });
+
+  it.each(
+    [false, true].flatMap(native =>
+      [new Error('Receipt timeout'), new Error('RPC disconnected')].map(error => [native, error] as const)
+    )
+  )('keeps a signed deposit submitting when its receipt cannot be read (native=%s, %s)', async (native, error) => {
+    mockNativeReown = native;
+    jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(error);
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'submitting', { evmTxHash: '0xhash' });
+  });
+
   it.each([false, true])(
-    'fails the row at the deposit receipt once the deposit is signed (native=%s)',
+    'keeps a signed deposit submitting when its delivering write fails (native=%s)',
     async native => {
       mockNativeReown = native;
-      jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(new Error('deposit receipt failed'));
+      jest
+        .mocked(updateBridgedReceivePhase)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('storage unavailable'));
       render(depositScreen(undefined, EVM_WALLET));
 
       await reachReview();
       fireEvent.click(screen.getByTestId('confirm-deposit'));
       await settle();
 
-      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'submitting', { evmTxHash: '0xhash' });
-      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
-        'bridge-tx',
-        'failed',
-        failedAt('deposit_receipt', 'deposit receipt failed')
-      );
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'delivering', { evmTxHash: '0xhash' });
+      expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+      expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'submitting', { evmTxHash: '0xhash' });
     }
   );
+
+  it('fails the row at the approval receipt before any deposit is sent', async () => {
+    answerAllowance(0n);
+    jest.mocked(waitForEvmReceipt).mockRejectedValueOnce(new Error('approval receipt failed'));
+
+    await confirmSlowUsdcDeposit();
+
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'submitting', expect.anything());
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      'failed',
+      failedAt('approve_receipt', 'approval receipt failed')
+    );
+  });
 });
 
 // #1431: an approval never checks the balance, so a deposit above it failed only at the wallet's second prompt.

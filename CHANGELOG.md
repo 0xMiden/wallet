@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [FIX][all] The send amount step says Continue before review, so it no longer suggests the payment will be sent immediately, and Continue buttons in Japanese read 続ける instead of 続きを読む (read more).
+
 - [CHANGE][all] Login key commitment tests verify key handles are freed and root and scalar buffers are zeroed for stored EVM keys and legacy seed-derived keys (#1579).
 - [CHANGE][all] Update the Web SDK and React SDK to 0.17.5.
 
@@ -16,6 +18,8 @@
 
 ### Features
 
+- [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. The schedule stays off until the accounts are funded (#1629).
+- [FEATURE][all] Verified tokens can show USD prices from Binance, using a USDT market first and a USDC market second, with the quote currency converted to USD. If neither market exists, the wallet uses a direct USD market on Kraken, including PYUSD. Totals and token order use the current verified price assets. The wallet checks the saved token list once when it opens and keeps the saved list if the check fails.
 - [FEATURE][all] Every error message the wallet shows is reported to the team as a crash report naming only which message it was and where, never its text (#1616).
 - [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
@@ -24,10 +28,18 @@
 
 ### Fixes
 
+- [FIX][all] Profile and My Badges show the network the wallet runs on: after Mainnet invitation onboarding on a Testnet build they read Mainnet, and a dApp that names no network is given the wallet's effective node instead of the build default (#1655).
+- [FIX][all] The USDC bridge-in route and review show an estimated arrival of about 2 minutes instead of 20 (#1647).
+- [CHANGE][all] Activity's filters are All, Pending, Transfer, Swap, Earn and Others; Transfer covers sent, received and bridged entries. On Mainnet, faucet requests are hidden from every Activity list, group and search; the stored rows and balances are unchanged (#1646).
+- [FIX][android] Failed bridge-in crash reports distinguish native Reown rejection sites, wallet response codes, request age, publication and backgrounding using fixed values only; including a refused add or switch of the bridge's network; the privacy policy lists every value (#1608, #1609, #1640).
+- [FIX][all] An AggLayer deposit whose receipt cannot be read (a timeout or an RPC failure) stays pending and is read again, instead of being marked failed; only a reverted deposit fails (#1622).
+- [FIX][all] A Guardian switch shows a key in Activity instead of the swap arrows, and its success screen lists what changes as titled rows (#1645).
+- [FIX][all] Existing crash reports add fixed storage owner, operation and page visibility values without reporting storage contents or changing report grouping; the privacy policy lists every value (#1613)
 - [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
 - [FIX][all] The external-wallet connection picker offers wallet connections without email or social sign-in, including when the remote dashboard enables them (#1625).
 - [FIX][tests] The live iOS USDCx round trip deposits 5.2 USDC for a 5 USDCx return withdrawal. A public faucet outage no longer stops bridge-out coverage. A verified faucet grant raises the return amount to 6 USDCx; both paths check the payout and wallet confirmation.
 - [FIX][extension] Incoming-note notifications use the Chrome fallback when the Web Notifications API fails during permission or construction.
+- [FIX][all] An incoming transfer whose claim the Guardian holds back while it settles the previous change says "Waiting for your Guardian" on its Activity card, open or closed, instead of only showing a spinner (#1666).
 
 - [FIX][all] CI dependency installation retries registry failures and timeouts before giving up, so a transient outage does not immediately discard builds or UI smoothness measurements.
 - [FIX][all] A USDCx withdrawal no longer fails with `Unable to read the USDCx faucet's burn policy`, which every review on testnet showed once the faucet's nonce map outgrew the full-account read. A burn must be at least 5 USDCx, or the faucet's minimum burn when that is larger; the wallet reads that minimum from an account proof, and a failed read keeps 5 USDCx instead of blocking the burn.
@@ -41,7 +53,9 @@
 - [FIX][all] The login approval note says Bread signs this sign-in message, so its translations no longer say the login key signs transactions (#1580).
 - [FIX][extension] An approval's action runs once however many times its window confirms it while the action runs. For a transaction, a Deny, the auto-decline or a closed window while it is being queued waits for it, and an approval that times out first answers that the outcome is unknown, so a dApp is never told a transaction was declined while it still goes out (#1584).
 - [FIX][all] A failed claim's crash report also says whether its origin was recorded (`unrecorded` for a claim queued before the App recorded it), why it last waited in the queue, why the fee check let it through, and, when the stuck-transaction check cancelled it, whether it had started and whether this app session started it, in fixed values only (Sentry BREAD-WALLET-18, -19 and -1A). These values are part of the report's title, so these failures start new crash-report issues; the privacy policy lists every value.
+- [FIX][all] A Guardian transaction that fails while it is prepared for the guardian says which preparation step failed, from reading the account to recording the guardian's proposal, and which of the wallet's own checks refused it, in fixed values only (Sentry BREAD-WALLET-1Y, -2H, -2K, -2S, -38, -39, -3A, -3K and -3M, #1639).
 - [FIX][all] dApp refusals keep an existing error code and its details unchanged, instead of wrapping it in another `INVALID_PARAMS` error (#1583)
+- [FIX][all] Recovery by recovery phrase compares the account state each listed Guardian serves with the account's commitment on chain: a Guardian the account left (a switch to a Guardian not in the list) is no longer detected as the account's Guardian, and the recovery screen asks for that Guardian's URL instead of recovering against a superseded state that the everyday-key rotation then fails on. The failed everyday-key rotation screen offers Start over, which after a confirmation removes the wallet from the device and returns to onboarding, so a recovery against the wrong Guardian no longer needs a reinstall (#1648).
 
 ## 1.17.5 (2026-10-19)
 

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { render, within } from '@testing-library/react';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
@@ -13,7 +13,7 @@ import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transacti
 // without the barrel's heavy dependency graph.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn' },
+  IconName: { Convert: 'convert', Close: 'close', Earn: 'earn', Key: 'key' },
   Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <div data-testid="v2-icon" data-name={name} data-size={size} className={className} />
   )
@@ -143,12 +143,12 @@ describe('TransactionIcon', () => {
   });
 
   describe('guardian operation branch', () => {
-    // The detail header draws what the Activity row draws (HistoryView): the swap glyph on the slate.
+    // The detail header draws what the Activity row draws (HistoryView): the Guardian key on the slate.
     it.each([
       ['replace-hot-key', 'replace-hot-key' as const],
       ['switch-guardian', 'switch-guardian' as const],
       ['update-procedure-threshold', 'update-procedure-threshold' as const]
-    ])('renders the slate swap square for %s, not the receive arrow', (_label, txType) => {
+    ])('renders the slate square with the Guardian key for %s, not the receive arrow', (_label, txType) => {
       const { container } = render(
         <TransactionIcon entry={makeEntry({ txType, transactionIcon: 'DEFAULT' })} size="lg" />
       );
@@ -157,8 +157,19 @@ describe('TransactionIcon', () => {
       expect(wrapper).toHaveClass('w-18', 'h-18', 'rounded-10');
       expect(wrapper).toHaveStyle({ backgroundColor: '#777487' });
       expect(wrapper).not.toHaveStyle({ backgroundColor: TRANSACTION_COLORS.receive });
-      expect(wrapper.querySelector('svg')).toHaveClass('w-8', 'h-8');
-      expect(wrapper.querySelector('svg')).not.toHaveClass('text-pure-white');
+      expect(wrapper.querySelector('svg')).toBeNull();
+      const icon = within(wrapper).getByTestId('v2-icon');
+      expect(icon).toHaveAttribute('data-name', 'key');
+      expect(icon).toHaveAttribute('data-size', 'lg');
+    });
+
+    it('sizes the key glyph for the small row', () => {
+      const { getByTestId } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'switch-guardian', transactionIcon: 'DEFAULT' })} />
+      );
+
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'key');
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-size', 'sm');
     });
 
     it('renders the failed cross for a failed rotation', () => {
