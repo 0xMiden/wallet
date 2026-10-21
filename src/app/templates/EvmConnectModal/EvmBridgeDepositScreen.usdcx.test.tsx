@@ -2231,19 +2231,22 @@ describe('user-visible USDCx deposit producers', () => {
       const cause = new Error('Fresh bridge runner refused');
       const actualSubscribe =
         jest.requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query').subscribeToLiveQuery;
-      const actualCreate =
-        jest.requireActual<typeof import('lib/miden/transaction/initiate')>('lib/miden/transaction/initiate')
-          .initiateBridgedReceiveTransaction;
-      const actualUpdate =
-        jest.requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
-          .updateBridgedReceivePhase;
+      const actualCreate = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      ).initiateBridgedReceiveTransaction;
+      const actualUpdate = jest.requireActual<typeof import('lib/miden/transaction/complete')>(
+        'lib/miden/transaction/complete'
+      ).updateBridgedReceivePhase;
       let createdId = '';
       jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async input => {
         createdId = await actualCreate(input);
         return createdId;
       });
       jest.mocked(updateBridgedReceivePhase).mockImplementation(async (...args) => {
-        await actualUpdate(...args);
+        await actualUpdate(...args).catch(error => {
+          failureStored.reject(error);
+          throw error;
+        });
         if (args[1] === 'failed') failureStored.resolve();
       });
       const failDriver = async () => {
@@ -2254,28 +2257,30 @@ describe('user-visible USDCx deposit producers', () => {
       if (executor) jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(failDriver);
       else jest.mocked(runUsdcxDeposit).mockImplementationOnce(failDriver);
       mockRealBridgeRowQuery = true;
-      jest.mocked(subscribeToLiveQuery).mockImplementationOnce(
-        <T,>(query: () => T | Promise<T>, observer: { next: (value: T) => void; error: (error: unknown) => void }) =>
-          actualSubscribe(
-            async () => {
-              firstReadStarted.resolve();
-              await releaseFirstRead.promise;
-              return query();
-            },
-            {
-              next: value => {
-                if (deliveredRows.length === 0) jest.useFakeTimers();
-                deliveredRows.push(value);
-                observer.next(value);
-                firstRowDelivered.resolve();
+      jest
+        .mocked(subscribeToLiveQuery)
+        .mockImplementationOnce(
+          <T,>(query: () => T | Promise<T>, observer: { next: (value: T) => void; error: (error: unknown) => void }) =>
+            actualSubscribe(
+              async () => {
+                firstReadStarted.resolve();
+                await releaseFirstRead.promise;
+                return query();
               },
-              error: error => {
-                observer.error(error);
-                firstRowDelivered.reject(error);
+              {
+                next: value => {
+                  if (deliveredRows.length === 0) jest.useFakeTimers();
+                  deliveredRows.push(value);
+                  observer.next(value);
+                  firstRowDelivered.resolve();
+                },
+                error: error => {
+                  observer.error(error);
+                  firstRowDelivered.reject(error);
+                }
               }
-            }
-          )
-      );
+            )
+        );
       try {
         await realUsdcxReview(executor);
         await act(async () => {
