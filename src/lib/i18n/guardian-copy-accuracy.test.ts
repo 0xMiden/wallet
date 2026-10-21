@@ -52,7 +52,13 @@ const SUCCESS_RECEIPT_KEYS = [
   // so leaving them out of the sweep meant the replacement text was held to a
   // weaker standard than the text it replaces.
   'guardianSwitchUnconfirmedInfo1',
-  'guardianSwitchUnconfirmedInfo3'
+  'guardianSwitchUnconfirmedInfo3',
+  // Each row's title restates its claim in a few words, which is where a short translation goes wrong.
+  'guardianSwitchSuccessInfo1Title',
+  'guardianSwitchUnconfirmedInfo1Title',
+  'guardianSwitchSuccessInfo2Title',
+  'guardianSwitchSuccessInfo3Title',
+  'guardianSwitchSuccessInfo4Title'
 ] as const;
 
 // The whole receipt surface, labels included — every string that tells the user

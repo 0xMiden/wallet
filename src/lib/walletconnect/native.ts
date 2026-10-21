@@ -6,6 +6,12 @@ import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { getChain, type EvmChain } from './config';
 import { readNativeFeeFields } from './fees';
+import {
+  decodeReownNativeFailureCode,
+  markReownNativeFailure,
+  readReownNativeFailure,
+  type ReownNativeFailure
+} from './native-request-failure';
 
 export interface ReownConfigureOptions {
   projectId: string;
@@ -107,7 +113,40 @@ export interface ReownPlugin {
   removeAllListeners(): Promise<void>;
 }
 
-export const NativeReown = registerPlugin<ReownPlugin>('Reown');
+const rawNativeReown: ReownPlugin = registerPlugin<ReownPlugin>('Reown');
+
+function nativeRequestRejection(rejection: unknown): unknown {
+  if (!isAndroid() || rejection === null || (typeof rejection !== 'object' && typeof rejection !== 'function'))
+    return rejection;
+
+  try {
+    // An inherited code belongs to another answer; getters are not a safe wire envelope.
+    const code: unknown = Object.getOwnPropertyDescriptor(rejection, 'code')?.value;
+    const snapshot = decodeReownNativeFailureCode(code);
+    if (snapshot !== undefined) markReownNativeFailure(rejection, snapshot);
+  } catch {
+    // Diagnostics must not replace a bridge rejection with an accessor's exception.
+  }
+  return rejection;
+}
+
+export const NativeReown: ReownPlugin = new Proxy(rawNativeReown, {
+  get(target, key) {
+    if (key === 'request') {
+      return (options: ReownRequestOptions) =>
+        target.request(options).catch((rejection: unknown) => {
+          throw nativeRequestRejection(rejection);
+        });
+    }
+    if (key === 'sendTransaction') {
+      return (options: ReownSendTransactionOptions) =>
+        target.sendTransaction(options).catch((rejection: unknown) => {
+          throw nativeRequestRejection(rejection);
+        });
+    }
+    return Reflect.get(target, key);
+  }
+});
 
 export function isNativeReownAvailable(): boolean {
   return isIOS() || isAndroid();
@@ -226,13 +265,20 @@ async function waitForSessionChain(state: ReownState, chainId: number): Promise<
  * sends each request once at most and never retries.
  */
 export async function ensureNativeSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
+  return (await requestSessionChain(state, chainId)).state;
+}
+
+async function requestSessionChain(
+  state: ReownState,
+  chainId: number
+): Promise<{ state: ReownState; native?: ReownNativeFailure }> {
   const approved = state.chainIds;
-  if (!Array.isArray(approved) || approved.includes(chainId)) return state;
+  if (!Array.isArray(approved) || approved.includes(chainId)) return { state };
   const chain = getChain(chainId);
   const requestChainId = state.chainId !== undefined && approved.includes(state.chainId) ? state.chainId : approved[0];
   // The public RPC: `rpcUrl` can be the WalletConnect proxy, which carries our project id. A chain without one
   // cannot be added, so the caller's guard refuses it.
-  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return state;
+  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return { state };
 
   const hexChainId = `0x${chainId.toString(16)}`;
   try {
@@ -258,9 +304,9 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
     });
   } catch (err) {
     console.warn(`[NativeReown] could not add or switch to eip155:${chainId}`, err);
-    return readNativeState(state);
+    return { state: await readNativeState(state), native: readReownNativeFailure(err) };
   }
-  return waitForSessionChain(state, chainId);
+  return { state: await waitForSessionChain(state, chainId) };
 }
 
 /**
@@ -269,8 +315,14 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
  * the first wallet prompt of a signing flow.
  */
 export async function prepareNativeSessionChain(chainId: number): Promise<void> {
-  const state = await ensureNativeSessionChain(await NativeReown.getState(), chainId);
-  assertNativeSessionChain(state, chainId, nativeChainName(chainId));
+  const { state, native } = await requestSessionChain(await NativeReown.getState(), chainId);
+  try {
+    assertNativeSessionChain(state, chainId, nativeChainName(chainId));
+  } catch (refusal) {
+    // Only the refused add or switch request's closed values travel; its text and the rejection stay behind.
+    if (native !== undefined && refusal instanceof Error) markReownNativeFailure(refusal, native);
+    throw refusal;
+  }
 }
 
 export interface NativeReownProviderOptions {
@@ -284,7 +336,7 @@ export interface NativeReownProviderOptions {
   rpcUrl: string;
 }
 
-// Methods the external wallet must sign — routed over the WalletConnect relay.
+// Methods the external wallet must sign - routed over the WalletConnect relay.
 const NATIVE_SIGN_METHODS = new Set([
   'personal_sign',
   'eth_sign',
@@ -300,7 +352,7 @@ function txField(tx: object, key: string): string | undefined {
 
 /**
  * The native plugins hand back the wallet's JSON-RPC result verbatim, which for
- * a string value (tx hash, signature) is JSON-encoded — i.e. wrapped in quotes
+ * a string value (tx hash, signature) is JSON-encoded - i.e. wrapped in quotes
  * (`"\"0x…\""`). Decode it back to the raw hex so viem can consume it (e.g.
  * `waitForTransactionReceipt` → `eth_getTransactionByHash` rejects a quoted
  * hash). A value that is already raw hex is returned untouched.
@@ -312,7 +364,7 @@ export function unwrapNativeResult(value: unknown): string {
       const parsed: unknown = JSON.parse(value);
       if (typeof parsed === 'string') return parsed;
     } catch {
-      // Not valid JSON — fall through and return the original string.
+      // Not valid JSON - fall through and return the original string.
     }
   }
   return value;

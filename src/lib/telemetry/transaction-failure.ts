@@ -12,7 +12,16 @@ import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
-import { type BridgeReceiveFailure, bridgeReceiveIdentity } from './bridge-receive-failure';
+import {
+  type BridgeReceiveFailure,
+  bridgeReceiveIdentity,
+  bridgeReceiveNativeFailure,
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS
+} from './bridge-receive-failure';
 import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
@@ -713,7 +722,13 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...AUTH_PREPARATIONS,
   ...AUTH_LAYOUTS,
   ...COMMITMENT_MATCHES,
-  ...ACCOUNT_AUTH_CODES
+  ...ACCOUNT_AUTH_CODES,
+  ...REOWN_NATIVE_ORIGINS,
+  ...REOWN_WALLET_RESPONSE_CODES,
+  ...REOWN_REQUEST_AGES,
+  ...REOWN_PUBLICATIONS,
+  ...REOWN_BACKGROUND_ANSWERS,
+  'invalid_permissions'
 ]);
 
 function softwareVersion(value: string): string {
@@ -809,7 +824,26 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     report.name = 'WalletTransactionFailure';
     // This stack would name the reporter, not the failed execution, and can include private file paths.
     report.stack = undefined;
-    annotateCrash(report, snapshotCrashDiagnostics(failure.error));
+    const inherited = snapshotCrashDiagnostics(failure.error);
+    delete inherited.reownNativeOrigin;
+    delete inherited.reownWalletResponseCode;
+    delete inherited.reownRequestAge;
+    delete inherited.reownPublished;
+    delete inherited.reownBackgrounded;
+    annotateCrash(report, inherited);
+    const native =
+      type === 'bridged-receive' && platform === 'android'
+        ? bridgeReceiveNativeFailure(failure.bridgeReceive?.cause)
+        : undefined;
+    if (native !== undefined) {
+      annotateCrash(report, {
+        reownNativeOrigin: native.nativeOrigin,
+        reownWalletResponseCode: native.walletResponseCode,
+        reownRequestAge: native.requestAge,
+        reownPublished: native.published,
+        reownBackgrounded: native.backgrounded
+      });
+    }
     // A queued row with no stage expired untried (the loop's requeues stamp one, and every requeue clears `attemptId`):
     // whatever held the queue has its own report, and each row behind it would otherwise add another error.
     const neverStarted = reason === 'queued_expired' && failure.stage === undefined;
