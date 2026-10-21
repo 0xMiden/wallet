@@ -75,7 +75,9 @@ import {
   initiateUpdateProcedureThresholdTransaction,
   LANDED_CONFIRM_BOUND_MS,
   LANDED_CONFIRM_POLL_MS,
-  markBridgedSendFailed
+  failInterruptedTransactions,
+  markBridgedSendFailed,
+  SESSION_STARTED_AT
 } from './index';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -6931,6 +6933,92 @@ describe('generateTransaction — Guardian routing', () => {
         const { proposedAt } = stored(row.id).guardianCandidate as { proposedAt: number };
         expect(proposedAt).toBeGreaterThanOrEqual(testStartedAt);
         expect(proposedAt).toBeLessThanOrEqual(Date.now());
+      });
+
+      // A row a process died with mid-attempt, as the next process's startup sweep finds it: that process's record
+      // of the candidate died with it.
+      const deadRow = (id: string, overrides: Record<string, unknown> = {}) =>
+        queueRow(id, {
+          type: 'consume',
+          noteId: `note-${id}`,
+          status: ITransactionStatus.GeneratingTransaction,
+          stage: 'proving',
+          attemptId: 'att-dead',
+          processingStartedAt: SESSION_STARTED_AT - 5,
+          guardianCandidate: { endpoint: GUARDIAN, nonce: 8, proposedAt: Date.now() - 60_000, attemptId: 'att-dead' },
+          ...overrides
+        });
+      const settledService = () => {
+        const service = busyService();
+        service.priorCandidateState.mockResolvedValue('settled');
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        arrangeClient();
+        return service;
+      };
+
+      it('the next proposal abandons the candidate of a row a dead process left before its submit', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const service = settledService();
+        deadRow('dead-before-submit');
+
+        await failInterruptedTransactions();
+
+        expect(stored('dead-before-submit').status).toBe(ITransactionStatus.Failed);
+        const { proposedAt } = stored('dead-before-submit').guardianCandidate as { proposedAt: number };
+        expect(getGuardianCandidate('guardian-acc')).toEqual({
+          endpoint: GUARDIAN,
+          nonce: 8,
+          proposedAt,
+          proposedAtMono: expect.any(Number),
+          abandon: true
+        });
+        await run(queueRow('next-send', SEND));
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(service.abandonCandidate.mock.invocationCallOrder[0]).toBeLessThan(
+          service.createSendProposal.mock.invocationCallOrder[0]
+        );
+      });
+
+      it.each<[string, Record<string, unknown>]>([
+        ['recorded a submit crossing', { mayHaveSubmitted: true }],
+        ["is at 'sending', which can enclose a submit", { stage: 'sending' }],
+        ['recorded no stage', { stage: undefined }],
+        [
+          "names an earlier attempt's candidate",
+          { guardianCandidate: { endpoint: GUARDIAN, nonce: 8, proposedAt: Date.now() - 60_000, attemptId: 'att-old' } }
+        ],
+        [
+          'has a proposal stamp later than the clock',
+          {
+            guardianCandidate: { endpoint: GUARDIAN, nonce: 8, proposedAt: Date.now() + 60_000, attemptId: 'att-dead' }
+          }
+        ]
+      ])('leaves the candidate to the Guardian when the dead row %s', async (_case, overrides) => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const service = settledService();
+        deadRow('dead-kept', overrides);
+
+        await failInterruptedTransactions();
+
+        expect(stored('dead-kept').status).toBe(ITransactionStatus.Failed);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+        await run(queueRow('next-send', SEND));
+        expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+        expect(service.abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it("keeps a later write's record over a dead row's candidate", async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        settledService();
+        const later = { endpoint: GUARDIAN, nonce: 9, ...proposedNow() };
+        recordGuardianCandidate('guardian-acc', later);
+        deadRow('dead-behind-later');
+
+        await failInterruptedTransactions();
+
+        expect(stored('dead-behind-later').status).toBe(ITransactionStatus.Failed);
+        expect(getGuardianCandidate('guardian-acc')).toEqual(later);
       });
     });
   });
