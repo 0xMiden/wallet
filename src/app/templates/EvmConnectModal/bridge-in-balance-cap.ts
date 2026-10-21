@@ -6,10 +6,13 @@ import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
+import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
 import { usdMarketPending } from 'lib/prices/feed';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectBridgeInMaxBalanceUsd } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
+
+import type { DepositToken, OfferedErc20 } from './deposit-token';
 
 /**
  * Where a bridge-in stands against the document's balance ceiling (`limits.bridgeInMaxBalanceUsd`).
@@ -62,6 +65,32 @@ export function bridgeInBalanceCapVerdict({
   return heldUsd + depositUsd > capUsd + FLOAT_NOISE_USD
     ? { state: 'exceeded', ...verdict }
     : { state: 'clear', ...verdict };
+}
+
+/** A deposit token's US dollar price per whole token, and whether the feed may still quote one it has none for. */
+export interface DepositTokenPrice {
+  priceUsd: number | undefined;
+  pending: boolean;
+}
+
+/**
+ * Pure: the price the ceiling weighs a deposit of `token` at. USDC and Circle USDC are at par; ETH and an offered
+ * ERC-20 (`erc20`, the pick resolved from the offered list) take the feed's quote, an ERC-20's under the price symbol
+ * of the faucet that delivers it. A missing quote is pending until the feed rules its market out; an ERC-20 with no
+ * delivery faucet or price symbol, and the nominal $1 a test network gives an unquoted token, leave it unpriced.
+ */
+export function depositTokenPrice(
+  token: DepositToken,
+  erc20: OfferedErc20 | null,
+  tokenPrices: TokenPrices
+): DepositTokenPrice {
+  if (token === 'USDC' || token === 'CIRCLE_USDC') return { priceUsd: 1, pending: false };
+  const priceSymbol =
+    token === 'ETH' ? 'ETH' : erc20?.delivery ? priceSymbolFor(erc20.delivery.midenFaucetId, erc20.symbol) : undefined;
+  if (priceSymbol === undefined) return { priceUsd: undefined, pending: false };
+  const quote = quotedPrice(tokenPrices, priceSymbol);
+  if (quote === undefined) return { priceUsd: undefined, pending: usdMarketPending(priceSymbol) };
+  return { priceUsd: isNominalQuote(quote) ? undefined : quote.price, pending: false };
 }
 
 /**

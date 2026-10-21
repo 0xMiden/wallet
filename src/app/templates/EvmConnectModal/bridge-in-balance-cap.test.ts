@@ -2,17 +2,23 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { TokenPrices } from 'lib/prices';
 import { fetchTokenPrices } from 'lib/prices/feed';
 
-import { bridgeInBalanceCapVerdict, settledHeldUsd } from './bridge-in-balance-cap';
+import { bridgeInBalanceCapVerdict, depositTokenPrice, settledHeldUsd } from './bridge-in-balance-cap';
+import type { OfferedErc20 } from './deposit-token';
 
 // Each faucet prices under its own symbol but NOSYM, which has none; LISTED holds the symbols Binance has not ruled out.
 // Kraken lists nothing, and a symbol is ruled out there only once the real feed has asked it.
 const LISTED = new Set<string>();
+// The nominal $1 a test network gives an unquoted token, which is no market price.
+const mockNominalQuote = { price: 1, change24h: 0, percentageChange24h: 0 };
+const mockPriceSymbolFor = jest.fn((_faucetId: string, symbol: string) => (symbol === 'NOSYM' ? undefined : symbol));
 jest.mock('lib/miden/swap/tokens', () => ({
-  priceSymbolFor: (_faucetId: string, symbol: string) => (symbol === 'NOSYM' ? undefined : symbol),
+  priceSymbolFor: (faucetId: string, symbol: string) => mockPriceSymbolFor(faucetId, symbol),
   tokenQuote: (prices: TokenPrices, _faucetId: string, symbol: string) => prices[symbol]
 }));
 jest.mock('lib/prices/binance', () => ({
   fetchTokenPrices: async () => ({}),
+  isNominalQuote: (quote: unknown) => quote === mockNominalQuote,
+  quotedPrice: (prices: TokenPrices, symbol: string | undefined) => (symbol === undefined ? undefined : prices[symbol]),
   isListedSymbol: (symbol: string | undefined) => symbol !== undefined && LISTED.has(symbol)
 }));
 jest.mock('lib/prices/kraken', () => ({
@@ -146,5 +152,52 @@ describe('settledHeldUsd', () => {
     expect(settledHeldUsd([], {})).toBe(0);
     expect(settledHeldUsd([row('PEND', 0)], {})).toBe(0);
     expect(settledHeldUsd([row('PEND', 5, true)], {})).toBe(0);
+  });
+});
+
+describe('depositTokenPrice', () => {
+  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+  const offered = (symbol: string, delivery = true): OfferedErc20 => ({
+    symbol,
+    contractAddress: '0x00000000000000000000000000000000000000d1',
+    decimals: 8,
+    ...(delivery ? { delivery: { midenFaucetId: `faucet-${symbol}`, scale: 2 } } : {})
+  });
+  const erc20 = { kind: 'erc20', contractAddress: '0x00000000000000000000000000000000000000d1' } as const;
+  const unpriced = { priceUsd: undefined, pending: false };
+
+  it('weighs USDC and Circle USDC at par, whatever the feed holds', () => {
+    expect(depositTokenPrice('USDC', null, {})).toEqual({ priceUsd: 1, pending: false });
+    expect(depositTokenPrice('CIRCLE_USDC', null, { USDC: quote(0.5) })).toEqual({ priceUsd: 1, pending: false });
+  });
+
+  it('weighs ETH at its quote, waits while its market is pending and never takes the nominal rate', () => {
+    expect(depositTokenPrice('ETH', null, { ETH: quote(2000) })).toEqual({ priceUsd: 2000, pending: false });
+    expect(depositTokenPrice('ETH', null, {})).toEqual({ priceUsd: undefined, pending: true });
+    expect(depositTokenPrice('ETH', null, { ETH: mockNominalQuote })).toEqual(unpriced);
+  });
+
+  it("weighs an offered ERC-20 at the quote for its delivery faucet's price symbol", () => {
+    expect(depositTokenPrice(erc20, offered('WBTC'), { WBTC: quote(60000) })).toEqual({
+      priceUsd: 60000,
+      pending: false
+    });
+    expect(mockPriceSymbolFor).toHaveBeenLastCalledWith('faucet-WBTC', 'WBTC');
+  });
+
+  it('waits for an ERC-20 quote while its market is pending', () => {
+    expect(depositTokenPrice(erc20, offered('WPEND'), {})).toEqual({ priceUsd: undefined, pending: true });
+  });
+
+  it('refuses to price an ERC-20 with no delivery faucet, no price symbol or an unresolved pick', () => {
+    expect(depositTokenPrice(erc20, offered('WHELD', false), { WHELD: quote(5) })).toEqual(unpriced);
+    expect(depositTokenPrice(erc20, offered('NOSYM'), {})).toEqual(unpriced);
+    expect(depositTokenPrice(erc20, null, {})).toEqual(unpriced);
+  });
+
+  it('refuses to price an ERC-20 whose market is ruled out or that only has the nominal rate', async () => {
+    await fetchTokenPrices(['WGONE']);
+    expect(depositTokenPrice(erc20, offered('WGONE'), {})).toEqual(unpriced);
+    expect(depositTokenPrice(erc20, offered('WNOM'), { WNOM: mockNominalQuote })).toEqual(unpriced);
   });
 });

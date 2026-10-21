@@ -33,8 +33,6 @@ import { IBridgeProvider } from 'lib/miden/db/types';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
-import { usdMarketPending } from 'lib/prices/feed';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { evmUsdcLabel } from 'lib/remote-config/token-labels';
@@ -94,7 +92,7 @@ import { BridgeNetwork, getBridgeNetworkByChainId } from 'screens/send-flow/brid
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
-import { useBridgeInBalanceCap } from './bridge-in-balance-cap';
+import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
 import { type DepositToken, type OfferedErc20 } from './deposit-token';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
@@ -1547,18 +1545,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const amountExceedsBalance = typedUnits !== null && heldUnits !== null && typedUnits > heldUnits;
 
   // The document's bridge-in ceiling (`limits.bridgeInMaxBalanceUsd`) is a gate on this screen only: it weighs the
-  // receiving account's valued holdings plus this deposit, at the feed's price (USDC at par, ETH at the feed's ETH
-  // quote, never the nominal $1 a test network gives an unquoted token), and holds every step while they pass it. A
-  // note that lands by any other way is not this screen's to refuse.
+  // receiving account's valued holdings plus this deposit, at its own token's price (`depositTokenPrice`), and holds
+  // every step while they pass it. A note that lands by any other way is not this screen's to refuse.
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const ethQuote = token === 'ETH' ? quotedPrice(tokenPrices, 'ETH') : undefined;
-  const depositPriceUsd = token !== 'ETH' ? 1 : ethQuote && !isNominalQuote(ethQuote) ? ethQuote.price : undefined;
+  const depositPrice = depositTokenPrice(token, erc20, tokenPrices);
   const capVerdict = useBridgeInBalanceCap({
     accountPublicKey: midenAccount.publicKey,
     depositAmount: typedUnits === null ? null : Number(amount),
-    depositPriceUsd,
-    // A missing ETH quote is still on its way until the feed rules its market out; only then is the deposit unpriced.
-    depositPricePending: token === 'ETH' && ethQuote === undefined && usdMarketPending('ETH')
+    depositPriceUsd: depositPrice.priceUsd,
+    depositPricePending: depositPrice.pending
   });
   const capHold = capVerdict.state !== 'none' && capVerdict.state !== 'clear';
   const capHoldError = ((): { id: UserErrorId; text: string } | undefined => {
