@@ -134,7 +134,7 @@ const refusalCases = [
   {
     id: 'R3-customPayload',
     name: 'InvalidParamsMidenWalletError',
-    message: 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
+    message: 'INVALID_PARAMS: Invalid CustomTransaction payload'
   },
   { id: 'R3-customUndecodable', name: 'InvalidParamsMidenWalletError', message: 'INVALID_PARAMS: deserialize failed' },
   { id: 'R7-connect', name: 'WalletConnectionError', causeName: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' },

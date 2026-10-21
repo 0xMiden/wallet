@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { judgeCell, type FailureEvidence } from './dapp-cells';
+import type { FailureEvidence } from './dapp-cells';
 import { KNOWN_BUGS, registryOf, type KnownBug } from './dapp-known-bugs';
 import pinned from './dapp-pinned.json';
 
@@ -139,121 +139,6 @@ describe('known-bug registry', () => {
     expect(bug('K13').signature(soft('MF3', { signerInitError: observed }))).toBe(false);
   });
 
-  it("K15 matches the mobile provider's plain Error with the expected text, by cause under the adapter and by name raw", () => {
-    const k15 = bug('K15');
-    const wrapped = (name: string, causeName: string, message = 'NOT_GRANTED') => ({
-      name,
-      message,
-      causeName,
-      causeMessage: message
-    });
-    expect(k15.tracking).toContain('0xMiden/wallet#1542');
-    expect(k15.cells).toEqual(
-      Object.fromEntries(
-        [
-          'S3',
-          'S6',
-          'R1-send',
-          'R1-custom',
-          'R3-noteType',
-          'R3-customPayload',
-          'R7-connect',
-          'R7-send',
-          'R7-consume',
-          'R7-custom'
-        ].map(id => [id, ON_MOBILE])
-      )
-    );
-    const wrappers: readonly [string, string][] = [
-      ['S3', 'WalletConnectionError'],
-      ['R1-send', 'WalletTransactionError'],
-      ['R1-custom', 'WalletTransactionError'],
-      ['R7-connect', 'WalletConnectionError'],
-      ['R7-send', 'WalletTransactionError'],
-      ['R7-consume', 'WalletTransactionError'],
-      ['R7-custom', 'WalletTransactionError']
-    ];
-    for (const [cell, name] of wrappers) {
-      expect(k15.signature(soft(cell, { dappError: wrapped(name, 'Error') }))).toBe(true);
-      expect(k15.signature(soft(cell, { dappError: wrapped(name, 'NotGrantedMidenWalletError') }))).toBe(false);
-    }
-    const rawRefusals: Readonly<Record<string, string>> = {
-      S6: 'NOT_GRANTED',
-      'R3-noteType': 'INVALID_PARAMS: Error: noteType is required',
-      'R3-customPayload': 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
-    };
-    for (const [cell, message] of Object.entries(rawRefusals)) {
-      expect(k15.signature(soft(cell, { dappError: { name: 'Error', message } }))).toBe(true);
-      expect(k15.signature(soft(cell, { dappError: { name: 'Error', message, causeName: 'Error' } }))).toBe(false);
-    }
-    expect(
-      k15.signature(
-        soft('R3-customUndecodable', { dappError: { name: 'Error', message: 'INVALID_PARAMS: Error: eof' } })
-      )
-    ).toBe(true);
-    // Candidate signatures never place an entry: this run's undecodable request prompted instead of refusing.
-    expect(k15.cells['R3-customUndecodable']).toBeUndefined();
-    expect(
-      k15.signature(soft('S6', { dappError: { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' } }))
-    ).toBe(false);
-    expect(k15.signature(soft('S6', {}))).toBe(false);
-    expect(k15.signature(soft('W1', { dappError: { name: 'Error', message: 'NOT_GRANTED' } }))).toBe(false);
-    expect(
-      registryOf(KNOWN_BUGS)
-        .bugsFor('S6', 'extension', 'offchain')
-        .map(entry => entry.id)
-    ).not.toContain('K15');
-  });
-
-  it('K15 leaves an R1-send refusal with the wrong adapter wrapper as fail-new', () => {
-    const dappError = { name: 'WalletTransactionError', message: 'NOT_GRANTED', causeName: 'Error' };
-    const judge = (name: string) =>
-      judgeCell({
-        cellId: 'R1-send',
-        surface: 'ios',
-        axis: 'guardian',
-        registry: registryOf(KNOWN_BUGS),
-        evidence: { dappError: { ...dappError, name } },
-        softFailures: [{ check: 'refusal-class', detail: 'plain Error' }]
-      });
-    expect(judge('WalletTransactionError').verdict).toBe('fail-known');
-    expect(judge('WalletConnectionError').verdict).toBe('fail-new');
-  });
-
-  it('K15 leaves a hard failure or a wrong message as fail-new', () => {
-    const dappError = { name: 'Error', message: 'NOT_GRANTED' };
-    expect(bug('K15').signature(hard('S6', { dappError }))).toBe(false);
-    expect(bug('K15').signature(soft('S6', { dappError: { ...dappError, message: 'Request timeout' } }))).toBe(false);
-    const input = {
-      cellId: 'S6',
-      evidence: { dappError },
-      registry: registryOf(KNOWN_BUGS)
-    };
-    const refusal = { check: 'refusal-class', detail: 'plain Error' };
-    expect(judgeCell({ ...input, surface: 'ios', axis: 'guardian', softFailures: [refusal] }).verdict).toBe(
-      'fail-known'
-    );
-    // A later row, session or timing assertion must stay new even when the refusal class is already known.
-    expect(
-      judgeCell({
-        ...input,
-        surface: 'ios',
-        axis: 'guardian',
-        softFailures: [refusal],
-        hardError: new Error('session stayed connected')
-      }).verdict
-    ).toBe('fail-new');
-    expect(
-      judgeCell({
-        ...input,
-        surface: 'android',
-        axis: 'offchain',
-        softFailures: [refusal],
-        evidence: { dappError: { ...dappError, message: 'Request timeout' } }
-      }).verdict
-    ).toBe('fail-new');
-  });
-
   it('explains a cell only on the surface and axis an entry names', () => {
     const entry: KnownBug = {
       id: 'KT',
@@ -269,8 +154,8 @@ describe('known-bug registry', () => {
     expect(registry.bugsFor('M1', 'extension', 'offchain')).toEqual([]);
   });
 
-  // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (Task 12's K15
-  // and any K1 extension each name theirs).
+  // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (any K1
+  // extension names its own).
   const unproven = (bugs: readonly KnownBug[]): string[] =>
     bugs
       .filter(entry => Object.values(entry.cells).some(placements => placements.some(at => at.surface !== 'extension')))
@@ -294,8 +179,7 @@ describe('known-bug registry', () => {
         entry.mobileEvidenceRun
       ])
     ).toEqual([
-      ['K1', '39090853726'],
-      ['K15', '39090853726']
+      ['K1', '39090853726']
     ]);
   });
 });

@@ -617,7 +617,7 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
       }),
       {
         name: 'InvalidParamsMidenWalletError',
-        message: 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
+        message: 'INVALID_PARAMS: Invalid CustomTransaction payload'
       }
     ),
     // #1462 refuses malformed request bytes before any surface, on mobile as on the extension.

@@ -46,36 +46,9 @@ const on = (
 ): Record<string, readonly CellPlacement[]> =>
   Object.fromEntries(ids.map(id => [id, surfaces.flatMap(surface => axes.map(axis => ({ axis, surface })))]));
 
-// Shared with the cell assertions so K15 cannot hide a different adapter wrapper class.
+// The adapter's wrapper class for each refusal kind, shared with the cell assertions.
 // Keeping runtime imports JSON-only lets the mobile cells share these names without loading their journey here.
 export const REFUSAL_WRAPPERS = { connect: 'WalletConnectionError', transaction: 'WalletTransactionError' };
-
-// K15: each candidate cell's refusal text as the extension cell expects it (dapp-mobile-cells.ts), which the mobile
-// provider keeps word for word; under the adapter the wallet's class is the cause's, on a raw call the error's own.
-const PLAIN_ERROR_TEXT: Readonly<Record<string, string | RegExp>> = {
-  S3: 'NOT_GRANTED',
-  S6: 'NOT_GRANTED',
-  'R1-send': 'NOT_GRANTED',
-  'R1-custom': 'NOT_GRANTED',
-  'R3-noteType': 'INVALID_PARAMS: Error: noteType is required',
-  'R3-customPayload': 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload',
-  'R3-customUndecodable': /^INVALID_PARAMS: /,
-  'R7-connect': 'NOT_GRANTED',
-  'R7-send': 'NOT_GRANTED',
-  'R7-consume': 'NOT_GRANTED',
-  'R7-custom': 'NOT_GRANTED'
-};
-const ADAPTER_WRAPPED: Readonly<Record<string, string>> = {
-  S3: REFUSAL_WRAPPERS.connect,
-  'R1-send': REFUSAL_WRAPPERS.transaction,
-  'R1-custom': REFUSAL_WRAPPERS.transaction,
-  'R7-connect': REFUSAL_WRAPPERS.connect,
-  'R7-send': REFUSAL_WRAPPERS.transaction,
-  'R7-consume': REFUSAL_WRAPPERS.transaction,
-  'R7-custom': REFUSAL_WRAPPERS.transaction
-};
-const MOBILE_PLAIN_ERROR_ISSUE = 1542;
-const MOBILE_PLAIN_ERROR_RUN = '39090853726';
 
 export const KNOWN_BUGS: readonly KnownBug[] = [
   {
@@ -119,32 +92,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       Object.values(pinned.texts.MF3).some(({ error, reason }) =>
         [error, reason].every(part => part.length > 0 && (evidence.signerInitError ?? '').includes(part))
       )
-  },
-  {
-    id: 'K15',
-    title: "The in-app browser's provider rejects every refusal as a plain Error, so a dApp cannot tell its class",
-    tracking: `0xMiden/wallet#${MOBILE_PLAIN_ERROR_ISSUE} (open)`,
-    mobileEvidenceRun: MOBILE_PLAIN_ERROR_RUN,
-    // R3-customUndecodable prompted in the evidence run (#1462 fixed that); it joins once a run shows it refused.
-    cells: on(
-      Object.keys(PLAIN_ERROR_TEXT).filter(id => id !== 'R3-customUndecodable'),
-      BOTH,
-      ['ios', 'android']
-    ),
-    // injection-script.ts:128 rejects with `new Error(text)`: the text survives, the class the extension maps it to
-    // (src/lib/adapter/client.ts createError) does not.
-    signature: ({ cellId, source, evidence }) => {
-      const error = evidence.dappError;
-      const text = PLAIN_ERROR_TEXT[cellId];
-      // C-P15 keeps class parity soft so a later row, session or decline-timing failure stays unexplained.
-      if (source !== 'soft' || error === undefined || text === undefined) return false;
-      const said = typeof text === 'string' ? error.message === text : text.test(error.message);
-      const wrappedName = ADAPTER_WRAPPED[cellId];
-      const name = wrappedName ?? 'Error';
-      // Raw provider errors have no cause; an unexpected wrapper or cause is a separate regression.
-      const causeName = wrappedName === undefined ? undefined : 'Error';
-      return said && error.name === name && error.causeName === causeName;
-    }
   }
 ];
 
