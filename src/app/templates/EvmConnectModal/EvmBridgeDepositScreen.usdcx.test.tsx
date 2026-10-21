@@ -1,11 +1,13 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { toFunctionSelector } from 'viem';
 
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerChainConfig, UsdcxChainConfig } from 'lib/remote-config/schema';
 import { requestTimeoutError } from 'lib/remote-json';
@@ -1934,8 +1936,9 @@ const expectErrorAfterDwell = async (id: string, surface: string) => {
 let mockRealBridgeDisplays = false;
 let mockLiveBridgeRow: ITransaction | undefined;
 const mockLiveBridgeListeners = new Set<() => void>();
-jest.mock('screens/generating-transaction/useTransactionRow', () => ({
-  useTransactionRow: () => {
+let mockRealBridgeRowQuery = false;
+jest.mock('screens/generating-transaction/useTransactionRow', () => {
+  const useMockLiveBridgeRow = (_txId: string) => {
     const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
     const row = useSyncExternalStore(
       (listener: () => void) => {
@@ -1947,8 +1950,22 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
       () => mockLiveBridgeRow
     );
     return { row, loaded: true };
-  }
-}));
+  };
+  return {
+    useTransactionRow: (txId: string) => {
+      const useRow = mockRealBridgeRowQuery
+        ? jest.requireActual<typeof import('screens/generating-transaction/useTransactionRow')>(
+            'screens/generating-transaction/useTransactionRow'
+          ).useTransactionRow
+        : useMockLiveBridgeRow;
+      return useRow(txId);
+    }
+  };
+});
+jest.mock('lib/dexie-live-query', () => {
+  const actual = jest.requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query');
+  return { ...actual, subscribeToLiveQuery: jest.fn(actual.subscribeToLiveQuery) };
+});
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'synthetic-native' }));
 jest.mock('lib/store', () => ({
   useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never> }) => T) =>
@@ -2188,4 +2205,133 @@ describe('user-visible USDCx deposit producers', () => {
     });
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
+
+  it.each([
+    ['xReserve', false, 5042002, 'xreserve'],
+    ['executor', true, 84532, 'cctp-executor']
+  ] satisfies [string, boolean, number, 'xreserve' | 'cctp-executor'][])(
+    'reports a fresh %s producer failure when its first row read is already failed',
+    async (_route, executor, sourceChainId, sourceRoute) => {
+      const deferred = () => {
+        let resolve: () => void = () => undefined;
+        let reject: (error: unknown) => void = () => undefined;
+        const promise = new Promise<void>((done, fail) => {
+          resolve = done;
+          reject = fail;
+        });
+        return { promise, resolve, reject };
+      };
+      const driverEntered = deferred();
+      const releaseDriver = deferred();
+      const firstReadStarted = deferred();
+      const releaseFirstRead = deferred();
+      const firstRowDelivered = deferred();
+      const failureStored = deferred();
+      const deliveredRows: unknown[] = [];
+      const cause = new Error('Fresh bridge runner refused');
+      const actualSubscribe =
+        jest.requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query').subscribeToLiveQuery;
+      const actualCreate =
+        jest.requireActual<typeof import('lib/miden/transaction/initiate')>('lib/miden/transaction/initiate')
+          .initiateBridgedReceiveTransaction;
+      const actualUpdate =
+        jest.requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
+          .updateBridgedReceivePhase;
+      let createdId = '';
+      jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async input => {
+        createdId = await actualCreate(input);
+        return createdId;
+      });
+      jest.mocked(updateBridgedReceivePhase).mockImplementation(async (...args) => {
+        await actualUpdate(...args);
+        if (args[1] === 'failed') failureStored.resolve();
+      });
+      const failDriver = async () => {
+        driverEntered.resolve();
+        await releaseDriver.promise;
+        throw cause;
+      };
+      if (executor) jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(failDriver);
+      else jest.mocked(runUsdcxDeposit).mockImplementationOnce(failDriver);
+      mockRealBridgeRowQuery = true;
+      jest.mocked(subscribeToLiveQuery).mockImplementationOnce(
+        <T,>(query: () => T | Promise<T>, observer: { next: (value: T) => void; error: (error: unknown) => void }) =>
+          actualSubscribe(
+            async () => {
+              firstReadStarted.resolve();
+              await releaseFirstRead.promise;
+              return query();
+            },
+            {
+              next: value => {
+                if (deliveredRows.length === 0) jest.useFakeTimers();
+                deliveredRows.push(value);
+                observer.next(value);
+                firstRowDelivered.resolve();
+              },
+              error: error => {
+                observer.error(error);
+                firstRowDelivered.reject(error);
+              }
+            }
+          )
+      );
+      try {
+        await realUsdcxReview(executor);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('bridge-deposit-review-confirm'));
+          await driverEntered.promise;
+        });
+        await firstReadStarted.promise;
+        expect(deliveredRows).toEqual([]);
+        expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+        await act(async () => {
+          releaseDriver.resolve();
+          await failureStored.promise;
+        });
+        expect(await Repo.transactions.get(createdId)).toMatchObject({
+          id: createdId,
+          type: 'bridged-receive',
+          extraInputs: {
+            provider: 'usdcx',
+            phase: 'failed',
+            error: 'Fresh bridge runner refused',
+            errorId: 'raw_bridge_deposit_failed',
+            sourceChainId,
+            usdcxSource: { route: sourceRoute }
+          }
+        });
+        expect(deliveredRows).toEqual([]);
+        await act(async () => {
+          releaseFirstRead.resolve();
+          await firstRowDelivered.promise;
+        });
+        expect(deliveredRows).toEqual([
+          expect.objectContaining({ id: createdId, extraInputs: expect.objectContaining({ phase: 'failed' }) })
+        ]);
+        expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveTextContent(
+          'Fresh bridge runner refused'
+        );
+        await act(async () => {
+          jest.advanceTimersByTime(999);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+        await act(async () => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_deposit_failed', 'status_screen']]);
+        await act(async () => {
+          jest.advanceTimersByTime(1000);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_deposit_failed', 'status_screen']]);
+      } finally {
+        releaseDriver.resolve();
+        releaseFirstRead.resolve();
+        cleanup();
+        jest.useRealTimers();
+        mockRealBridgeRowQuery = false;
+        jest.mocked(subscribeToLiveQuery).mockImplementation(actualSubscribe);
+      }
+    }
+  );
 });
