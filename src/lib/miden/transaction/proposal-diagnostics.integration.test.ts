@@ -3,6 +3,7 @@ import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianCache, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { clearGuardianAccountLocks, getGuardianCandidate } from 'lib/miden/guardian/serialize';
 import * as Repo from 'lib/miden/repo';
+import * as nativeAsset from 'lib/miden-chain/native-asset';
 import { isCrashReportingEnabledAsync } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
@@ -28,6 +29,7 @@ const mockAccount = { id: () => accountRef(accountId) };
 const mockAccountRead = jest.fn(async (..._args: unknown[]) => mockAccount);
 const mockSignerRead = jest.fn(async () => ({ commitment: 'commitment' }));
 const mockReclaimBuild = jest.fn(async (..._args: unknown[]) => newBytes);
+const mockConsumableNotes = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockConsumeProposal = jest.fn(async (..._args: unknown[]) => {
   order.push('proposal_returned');
   return { id: 'private-proposal-id', nonce: 7, metadata: { proposalType: 'consume' } };
@@ -125,8 +127,13 @@ jest.mock('../sdk/miden-client', () => ({
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
     getAccount: (...args: unknown[]) => mockAccountRead(...args),
-    buildPswapCancelRequest: (...args: unknown[]) => mockReclaimBuild(...args)
+    buildPswapCancelRequest: (...args: unknown[]) => mockReclaimBuild(...args),
+    getConsumableNotes: (...args: unknown[]) => mockConsumableNotes(...args)
   }
+}));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  __esModule: true,
+  ...jest.requireActual('lib/miden-chain/native-asset')
 }));
 jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
   syncAndRecordFeeFaucet: async (_client: unknown, sync: () => Promise<void>) => sync()
@@ -262,7 +269,11 @@ function objectAt(value: unknown, key: string): Record<string, unknown> {
   if (typeof nested !== 'object' || nested === null || Array.isArray(nested)) throw new Error(`Missing event ${key}`);
   return Object.fromEntries(Object.entries(nested));
 }
-async function failureEvent(step: string, guard?: string): Promise<void> {
+const consumeAtProposal =
+  'Transaction failed: tx_receive; stage signing; signing step creating_proposal; realm unknown; ' +
+  'proving preference local; platform extension; queued by unrecorded; last deferral none; ' +
+  'claim fee admission unrecorded; point pipeline; unknown; thrown error. authentication';
+async function failureEvent(step: string, guard?: string, message = consumeAtProposal): Promise<void> {
   await flush();
   expect(requests).toHaveLength(1);
   const request = requests[0];
@@ -283,13 +294,7 @@ async function failureEvent(step: string, guard?: string): Promise<void> {
   expect(values).toHaveLength(1);
   const exception = objectAt(values, '0');
   expect(exception.type).toBe('WalletTransactionFailure');
-  expect(exception.value).toEqual(
-    expect.stringContaining(
-      'Transaction failed: tx_receive; stage signing; signing step creating_proposal; realm unknown; ' +
-        'proving preference local; platform extension; queued by unrecorded; last deferral none; ' +
-        'claim fee admission unrecorded; point pipeline; unknown; thrown error. authentication'
-    )
-  );
+  expect(exception.value).toEqual(expect.stringContaining(message));
   const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
   expect(diagnostics).toMatchObject({ proposalStep: step });
   expect(diagnostics.proposalGuard).toBe(guard);
@@ -323,8 +328,8 @@ async function run(
   await generateTransaction(transaction, async () => new Uint8Array(), false, selectedProvider);
   return Repo.transactions.get(transaction.id);
 }
-function expectTerminal(stored: ITransaction | undefined): void {
-  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'creating-proposal' });
+function expectTerminal(stored: ITransaction | undefined, stage = 'creating-proposal'): void {
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage });
   expect(stored?.failureDiagnostics).toBeUndefined();
   expect(stored).not.toHaveProperty('proposalStep');
   expect(stored).not.toHaveProperty('proposalGuard');
@@ -487,3 +492,120 @@ it.each([
     expect(requests).toEqual([]);
   }
 );
+
+const failingRead = (call: number, error: Error) =>
+  jest.fn(async () => {
+    if (++reads === call) throw error;
+    return [account];
+  });
+let reads = 0;
+
+// The routing read sits before the pipeline's own catch, so its rejection leaves generateTransaction for the loop,
+// whose cancel reports the same error object.
+it('names a failed routing account read as service selection on the error the loop reports', async () => {
+  reads = 0;
+  const error = privateFailure();
+  const getAccounts = failingRead(1, error);
+  await expect(run(account, false, { ...provider(), getAccounts })).rejects.toBe(error);
+  expect(getAccounts).toHaveBeenCalledTimes(1);
+  expect(mockAccountRead).not.toHaveBeenCalled();
+  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_select' });
+});
+
+it('reports a failed Guardian preflight account read as service selection before any service exists', async () => {
+  reads = 0;
+  const error = privateFailure();
+  const getAccounts = failingRead(2, error);
+  expectTerminal(await run(account, false, { ...provider(), getAccounts }), 'sending');
+  expect(getAccounts).toHaveBeenCalledTimes(2);
+  expect(mockAccountRead).not.toHaveBeenCalled();
+  expect(mockLoad).not.toHaveBeenCalled();
+  await failureEvent('service_select', undefined, 'Transaction failed: tx_receive; stage sending; ');
+  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_select' });
+});
+
+const structuralRow = (type: 'update-procedure-threshold' | 'replace-hot-key'): ITransaction => ({
+  id: 'private-row',
+  type,
+  accountId,
+  status: ITransactionStatus.Queued,
+  initiatedAt: Math.floor(Date.now() / 1000),
+  displayIcon: 'DEFAULT',
+  delegateTransaction: false,
+  extraInputs:
+    type === 'update-procedure-threshold'
+      ? { procedure: 'update_guardian', threshold: 2 }
+      : { newHotPublicKey: 'private-new-hot-key' }
+});
+const structuralAtProposal = 'Transaction failed: tx_guardian; stage signing; signing step creating_proposal; ';
+
+describe.each(['update-procedure-threshold', 'replace-hot-key'] as const)('a %s row', type => {
+  const coldAccount: WalletAccount = { ...account, coldPublicKey: 'private-cold-key' };
+  async function runStructural(selectedProvider = provider(coldAccount)): Promise<ITransaction | undefined> {
+    const transaction = structuralRow(type);
+    await Repo.transactions.put(transaction);
+    await generateTransaction(transaction, async () => new Uint8Array(), false, selectedProvider);
+    return Repo.transactions.get(transaction.id);
+  }
+
+  it('reports its cold provider read as service selection', async () => {
+    reads = 0;
+    const error = privateFailure();
+    const getAccounts = failingRead(3, error);
+    expectTerminal(await runStructural({ ...provider(coldAccount), getAccounts }));
+    expect(mockAccountRead).not.toHaveBeenCalled();
+    await failureEvent('service_select', undefined, structuralAtProposal);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_select' });
+  });
+
+  it('reports a missing account as the account guard at service selection', async () => {
+    reads = 0;
+    const getAccounts = jest.fn(async () => (++reads >= 3 ? [] : [coldAccount]));
+    expectTerminal(await runStructural({ ...provider(coldAccount), getAccounts }));
+    expect(mockAccountRead).not.toHaveBeenCalled();
+    await failureEvent('service_select', 'account_not_guardian', structuralAtProposal);
+  });
+
+  it('reports a failed or empty SDK account read as the account read', async () => {
+    const error = privateFailure();
+    mockAccountRead.mockRejectedValueOnce(error);
+    expectTerminal(await runStructural());
+    expect(mockLoad).not.toHaveBeenCalled();
+    await failureEvent('service_account_read', undefined, structuralAtProposal);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_account_read' });
+  });
+
+  it('reports a missing SDK account as the account read', async () => {
+    mockAccountRead.mockResolvedValueOnce(undefined);
+    expectTerminal(await runStructural());
+    expect(mockLoad).not.toHaveBeenCalled();
+    await failureEvent('service_account_read', undefined, structuralAtProposal);
+  });
+
+  it('reports a failed cold service build as the service load', async () => {
+    const error = privateFailure();
+    mockLoad.mockRejectedValueOnce(error);
+    expectTerminal(await runStructural());
+    await failureEvent('service_load', undefined, structuralAtProposal);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load' });
+  });
+});
+
+it('reports a failed cold service load for a claim that funds the everyday key rotation', async () => {
+  const error = privateFailure();
+  mockLoad.mockRejectedValueOnce(error);
+  jest.spyOn(nativeAsset, 'getNativeAssetId').mockResolvedValue(faucetId);
+  mockConsumableNotes.mockResolvedValueOnce([{ noteId, assets: [{ faucetId }], standardPayment: true }]);
+  const rotating: WalletAccount = {
+    ...account,
+    hotPublicKey: undefined,
+    requiresHotKeyRotation: true,
+    coldPublicKey: 'private-cold-key'
+  };
+  const transaction: ITransaction = { ...row(), rotationFunding: true };
+  await Repo.transactions.put(transaction);
+  await generateTransaction(transaction, async () => new Uint8Array(), false, provider(rotating));
+  expectTerminal(await Repo.transactions.get(transaction.id));
+  await failureEvent('service_load');
+  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load' });
+});
