@@ -312,12 +312,34 @@ describe('RouteOptions', () => {
         slowAvailability={DOWN}
       />
     );
-    expect(screen.getAllByText('bridgeRouteUnavailableBody')).toHaveLength(2);
+    expect(screen.queryByText('bridgeRouteUnavailableBody')).not.toBeInTheDocument();
+    expect(screen.getAllByText('bridgeRouteNoneAvailableBody')).toHaveLength(2);
     const fastNotice = screen.getByTestId('feature-unavailable-notice-fast');
     const slowNotice = screen.getByTestId('feature-unavailable-notice-slow');
     expect(fastNotice.id).not.toBe(slowNotice.id);
     expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-describedby', fastNotice.id);
     expect(screen.getByTestId('bridge-route-slow')).toHaveAttribute('aria-describedby', slowNotice.id);
+  });
+
+  // The Fast notice may point at another route only when the Slow card can be chosen now.
+  it.each<[string, React.ComponentProps<typeof RouteOptions>['slowStatus'], FeatureAvailability]>([
+    ['refused by its token check', 'unsupported', AVAILABLE],
+    ['still loading its availability', 'allowed', { state: 'loading' }]
+  ])('says no route is available when Fast is down and Slow is %s', (_case, slowStatus, slowAvailability) => {
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus={slowStatus}
+        fastAvailability={DOWN}
+        slowAvailability={slowAvailability}
+      />
+    );
+    expect(screen.getByTestId('bridge-route-slow')).toBeDisabled();
+    const notice = screen.getByTestId('feature-unavailable-notice-fast');
+    expect(notice).toHaveTextContent('bridgeRouteNoneAvailableBody');
+    expect(notice).not.toHaveTextContent('bridgeRouteUnavailableBody');
   });
 
   it('holds both routes while availability is still loading, with no notice', () => {

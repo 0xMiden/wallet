@@ -174,12 +174,16 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
 const FAST_NOTICE_ID = 'bridge-route-fast-unavailable';
 const SLOW_NOTICE_ID = 'bridge-route-slow-unavailable';
 
-/** Availability describes a route before submission, never a failed transaction. */
+/**
+ * Availability describes a route before submission, never a failed transaction. The copy offers the
+ * other route only when that card can be chosen now.
+ */
 const RouteAvailabilityNotice: React.FC<{
   availability: FeatureAvailability;
+  otherRouteSelectable: boolean;
   id: string;
   'data-testid': string;
-}> = ({ availability, id, 'data-testid': testId }) => {
+}> = ({ availability, otherRouteSelectable, id, 'data-testid': testId }) => {
   const { t } = useTranslation();
   if (availability.state !== 'unavailable') return null;
   if (availability.reason === 'restricted') {
@@ -187,7 +191,7 @@ const RouteAvailabilityNotice: React.FC<{
   }
   return (
     <Notice tone="neutral" variant="inline" id={id} data-testid={testId}>
-      {t('bridgeRouteUnavailableBody')}
+      {t(otherRouteSelectable ? 'bridgeRouteUnavailableBody' : 'bridgeRouteNoneAvailableBody')}
     </Notice>
   );
 };
@@ -208,6 +212,8 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
 }) => {
   const { t } = useTranslation();
   const slowAllowed = slowStatus === 'allowed';
+  const fastSelectable = !isFeatureBlocked(fastAvailability);
+  const slowSelectable = slowAllowed && !isFeatureBlocked(slowAvailability);
   let slowFee: React.ReactNode = <span className="text-base font-bold text-ink">{t('noFee')}</span>;
   let slowNotice: React.ReactNode;
   switch (slowStatus) {
@@ -255,7 +261,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         onSelect={() => select('epoch')}
         fee={fastFee}
         eta={t('fastArrival')}
-        disabled={isFeatureBlocked(fastAvailability)}
+        disabled={!fastSelectable}
         describedBy={
           fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : fastHint ? 'bridge-route-fast-hint' : undefined
         }
@@ -266,6 +272,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
             <>
               <RouteAvailabilityNotice
                 availability={fastAvailability}
+                otherRouteSelectable={slowSelectable}
                 id={FAST_NOTICE_ID}
                 data-testid="feature-unavailable-notice-fast"
               />
@@ -282,7 +289,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         emoji="🕐"
         label={t('bridgeRouteAgglayer')}
         selected={route === 'agglayer' && slowAllowed}
-        disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
+        disabled={!slowSelectable}
         loading={slowStatus === 'loading'}
         describedBy={
           slowAvailability.state === 'unavailable'
@@ -303,6 +310,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
             <>
               <RouteAvailabilityNotice
                 availability={slowAvailability}
+                otherRouteSelectable={fastSelectable}
                 id={SLOW_NOTICE_ID}
                 data-testid="feature-unavailable-notice-slow"
               />
