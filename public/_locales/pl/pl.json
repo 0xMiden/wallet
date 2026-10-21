@@ -1,4 +1,10 @@
 {
+  "bridgeRouteEpoch": "Fast · Epoch",
+  "bridgeRouteAgglayer": "Slow · Agglayer",
+  "bridgeRouteUnavailableTitle": "$route$ trasa niedostępna",
+  "bridgeRouteUnavailableBody": "Ta trasa jest niedostępna dla tego przelewu. Możesz kontynuować, wybierając inną dostępną trasę. Z tego ekranu nie została przesłana żadna transakcja.",
+  "bridgeContinueAgglayer": "Kontynuuj na stronie Agglayer",
+  "bridgeContinueEpoch": "Kontynuuj w serwisie Epoch",
   "usdcxBurnTitle": "Spalenie USDCx",
   "usdcxBurnSubmitted": "Zgłoszenie spalenia",
   "usdcxMidenFees": "Opłaty $symbol$",

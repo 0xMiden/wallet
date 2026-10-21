@@ -1,4 +1,33 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Hızlı · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Yavaş · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableTitle": {
+    "message": "$route$ rotası kullanılamıyor",
+    "englishSource": "$route$ route unavailable",
+    "placeholders": {
+      "route": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Agglayer üzerinden devam edin",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Epoch üzerinden devam edin",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "USDCx'i Yak",
     "englishSource": "Burn USDCx"

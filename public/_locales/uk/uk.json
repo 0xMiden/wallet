@@ -1,4 +1,10 @@
 {
+  "bridgeRouteEpoch": "Fast · Epoch",
+  "bridgeRouteAgglayer": "Slow · Agglayer",
+  "bridgeRouteUnavailableTitle": "$route$ маршрут недоступний",
+  "bridgeRouteUnavailableBody": "Цей маршрут недоступний для цього переказу. Ви можете продовжити, вибравши інший доступний маршрут. З цього екрана не було подано жодної транзакції.",
+  "bridgeContinueAgglayer": "Продовжуйте через Agglayer",
+  "bridgeContinueEpoch": "Продовжити через Epoch",
   "usdcxBurnTitle": "Спалення USDCx",
   "usdcxBurnSubmitted": "Заявка на спалення подана",
   "usdcxMidenFees": "Комісії $symbol$",

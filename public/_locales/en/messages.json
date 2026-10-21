@@ -1,4 +1,33 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableTitle": {
+    "message": "$route$ route unavailable",
+    "englishSource": "$route$ route unavailable",
+    "placeholders": {
+      "route": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Continue via Agglayer",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Continue via Epoch",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "Burn USDCx",
     "englishSource": "Burn USDCx"

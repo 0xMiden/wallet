@@ -1,4 +1,33 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableTitle": {
+    "message": "$route$ маршрут недоступний",
+    "englishSource": "$route$ route unavailable",
+    "placeholders": {
+      "route": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Цей маршрут недоступний для цього переказу. Ви можете продовжити, вибравши інший доступний маршрут. З цього екрана не було подано жодної транзакції.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Продовжуйте через Agglayer",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Продовжити через Epoch",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "Спалення USDCx",
     "englishSource": "Burn USDCx"
