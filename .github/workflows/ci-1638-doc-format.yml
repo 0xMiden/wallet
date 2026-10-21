@@ -29,10 +29,16 @@ jobs:
         run: |
           set -o pipefail
           yarn -s prettier --check playwright/e2e/docs/e2e-architecture.md 2>&1 | tee doc-format.log
+      - name: Collect exact formatting proposal
+        if: always()
+        shell: bash
+        run: yarn -s prettier playwright/e2e/docs/e2e-architecture.md > e2e-architecture.formatted.md
       - name: Preserve formatter output
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: funding-documentation-format-5774
-          path: doc-format.log
+          path: |
+            doc-format.log
+            e2e-architecture.formatted.md
           if-no-files-found: error
