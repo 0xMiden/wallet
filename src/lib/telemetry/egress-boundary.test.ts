@@ -360,6 +360,72 @@ function sentryEvents(): Record<string, unknown>[] {
   return events;
 }
 
+function storageWireIncrement(): {
+  event: Record<string, unknown>;
+  baseline: Record<string, unknown>;
+  increment: number;
+} {
+  expect(captured).toHaveLength(1);
+  const request = captured[0];
+  if (request === undefined) throw new Error('missing wire report');
+  expect(new URL(request.url).pathname.endsWith('/envelope/')).toBe(true);
+  const lines = request.body.split('\n');
+  const eventIndexes: number[] = [];
+  for (let index = 1; index < lines.length; index += 2) {
+    const header = lines[index];
+    if (header === undefined) throw new Error('missing envelope item header');
+    if (parsePayload(header).type === 'event') eventIndexes.push(index + 1);
+  }
+  expect(eventIndexes).toHaveLength(1);
+  const eventIndex = eventIndexes[0];
+  if (eventIndex === undefined) throw new Error('missing event item');
+  const payload = lines[eventIndex];
+  if (payload === undefined) throw new Error('missing event payload');
+  const event = parsePayload(payload);
+  expect(JSON.stringify(event)).toBe(payload);
+
+  const baseline = parsePayload(payload);
+  const extra = objectAt(baseline, 'extra');
+  const diagnostics = objectAt(extra, 'walletDiagnostics');
+  const tags = objectAt(baseline, 'tags');
+  for (const key of ['storageOwner', 'storageOperation', 'pageVisibility']) delete diagnostics[key];
+  for (const key of ['storage_owner', 'storage_operation', 'page_visibility']) delete tags[key];
+  extra.walletDiagnostics = diagnostics;
+  baseline.extra = extra;
+  baseline.tags = tags;
+  expect(Object.keys(diagnostics).length).toBeGreaterThan(0);
+  expect(Object.keys(tags).length).toBeGreaterThan(0);
+  expect(baseline.fingerprint).toEqual(event.fingerprint);
+  const actualDiagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+  const actualTags = objectAt(event, 'tags');
+  expect([
+    diagnostics.userErrorId,
+    diagnostics.userErrorSurface,
+    tags['user_error.id'],
+    tags['user_error.surface']
+  ]).toEqual([
+    actualDiagnostics.userErrorId,
+    actualDiagnostics.userErrorSurface,
+    actualTags['user_error.id'],
+    actualTags['user_error.surface']
+  ]);
+  expect({ ...baseline, extra: event.extra, tags: event.tags }).toEqual(event);
+
+  // Replace only the event payload so all actual envelope headers and unrelated items keep their wire bytes.
+  const baselineLines = [...lines];
+  baselineLines[eventIndex] = JSON.stringify(baseline);
+  expect(baselineLines.filter((_, index) => index !== eventIndex)).toEqual(
+    lines.filter((_, index) => index !== eventIndex)
+  );
+  expect(leaksIn(wireText())).toEqual([]);
+  const encoder = new TextEncoder();
+  return {
+    event,
+    baseline,
+    increment: encoder.encode(request.body).byteLength - encoder.encode(baselineLines.join('\n')).byteLength
+  };
+}
+
 interface CursorFaultEvidence {
   opened: number;
   requestErrors: number;
@@ -1411,6 +1477,109 @@ describe('crash-report egress', () => {
       );
     }
 
+    it('keeps the maximum storage diagnostic increment within192 wire bytes', async () => {
+      const previousTarget = process.env.WALLET_BUILD_TARGET;
+      process.env.WALLET_BUILD_TARGET = 'mobile';
+      try {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'prerender' });
+        consentOn();
+        initCrashReporting();
+        const failure = new Error(`storage operation failed password=${POISON.password}`);
+        failure.name = 'WalletUserVisibleError';
+        annotateCrash(failure, {
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'transaction',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        captureCrash(failure);
+        await flushEgress();
+
+        const { event, baseline, increment } = storageWireIncrement();
+        expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+          appVersion: packageJson.version,
+          network: 'testnet',
+          target: 'mobile',
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'transaction',
+          pageVisibility: 'unknown',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        expect(event.tags).toEqual({
+          network: 'testnet',
+          storage_owner: 'wallet_transactions',
+          storage_operation: 'transaction',
+          page_visibility: 'unknown',
+          'user_error.id': 'usdcxFaucetUnavailable',
+          'user_error.surface': 'review'
+        });
+        expect(objectAt(event, 'exception').values).toEqual([
+          expect.objectContaining({
+            type: 'WalletUserVisibleError',
+            value: expect.stringContaining('storage operation failed')
+          })
+        ]);
+        expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
+        expect(objectAt(objectAt(baseline, 'extra'), 'walletDiagnostics')).toMatchObject({
+          appVersion: packageJson.version,
+          network: 'testnet',
+          target: 'mobile',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        expect(increment).toBeLessThanOrEqual(192);
+      } finally {
+        if (previousTarget === undefined) delete process.env.WALLET_BUILD_TARGET;
+        else process.env.WALLET_BUILD_TARGET = previousTarget;
+      }
+    });
+
+    it('keeps a real cursor diagnostic increment within192 wire bytes', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+
+        const { event, increment } = storageWireIncrement();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'cursor',
+          pageVisibility: 'hidden'
+        });
+        expect(event.tags).toEqual({
+          network: 'testnet',
+          storage_owner: 'wallet_transactions',
+          storage_operation: 'cursor',
+          page_visibility: 'hidden'
+        });
+        expect(increment).toBeGreaterThan(0);
+        expect(increment).toBeLessThanOrEqual(192);
+      });
+    });
+
+    it('keeps an unannotated report within192 added wire bytes without storage attribution', async () => {
+      consentOn();
+      initCrashReporting();
+      captureCrash(new Error('unannotated wire budget control'));
+      await flushEgress();
+
+      const { event, increment } = storageWireIncrement();
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).not.toHaveProperty('storageOwner');
+      expect(diagnostics).not.toHaveProperty('storageOperation');
+      expect(diagnostics.pageVisibility).toBe('hidden');
+      expect(event.tags).toEqual({ network: 'testnet', page_visibility: 'hidden' });
+      expect(event).not.toHaveProperty('fingerprint');
+      expect(increment).toBeGreaterThan(0);
+      expect(increment).toBeLessThanOrEqual(192);
+    });
+
     it('sends only closed storage values from a real post-open cursor rejection', async () => {
       consentOn();
       initCrashReporting();
@@ -1894,6 +2063,7 @@ describe('user-visible error reports', () => {
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(event.tags).toEqual({
       network: 'testnet',
+      page_visibility: 'visible',
       'user_error.id': 'raw_send_submit_failed',
       'user_error.surface': 'inline'
     });
@@ -1920,6 +2090,7 @@ describe('user-visible error reports', () => {
     expect(event.level).toBe('warning');
     expect(event.tags).toEqual({
       network: 'testnet',
+      page_visibility: 'visible',
       'user_error.id': 'usdcxFaucetUnavailable',
       'user_error.surface': 'review'
     });
@@ -1927,6 +2098,7 @@ describe('user-visible error reports', () => {
     expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toEqual({
       ...resolveTelemetryContext(),
       ...getCrashBuildIdentity(),
+      pageVisibility: 'visible',
       userErrorId: 'usdcxFaucetUnavailable',
       userErrorSurface: 'review'
     });
@@ -2032,6 +2204,7 @@ describe('user-visible error reports', () => {
     const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
     expect(event.tags).toEqual({
       network: 'testnet',
+      page_visibility: 'visible',
       'user_error.id': 'raw_account_export_failed',
       'user_error.surface': 'review'
     });
@@ -2049,6 +2222,7 @@ describe('user-visible error reports', () => {
       walletDiagnostics: {
         ...resolveTelemetryContext(),
         ...getCrashBuildIdentity(),
+        pageVisibility: 'visible',
         userErrorId: 'raw_account_export_failed',
         userErrorSurface: 'review'
       }
