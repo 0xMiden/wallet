@@ -1745,7 +1745,7 @@ describe('user-visible error reports', () => {
 
   it('retains a repeated report after the minute instead of letting Sentry deduplicate it', async () => {
     consentOn();
-    const clock = jest.spyOn(Date, 'now').mockReturnValue(0);
+    const clock = jest.spyOn(performance, 'now').mockReturnValue(0);
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
     await flushEgress();
     clock.mockReturnValue(59_999);

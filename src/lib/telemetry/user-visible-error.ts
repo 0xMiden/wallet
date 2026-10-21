@@ -34,7 +34,7 @@ function isUserErrorSurface(value: unknown): value is UserErrorSurface {
 export function reportUserVisibleError(id: UserErrorId, surface: UserErrorSurface): void {
   try {
     if (!isUserErrorId(id) || !isUserErrorSurface(surface)) return;
-    const now = Date.now();
+    const now = performance.now();
     const pair = `${id}:${surface}`;
     const lastSent = lastSentByPair.get(pair);
     if (lastSent !== undefined && now - lastSent < PAIR_INTERVAL_MS) return;

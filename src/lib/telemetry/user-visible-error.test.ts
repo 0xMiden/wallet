@@ -64,20 +64,20 @@ describe('user-visible error reports', () => {
 
   it('sends one report per id and surface per minute', () => {
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
-    jest.setSystemTime(1);
+    jest.advanceTimersByTime(1);
     reportUserVisibleError('usdcxFaucetUnavailable', 'inline');
     expect(captureCrash).toHaveBeenCalledTimes(2);
-    jest.setSystemTime(59_999);
+    jest.advanceTimersByTime(59_998);
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
     expect(captureCrash).toHaveBeenCalledTimes(2);
-    jest.setSystemTime(60_000);
+    jest.advanceTimersByTime(1);
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
     expect(captureCrash).toHaveBeenCalledTimes(3);
   });
 
   it('caps a realm at 30 reports in 10 minutes', () => {
     for (const minute of [0, 1, 2]) {
-      jest.setSystemTime(minute * 60_000);
+      jest.advanceTimersByTime(minute === 0 ? 0 : 60_000);
       for (const surface of USER_ERROR_SURFACES.slice(0, minute === 2 ? 6 : 12)) {
         reportUserVisibleError('usdcxFaucetUnavailable', surface);
       }
@@ -85,7 +85,7 @@ describe('user-visible error reports', () => {
     expect(captureCrash).toHaveBeenCalledTimes(30);
     reportUserVisibleError('usdcxFaucetUnavailable', 'status_screen');
     expect(captureCrash).toHaveBeenCalledTimes(30);
-    jest.setSystemTime(600_001);
+    jest.advanceTimersByTime(480_001);
     reportUserVisibleError('usdcxFaucetUnavailable', 'status_screen');
     expect(captureCrash).toHaveBeenCalledTimes(31);
   });
@@ -148,7 +148,7 @@ describe('user-visible error reports', () => {
 
   it('resets both limits for isolated tests', () => {
     for (const minute of [0, 1, 2]) {
-      jest.setSystemTime(minute * 60_000);
+      jest.advanceTimersByTime(minute === 0 ? 0 : 60_000);
       for (const surface of USER_ERROR_SURFACES.slice(0, minute === 2 ? 6 : 12)) {
         reportUserVisibleError('usdcxFaucetUnavailable', surface);
       }
