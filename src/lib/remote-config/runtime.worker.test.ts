@@ -172,7 +172,6 @@ it('after a wipe, keeps the copy and fetches nothing', async () => {
   expect(mockFetch).not.toHaveBeenCalled();
 });
 
-
 it('never requests eligibility from backend initialization, elapsed time or reset recovery', async () => {
   seed(13);
   await initBridgeConfig();

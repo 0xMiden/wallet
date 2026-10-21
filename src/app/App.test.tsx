@@ -81,7 +81,12 @@ jest.mock('lib/walletconnect/appkit', () => ({
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({
-  initFeatureEligibility: jest.fn(async () => ({ state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: true } })),
+  initFeatureEligibility: jest.fn(async () => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn: true, swap: true }
+  })),
   subscribeBridgeConfig: () => () => undefined,
   getBridgeConfigSnapshot: () => ({ network: 'testnet', config: null })
 }));

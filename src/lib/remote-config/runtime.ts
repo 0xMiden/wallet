@@ -95,7 +95,14 @@ function stateFor(network: string): NetworkState {
     failures: 0,
     logged: {},
     subscriptions: [],
-    snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null, ...(startupGeo ? { geo: startupGeo } : {}) }
+    snapshot: {
+      network,
+      status: 'loading',
+      config: null,
+      derived: null,
+      lastFetch: null,
+      ...(startupGeo ? { geo: startupGeo } : {})
+    }
   };
   states.set(network, state);
   return state;

@@ -191,7 +191,9 @@ beforeEach(() => {
   mockNetwork = 'testnet';
   mockStorage.clear();
   mockLookup.mockReset().mockImplementation(async (network, version) => ({
-    network, version, allowed: { wallet: true, earn: false, swap: true }
+    network,
+    version,
+    allowed: { wallet: true, earn: false, swap: true }
   }));
   mockAvailability = {};
   visibility = 'visible';
@@ -1262,7 +1264,6 @@ describe('the Guardian operators', () => {
   });
 });
 
-
 describe('startup eligibility', () => {
   it('does not check eligibility during ordinary config initialization or refresh', async () => {
     seed(13);
@@ -1293,7 +1294,9 @@ describe('startup eligibility', () => {
     pending.release();
     const result = await first;
     expect(result).toEqual({
-      state: 'ready', network: 'testnet', version: 13,
+      state: 'ready',
+      network: 'testnet',
+      version: 13,
       allowed: { wallet: true, earn: false, swap: true }
     });
     expect(getBridgeConfigSnapshot().geo).toBe(result);

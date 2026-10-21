@@ -119,5 +119,4 @@ describe('swapAvailability', () => {
       })
     ).toEqual({ state: 'available' });
   });
-
 });

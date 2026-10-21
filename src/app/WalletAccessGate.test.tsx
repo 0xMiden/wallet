@@ -20,18 +20,24 @@ jest.mock('components/ui/Button', () => ({
     onClick,
     'data-testid': testId
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & { 'data-testid'?: string }) => (
-    <button onClick={onClick} data-testid={testId}>{children}</button>
+    <button onClick={onClick} data-testid={testId}>
+      {children}
+    </button>
   )
 }));
 
 function deferred<T>() {
   let finish: (value: T) => void = () => {};
-  const promise = new Promise<T>(resolve => { finish = resolve; });
+  const promise = new Promise<T>(resolve => {
+    finish = resolve;
+  });
   return { promise, finish };
 }
 
 const allowed: GeoLookup = {
-  state: 'ready', network: 'testnet', version: 13,
+  state: 'ready',
+  network: 'testnet',
+  version: 13,
   allowed: { wallet: true, earn: false, swap: true }
 };
 
@@ -41,7 +47,10 @@ function RecoveryForm({ completion, onMount }: { completion: Promise<void>; onMo
   useEffect(() => onMount(), [onMount]);
   return (
     <section data-testid="recovery-state">
-      <label>Recovery progress<input value={progress} onChange={event => setProgress(event.target.value)} /></label>
+      <label>
+        Recovery progress
+        <input value={progress} onChange={event => setProgress(event.target.value)} />
+      </label>
       <button onClick={() => void completion.then(() => setError('Recovery request failed'))}>Recover</button>
       {error && <p role="alert">{error}</p>}
     </section>
@@ -54,7 +63,10 @@ beforeEach(() => {
 });
 
 const deniedCases: Array<{ decision: GeoLookup; status: string }> = [
-  { decision: { state: 'ready', network: 'testnet', version: 13, allowed: { wallet: false, earn: false, swap: false } }, status: 'restricted' },
+  {
+    decision: { state: 'ready', network: 'testnet', version: 13, allowed: { wallet: false, earn: false, swap: false } },
+    status: 'restricted'
+  },
   { decision: { state: 'failed' }, status: 'unavailable' }
 ];
 
@@ -64,21 +76,35 @@ describe('WalletAccessGate startup only', () => {
     const decision = deferred<GeoLookup>();
     mockLoadEndpoints.mockReturnValue(endpoints.promise);
     mockInitEligibility.mockReturnValue(decision.promise);
-    render(<WalletAccessGate><p>Private wallet</p></WalletAccessGate>);
+    render(
+      <WalletAccessGate>
+        <p>Private wallet</p>
+      </WalletAccessGate>
+    );
     expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'loading');
     expect(screen.queryByText('Private wallet')).toBeNull();
     expect(mockInitEligibility).not.toHaveBeenCalled();
-    await act(async () => { endpoints.finish(); await endpoints.promise; });
+    await act(async () => {
+      endpoints.finish();
+      await endpoints.promise;
+    });
     expect(mockInitEligibility).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('Private wallet')).toBeNull();
-    await act(async () => { decision.finish(allowed); await decision.promise; });
+    await act(async () => {
+      decision.finish(allowed);
+      await decision.promise;
+    });
     expect(screen.getByText('Private wallet')).toBeVisible();
     expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
   });
 
   it.each(deniedCases)('keeps the wallet unmounted after a $status startup result', async ({ decision, status }) => {
     mockInitEligibility.mockResolvedValue(decision);
-    render(<WalletAccessGate><p>Private wallet</p></WalletAccessGate>);
+    render(
+      <WalletAccessGate>
+        <p>Private wallet</p>
+      </WalletAccessGate>
+    );
     await act(async () => {});
     expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
     expect(screen.queryByText('Private wallet')).toBeNull();
@@ -88,7 +114,11 @@ describe('WalletAccessGate startup only', () => {
 
   it('shows startup unavailability when endpoint bootstrap fails', async () => {
     mockLoadEndpoints.mockRejectedValueOnce(new Error('storage unavailable'));
-    render(<WalletAccessGate><p>Private wallet</p></WalletAccessGate>);
+    render(
+      <WalletAccessGate>
+        <p>Private wallet</p>
+      </WalletAccessGate>
+    );
     await act(async () => {});
     expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'unavailable');
     expect(screen.queryByText('Private wallet')).toBeNull();
@@ -96,7 +126,13 @@ describe('WalletAccessGate startup only', () => {
   });
 
   it('handles StrictMode effect replay without changing the startup decision', async () => {
-    render(<StrictMode><WalletAccessGate><p>Private wallet</p></WalletAccessGate></StrictMode>);
+    render(
+      <StrictMode>
+        <WalletAccessGate>
+          <p>Private wallet</p>
+        </WalletAccessGate>
+      </StrictMode>
+    );
     await act(async () => {});
     expect(screen.getByText('Private wallet')).toBeVisible();
     expect(mockInitEligibility).toHaveBeenCalledTimes(2);
@@ -121,13 +157,18 @@ describe('WalletAccessGate startup only', () => {
         window.dispatchEvent(new Event('storage'));
       });
       rerender(<WalletAccessGate>{content}</WalletAccessGate>);
-      await act(async () => { completion.finish(); await completion.promise; });
+      await act(async () => {
+        completion.finish();
+        await completion.promise;
+      });
       expect(screen.getByRole('textbox', { name: 'Recovery progress' })).toBe(input);
       expect(input).toHaveValue('saved recovery progress');
       expect(screen.getByRole('alert')).toHaveTextContent('Recovery request failed');
       expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
       expect(onMount).toHaveBeenCalledTimes(1);
       expect(mockInitEligibility).toHaveBeenCalledTimes(1);
-    } finally { jest.useRealTimers(); }
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

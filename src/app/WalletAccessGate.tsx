@@ -30,10 +30,18 @@ export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
   if (geo.state === 'ready' && geo.allowed.wallet) return <>{children}</>;
 
   const status = geo.state === 'ready' ? 'restricted' : geo.state === 'failed' ? 'unavailable' : 'loading';
-  const title = status === 'restricted' ? 'walletAccessRestrictedTitle'
-    : status === 'unavailable' ? 'walletAccessUnavailableTitle' : 'walletAccessCheckingTitle';
-  const body = status === 'restricted' ? 'walletAccessRestrictedBody'
-    : status === 'unavailable' ? 'walletAccessUnavailableBody' : 'walletAccessCheckingBody';
+  const title =
+    status === 'restricted'
+      ? 'walletAccessRestrictedTitle'
+      : status === 'unavailable'
+        ? 'walletAccessUnavailableTitle'
+        : 'walletAccessCheckingTitle';
+  const body =
+    status === 'restricted'
+      ? 'walletAccessRestrictedBody'
+      : status === 'unavailable'
+        ? 'walletAccessUnavailableBody'
+        : 'walletAccessCheckingBody';
 
   return (
     <main
@@ -46,7 +54,11 @@ export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
         <h1 className="text-xl font-semibold">{t(title)}</h1>
         <p className="text-sm text-muted leading-relaxed">{t(body)}</p>
         {status !== 'loading' && (
-          <Button variant={ButtonVariant.Secondary} onClick={() => window.location.reload()} data-testid="wallet-access-retry">
+          <Button
+            variant={ButtonVariant.Secondary}
+            onClick={() => window.location.reload()}
+            data-testid="wallet-access-retry"
+          >
             {t('retry')}
           </Button>
         )}
