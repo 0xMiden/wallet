@@ -243,41 +243,44 @@ export async function classifySwapSettlementSnapshot(
 }
 
 /**
- * Self-heal a lost settlement stamp. `completeConsumeTransaction`'s stamp on
+ * Self-heal a lost or outranked settlement stamp. `completeConsumeTransaction`'s stamp on
  * the swap row is best-effort and runs exactly once (the consume row goes
  * Completed and is never reprocessed), so a single swallowed write failure
- * would otherwise pin the swap row's chip on Pending forever. When an order
- * has no consumable notes left and no stamp, look for its completed tagged
- * consume and re-stamp from it. A settle consume outranks a reclaim one —
- * funds were received.
+ * would otherwise pin the swap row's chip on Pending forever, and the chunks of a
+ * split settlement stamp nothing themselves (#1644). When an order has no
+ * consumable notes left and no settledAt, look for its completed tagged consume and
+ * stamp from it. A settle consume outranks a reclaim one, funds were received, so
+ * settledAt is written whatever reclaimedAt holds (a reclaim's completion or Guardian
+ * history recovery can write that first); a claim of the kind still in flight, its
+ * notes already off the consumable list, holds the stamp. Writes nothing when no
+ * stamp would change, since this runs on every lap for a reclaimed order.
  */
 async function repairSettlementStamp(order: SwapOrder): Promise<void> {
   if (isRecoveredSwapOrder(order)) return;
-  const linked = await Repo.transactions
-    .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapOrderTxId === order.id)
-    .toArray();
-  const consumes = linked.filter(tx => tx.status === ITransactionStatus.Completed);
-  const settle = consumes.find(tx => tx.extraInputs?.swapSettleKind !== 'reclaim') ?? consumes[0];
-  if (!settle) return;
-  // A sibling claim of the same kind still in flight holds the stamp, as it does at completion: a submitted chunk's
-  // notes leave the consumable list before its verdict, so "nothing left to claim" is not yet "settled" (#1644).
-  const kind = settle.extraInputs?.swapSettleKind === 'reclaim' ? 'reclaim' : 'settle';
-  if (linked.some(tx => isOpenSettlementClaim(tx, { swapOrderTxId: order.id, swapSettleKind: kind }))) return;
-  // And a payback claim still in flight outranks a completed reclaim, as at completion: its settledAt is the stamp.
-  if (
-    kind === 'reclaim' &&
-    linked.some(tx => isOpenSettlementClaim(tx, { swapOrderTxId: order.id, swapSettleKind: 'settle' }))
-  )
-    return;
-  const stampedAt = settle.completedAt ?? Math.floor(Date.now() / 1000);
+  const linked = (await Repo.transactions.where('extraInputs.swapOrderTxId').equals(order.id).toArray()).filter(
+    tx => tx.type === 'consume'
+  );
+  const open = (swapSettleKind: 'settle' | 'reclaim') =>
+    linked.some(tx => isOpenSettlementClaim(tx, { swapOrderTxId: order.id, swapSettleKind }));
+  const completed = (reclaim: boolean) =>
+    linked.find(
+      tx => tx.status === ITransactionStatus.Completed && (tx.extraInputs?.swapSettleKind === 'reclaim') === reclaim
+    );
+  const payback = completed(false);
+  const tip = completed(true);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const stamp =
+    payback && !open('settle')
+      ? { settledAt: payback.completedAt ?? nowSeconds }
+      : order.extraInputs.reclaimedAt == null && tip && !open('settle') && !open('reclaim')
+        ? { reclaimedAt: tip.completedAt ?? nowSeconds }
+        : undefined;
+  if (!stamp) return;
   await Repo.transactions.where({ id: order.id }).modify(tx => {
     // `false`, not a bare return - dexie re-puts the deep clone for any other value, and this
     // runs off the sync tick, so a bare return rewrites the row on every cadence.
     if (!isSwapTransaction(tx)) return false;
-    tx.extraInputs = {
-      ...tx.extraInputs,
-      ...(settle.extraInputs?.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
-    };
+    tx.extraInputs = { ...tx.extraInputs, ...stamp };
     return undefined;
   });
 }
@@ -370,10 +373,11 @@ export async function reconcileSwapOrderNotes(
         }
         continue;
       }
-      // Nothing consumable left but no settlement stamp: either the stamp
-      // write was lost after the consume completed, or nothing was tagged
-      // (nothing to repair — the lookup no-ops until the state changes).
-      if (order.extraInputs.settledAt == null && order.extraInputs.reclaimedAt == null) {
+      // Nothing consumable left but no settledAt: the stamp write was lost after
+      // the consume completed, a split settlement's chunks left it to this repair,
+      // a reclaimedAt landed first, or nothing was tagged (nothing to repair; the
+      // indexed lookup no-ops until the state changes).
+      if (order.extraInputs.settledAt == null) {
         await repairSettlementStamp(order);
       }
       continue;

@@ -178,7 +178,8 @@ describe('swap order note settlement', () => {
     jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
     mockNoteClaimCoverage.mockReset().mockResolvedValue({ rows: [] });
     (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
-    (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
+    // `where` serves the stamp writes and the repair's read of an order's claims through its swapOrderTxId index.
+    (Repo.transactions.where as jest.Mock).mockReturnValue({ modify, equals: () => ({ toArray }) });
     mockStoreAccounts = [];
   });
 
@@ -908,6 +909,59 @@ describe('swap order note settlement', () => {
       extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true }
     };
     toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedReclaim, submittedPayback]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(modify).not.toHaveBeenCalled();
+  });
+
+  it('writes settledAt on an order already stamped Reclaimed once its split payback claims completed (#1644)', async () => {
+    // Guardian history recovery, a reclaim's completion or an earlier repair can write reclaimedAt before a split
+    // payback settlement finishes, and its chunks stamp nothing themselves.
+    const order = tx({
+      extraInputs: {
+        requestedFaucetId: 'requested',
+        requestedAmount: 50n,
+        orderId: 77n,
+        expiresAt: 220,
+        reclaimedAt: 300
+      }
+    });
+    const completedChunk = {
+      id: 'consume-done',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 500,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true }
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedChunk]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    const stampWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const swapRow = { ...order };
+    stampWriter(swapRow);
+    expect(swapRow.extraInputs).toEqual(expect.objectContaining({ settledAt: 500, reclaimedAt: 300 }));
+  });
+
+  it('leaves a reclaimed order with no payback claim untouched on every lap', async () => {
+    const order = tx({
+      extraInputs: {
+        requestedFaucetId: 'requested',
+        requestedAmount: 50n,
+        orderId: 77n,
+        expiresAt: 220,
+        reclaimedAt: 300
+      }
+    });
+    const completedReclaim = {
+      id: 'consume-tip',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 300,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedReclaim]);
 
     await reconcileSwapOrderNotes('account-1', [], false, 150);
 
