@@ -24,6 +24,7 @@ import {
   completeCommittedGuardianCompletion
 } from './committed-guardian-completion';
 import { getIntercom } from './defaults';
+import { createHotKeySwapGuard } from './hot-key-swap-guard';
 import { clearRecoveryAuthorization } from './recovery-authorization';
 import { accountsUpdated, isUnlocked, store, withUnlocked } from './store';
 
@@ -161,12 +162,15 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // are: this is a read-modify-write of the whole accounts array, and a
     // concurrent one (an account create, or the detached Guardian recovery
     // clearing its flag) would drop one of the two writes.
-    return withUnlocked(({ vault }) =>
-      getAccountsWriteQueue().add(async () => {
-        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
+    return withUnlocked(({ vault }) => {
+      const assertCurrent = createHotKeySwapGuard(vault, accountPublicKey, newHotPubKey);
+      return getAccountsWriteQueue().add(async () => {
+        assertCurrent();
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey, assertCurrent);
+        assertCurrent();
         accountsUpdated(updated);
-      })
-    );
+      });
+    });
   },
   setGuardianEndpoint: async (accountPublicKey: string, guardianEndpoint: string) => {
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store

@@ -39,7 +39,11 @@ import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
-import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveDefaultGuardianEndpoint,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import {
   assertWalletAccessAllowed,
@@ -103,6 +107,7 @@ import {
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isAccountNotFoundOnChainError } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { currentGuardianWriteGeneration } from '../sync-backoff';
 
 // AUTH SCHEME POLICY
 // ============================================================================
@@ -346,6 +351,22 @@ export class Vault {
     if (!isRealmKeystoreInstalled({ insertKey: this.insertKeySink })) {
       throw Object.assign(new PublicError('Wallet is locked'), { reason: 'locked' as const });
     }
+  }
+
+  private createHotKeyMutationGuard(): (account?: WalletAccount) => void {
+    const network = getEffectiveNetworkName();
+    const rpcUrl = getEffectiveRpcUrl();
+    const generation = currentGuardianWriteGeneration();
+    return () => {
+      this.assertRealmSinkIsMine();
+      if (
+        network !== getEffectiveNetworkName() ||
+        rpcUrl !== getEffectiveRpcUrl() ||
+        generation !== currentGuardianWriteGeneration()
+      ) {
+        throw new PublicError('The hot-key update belongs to a retired network');
+      }
+    };
   }
 
   async fetchSeedPhraseStatus(): Promise<SeedPhraseStatus> {
@@ -2060,7 +2081,8 @@ export class Vault {
    * `expectedHotPubKey` is the hot key the caller read before it decided to swap. Omitted, nothing is
    * checked. A string must equal the stored `hotPublicKey`, and null requires a record with none (a
    * keyless pending activation). Any other record is refused with a `PublicError` coded
-   * `HOT_KEY_CHANGED`, and nothing is written or released.
+   * `HOT_KEY_CHANGED`, and nothing is written or released. Expecting the requested target
+   * itself confirms an already-applied swap without rewriting storage or cleaning up keys.
    */
   async swapHotKey(
     accountPublicKey: string,
@@ -2069,12 +2091,14 @@ export class Vault {
     assertCurrent?: (account?: WalletAccount) => void
   ) {
     return withError('Failed to swap hot key', async () => {
+      const guard = assertCurrent ?? this.createHotKeyMutationGuard();
+      guard();
       const allAccounts = await this.fetchAccounts();
       const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
       }
-      assertCurrent?.(account);
+      guard(account);
       // Checked here, inside the caller's accounts-write-queue turn, because a background heal in
       // another realm shares no lock with the rotation pipeline. Ahead of the stored-key check, whose
       // code closes the heal's budget for good, so a moved pointer is never reported as a missing key.
@@ -2083,13 +2107,26 @@ export class Vault {
       }
       // Before the pointer: a swap to a key this vault lacks points the account at nothing, and an
       // encrypted-file restore keeps the rotation rows without necessarily keeping their keys.
-      if (!(await isStored(accAuthSecretKeyStrgKey(newHotPubKey)))) {
+      const hasNewHotKey = await isStored(accAuthSecretKeyStrgKey(newHotPubKey));
+      guard();
+      if (!hasNewHotKey) {
         throw Object.assign(new PublicError('The new hot key is not stored in this wallet'), {
           code: HOT_KEY_NOT_STORED
         });
       }
 
       const oldHotPubKey = account.hotPublicKey;
+      const currentAccountPublicKey = await Vault.getCurrentAccountPublicKey();
+      guard();
+      if (expectedHotPubKey === newHotPubKey) {
+        if (account.requiresHotKeyRotation !== undefined && account.requiresHotKeyRotation !== false) {
+          throw Object.assign(new PublicError('The hot-key rotation metadata is incomplete'), { code: HOT_KEY_CHANGED });
+        }
+        return {
+          accounts: allAccounts,
+          currentAccount: allAccounts.find(acc => acc.publicKey === currentAccountPublicKey) ?? allAccounts[0]
+        };
+      }
 
       // Update the account pointer FIRST, so the new hot key is durable before we
       // release the old one. The inverse order has a lockout window: if removing
@@ -2098,22 +2135,23 @@ export class Vault {
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false } : acc
       );
-      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey, assertCurrent);
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey, guard);
 
-      // Now best-effort release the old hot key. A crash here only orphans the
-      // old blobs (inert) — never a broken pointer.
+      // The pointer is durable. Retired authority may only leave inert old key
+      // material behind; cleanup failure must not turn that commit into a rollback.
       if (oldHotPubKey && oldHotPubKey !== newHotPubKey) {
         try {
+          guard();
           const oldCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(oldHotPubKey), this.vaultKey);
-          assertCurrent?.();
+          guard();
           await secureHotKey.deleteHotKey(oldCiphertext);
+          await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)], guard);
         } catch (e) {
           console.warn('swapHotKey: failed to release old native key (non-fatal):', e);
         }
-        await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)], assertCurrent);
       }
 
-      const currentAccount = await this.getCurrentAccount();
+      const currentAccount = newAllAccounts.find(acc => acc.publicKey === currentAccountPublicKey) ?? newAllAccounts[0];
       return { accounts: newAllAccounts, currentAccount };
     });
   }

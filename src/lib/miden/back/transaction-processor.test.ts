@@ -14,6 +14,8 @@
  */
 
 import { ITransactionStatus } from 'lib/miden/db/types';
+import { WalletStatus, type WalletAccount } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 const mockAlarmsCreate = jest.fn();
 const mockAlarmsClear = jest.fn();
@@ -89,10 +91,17 @@ jest.mock('lib/platform', () => ({
 const mockWithUnlocked = jest.fn();
 // The store's unlock predicate, answering as `withUnlocked` does: `lockedWithUnlocked` locks both.
 let mockVaultUnlocked = true;
+interface HotKeySwapState {
+  inited: boolean;
+  status: WalletStatus;
+  vault: object;
+  accounts: WalletAccount[];
+}
+let mockHotKeySwapState: HotKeySwapState | undefined;
 jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn),
   isUnlocked: () => mockVaultUnlocked,
-  store: { getState: () => ({}) },
+  store: { getState: () => mockHotKeySwapState ?? {} },
   accountsUpdated: jest.fn()
 }));
 
@@ -119,6 +128,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockWithUnlocked.mockReset();
   mockVaultUnlocked = true;
+  mockHotKeySwapState = undefined;
   mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
@@ -522,28 +532,58 @@ describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
 });
 
 describe('vaultGuardianProvider.swapHotKey', () => {
-  const vaultSwapping = () => {
-    const swapHotKey = jest.fn(async () => ({ accounts: [], currentAccount: undefined }));
-    mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault: { swapHotKey } }));
-    return swapHotKey;
+  const vaultSwapping = async () => {
+    const account: WalletAccount = {
+      publicKey: 'acc',
+      type: WalletType.Guardian,
+      name: 'Guardian account',
+      isPublic: true,
+      hdIndex: 0,
+      hotPublicKey: 'old-pub',
+      coldPublicKey: 'cold-pub',
+      guardianEndpoint: 'https://guardian.example',
+      guardianEpoch: 2
+    };
+    const currentAccount = { ...account, hotPublicKey: 'new-pub' };
+    const swapHotKey = jest.fn(async () => ({ accounts: [currentAccount], currentAccount }));
+    const vault = { swapHotKey, insertKeySink: async () => undefined };
+    mockHotKeySwapState = { inited: true, status: WalletStatus.Ready, vault, accounts: [account] };
+    mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault }));
+    const realm = await import('lib/miden/sdk/miden-client');
+    realm.installRealmKeystore({ insertKey: vault.insertKeySink });
+    return {
+      swapHotKey,
+      retire: () => {
+        realm.uninstallRealmKeystore({ insertKey: vault.insertKeySink });
+        mockHotKeySwapState = undefined;
+      }
+    };
   };
 
   it('passes the expectation to the vault (#1233)', async () => {
-    const swapHotKey = vaultSwapping();
-    const mod = await import('./transaction-processor');
+    const fixture = await vaultSwapping();
+    try {
+      const mod = await import('./transaction-processor');
 
-    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
+      await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
 
-    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+      expect(fixture.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub', expect.any(Function));
+    } finally {
+      fixture.retire();
+    }
   });
 
   it('passes no expectation when the caller passes none (#1233)', async () => {
-    const swapHotKey = vaultSwapping();
-    const mod = await import('./transaction-processor');
+    const fixture = await vaultSwapping();
+    try {
+      const mod = await import('./transaction-processor');
 
-    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
+      await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
 
-    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
+      expect(fixture.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined, expect.any(Function));
+    } finally {
+      fixture.retire();
+    }
   });
 });
 

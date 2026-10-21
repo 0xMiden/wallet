@@ -1069,7 +1069,11 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         // `mockReRegister` is the rest of the method: it decides whether the push starts.
         return mockReRegister(lockOptions, onBeforeRegister);
       },
-      adoptGuardianStateOnce: mockAdoptGuardianState
+      adoptGuardianStateOnce: mockAdoptGuardianState,
+      verifyCurrentStateOnChain: async (_options?: unknown, assertCurrent?: () => void): Promise<readonly string[]> => {
+        assertCurrent?.();
+        return ['0xbeef', '0xc01d'];
+      }
     });
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
     // A re-register that resolves has passed its push start: the push is its only way to succeed.
@@ -1087,7 +1091,11 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     mockMarkRotationCompleted.mockReset();
     mockMarkRotationCompleted.mockResolvedValue(undefined);
     storeState.swapHotKey.mockReset();
-    storeState.swapHotKey.mockResolvedValue(undefined);
+    storeState.swapHotKey.mockImplementation(async (publicKey: string, target: string, expected?: string | null) => {
+      if (expected === target && storeState.accounts.find(account => account.publicKey === publicKey)?.hotPublicKey !== target) {
+        throw Object.assign(new Error('The account hot key changed'), { code: 'HOT_KEY_CHANGED' });
+      }
+    });
   });
 
   it('cold re-registers only after the 401 has persisted to the threshold', async () => {
@@ -2062,6 +2070,48 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     });
 
     describe('GEO022 residual completion admission', () => {
+      it('GEO022 does not spend configure budget when verification-only row completion fails', async () => {
+        const clocks = useFakeClocks(1_000);
+        const account = { ...arrangePending(), hotPublicKey: 'new-hot-pub' };
+        storeState.accounts = [account];
+        let rowTarget = 'new-hot-pub';
+        let chainHot = '0xbeef';
+        mockFindFailedHotKeyRotations.mockImplementation(async () => [{ id: 'row-geo022-readonly-budget', newHotPublicKey: rowTarget }]);
+        mockGetSignerDetails.mockImplementation(async () => ({ commitment: chainHot }));
+        mockCommitmentFromPublicKeyHex.mockImplementation(async (key: string) => key === 'next-hot-pub' ? '0xfeed' : '0xbeef');
+        mockMarkRotationCompleted.mockRejectedValue(new Error('Rotation row temporarily unavailable'));
+        const verify = jest.fn(async (_options?: unknown, assertCurrent?: () => void): Promise<readonly string[]> => {
+          assertCurrent?.(); return [chainHot, '0xc01d'];
+        });
+        mockBuildColdMultisigService.mockResolvedValue({
+          adoptGuardianStateOnce: mockAdoptGuardianState,
+          verifyCurrentStateOnChain: verify,
+          reRegisterCurrentStateOnGuardian: async (
+            onBeforeRegister?: (signers: readonly string[]) => void, options?: unknown, assertCurrent?: () => void
+          ) => {
+            await mockPreRegisterHold(); assertCurrent?.();
+            return mockReRegister(options, onBeforeRegister);
+          }
+        });
+        mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
+          onPushStart?.([chainHot, '0xc01d']);
+        });
+        try {
+          for (let i = 0; i < 3; i++) {
+            await syncGuardianAccounts(); clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+          }
+          expect(verify).toHaveBeenCalledTimes(3);
+          expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(3);
+          expect(mockReRegister).not.toHaveBeenCalled();
+          rowTarget = 'next-hot-pub'; chainHot = '0xfeed';
+          for (let i = 0; i < 3; i++) {
+            await syncGuardianAccounts(); clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+          }
+          expect(mockReRegister).toHaveBeenCalledTimes(3);
+          expect(verify).toHaveBeenCalledTimes(3);
+        } finally { clocks.restore(); }
+      });
+
       const withRealRotation = async (
         accountId: string,
         status: import('../db/types').ITransactionStatus,
@@ -2236,7 +2286,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
             expect(stored?.extraInputs?.hotKeyPersistFailed).toBe(!repaired);
             expect(stored?.status).toBe(repaired ? ITransactionStatus.Completed : initialStatus);
             expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(repaired ? 1 : 0);
-            expect(mockReRegister).toHaveBeenCalledTimes(repaired ? 1 : 0);
+            expect(mockReRegister).not.toHaveBeenCalled();
           });
         }
       );
@@ -2546,7 +2596,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         await syncGuardianAccounts();
         expect(mockReRegister).toHaveBeenCalledTimes(1);
         expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
-        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-geo019');
+        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-geo019', expect.any(Function));
       } finally {
         barrier.release();
         await pass;
@@ -2683,7 +2733,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         const expectedPushes = change === 'canonical respelling' ? 1 : 2;
         expect(mockReRegister).toHaveBeenCalledTimes(expectedPushes);
         expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
-        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-geo019');
+        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-geo019', expect.any(Function));
       } finally {
         barrier.release();
         await pass;
@@ -2699,10 +2749,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
 
     expect(mockReRegister).toHaveBeenCalledTimes(1);
-    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-rotation', 'new-hot-pub', 'hot');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-rotation', 'new-hot-pub', 'hot', expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
     const swappedAt = storeState.swapHotKey.mock.invocationCallOrder[0]!;
     expect(swappedAt).toBeGreaterThan(mockReRegister.mock.invocationCallOrder[0]!);
-    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot');
+    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot', expect.any(Function));
     // The 401 arm evicts the service every lap; the finish evicts it again once the key is swapped.
     expect(mockClearGuardianServiceFor).toHaveBeenLastCalledWith('acct-own-rotation');
     expect(Math.max(...mockClearGuardianServiceFor.mock.invocationCallOrder)).toBeGreaterThan(swappedAt);
@@ -2741,14 +2791,14 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
 
       expect(mockReRegister).toHaveBeenCalledTimes(1);
-      expect(storeState.swapHotKey).toHaveBeenCalledWith(accountId, 'new-hot-pub', 'hot');
+      expect(storeState.swapHotKey).toHaveBeenCalledWith(accountId, 'new-hot-pub', 'hot', expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
       expect(storeState.accounts.find(account => account.publicKey === accountId)?.hotPublicKey).toBe('new-hot-pub');
       expect(await repo.transactions.get(row.id)).toMatchObject({
         status: ITransactionStatus.Completed,
         transactionId: row.transactionId,
         extraInputs: { newHotPublicKey: 'new-hot-pub', hotKeyPersistFailed: false }
       });
-      expect(mockMarkRotationCompleted).toHaveBeenCalledWith(row.id);
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith(row.id, expect.any(Function));
       await expect(residual.findFailedHotKeyRotations(accountId)).resolves.toEqual([]);
       const swappedAt = storeState.swapHotKey.mock.invocationCallOrder[0];
       if (swappedAt === undefined) throw new Error('Expected the verified hot-key repair to run');
@@ -2829,7 +2879,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).toHaveBeenCalledTimes(2);
     expect(storeState.swapHotKey).toHaveBeenCalledTimes(2);
     expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(1);
-    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot');
+    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot', expect.any(Function));
     expect(isGuardianUnrepairable('acct-own-locked')).toBe(false);
   });
 
@@ -2862,7 +2912,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
     expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
-    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-moved', 'new-hot-pub', 'hot');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-moved', 'new-hot-pub', 'hot', expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
     expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
     // Two attempts booked, not three.
     expect(isGuardianUnrepairable('acct-own-moved')).toBe(false);
@@ -2963,8 +3013,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       it('finishes its durable Failed rotation without waiting for a 401', async () => {
         await syncGuardianAccounts();
 
-        expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'hot');
-        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+        expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'hot', expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
+        expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act', expect.any(Function));
         expect(sync).toHaveBeenCalledTimes(1);
       });
 
@@ -3091,7 +3141,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
         await syncGuardianAccounts();
 
-        expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'hot');
+        expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'hot', expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
         expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
       });
     });
@@ -3118,8 +3168,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
       );
       expect(mockReRegister).toHaveBeenCalledTimes(1);
-      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null);
-      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null, expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act', expect.any(Function));
       expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
     });
 
@@ -3131,8 +3181,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
       await syncGuardianAccounts();
 
-      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'cold');
-      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'cold', expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act', expect.any(Function));
     });
 
     it('does not finish a keyless activation whose account gained a key during the push (#1233)', async () => {
@@ -3149,7 +3199,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
       await syncGuardianAccounts();
 
-      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null);
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null, expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 }));
       expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
     });
 

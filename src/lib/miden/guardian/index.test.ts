@@ -1558,8 +1558,11 @@ describe('MultisigService', () => {
           }
         };
       };
-      const makeService = async (registerOnGuardian: (state?: string, beforeSend?: () => void) => Promise<void>) => {
-        const multisig = makeMultisig({ registerOnGuardian });
+      const makeService = async (
+        registerOnGuardian: (state?: string, beforeSend?: () => void) => Promise<void>,
+        overrides: Parameters<typeof makeMultisig>[0] = {}
+      ) => {
+        const multisig = makeMultisig({ registerOnGuardian, ...overrides });
         multisigClientConfig.load.mockResolvedValueOnce(multisig);
         mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
         mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
@@ -1571,6 +1574,64 @@ describe('MultisigService', () => {
           'https://x'
         );
       };
+
+      describe('GEO022 verification-only residual proof', () => {
+        it('GEO022 returns the fresh chain-verified signers without a configure or admission charge', async () => {
+          const register = jest.fn(async (_state?: string, beforeSend?: () => void) => beforeSend?.());
+          const cachedSigners = ['cached-hot', 'cached-cold'];
+          const service = await makeService(register, { signerCommitments: cachedSigners });
+          mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['fresh-hot', 'fresh-cold'] });
+          const assertCurrent = jest.fn();
+          await expect(service.verifyCurrentStateOnChain(undefined, assertCurrent)).resolves.toEqual(['fresh-hot', 'fresh-cold']);
+          expect(register).not.toHaveBeenCalled();
+          expect(cachedSigners).toEqual(['cached-hot', 'cached-cold']);
+          expect(mockSyncState).toHaveBeenCalled();
+          expect(assertCurrent).toHaveBeenCalled();
+        });
+
+        it('GEO022 refuses a local state that fails the fresh chain comparison without registering', async () => {
+          const register = jest.fn(async () => undefined);
+          const service = await makeService(register, {
+            verifyStateCommitment: async () => { throw new Error('local commitment does not match chain'); }
+          });
+          await expect(service.verifyCurrentStateOnChain()).rejects.toBeInstanceOf(GuardianReRegisterRefusedError);
+          expect(register).not.toHaveBeenCalled();
+        });
+
+        it('GEO022 preserves retirement after a deferred chain proof without registering', async () => {
+          const barrier = makeBarrier();
+          const refused = new Error('residual proof retired');
+          let current = true;
+          const assertCurrent = () => { if (!current) throw refused; };
+          const register = jest.fn(async () => undefined);
+          const service = await makeService(register, { verifyStateCommitment: async () => barrier.wait() });
+          const proof = service.verifyCurrentStateOnChain(undefined, assertCurrent);
+          const outcome = proof.catch((error: unknown) => error);
+          try {
+            await barrier.ready; current = false; barrier.release();
+            expect(await outcome).toBe(refused);
+            expect(register).not.toHaveBeenCalled();
+          } finally { barrier.release(); await outcome; }
+        });
+
+        it('GEO022 returns an empty fresh signer set without borrowing the cached allowlist as evidence', async () => {
+          const register = jest.fn(async () => undefined);
+          const service = await makeService(register, { signerCommitments: ['cached-hot', 'cached-cold'] });
+          mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
+          await expect(service.verifyCurrentStateOnChain()).resolves.toEqual([]);
+          expect(register).not.toHaveBeenCalled();
+        });
+
+        it('GEO022 refuses an initially denied proof before touching the local client or guardian', async () => {
+          const denied = new Error('wallet denied');
+          const register = jest.fn(async () => undefined);
+          const service = await makeService(register);
+          mockSyncState.mockClear();
+          await expect(service.verifyCurrentStateOnChain(undefined, () => { throw denied; })).rejects.toBe(denied);
+          expect(mockSyncState).not.toHaveBeenCalled();
+          expect(register).not.toHaveBeenCalled();
+        });
+      });
 
       it('GEO019 refuses retirement after the local sync without charging a configure', async () => {
         const refused = new Error('pass retired');

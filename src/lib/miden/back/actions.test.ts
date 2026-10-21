@@ -1582,22 +1582,47 @@ describe('actions', () => {
   });
 
   describe('swapHotKey', () => {
+    const realm = jest.requireActual<typeof import('lib/miden/sdk/miden-client')>('lib/miden/sdk/miden-client');
+    const admittedAccount = (): WalletAccount => ({
+      publicKey: 'pk1',
+      type: WalletType.Guardian,
+      name: 'Guardian account',
+      isPublic: true,
+      hdIndex: 0,
+      hotPublicKey: 'old-pub',
+      coldPublicKey: 'cold-pub',
+      guardianEndpoint: 'https://guardian.example',
+      guardianEpoch: 2
+    });
+
+    beforeEach(() => {
+      const account = admittedAccount();
+      Object.assign(mockStoreState, { vault: mockVault, accounts: [account], currentAccount: account });
+      realm.installRealmKeystore({ insertKey: mockVault.insertKeySink });
+    });
+
+    afterEach(() => {
+      realm.uninstallRealmKeystore({ insertKey: mockVault.insertKeySink });
+    });
+
     it('passes the expectation to the vault and fires accountsUpdated (#1233)', async () => {
-      const updated = { accounts: [], currentAccount: undefined };
+      const currentAccount = { ...admittedAccount(), hotPublicKey: 'new-pub' };
+      const updated = { accounts: [currentAccount], currentAccount };
       mockVault.swapHotKey.mockResolvedValueOnce(updated);
 
       await swapHotKey('pk1', 'new-pub', 'old-pub');
 
-      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', 'old-pub');
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', 'old-pub', expect.any(Function));
       expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
     });
 
     it('passes no expectation when the caller passes none (#1233)', async () => {
-      mockVault.swapHotKey.mockResolvedValueOnce({ accounts: [], currentAccount: undefined });
+      const currentAccount = { ...admittedAccount(), hotPublicKey: 'new-pub' };
+      mockVault.swapHotKey.mockResolvedValueOnce({ accounts: [currentAccount], currentAccount });
 
       await swapHotKey('pk1', 'new-pub');
 
-      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', undefined);
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', undefined, expect.any(Function));
     });
   });
 

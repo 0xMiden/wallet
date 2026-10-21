@@ -740,7 +740,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await completeCommittedGuardianCompletion(req.token, req.deadlineMs);
       return { type: WalletMessageType.CompleteCommittedGuardianCompletionResponse };
     case WalletMessageType.SwapHotKeyRequest:
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey, req.expectedScope);
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };

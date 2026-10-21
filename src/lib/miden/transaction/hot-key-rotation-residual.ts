@@ -39,10 +39,11 @@ export async function findFailedHotKeyRotations(accountPublicKey: string): Promi
 }
 
 /** Complete a rotation the heal finished, with what completion writes minus the result fields. */
-export async function markRotationCompleted(rowId: string): Promise<void> {
+export async function markRotationCompleted(rowId: string, assertCurrent?: () => void): Promise<void> {
   await Repo.transactions.where({ id: rowId }).modify(tx => {
     // `false`, not a bare return: Dexie reads `undefined` as modified and writes the unchanged row.
     if (!isFailedRotation(tx)) return false;
+    assertCurrent?.();
     tx.status = ITransactionStatus.Completed;
     tx.displayMessage = 'Everyday key rotated';
     // The rotation row's own icon; cancelling it wrote 'FAILED'.

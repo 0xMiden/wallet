@@ -854,7 +854,7 @@ describe('processRequest', () => {
       expectedHotPubKey: 'old-pub'
     });
     expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
-    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub', undefined);
   });
 
   it('forwards a SwapHotKeyRequest without an expectation as none (#1233)', async () => {
@@ -864,7 +864,7 @@ describe('processRequest', () => {
       newHotPubKey: 'new-pub'
     });
     expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
-    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined, undefined);
   });
 
   it('SetGuardianSyncStatusRequest forwards to Actions', async () => {

@@ -449,7 +449,7 @@ describe('MobileIntercomAdapter', () => {
         newHotPubKey: 'new-pub'
       } as any);
 
-      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', undefined);
+      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', undefined, undefined);
       expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
     });
 
@@ -461,7 +461,7 @@ describe('MobileIntercomAdapter', () => {
         expectedHotPubKey: 'old-pub'
       } as any);
 
-      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', 'old-pub');
+      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', 'old-pub', undefined);
       expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
     });
 

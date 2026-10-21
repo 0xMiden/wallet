@@ -709,20 +709,20 @@ export class MultisigService {
     );
   }
 
-  sync(): Promise<void> {
+  sync(assertCurrent?: () => void): Promise<void> {
     // Coalesce overlapping ticks onto a single in-flight run so the retry
     // counter and `syncState` aren't driven concurrently. Not `async`: return
     // the cached promise itself so concurrent callers share one identity.
     if (this.syncInFlight) {
       return this.syncInFlight;
     }
-    this.syncInFlight = this.runSync().finally(() => {
+    this.syncInFlight = this.runSync(assertCurrent).finally(() => {
       this.syncInFlight = null;
     });
     return this.syncInFlight;
   }
 
-  private async runSync(): Promise<void> {
+  private async runSync(assertCurrent?: () => void): Promise<void> {
     // Iterative retry (not recursion): the WASM mutex is non-reentrant, so a
     // recursive `await this.sync()` while holding it would deadlock. We lock
     // around each `syncState` attempt and release during the back-off wait so
@@ -734,16 +734,18 @@ export class MultisigService {
     // genuinely stuck guardian doesn't loop re-registering every tick.
     let realignAttempted = false;
     for (;;) {
+      assertCurrent?.();
       try {
         // Bounded like every other pure-sync hold (#777): it is reached from the
         // idle loop, and the fetch boundary lets each guardian request in it run up
         // to GUARDIAN_REQUEST_TIMEOUT_MS, so one unresponsive guardian holds the
         // whole app's WASM access for that minute once per retry in this loop; the
         // ceiling bounds the hold as a whole.
-        await withWasmClientLock(() => this.multisig.syncState(), {
-          watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-          label: 'guardian-sync'
-        });
+        await withWasmClientLock(
+          () => { assertCurrent?.(); return this.multisig.syncState(); },
+          { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync' }
+        );
+        assertCurrent?.();
         this.syncRetryCount = 0; // Reset retry count on successful sync
         return;
       } catch (error) {
@@ -809,7 +811,7 @@ export class MultisigService {
               console.warn(
                 'Guardian still lagging after canonicalization window; re-registering current state as a last resort'
               );
-              await this.reRegisterCurrentStateOnGuardian(undefined, GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS);
+              await this.reRegisterCurrentStateOnGuardian(undefined, GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS, assertCurrent);
               continue;
             } catch (realignError) {
               // AN EVICTION IS NOT "non-fatal", AND IT IS NOT ABOUT THE GUARDIAN.
@@ -828,6 +830,7 @@ export class MultisigService {
               // Identical to the defect the adopt arm carries a rethrow for; this is
               // the same rule one function over.
               if (isWasmClientPoisonedError(realignError)) throw realignError;
+              assertCurrent?.();
               console.warn('Last-resort guardian re-registration failed (non-fatal):', realignError);
             }
           }
@@ -1229,8 +1232,34 @@ export class MultisigService {
     lockOptions?: WasmClientLockOptions,
     assertCurrent?: () => void
   ): Promise<void> {
+    const { updatedStateBase64, freshSignerCommitments } = await this.readCurrentStateForRegistration(lockOptions, assertCurrent);
+    // Guard against a truncated read: AccountInspector.fromAccount swallows
+    // per-slot storage-read failures (skips the slot, no throw), so a partial
+    // read could yield an empty set. NEVER overwrite a good cached allowlist with
+    // an empty one and push that to the guardian — that would re-arm the very
+    // 401 this method prevents. On an empty derive, keep the cached set (the
+    // guardian-sync 401 self-heal covers any residual staleness).
+    if (freshSignerCommitments.length > 0) {
+      this.multisig.signerCommitments = freshSignerCommitments;
+    }
+    // Authentication may still fail before fetch; charge only inside its admitted send callback.
+    let pushStarted = false;
+    const beforeFirstSend = onBeforeRegister
+      ? () => {
+          if (pushStarted) return;
+          onBeforeRegister(freshSignerCommitments);
+          pushStarted = true;
+        }
+      : undefined;
+    await this.registerOnGuardianWithRetry(updatedStateBase64, beforeFirstSend, assertCurrent);
+  }
+
+  private async readCurrentStateForRegistration(
+    lockOptions?: WasmClientLockOptions,
+    assertCurrent?: () => void
+  ): Promise<{ updatedStateBase64: string; freshSignerCommitments: string[] }> {
     assertCurrent?.();
-    const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
+    const state = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
       // unattended loop whose failure mode is a sync parked on a dead node, i.e.
@@ -1278,26 +1307,18 @@ export class MultisigService {
       // flows had parked. The sibling holds here already make this argument for
       // themselves (`guardian-adopt`, `guardian-sync`).
     }, lockOptions);
-    // Guard against a truncated read: AccountInspector.fromAccount swallows
-    // per-slot storage-read failures (skips the slot, no throw), so a partial
-    // read could yield an empty set. NEVER overwrite a good cached allowlist with
-    // an empty one and push that to the guardian — that would re-arm the very
-    // 401 this method prevents. On an empty derive, keep the cached set (the
-    // guardian-sync 401 self-heal covers any residual staleness).
-    if (freshSignerCommitments.length > 0) {
-      this.multisig.signerCommitments = freshSignerCommitments;
-    }
-    // Authentication may still fail before fetch; charge only inside its admitted send callback.
-    let pushStarted = false;
-    const beforeFirstSend = onBeforeRegister
-      ? () => {
-          if (pushStarted) return;
-          onBeforeRegister(freshSignerCommitments);
-          pushStarted = true;
-        }
-      : undefined;
-    await this.registerOnGuardianWithRetry(updatedStateBase64, beforeFirstSend, assertCurrent);
+    assertCurrent?.();
+    return state;
   }
+
+  /** Verify the fresh local state against the chain without registering or signing a request. */
+  async verifyCurrentStateOnChain(
+    lockOptions?: WasmClientLockOptions,
+    assertCurrent?: () => void
+  ): Promise<readonly string[]> {
+    return (await this.readCurrentStateForRegistration(lockOptions, assertCurrent)).freshSignerCommitments;
+  }
+
 }
 
 // Re-export types that may be needed by consumers

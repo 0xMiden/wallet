@@ -1,5 +1,6 @@
 // lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
 // this adds no module to that cycle; the functions are only called during a sync, never at module load.
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { guardianCandidateRelease, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED } from 'lib/miden/back/defaults';
 import { classifyGuardianRecovery, noteRecoveryDivergence } from 'lib/miden/back/guardian-recovery-dispatcher';
@@ -39,7 +40,7 @@ import { isExtension } from 'lib/platform';
 import { assertWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { canonicalGuardianEndpoint, sameGuardianEndpoint } from 'lib/settings/helpers';
-import type { WalletAccount } from 'lib/shared/types';
+import type { GuardianHotKeySwapScope, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -93,8 +94,10 @@ export const zustandProvider: GuardianAccountProvider = {
     useWalletStore.getState().signWord(publicKey, wordHex, transactionId),
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
-  swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) =>
-    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey),
+  swapHotKey: (accountPublicKey, newHotPubKey, expectedHotPubKey, expectedScope) =>
+    expectedScope === undefined
+      ? useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey)
+      : useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey, expectedScope),
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
     useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
 };
@@ -1632,12 +1635,17 @@ async function findOwnRotation(accountPublicKey: string, onChainCommitment: stri
 async function finishOwnRotation(
   account: WalletAccount,
   rotation: OwnRotation,
-  isCurrent: () => boolean
+  isCurrent: () => boolean,
+  expectedScope: GuardianHotKeySwapScope,
+  confirmOnly = false
 ): Promise<SelfHealOutcome> {
   if (!isCurrent()) return 'refused-transiently';
   try {
     if (!zustandProvider.swapHotKey) throw new Error('swapHotKey not implemented in this provider');
-    await zustandProvider.swapHotKey(account.publicKey, rotation.newHotPublicKey, account.hotPublicKey ?? null);
+    await zustandProvider.swapHotKey(
+      account.publicKey, rotation.newHotPublicKey,
+      confirmOnly ? rotation.newHotPublicKey : account.hotPublicKey ?? null, expectedScope
+    );
   } catch (swapError) {
     const code =
       typeof swapError === 'object' && swapError !== null && 'code' in swapError ? swapError.code : undefined;
@@ -1665,7 +1673,9 @@ async function finishOwnRotation(
   }
   if (!isCurrent()) return 'refused-transiently';
   try {
-    await markRotationCompleted(rotation.id);
+    await markRotationCompleted(rotation.id, () => {
+      if (!isCurrent()) throw new Error('Guardian self-heal pass is no longer current');
+    });
   } catch (markError) {
     console.warn(
       `[Guardian Sync] swapped ${account.publicKey}'s key but could not complete row ${rotation.id}:`,
@@ -1705,11 +1715,16 @@ async function attemptColdReRegisterSelfHeal(
   fuseKey: SyncFuseKey,
   generation: number,
   finishOnly = false,
-  onFirstSend?: () => void
+  onFirstSend?: () => void,
+  allowConfigure = true
 ): Promise<SelfHealOutcome> {
   // A hot-key-only import (spawnFromHotKey) has no cold key to sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
   const endpoint = resolveGuardianEndpoint(account);
+  const expectedScope: GuardianHotKeySwapScope = {
+    guardianEndpoint: endpoint, guardianEpoch: account.guardianEpoch ?? 0,
+    network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl()
+  };
   const isCurrent = () => isCurrentGuardianSyncPass(generation, account.publicKey, endpoint);
   const assertCurrent = (): void => {
     assertWalletAccessAllowed();
@@ -1902,7 +1917,8 @@ async function attemptColdReRegisterSelfHeal(
         return 'refused-transiently';
       }
     }
-    if (!localHot || !sameCommitment(localHot, onChainHot.commitment)) {
+    const hotMatches = localHot !== undefined && sameCommitment(localHot, onChainHot.commitment);
+    if (!hotMatches || finishOnly) {
       // Slot 0 may name this device's own rotation, one that landed after its row failed. It is finished
       // only on the signer set the re-register reads from the account it verified against the chain,
       // never on this match alone (#1233).
@@ -1920,7 +1936,7 @@ async function attemptColdReRegisterSelfHeal(
         );
         return 'refused-transiently';
       }
-      if (!rotation) {
+      if (!rotation && !hotMatches) {
         console.warn(
           `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
             `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
@@ -1943,6 +1959,15 @@ async function attemptColdReRegisterSelfHeal(
           `finish, and no 401 asked for a repair.`
       );
       return 'refused-transiently';
+    }
+
+    if (!allowConfigure || (rotation && hotMatches)) {
+      if (!rotation) return 'refused-transiently';
+      const confirmedRotation = rotation;
+      const signers = await coldService.verifyCurrentStateOnChain(GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS, assertCurrent);
+      assertCurrent();
+      if (!signers.some(signer => sameCommitment(signer, confirmedRotation.commitment))) return 'refused-transiently';
+      return await finishOwnRotation(account, confirmedRotation, isCurrent, expectedScope, true);
     }
 
     // Counted as an attempt from the moment the `/configure` is issued, because past
@@ -2034,7 +2059,7 @@ async function attemptColdReRegisterSelfHeal(
   // set still stands, as completion swaps when its re-register fails.
   const finishing = rotation;
   if (finishing && verifiedSigners?.some(signer => sameCommitment(signer, finishing.commitment))) {
-    return await finishOwnRotation(account, finishing, isCurrent);
+    return await finishOwnRotation(account, finishing, isCurrent, expectedScope);
   }
   return attempted ? 'attempted' : 'refused-transiently';
 }
@@ -2067,7 +2092,9 @@ function stampPendingActivationCheck(
  * Returns TRUE when the realm's WASM client was evicted under a heal, so the pass takes no further
  * holds, the same stop rule as the account loop's own heals.
  */
-async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation: number): Promise<boolean> {
+async function finishFailedHotKeyRotations(
+  accounts: WalletAccount[], generation: number, allowConfigure = true
+): Promise<boolean> {
   for (const account of accounts) {
     if (generation !== syncGeneration) return false;
     if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
@@ -2109,25 +2136,26 @@ async function finishFailedHotKeyRotations(accounts: WalletAccount[], generation
       // Before the exits below, so a lap that stops at one still records the operator and rows it saw.
       const pushBudget = { endpoint: operator, rowSet, pushes: runPushes };
       activationPushes.set(account.publicKey, pushBudget);
-      if (runPushes >= SELF_HEAL_MAX_ATTEMPTS) {
-        stamp();
-        continue;
-      }
+      const canConfigure = allowConfigure && runPushes < SELF_HEAL_MAX_ATTEMPTS;
       const healFuseKey = guardianSelfHealFuseKey(account.publicKey, endpoint);
       if (isSyncFused(healFuseKey)) {
         stamp();
         continue;
       }
-      const outcome = await attemptColdReRegisterSelfHeal(current, healFuseKey, generation, true, () => {
-        if (activationPushes.get(account.publicKey) !== pushBudget) throw new Error('Guardian push budget changed');
-        pushBudget.pushes += 1;
-      });
+      const outcome = await attemptColdReRegisterSelfHeal(
+        current, healFuseKey, generation, true,
+        canConfigure ? () => {
+          if (activationPushes.get(account.publicKey) !== pushBudget) throw new Error('Guardian push budget changed');
+          pushBudget.pushes += 1;
+        } : undefined,
+        canConfigure
+      );
       if (!isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) {
         if (outcome === 'evicted' || outcome === 'evicted-preflight') return true;
         continue;
       }
       // An eviction past the push may still land, so it counts as one; before it, nothing was sent.
-      const pushes = runPushes + (outcome === 'attempted' || outcome === 'evicted' ? 1 : 0);
+      const pushes = pushBudget.pushes;
       activationPushes.set(account.publicKey, { endpoint: operator, rowSet, pushes });
       if (outcome === 'refused-permanently') {
         refusedActivations.set(account.publicKey, rowSet);
@@ -2516,9 +2544,21 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // The heals' own key, consulted before either heal runs so a fused lap stamps nothing (#1233).
     const healFuseKey = guardianSelfHealFuseKey(account.publicKey, endpoint);
 
+    let syncAdmissionRefused = false;
+    const assertSyncCurrent = (): void => {
+      try {
+        assertWalletAccessAllowed();
+        if (!isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) {
+          throw new Error('Guardian background sync pass is no longer current');
+        }
+      } catch (error) {
+        syncAdmissionRefused = true;
+        throw error;
+      }
+    };
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider, true);
-      await service.sync();
+      await service.sync(assertSyncCurrent);
 
       // The rotation that landed while this request was open makes the result
       // above a statement about an operator this account no longer points at.
@@ -2530,10 +2570,12 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       if (
         account.requiresHotKeyRotation !== true &&
         (await currentPassAccount(generation, account.publicKey, endpoint)) &&
+        isCurrentGuardianSyncPass(generation, account.publicKey, endpoint) &&
         (await finishFailedHotKeyRotations([account], generation))
       )
         break;
-      if (await currentPassAccount(generation, account.publicKey, endpoint)) {
+      if ((await currentPassAccount(generation, account.publicKey, endpoint)) &&
+          isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) {
         // Sync succeeded → the account is authorized; clear any accumulated
         // self-heal state so a future divergence starts its persistence count
         // fresh, and stand down the guardian-unreachable prompt.
@@ -2586,6 +2628,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         break;
       }
 
+      if (syncAdmissionRefused) continue;
+
       // Same rule as the success path, and it matters just as much here: a
       // failure earned by the outgoing operator must not arm the outage banner,
       // spend a repair budget, or start a 401 streak against the incoming one.
@@ -2604,6 +2648,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         noteNonEvictionSyncFailure(fuseKey);
         continue;
       }
+
+      if (!isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) continue;
 
       // An auth rejection (401) means the guardian's request-auth allowlist and
       // this account's hot signer disagree. Evict the cached hot service so the
@@ -2672,6 +2718,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           if (selfHealLedger.budgetSpent(healSubject)) {
             markGuardianUnrepairable(account.publicKey, 'the operator keeps rejecting this device');
           }
+        } else if (selfHealLedger.budgetSpent(healSubject) && !isSyncFused(healFuseKey)) {
+          if (await finishFailedHotKeyRotations([account], generation, false)) break;
         }
       } else if (isGuardianRateLimited(error)) {
         // Back off for as long as the guardian asked, and say so once rather than

@@ -1295,7 +1295,8 @@ describe('useWalletStore', () => {
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey: 'acc',
         newHotPubKey: 'new-pub',
-        expectedHotPubKey: null
+        expectedHotPubKey: null,
+        expectedScope: undefined
       });
     });
 
@@ -1309,7 +1310,8 @@ describe('useWalletStore', () => {
       expect(mockRequest.mock.calls[0]?.[0]).toEqual({
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey: 'acc',
-        newHotPubKey: 'new-pub'
+        newHotPubKey: 'new-pub',
+        expectedScope: undefined
       });
     });
 

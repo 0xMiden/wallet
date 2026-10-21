@@ -994,11 +994,19 @@ export interface CompleteCommittedGuardianCompletionResponse extends WalletMessa
   type: WalletMessageType.CompleteCommittedGuardianCompletionResponse;
 }
 
+export interface GuardianHotKeySwapScope {
+  guardianEndpoint: string;
+  guardianEpoch: number;
+  network: MIDEN_NETWORK_NAME;
+  rpcUrl: string;
+}
+
 export interface SwapHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyRequest;
   accountPublicKey: string;
   newHotPubKey: string;
   expectedHotPubKey?: string | null;
+  expectedScope?: GuardianHotKeySwapScope;
 }
 
 export interface SwapHotKeyResponse extends WalletMessageBase {

@@ -63,6 +63,7 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import {
   GuardianRecoveryAction,
+  GuardianHotKeySwapScope,
   GuardianSyncStatus,
   EstimateUsdcxBurnFeeRequest,
   EstimateUsdcxBurnFeeResponse,
@@ -82,6 +83,7 @@ import { sendEvent } from 'lib/telemetry/sink';
 import { estimateUsdcxBurnFeeReserve } from 'lib/usdcx/burn-fee';
 import { WalletType } from 'screens/onboarding/types';
 
+import { createHotKeySwapGuard } from './hot-key-swap-guard';
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
 import { MidenSharedStorageKey } from '../types';
 import {
@@ -1035,19 +1037,27 @@ export async function retryDeadletteredNotes(): Promise<{ requeued: number }> {
   });
 }
 
-export async function swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
+export async function swapHotKey(
+  accountPublicKey: string,
+  newHotPubKey: string,
+  expectedHotPubKey?: string | null,
+  expectedScope?: GuardianHotKeySwapScope
+) {
   return withWalletAccess(async () => {
-    return withUnlocked(({ vault }) =>
-      getAccountsWriteQueue().add(async () => {
-        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
+    return withUnlocked(({ vault }) => {
+      const assertCurrent = createHotKeySwapGuard(vault, accountPublicKey, newHotPubKey, expectedScope);
+      return getAccountsWriteQueue().add(async () => {
+        assertCurrent();
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey, assertCurrent);
+        assertCurrent();
         // Push the updated WalletAccount[] into the Effector store so the
         // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
         // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
         // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
         // re-binds against the old hot key.
         accountsUpdated(updated);
-      })
-    );
+      });
+    });
   });
 }
 

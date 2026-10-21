@@ -674,12 +674,13 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.CompleteCommittedGuardianCompletionResponse);
     },
 
-    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey) => {
+    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey, expectedScope) => {
       const res = await request({
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey,
         newHotPubKey,
-        expectedHotPubKey
+        expectedHotPubKey,
+        expectedScope
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
