@@ -352,14 +352,20 @@ export async function approveSheetIfShown<T>(
   return { result, prompted: true };
 }
 
-/** The positive control of spec section 5 for a refusal before enqueue: it answered before the next block the dApp saw. */
-async function withinOneBlock<T>(host: SheetHost, start: () => Promise<T>, ctx: CellContext): Promise<T> {
+// Each height comes from a full dApp client sync over the in-app browser's command channel, which on an emulator
+// spans about a block of a 3 s chain on its own; a refusal after enqueue waits on a prove, many blocks.
+const REFUSAL_BLOCKS = 2;
+
+/** The positive control of spec section 5 for a refusal before enqueue: it answered within the blocks a sync spans. */
+async function withinRefusalBlocks<T>(host: SheetHost, start: () => Promise<T>, ctx: CellContext): Promise<T> {
   const before = (await callOn(host.channel, 'syncHeight', {}, ctx.deadline)).height;
   const value = await start();
   if (failedOutcome(value)) ctx.evidence.dappError = value.error;
   // Asked once: a repeat lands later and widens the difference.
   const after = (await callOn(host.channel, 'syncHeight', {}, ctx.deadline, { once: true })).height;
-  expect(after - before, 'blocks the dApp saw while a refusal before enqueue was pending').toBeLessThanOrEqual(1);
+  expect(after - before, 'blocks the dApp saw while a refusal before enqueue was pending').toBeLessThanOrEqual(
+    REFUSAL_BLOCKS
+  );
   return value;
 }
 
@@ -375,7 +381,7 @@ export async function expectNoSheet<T>(
 ): Promise<T> {
   await noEarlierSheet(host.wallet, ctx);
   await ctx.deadline.race(evalOf(host.wallet)<boolean>(ARM_LATCH), 'arming the sheet latch');
-  const run = options.refusal === true ? () => withinOneBlock(host, start, ctx) : start;
+  const run = options.refusal === true ? () => withinRefusalBlocks(host, start, ctx) : start;
   const watch = watchForSheet(host.wallet);
   let settled: { value: T } | { sheet: SheetView };
   try {

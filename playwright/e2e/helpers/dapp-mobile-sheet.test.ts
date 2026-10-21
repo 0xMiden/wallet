@@ -372,9 +372,16 @@ describe('a request that must open no sheet', () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
-  it('fails a refusal that took two blocks, with its error recorded first', async () => {
-    const ctx = contextFor();
+  it('passes a refusal that two blocks spanned while the syncs ran', async () => {
     const send = jest.fn().mockResolvedValueOnce({ height: 10 }).mockResolvedValueOnce({ height: 12 });
+    await expect(expectNoSheet(hostFor(send), async () => declined, contextFor(), { refusal: true })).resolves.toEqual(
+      declined
+    );
+  });
+
+  it('fails a refusal that took three blocks, with its error recorded first', async () => {
+    const ctx = contextFor();
+    const send = jest.fn().mockResolvedValueOnce({ height: 10 }).mockResolvedValueOnce({ height: 13 });
     await expect(expectNoSheet(hostFor(send), async () => declined, ctx, { refusal: true })).rejects.toThrow(
       'blocks the dApp saw while a refusal before enqueue was pending'
     );
