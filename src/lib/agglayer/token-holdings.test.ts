@@ -105,7 +105,8 @@ describe('readErc20Holdings', () => {
       },
       value: '1000000000000000000'
     }));
-    const holdings = await readErc20Holdings(API, HOLDER, fetching([...many, many[0]]));
+    // The duplicate leads, so without de-duplication both copies land inside the capped prefix.
+    const holdings = await readErc20Holdings(API, HOLDER, fetching([many[0], ...many]));
     expect(holdings).toHaveLength(HOLDINGS_MAX);
     expect(new Set(holdings.map(holding => holding.contractAddress)).size).toBe(HOLDINGS_MAX);
   });
