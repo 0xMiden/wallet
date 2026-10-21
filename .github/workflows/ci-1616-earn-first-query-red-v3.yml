@@ -1,0 +1,719 @@
+name: NEVER-MERGE 1616 Earn first-query expected red v3
+on:
+  push:
+    branches: [ci/1616-earn-first-query-red-v3]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+      CI: 'true'
+      FORCE_COLOR: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Bind exact signed test-only source
+        run: |
+          set -euo pipefail
+          umask 077
+          proof="$RUNNER_TEMP/1616-earn-first-query-red-v3"
+          test ! -e "$proof"
+          mkdir "$proof"
+          printf 'PROOF_DIR=%s\n' "$proof" >> "$GITHUB_ENV"
+          cat > "$proof/capture.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          ROOT = Path.cwd().resolve()
+          OUT = Path(os.environ['PROOF_DIR'])
+          BIND = json.loads((OUT / 'bindings.json').read_text())
+          SOURCE = BIND['source']
+          FRAMEWORK = ['jest', 'expect', 'jest-circus', 'jest-config', 'jest-runtime', 'jest-resolve',
+                       'jest-runner', 'jest-environment-jsdom', '@jest', '@swc', 'typescript', 'prettier',
+                       'eslint', 'eslint-plugin-import', 'react', 'react-dom', '@testing-library/react',
+                       '@testing-library/dom', 'dexie', 'fake-indexeddb', 'constate',
+                       '@epoch-protocol/epoch-intents-sdk', 'viem', '@miden-sdk/miden-sdk']
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], cwd=ROOT)
+
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+
+          def save(name, value):
+              (OUT / name).write_text(json.dumps(value, indent=2) + '\n')
+
+
+          def snapshot(label):
+              assert git('rev-parse', 'HEAD').decode().strip() == SOURCE
+              assert git('rev-parse', 'HEAD^{tree}').decode().strip() == BIND['tree']
+              assert not git('diff', '--name-only') and not git('diff', '--cached', '--name-only')
+              assert not git('status', '--porcelain=v1', '--untracked-files=all')
+              stage = git('ls-files', '--stage', '-z')
+              (OUT / (label + '.stage.nul')).write_bytes(stage)
+              files = {}
+              for record in stage.split(b'\0'):
+                  if not record:
+                      continue
+                  header, raw_path = record.split(b'\t', 1)
+                  mode, oid, number = header.decode().split()
+                  assert number == '0' and mode in ['100644', '100755', '120000']
+                  path = raw_path.decode()
+                  p = ROOT / path
+                  info = p.lstat()
+                  if mode == '120000':
+                      assert stat.S_ISLNK(info.st_mode)
+                      data = os.readlink(p).encode()
+                      kind = 'symlink'
+                  else:
+                      assert stat.S_ISREG(info.st_mode) and not p.is_symlink()
+                      assert bool(info.st_mode & 0o111) == (mode == '100755')
+                      data = p.read_bytes()
+                      kind = 'regular'
+                  assert data == git('cat-file', 'blob', oid), path
+                  files[path] = {'git_mode': mode, 'oid': oid, 'sha256': digest(data), 'bytes': len(data),
+                                 'physical_mode': format(stat.S_IMODE(info.st_mode), '04o'), 'type': kind}
+              for entry in BIND['source_inputs']:
+                  assert files[entry['path']]['sha256'] == entry['sha256']
+                  assert files[entry['path']]['git_mode'] == entry['git_mode']
+              framework = {}
+              versions = {}
+              for package in FRAMEWORK:
+                  base = ROOT / 'node_modules' / package
+                  assert base.is_dir() and not base.is_symlink(), package
+                  metadata = base / 'package.json'
+                  if metadata.is_file():
+                      value = json.loads(metadata.read_text())
+                      versions[package] = {'name': value['name'], 'version': value['version'],
+                                           'package_json_sha256': digest(metadata.read_bytes())}
+                  for p in sorted(base.rglob('*')):
+                      info = p.lstat()
+                      if p.is_symlink():
+                          raw_link = os.readlink(p)
+                          target = p.resolve(strict=True)
+                          assert target.is_relative_to(ROOT) and target != ROOT, str(p)
+                          target_info = target.stat()
+                          assert stat.S_ISREG(target_info.st_mode), str(p)
+                          data = target.read_bytes()
+                          target_hash = digest(data)
+                          retained = OUT / 'framework-symlink-target-bytes' / target_hash
+                          retained.parent.mkdir(exist_ok=True)
+                          if retained.exists():
+                              assert retained.read_bytes() == data
+                          else:
+                              retained.write_bytes(data)
+                          framework[str(p.relative_to(ROOT))] = {
+                              'type': 'symlink', 'lstat_mode': format(stat.S_IMODE(info.st_mode), '04o'),
+                              'raw_link_text': raw_link, 'raw_link_sha256': digest(os.fsencode(raw_link)),
+                              'resolved_root_relative_path': str(target.relative_to(ROOT)),
+                              'target_bytes': len(data), 'target_sha256': target_hash,
+                              'target_mode': format(stat.S_IMODE(target_info.st_mode), '04o'),
+                              'target_byte_copy': str(retained.relative_to(OUT))}
+                      elif p.is_file():
+                          assert p.resolve().is_relative_to(ROOT)
+                          data = p.read_bytes()
+                          framework[str(p.relative_to(ROOT))] = {
+                              'sha256': digest(data), 'bytes': len(data), 'type': 'regular',
+                              'mode': format(stat.S_IMODE(info.st_mode), '04o')}
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              if not index.is_absolute():
+                  index = ROOT / index
+              raw_index = index.read_bytes()
+              (OUT / (label + '.index')).write_bytes(raw_index)
+              save(label + '.json', {'head': SOURCE, 'tree': BIND['tree'], 'stage_sha256': digest(stage),
+                                    'physical_index_sha256': digest(raw_index), 'source': files,
+                                    'framework': framework, 'framework_versions': versions})
+              if label == 'before':
+                  with tarfile.open(OUT / 'bound-source.tar', 'w') as archive:
+                      for entry in BIND['source_inputs']:
+                          archive.add(ROOT / entry['path'], arcname=entry['path'], recursive=False)
+
+
+          def classify():
+              gates = ['install', 'format', 'lint', 'types']
+              prerequisite = {name: {'exit': (OUT / (name + '.exit')).read_text().strip(),
+                                     'tee': (OUT / (name + '.tee.exit')).read_text().strip()}
+                              for name in gates if (OUT / (name + '.exit')).exists()}
+              save('prerequisite-exits.json', prerequisite)
+              if len(prerequisite) != len(gates) or any(v != {'exit': '0', 'tee': '0'} for v in prerequisite.values()):
+                  save('classification.json', {'status': 'UNRUN_RUNTIME_PREREQUISITE', 'gates': prerequisite})
+                  raise SystemExit(1)
+              before = json.loads((OUT / 'before.json').read_text())
+              after = json.loads((OUT / 'after.json').read_text())
+              for key in ['head', 'tree', 'stage_sha256', 'source', 'framework', 'framework_versions']:
+                  assert before[key] == after[key], key
+              save('bookend-comparison.json', {'source_stage_framework_equal': True,
+                   'raw_index_equal': before['physical_index_sha256'] == after['physical_index_sha256'],
+                   'raw_index_policy': 'Both complete raw indices retained; textual stage and all physical source hashes must match.'})
+              x = json.loads((OUT / 'jest.json').read_text())
+              rows = []
+              for suite in x['testResults']:
+                  path = str(Path(suite['name']).relative_to(ROOT))
+                  for ordinal, row in enumerate(suite['assertionResults']):
+                      rows.append({'file': path, 'ordinal': ordinal, 'assertion': row})
+              save('inventory.json', rows)
+              assert {str(Path(s['name']).relative_to(ROOT)) for s in x['testResults']} == set(BIND['tests'])
+              assert len(x['testResults']) == 3 and x['numTotalTestSuites'] == 3
+              assert x['numRuntimeErrorTestSuites'] == 0
+              assert x['numPendingTests'] == 0 and x['numTodoTests'] == 0
+              assert x['numTotalTests'] == 78 and len(rows) == 78
+              assert x['numFailedTests'] == 1 and x['numPassedTests'] == 77
+              assert x['numFailedTestSuites'] == 1 and x['numPassedTestSuites'] == 2
+              for path, names in BIND['expected_names'].items():
+                  observed = [r['assertion']['fullName'] for r in rows if r['file'] == path]
+                  assert observed == names, path
+              new = [r['assertion'] for r in rows if r['file'] == BIND['tests'][0]]
+              assert len(new) == 8 and sum(a['numPassingAsserts'] for a in new) == 41
+              for case, row in zip(BIND['new_suite_cases'], new):
+                  assert row['status'] == case['prediction']
+                  wanted = 13 if case['prediction'] == 'failed' else case['authored_assertion_count']
+                  assert row['numPassingAsserts'] == wanted
+              for record in rows:
+                  row = record['assertion']
+                  assert row['invocations'] == 1 and row['retryReasons'] == []
+                  if row['status'] == 'failed':
+                      assert record['file'] == BIND['tests'][0] and row['fullName'] == new[0]['fullName']
+                      assert len(row['failureDetails']) == 1 and len(row['failureMessages']) == 1
+                      result = row['failureDetails'][0]['matcherResult']
+                      assert result['name'] == 'toEqual' and result['pass'] is False
+                      assert result['actual'] == []
+                      assert result['expected'] == [['raw_earn_withdraw_failed', 'status_screen']]
+                      assert isinstance(result['message'], str) and result['message']
+                      frames = re.findall(re.escape(BIND['tests'][0]) + r':(\d+):(\d+)', row['failureMessages'][0])
+                      assert frames and frames[0] == ('367', '62')
+                  else:
+                      assert row['status'] == 'passed' and not row['failureMessages'] and not row['failureDetails']
+              assert (OUT / 'jest.exit').read_text().strip() == '1'
+              assert (OUT / 'jest.tee.exit').read_text().strip() == '0'
+              save('classification.json', {'status': 'EXACT_EXPECTED_CAUSAL_RED', 'source': SOURCE,
+                   'normal_cases': 78, 'old_compatibility_passed': 70, 'new_passed': 7, 'new_failed': 1,
+                   'new_passing_assertions': 41, 'new_reached_assertions': 42,
+                   'first_frame': '367:62', 'prior_passing_assertions': 13,
+                   'no_production_green_or_whole_branch_acceptance': True})
+
+
+          def seal():
+              files = []
+              for p in sorted(OUT.rglob('*')):
+                  if p.is_file() and p.name != 'hashes.json':
+                      assert not p.is_symlink()
+                      files.append({'path': str(p.relative_to(OUT)), 'bytes': p.stat().st_size,
+                                    'sha256': digest(p.read_bytes()), 'type': 'regular',
+                                    'mode': format(stat.S_IMODE(p.stat().st_mode), '04o')})
+              save('hashes.json', files)
+
+
+          if sys.argv[1] == 'snapshot':
+              snapshot(sys.argv[2])
+          elif sys.argv[1] == 'classify':
+              try:
+                  classify()
+              except Exception as error:
+                  save('classification-refusal.json', {'status': 'NOT_ACCEPTED', 'error_type': type(error).__name__,
+                                                      'detail': str(error)})
+                  raise
+          elif sys.argv[1] == 'seal':
+              seal()
+          else:
+              raise SystemExit('unknown operation')
+          PY
+          cat > "$proof/bindings.json" <<'JSON'
+          {
+            "schema": 1,
+            "source": "ac1fffca303cc91f0d7e109678496ef5bc81bce7",
+            "tree": "971467ad02e928cbd99254a9ee2df4b292b7ad4c",
+            "parent": "3f6857d32124b872c3d10f96931572a2ff5a3bce",
+            "branch": "ci/1616-earn-first-query-red-v3",
+            "workflow_path": ".github/workflows/ci-1616-earn-first-query-red-v3.yml",
+            "transport_status": "UNCREATED_UNLAUNCHED_ROOT_OWNS_SIGN_PUSH_LAUNCH",
+            "source_inputs": [
+              {
+                "path": "AGENTS.md",
+                "sha256": "603055343b022dd9fc1872d78bdf73e8ee8aceff93185da196daa3c59aecb155",
+                "git_mode": "100644"
+              },
+              {
+                "path": "skills/miden-wallet-frontend/SKILL.md",
+                "sha256": "a8d8ba4229f01d08ed05d78304bedf6eda25d469db3fd7512954b6f278674b6a",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawReview.tsx",
+                "sha256": "bc79b6a237e2e50bf3c0abee178e90be63fc26b117379ade074476acdc30ba14",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+                "sha256": "1cd98aa36c5fc1907deb892d2cc072246e63479c537cdcf84f09529376c948ba",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawStatus.tsx",
+                "sha256": "19bb05593290a88bc95f7fb87acbb019b65f6f470a4f4ba97d7b3b9e697d8455",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawStatus.test.tsx",
+                "sha256": "0899c8c6b87c11ec4040a58fd0afa3b34ef86cabb69b9b2e742bbb48299a3e39",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw.ts",
+                "sha256": "7f094500af41ae0e8750486713bb8257ded9ab2c0a3442105aeab46f7b05738b",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw.test.ts",
+                "sha256": "9edcf4d95cd3294fabde428afc4372544ada74775462634d96420408231c6bb1",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/generating-transaction/useTransactionRow.ts",
+                "sha256": "652d94fed29bec87fa61067cc74c1612fd6be435e3dca591b6711d3b7d69f802",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/dexie-live-query.ts",
+                "sha256": "31ddf15bab0c5a92335cb89aedb628dddeb74299c97c43e1f947f5f266261fe0",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/transaction/initiate.ts",
+                "sha256": "32ab81b992b3cb51bf5dfc6ec8b4e6fd476e33be1279a627b5cdde4fa8020190",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/transaction/complete.ts",
+                "sha256": "c7c3b0c6f98824783a0e5410b6a04e98701b353f5105083a09ba9e143c70fbd3",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/db/types.ts",
+                "sha256": "936e3f6a4ebe3c76620996344adbcc251b2c6375310a20dc9923b64003af10aa",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/miden/repo.ts",
+                "sha256": "1c827e9ef0edb5cd34d2a971e45b63b471821bd6c37197a1d7bb8f6b75f0cf7e",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositScreen.usdcx.test.tsx",
+                "sha256": "ff91f9b0185da4363ed57e7820df33cb0788587c567d86c11863aa2d364a00e8",
+                "git_mode": "100644"
+              },
+              {
+                "path": "jest.config.ts",
+                "sha256": "73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6",
+                "git_mode": "100644"
+              },
+              {
+                "path": "jest.setup.js",
+                "sha256": "247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0",
+                "git_mode": "100644"
+              },
+              {
+                "path": "package.json",
+                "sha256": "9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e",
+                "git_mode": "100644"
+              },
+              {
+                "path": "yarn.lock",
+                "sha256": "624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7",
+                "git_mode": "100644"
+              },
+              {
+                "path": ".prettierrc",
+                "sha256": "7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf",
+                "git_mode": "100644"
+              },
+              {
+                "path": ".eslintrc",
+                "sha256": "2b70aa065506346da75d71f19f3a138f71b5b5be0889e4074cc04a26fddca629",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw-quote.ts",
+                "sha256": "ef00aed13e12e4618de305aedcd085b4cd00347cef883ad99f1737989f8ba1d9",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-submission-lock.ts",
+                "sha256": "217e1cf6ab2a3e6c5136c6a566101d81d9413d335bdb352283e2fd9fff900768",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/testing/bridge-config.ts",
+                "sha256": "c2e526f2fc9b16452d8083f6f55da7e13825fa20bb0ac0ad601197bc71f92b99",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/testing/earn-prepared.ts",
+                "sha256": "83b997140846ccfa3b73749593a501ab972ee8fd120ac077acee0384202397a7",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/use-user-visible-error.ts",
+                "sha256": "4a4a8dfa192ff6ae7ec942b1298a1c8b9cc740f437fa608bbe3b858c115dcb09",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/index.ts",
+                "sha256": "f5d1d25e101bd19d991396b8ae93ab9b816cd9868122aabf47986138e8fbbcaa",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/Provider.tsx",
+                "sha256": "3707d7e5374d4370a9c8dbd4d0755009d6a23ee981a3281b3170fe9eba5efdcf",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/config.ts",
+                "sha256": "5d6113399cccdae1bceac276fc77e4b5c9b5ae5652c7d44e002e462d0670b4f9",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/history.ts",
+                "sha256": "52546c769a936fa5603ed1ddebc4ef2b7c6ffc7d45259c813d7e1b47ab60a20c",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/woozie/location.ts",
+                "sha256": "19711019fafa36851623c1965daee8d6c0a6628b7fe33d070cb6af84534546c8",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/layouts/page-active.ts",
+                "sha256": "0acf8a2dd53b0b23f7533b8666a8b093c466889f1806eb4ce50fdc5c9b79b3f0",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/layouts/MobilePageLayers.tsx",
+                "sha256": "d8f99d05e36b01ed7bc71ce4f6f321cd5ffdb2e09b1ce42a21652b5a15e59c4e",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/app/layouts/MobilePageLayers.test.tsx",
+                "sha256": "3fc2fb14c70b78cc3f25cf5198b237bd89ae13a1dbb5bdf82840900ff2d5cbd3",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/epoch/earn-withdraw-policy.ts",
+                "sha256": "89df75e76892f1b8902ccd1850d92344aaa494458ccc322708aba18dbc9b58c0",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/types.ts",
+                "sha256": "6caa4230ab7993c88127beb3e0f69d7216b674372dd578577fc16157488978bb",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/components.tsx",
+                "sha256": "4cab5972f8f6127075b0887e4aa16fc703efd22901bb3f24622b0e426d33762e",
+                "git_mode": "100644"
+              },
+              {
+                "path": "tsconfig.json",
+                "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+                "git_mode": "100644"
+              },
+              {
+                "path": "__mocks__/wasmMock.js",
+                "sha256": "57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66",
+                "git_mode": "100644"
+              },
+              {
+                "path": "__mocks__/lib/i18n/numbers.ts",
+                "sha256": "19e54ae19bc1917b51dd94086b2d1f824358ec5e46811afe886c90a468bdd3ec",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/i18n/numbers.ts",
+                "sha256": "eab717f7b871f2994c916a8255cbe69524471839056f0d312801dc12e22f98be",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+                "sha256": "9fc366dd3677d6daf3ee67cb5935fdc910696f083a78c0ec79e594e91262b1b7",
+                "git_mode": "100644"
+              },
+              {
+                "path": "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+                "sha256": "6c0de1c8bf6c3d598cf16e32a442d9a6edd9859de64f069ff15766d3a2305d9f",
+                "git_mode": "100644"
+              }
+            ],
+            "tests": [
+              "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx",
+              "src/screens/earn-flow/EarnWithdrawReview.test.tsx",
+              "src/screens/earn-flow/EarnWithdrawStatus.test.tsx"
+            ],
+            "expected_names": {
+              "src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx": [
+                "Earn withdrawal first-query reporting reports a new Review submission whose actual producer fails before the first row query",
+                "Earn withdrawal first-query reporting keeps a historical first failed query quiet after loading and reopening",
+                "Earn withdrawal first-query reporting keeps Pop with a saved matching marker quiet",
+                "Earn withdrawal first-query reporting keeps reload with a saved matching marker quiet",
+                "Earn withdrawal first-query reporting keeps Replace with a matching marker quiet",
+                "Earn withdrawal first-query reporting keeps Push with a mismatched marker quiet",
+                "Earn withdrawal first-query reporting keeps a revealed return mount on Push with a matching marker quiet",
+                "Earn withdrawal first-query reporting does not reuse an old Push qualification when the same hidden status node returns by Pop"
+              ],
+              "src/screens/earn-flow/EarnWithdrawReview.test.tsx": [
+                "EarnWithdrawReview sends a review URL with no amount back to the amount step and submits nothing",
+                "EarnWithdrawReview renders the selected position and the full-withdraw route details",
+                "EarnWithdrawReview rounds the full withdrawable down from its exact string",
+                "EarnWithdrawReview gives the withdraw confirm the earn flow colour",
+                "EarnWithdrawReview falls back to an empty position and disables withdrawal for an unknown id",
+                "EarnWithdrawReview submits the reviewed full position and routes as soon as the tracking row exists",
+                "EarnWithdrawReview rejects a position not owned by the current wallet account",
+                "EarnWithdrawReview reports user-visible error: rejects a position not owned by the current wallet account",
+                "EarnWithdrawReview handles an account without a derived EVM address",
+                "EarnWithdrawReview surfaces SDK errors and restores the CTA once the amount is quoted again",
+                "EarnWithdrawReview reports user-visible error: surfaces SDK errors and restores the CTA once the amount is quoted again",
+                "EarnWithdrawReview uses the fallback message for non-Error failures",
+                "EarnWithdrawReview reports user-visible error: uses the fallback message for non-Error failures",
+                "EarnWithdrawReview ignores a second tap while the first withdrawal is in flight",
+                "EarnWithdrawReview pins the CTA in the shared frame footer, on the page margin rather than a per-platform one",
+                "EarnWithdrawReview names the network it will commit on",
+                "EarnWithdrawReview after a failed load says a per-owner positions failure too, which is not a request failure",
+                "EarnWithdrawReview after a failed load says the load failed, with Retry, instead of offering to withdraw a placeholder position",
+                "EarnWithdrawReview after a failed load reports user-visible error: says the load failed, with Retry, instead of offering to withdraw a placeholder position",
+                "EarnWithdrawReview after a failed load keeps the failure said while a retry is out, and names only the route in the header",
+                "EarnWithdrawReview after a failed load draws nothing it has not loaded during a first load with no error",
+                "EarnWithdrawReview after a failed load reports user-visible error: draws nothing it has not loaded during a first load with no error",
+                "EarnWithdrawReview after a failed load keeps a position it already has, under the notice",
+                "EarnWithdrawReview after a failed load disables Withdraw for a position the latest read did not load, under the notice with Retry",
+                "EarnWithdrawReview after a failed load never signs for a position the latest read did not load, even when its confirm is called",
+                "EarnWithdrawReview with no position to name keeps a route heading and no placeholder name after a failed load",
+                "EarnWithdrawReview with no position to name keeps a route heading and no placeholder name after a load in flight",
+                "EarnWithdrawReview with no position to name keeps a route heading and no placeholder name after a settled load without it",
+                "selected withdrawal review reports the visible quote refresh when an empty submit error leaves no owning submit notice",
+                "selected withdrawal review reports a new balance validation after a submit failure remains visible, with its own full dwell",
+                "selected withdrawal review reports an independent quote failure after balance recovery while the submit failure remains visible",
+                "selected withdrawal review reports user-visible recognized SDK error by its translation key",
+                "selected withdrawal review reports user-visible review validation 0",
+                "selected withdrawal review reports user-visible review validation 43",
+                "selected withdrawal review reports user-visible review validation 1.0000001",
+                "selected withdrawal review reports user-visible quote failure earnWithdrawRefresh",
+                "selected withdrawal review reports user-visible quote failure earnWithdrawQuoteUnavailable",
+                "selected withdrawal review reviews and submits the same selected amount and payout floor",
+                "selected withdrawal review leads with the receipt and keeps exact technical amounts in an accessible disclosure",
+                "selected withdrawal review preserves the amount on quote failure and allows refresh",
+                "selected withdrawal review shows a compact full-balance summary and submits every selected base unit",
+                "selected withdrawal review expires a quote without changing the selected amount",
+                "selected withdrawal review blocks duplicate confirms while submission is pending",
+                "selected withdrawal review keeps the reviewed quote when availability changes but still covers the amount",
+                "selected withdrawal review keeps the reviewed quote when availability falls but still covers the amount",
+                "selected withdrawal review quotes against the new balance once availability rises from below the amount to cover it",
+                "selected withdrawal review keeps the reviewed quote when a positions refresh rebuilds the position with the same values",
+                "selected withdrawal review disables Withdraw when availability falls below the reviewed amount"
+              ],
+              "src/screens/earn-flow/EarnWithdrawStatus.test.tsx": [
+                "EarnWithdrawStatus shows a spinner until a transaction row is available",
+                "EarnWithdrawStatus shows the processing state before the intent is submitted",
+                "EarnWithdrawStatus shows a failed intent and its recorded error",
+                "EarnWithdrawStatus wraps a recorded error with an unbreakable token",
+                "EarnWithdrawStatus falls back to the generic transaction error for an unstamped failure",
+                "EarnWithdrawStatus shows a submitted redeeming intent in the success layout",
+                "EarnWithdrawStatus keeps a saved but unaccepted withdrawal in processing until acceptance arrives",
+                "EarnWithdrawStatus shows the delivering status after Epoch settlement",
+                "EarnWithdrawStatus shows the received status after the Miden note is consumed",
+                "EarnWithdrawStatus shows the credited amount beside the withdrawn source once received",
+                "EarnWithdrawStatus keeps native delivery on the network until its scale is known",
+                "EarnWithdrawStatus scales a credited native USDCX delivery with authoritative eight decimals",
+                "EarnWithdrawStatus reads a delivered non-native faucet from the store once received",
+                "EarnWithdrawStatus keeps the arrow on Miden while the delivered faucet scale is unknown",
+                "invalidates only this account positions after the actual withdrawal receipt",
+                "user-visible withdrawal failure reports reports a failure watched while mounted once without leaking private solver reason 123.45",
+                "user-visible withdrawal failure reports reports a failure watched while mounted once without leaking undefined",
+                "user-visible withdrawal failure reports does not report a first loaded persisted failure after spinner or after reopening",
+                "user-visible withdrawal failure reports does not report a persisted failure when opened or reopened",
+                "user-visible withdrawal failure reports does not report the redeeming progress state",
+                "user-visible withdrawal failure reports does not report the delivering progress state",
+                "user-visible withdrawal failure reports does not report the received progress state"
+              ]
+            },
+            "new_suite_cases": [
+              {
+                "id": "EWQ-1",
+                "fullName": "Earn withdrawal first-query reporting reports a new Review submission whose actual producer fails before the first row query",
+                "prediction": "failed",
+                "authored_assertion_count": 15
+              },
+              {
+                "id": "EWQ-2",
+                "fullName": "Earn withdrawal first-query reporting keeps a historical first failed query quiet after loading and reopening",
+                "prediction": "passed",
+                "authored_assertion_count": 6
+              },
+              {
+                "id": "EWQ-3",
+                "fullName": "Earn withdrawal first-query reporting keeps Pop with a saved matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-4",
+                "fullName": "Earn withdrawal first-query reporting keeps reload with a saved matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-5",
+                "fullName": "Earn withdrawal first-query reporting keeps Replace with a matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-6",
+                "fullName": "Earn withdrawal first-query reporting keeps Push with a mismatched marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-7",
+                "fullName": "Earn withdrawal first-query reporting keeps a revealed return mount on Push with a matching marker quiet",
+                "prediction": "passed",
+                "authored_assertion_count": 3
+              },
+              {
+                "id": "EWQ-8",
+                "fullName": "Earn withdrawal first-query reporting does not reuse an old Push qualification when the same hidden status node returns by Pop",
+                "prediction": "passed",
+                "authored_assertion_count": 7
+              }
+            ],
+            "expected_normal": {
+              "suites": 3,
+              "tests": 78,
+              "compatibility": 70,
+              "failed": 1,
+              "passing_new_assertions": 41,
+              "reached_new_assertions": 42,
+              "all_green_new_assertions": 43
+            },
+            "causal_first_frame": {
+              "line": 367,
+              "column": 62,
+              "prior_passing_assertions": 13
+            },
+            "prediction_only": true,
+            "full_case_inventory_reference": {
+              "packet": "earn-withdraw-first-query-regression-candidate-1",
+              "path": "case-inventory.json",
+              "sha256": "62a6d29b2f27699361e14d3fda53495f64e007a632f105fdb34dcd5148073b42",
+              "manifest_sha256": "2c80f13b9d005d8e9040932eee1d0534df865081d2fdb6a01819b42debbb505d"
+            }
+          }
+          JSON
+          cp .github/workflows/ci-1616-earn-first-query-red-v3.yml "$proof/workflow.yml"
+          printf '%s\n' "$GITHUB_SHA" "$GITHUB_REF" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$proof/github-run.txt"
+          git rev-parse HEAD HEAD^{tree} HEAD^ > "$proof/transport.txt"
+          git log -1 --format=fuller --show-signature > "$proof/transport-commit.txt" 2>&1
+          git diff-tree --no-commit-id --name-status -r HEAD^ HEAD > "$proof/transport-paths.txt"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = 'refs/heads/ci/1616-earn-first-query-red-v3'
+          test "$(git rev-parse HEAD^)" = 'ac1fffca303cc91f0d7e109678496ef5bc81bce7'
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD^ HEAD)" = '.github/workflows/ci-1616-earn-first-query-red-v3.yml'
+          test "$(git ls-tree HEAD -- .github/workflows/ci-1616-earn-first-query-red-v3.yml | cut -d' ' -f1)" = '100644'
+          git checkout --detach 'ac1fffca303cc91f0d7e109678496ef5bc81bce7'
+          test "$(git rev-parse HEAD^{tree})" = '971467ad02e928cbd99254a9ee2df4b292b7ad4c'
+          git log -1 --format=fuller --show-signature > "$proof/source-commit.txt" 2>&1
+      - name: Install frozen dependencies
+        id: install
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          node --version | tee "$PROOF_DIR/node-version.txt"
+          yarn --version | tee "$PROOF_DIR/yarn-version.txt"
+          set +e
+          yarn install --frozen-lockfile --network-timeout 600000 2>&1 | tee "$PROOF_DIR/install.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/install.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/install.tee.exit"
+          test "${codes[1]}" -eq 0
+          exit "${codes[0]}"
+      - name: Named format lint and whole typecheck
+        id: preflight
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" snapshot before 2>&1 | tee "$PROOF_DIR/snapshot-before.log"
+          set +e
+          yarn prettier --check src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx 2>&1 | tee "$PROOF_DIR/format.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/format.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/format.tee.exit"
+          set +e
+          yarn eslint src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx --max-warnings 0 2>&1 | tee "$PROOF_DIR/lint.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/lint.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/lint.tee.exit"
+          set +e
+          yarn ts --noEmit 2>&1 | tee "$PROOF_DIR/types.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/types.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/types.tee.exit"
+          for gate in format lint types; do
+            test "$(cat "$PROOF_DIR/$gate.exit")" = 0
+            test "$(cat "$PROOF_DIR/$gate.tee.exit")" = 0
+          done
+      - name: Run three complete suites and preserve natural red
+        id: tests
+        if: steps.preflight.outcome == 'success'
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile=$PROOF_DIR/jest.json' > "$PROOF_DIR/jest-argv.txt"
+          set +e
+          yarn jest --runTestsByPath src/screens/earn-flow/EarnWithdrawFirstQuery.integration.test.tsx src/screens/earn-flow/EarnWithdrawReview.test.tsx src/screens/earn-flow/EarnWithdrawStatus.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/jest.json" 2>&1 | tee "$PROOF_DIR/jest.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/jest.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/jest.tee.exit"
+          test "${codes[1]}" -eq 0
+          exit "${codes[0]}"
+      - name: Retain source and framework after checks
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" snapshot after 2>&1 | tee "$PROOF_DIR/snapshot-after.log"
+      - name: Classify exact expected red independently
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" classify 2>&1 | tee "$PROOF_DIR/classification.log"
+      - name: Seal retained raw proof
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" seal
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 1616-earn-first-query-red-v3
+          path: ${{ runner.temp }}/1616-earn-first-query-red-v3/
+          include-hidden-files: true
+          if-no-files-found: error
