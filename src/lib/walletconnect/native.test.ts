@@ -778,6 +778,30 @@ describe('native session precheck reasons', () => {
     expectReason(error, 'state_unread', 'not_attempted', 'other');
   });
 
+  it('names a state read that threw a function, and rethrows that function', async () => {
+    const cause = () => undefined;
+    rawNativeReown.getState.mockRejectedValueOnce(cause);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBe(cause);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'state_unread', 'not_attempted', 'none');
+  });
+
+  it('rethrows a primitive state-read failure unchanged and leaves the precheck unnamed', async () => {
+    const cause = `plugin down ${topic} ${address}`;
+    rawNativeReown.getState.mockRejectedValueOnce(cause);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBe(cause);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: error });
+    expect(report).toBe('via usdcx; failed at precheck_session_chain; evm error other');
+    for (const secret of secrets) expect(report).not.toContain(secret);
+  });
+
   it('names a missing session when no add or switch was sent', async () => {
     rawNativeReown.getState.mockResolvedValueOnce({
       configured: true,
