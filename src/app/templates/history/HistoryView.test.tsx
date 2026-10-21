@@ -41,7 +41,8 @@ jest.mock('app/icons/v2', () => ({
     Convert: 'Convert',
     Earn: 'Earn',
     More: 'More',
-    ArrowUpDown: 'ArrowUpDown'
+    ArrowUpDown: 'ArrowUpDown',
+    Key: 'Key'
   }
 }));
 
@@ -1511,9 +1512,35 @@ describe('HistoryView Guardian ops', () => {
     for (const title of ['Guardian switched', 'Device key rotated', 'Account secured']) {
       const row = rowByTitle(title);
       expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
-      expect(row.querySelector('svg')).not.toBeNull();
-      expect(within(row).queryByTestId('icon')).toBeNull();
+      expect(iconNameIn(row)).toBe('Key');
+      expect(row.querySelector('svg')).toBeNull();
     }
+  });
+
+  it('keeps the red cross for a failed Guardian op and the swap glyph for a bridge row', () => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
+      outAmount: '10',
+      providerLabel: 'AggLayer',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    const entries = [
+      makeEntry({ key: 'failed-switch', txType: 'switch-guardian', message: 'Guardian failed', transactionIcon: 'FAILED' }),
+      makeEntry({ key: 'bridge', txType: 'bridged-send', txId: 'bridge-tx' })
+    ];
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    const failed = rowByTitle('Guardian failed');
+    expect(failed).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
+    expect(failed.querySelector('svg')).not.toBeNull();
+    expect(within(failed).queryByTestId('icon')).toBeNull();
+    const bridge = rowByTitle('bridgeRowTitle');
+    expect(bridge.querySelector('svg')).not.toBeNull();
+    expect(within(bridge).queryByTestId('icon')).toBeNull();
   });
 });
 
