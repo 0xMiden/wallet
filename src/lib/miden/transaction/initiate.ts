@@ -30,6 +30,7 @@ import {
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
+  IConsumeSwapSettleExtraInputs,
   isLiveTransaction,
   ITransaction,
   ITransactionStatus,
@@ -268,6 +269,9 @@ export interface ConsumeNotesQueueResult {
  * a stable "this note already has a tx" response. `coveringTxIdByNoteId` names the
  * row covering EACH note, because a partly deduplicated batch's id covers only the
  * notes that joined it.
+ *
+ * `settlementLink` is swap settlement's: the order a row settles, written in the insert that creates the row, so
+ * no running processor ever sees a settlement claim without it (#1644).
  */
 export const queueConsumeNotes = async (
   accountId: string,
@@ -277,7 +281,8 @@ export const queueConsumeNotes = async (
   isolateNotesWithFailedBatch?: boolean,
   verificationBaseFee?: number | null,
   entryPoint?: ConsumeEntryPoint,
-  canSign?: () => boolean
+  canSign?: () => boolean,
+  settlementLink?: IConsumeSwapSettleExtraInputs
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -288,7 +293,11 @@ export const queueConsumeNotes = async (
     verificationBaseFee,
     undefined,
     undefined,
-    undefined,
+    settlementLink
+      ? row => {
+          row.extraInputs = { ...(row.extraInputs ?? {}), ...settlementLink };
+        }
+      : undefined,
     entryPoint,
     canSign
   );
