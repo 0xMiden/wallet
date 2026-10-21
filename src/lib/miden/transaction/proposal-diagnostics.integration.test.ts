@@ -26,7 +26,7 @@ const oldBytes = new Uint8Array([1, 2]);
 const newBytes = new Uint8Array([3, 4]);
 const accountRef = (value: string) => ({ toString: () => value, toHex: () => value });
 const mockAccount = { id: () => accountRef(accountId) };
-const mockAccountRead = jest.fn(async (..._args: unknown[]) => mockAccount);
+const mockAccountRead = jest.fn(async (..._args: unknown[]): Promise<typeof mockAccount | null> => mockAccount);
 const mockSignerRead = jest.fn(async () => ({ commitment: 'commitment' }));
 const mockReclaimBuild = jest.fn(async (..._args: unknown[]) => newBytes);
 const mockConsumableNotes = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
@@ -576,7 +576,7 @@ describe.each(['update-procedure-threshold', 'replace-hot-key'] as const)('a %s 
   });
 
   it('reports a missing SDK account as the account read', async () => {
-    mockAccountRead.mockResolvedValueOnce(undefined);
+    mockAccountRead.mockResolvedValueOnce(null);
     expectTerminal(await runStructural());
     expect(mockLoad).not.toHaveBeenCalled();
     await failureEvent('service_account_read', undefined, structuralAtProposal);
