@@ -511,12 +511,13 @@ describe('provider route labels', () => {
     const messages = JSON.parse(fs.readFileSync(path.join(dir, 'messages.json'), 'utf8'));
     // The app renders the flat bundle; the translation job keeps messages.json. Both must agree.
     const bundle = JSON.parse(fs.readFileSync(path.join(dir, `${locale}.json`), 'utf8'));
-    for (const [key, provider] of [
+    const labels: Array<[string, string]> = [
       ['bridgeRouteEpoch', 'Epoch'],
       ['bridgeRouteAgglayer', 'Agglayer'],
       ['bridgeContinueEpoch', 'Epoch'],
       ['bridgeContinueAgglayer', 'Agglayer']
-    ]) {
+    ];
+    for (const [key, provider] of labels) {
       for (const label of [messages[key].message as string, bundle[key] as string]) {
         expect(label).toContain(provider);
         expect(label).not.toMatch(/読|읽|阅读|閱讀|stronie|serwisie/);
