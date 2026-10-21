@@ -327,37 +327,56 @@ function deliveryOf(
   return token ? { faucet: token.midenFaucetId, scale: token.scale } : undefined;
 }
 
+// A read that holds every token its rows asked for is shared for a minute; one that lacks a token, for the ten seconds
+// a batch's notes take, so a faucet registered meanwhile is seen. A failed read is not kept.
+const LIVE_REGISTRY_TTL_MS = 60_000;
+const LIVE_REGISTRY_MISS_TTL_MS = 10_000;
+const liveRegistryReads = new Map<string, { at: number; tokens: BridgeToken[] }>();
+
+export function _resetLiveRegistryReadsForTest(): void {
+  liveRegistryReads.clear();
+}
+
 /**
- * One registry read per bridge of the open ERC-20 rows whose token the snapshot holds no faucet for yet: a test
- * network registers a token's faucet when its first deposit is claimed, usually before this realm's hourly refresh.
- * A note from a faucet the snapshot already holds is not that delivery, so it reads nothing. A failed read leaves
- * those rows unmatched.
+ * The registry of each bridge an open ERC-20 row whose token the snapshot holds no faucet for yet was made through: a
+ * test network registers a token's faucet when its first deposit is claimed, usually before this realm's hourly
+ * refresh. A failed read leaves those rows unmatched.
  */
 async function readLiveRegistries(
   snapshot: BridgeConfigSnapshot,
-  rows: readonly ITransaction[],
-  sender: string
+  rows: readonly ITransaction[]
 ): Promise<Map<string, BridgeToken[]>> {
-  const live = new Map<string, BridgeToken[]>();
-  const bridges = new Set(
-    rows.flatMap(tx => {
-      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-      const route = inputs?.agglayerRoute;
-      return inputs?.agglayerDelivery !== undefined && route && deliveryOf(snapshot, inputs) === undefined
-        ? [route.midenBridgeId]
-        : [];
-    })
-  );
-  if (bridges.size === 0 || selectAgglayerDeliveryFaucets(snapshot).some(faucet => sentByFaucet(sender, faucet))) {
-    return live;
+  const wanted = new Map<string, Set<string>>();
+  for (const tx of rows) {
+    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    const route = inputs?.agglayerRoute;
+    if (!inputs?.agglayerDelivery || !route || deliveryOf(snapshot, inputs) !== undefined) continue;
+    const tokens = wanted.get(route.midenBridgeId) ?? new Set<string>();
+    tokens.add(inputs.agglayerDelivery.originToken);
+    wanted.set(route.midenBridgeId, tokens);
   }
+  const live = new Map<string, BridgeToken[]>();
+  if (wanted.size === 0) return live;
   const [{ readBridgeRegistry }, { getEffectiveRpcUrl }] = await Promise.all([
     import('lib/remote-config/derive'),
     import('lib/miden-chain/effective-endpoints')
   ]);
-  for (const bridge of bridges) {
+  const rpcUrl = getEffectiveRpcUrl();
+  for (const [bridge, tokens] of wanted) {
+    const key = `${rpcUrl} ${bridge}`;
+    const kept = liveRegistryReads.get(key);
+    const holdsAll = (read: BridgeToken[]) => [...tokens].every(token => read.some(t => t.originToken === token));
+    const fresh =
+      kept !== undefined &&
+      Date.now() - kept.at < (holdsAll(kept.tokens) ? LIVE_REGISTRY_TTL_MS : LIVE_REGISTRY_MISS_TTL_MS);
+    if (fresh) {
+      live.set(bridge, kept.tokens);
+      continue;
+    }
     try {
-      live.set(bridge, (await readBridgeRegistry(bridge, getEffectiveRpcUrl())).tokens);
+      const read = (await readBridgeRegistry(bridge, rpcUrl)).tokens;
+      liveRegistryReads.set(key, { at: Date.now(), tokens: read });
+      live.set(bridge, read);
     } catch (error) {
       console.warn('[bridge-in] could not read the bridge registry for a first deposit', bridge, error);
     }
@@ -413,7 +432,7 @@ export async function takeAgglayerBridgeInInfo(args: {
       );
     })
     .toArray();
-  const live = await readLiveRegistries(snapshot, open, args.senderAccountId);
+  const live = await readLiveRegistries(snapshot, open);
   const matches = open.filter(tx => {
     const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
     const delivery = deliveryOf(snapshot, inputs, live);

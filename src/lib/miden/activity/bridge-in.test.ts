@@ -15,6 +15,7 @@ import {
   suppressedLinkedConsumeIds,
   takeAgglayerBridgeInInfo,
   takeUsdcxBridgeInInfo,
+  _resetLiveRegistryReadsForTest,
   applyBridgeInInfoForNotes,
   setAgglayerSenderForE2E
 } from './bridge-in';
@@ -187,6 +188,7 @@ const EVM_OWNER = '0x1111111111111111111111111111111111111111';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  _resetLiveRegistryReadsForTest();
   mockSnapshot = snapshotWith({ 11155111: [nativeEth('0xagg', 10)] });
   for (const key of Object.keys(mockStore)) delete mockStore[key];
   mockTransactions.splice(0);
@@ -409,12 +411,68 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toBeUndefined();
-    expect(mockReadBridgeRegistry).not.toHaveBeenCalled();
-
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row', sourceToken: usdcToken.originToken });
+    // Both notes of the batch share one read of the row's bridge.
+    expect(mockReadBridgeRegistry).toHaveBeenCalledTimes(1);
     expect(mockReadBridgeRegistry).toHaveBeenCalledWith('0xbridge', 'https://rpc.miden.test');
+  });
+
+  // A sender another chain's snapshot holds says nothing about the row's own chain, whose registry read may have
+  // failed: the row's bridge is still read.
+  it('reads the bridge for a sender only another chain knows', async () => {
+    const usdcToken: BridgeToken = {
+      ...nativeEth('0xusdcfaucet', 8),
+      originToken: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'
+    };
+    const baseSepolia: SupportedEvmChainConfig = {
+      chainId: 84532,
+      bridges: {
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+          midenBridgeId: '0x187cabbc404359d16be94954ca9879'
+        }
+      }
+    };
+    mockSnapshot = snapshotWith(
+      { 11155111: [nativeEth('0xagg', 10)], 84532: [usdcToken] },
+      { 'base-sepolia': baseSepolia }
+    );
+    expect(isAgglayerBridgeDelivery('usdc-sender')).toBe(true);
+    mockTransactions.push(firstDeposit(usdcToken.originToken));
+    mockReadBridgeRegistry.mockResolvedValue({ rollupId: 86, tokens: [usdcToken] });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
+    expect(mockReadBridgeRegistry).toHaveBeenCalledWith('0xbridge', 'https://rpc.miden.test');
+  });
+
+  // A failed read is read again on the next note; a read that lacked the token, once ten seconds have passed.
+  it('keeps neither a failed registry read nor one without the token', async () => {
+    const usdcToken: BridgeToken = {
+      ...nativeEth('0xusdcfaucet', 8),
+      originToken: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'
+    };
+    mockTransactions.push(firstDeposit(usdcToken.originToken));
+    const take = () =>
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n });
+
+    mockReadBridgeRegistry.mockRejectedValueOnce(new Error('node down'));
+    await expect(take()).resolves.toBeUndefined();
+    mockReadBridgeRegistry.mockResolvedValueOnce({ rollupId: 86, tokens: [] });
+    await expect(take()).resolves.toBeUndefined();
+    expect(mockReadBridgeRegistry).toHaveBeenCalledTimes(2);
+
+    mockReadBridgeRegistry.mockResolvedValue({ rollupId: 86, tokens: [usdcToken] });
+    await expect(take()).resolves.toBeUndefined();
+    expect(mockReadBridgeRegistry).toHaveBeenCalledTimes(2);
+    nowSpy.mockReturnValue(10_000 + 10_001);
+    await expect(take()).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
+    expect(mockReadBridgeRegistry).toHaveBeenCalledTimes(3);
   });
 
   // The same token registered from another network mints another bridged token: while the chain's network id read
