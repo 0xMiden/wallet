@@ -39,7 +39,12 @@ jest.mock('react-i18next', () => ({
         guardianSwitchUnconfirmedHeading: 'Guardian switch submitted',
         viewInActivities: 'View in Activities',
         done: 'Done',
-        unknown: 'Unknown'
+        unknown: 'Unknown',
+        guardianSwitchSuccessInfo1Title: 'Your new Guardian co-signs',
+        guardianSwitchUnconfirmedInfo1Title: 'New Guardian co-signs once confirmed',
+        guardianSwitchSuccessInfo2Title: 'Nothing moved',
+        guardianSwitchSuccessInfo3Title: 'Keep it reachable',
+        guardianSwitchSuccessInfo4Title: 'Switch again anytime'
       };
       return map[key] ?? key;
     }
@@ -49,8 +54,11 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="transition-icon">{name}</span>,
-  IconName: { ArrowRight: 'ArrowRight' }
+  // Only the pair's arrow is the "transition-icon"; the fact rows' glyphs must not collide with it.
+  Icon: ({ name }: { name: string }) => (
+    <span data-testid={name === 'ArrowRight' ? 'transition-icon' : 'row-icon'}>{name}</span>
+  ),
+  IconName: { ArrowRight: 'ArrowRight', ShieldCheck: 'ShieldCheck', Coins: 'Coins', Globe: 'Globe', Refresh: 'Refresh' }
 }));
 
 jest.mock('app/icons/guardian-switch-success.svg', () => ({
@@ -229,6 +237,80 @@ describe('GuardianSwitchSuccess', () => {
     expect(bullets).toHaveLength(4);
     ['1', '2', '3', '4'].forEach((n, index) => {
       expect(bullets[index]).toHaveTextContent(`guardianSwitchSuccessInfo${n}`);
+    });
+  });
+
+  describe('"what changes now" as titled rows', () => {
+    const rowsOf = () => Array.from(body().querySelectorAll('li'));
+    const unconfirmedTx = () =>
+      switchGuardianTx({
+        extraInputs: {
+          previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+          newGuardianEndpoint: KODA_ENDPOINT,
+          commitUnconfirmed: true
+        }
+      });
+
+    it('lists four rows under an h2, each a title over its sentence', () => {
+      render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
+
+      const heading = screen.getByRole('heading', { level: 2 });
+      expect(heading).toHaveTextContent('guardianSwitchSuccessInfoTitle');
+      const rows = rowsOf();
+      expect(rows[0]?.closest('ul')).not.toBeNull();
+      expect(rows).toHaveLength(4);
+      const expected: Array<[string, string]> = [
+        ['Your new Guardian co-signs', 'guardianSwitchSuccessInfo1'],
+        ['Nothing moved', 'guardianSwitchSuccessInfo2'],
+        ['Keep it reachable', 'guardianSwitchSuccessInfo3'],
+        ['Switch again anytime', 'guardianSwitchSuccessInfo4']
+      ];
+      expected.forEach(([title, description], index) => {
+        expect(rows[index]).toHaveTextContent(title);
+        expect(rows[index]).toHaveTextContent(description);
+      });
+      expect(rows.map(row => row.querySelector('[data-testid="row-icon"]')?.textContent)).toEqual([
+        'ShieldCheck',
+        'Coins',
+        'Globe',
+        'Refresh'
+      ]);
+    });
+
+    it('swaps the titles of rows 1 and 3 with their sentences when the commit is unconfirmed', () => {
+      render(<GuardianSwitchSuccess transaction={unconfirmedTx()} onDoneClick={() => {}} />);
+
+      const rows = rowsOf();
+      expect(rows).toHaveLength(4);
+      expect(rows[0]).toHaveTextContent('New Guardian co-signs once confirmed');
+      expect(rows[0]).toHaveTextContent('guardianSwitchUnconfirmedInfo1');
+      expect(rows[0]).not.toHaveTextContent('Your new Guardian co-signs');
+      expect(rows[1]).toHaveTextContent('Nothing moved');
+      expect(rows[1]).toHaveTextContent('guardianSwitchSuccessInfo2');
+      expect(rows[2]).toHaveTextContent('Keep it reachable');
+      expect(rows[2]).toHaveTextContent('guardianSwitchUnconfirmedInfo3');
+      expect(rows[3]).toHaveTextContent('Switch again anytime');
+      expect(rows[3]).toHaveTextContent('guardianSwitchSuccessInfo4');
+    });
+
+    it('drops the fourth row when the local state is unrecoverable', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      const rows = rowsOf();
+      expect(rows).toHaveLength(3);
+      expect(rows[2]).toHaveTextContent('Keep it reachable');
+      expect(body()).not.toHaveTextContent('Switch again anytime');
     });
   });
 
@@ -669,5 +751,12 @@ describe('Guardian-switch receipt bodies in each locale (#1233)', () => {
       expect(messages[key]?.englishSource).toBe(en[key]);
       expect(bundle[key]).toBe(message);
     }
+  });
+
+  // Negative-only: a short title need not contain the locale's switch term, and the locale may not have it yet.
+  it.each(SWITCH_TERMS)('%s does not render the Switch again title as hardware or a toggle', locale => {
+    const messages: Record<string, LocaleEntry | undefined> = readLocaleFile(`${locale}/messages.json`);
+
+    expect(messages['guardianSwitchSuccessInfo4Title']?.message ?? '').not.toMatch(HARDWARE_SENSE);
   });
 });
