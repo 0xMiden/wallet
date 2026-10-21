@@ -230,6 +230,7 @@ export const USER_ERROR_IDS = Object.freeze<
     'usdcxSendMoreThanPayoutFee',
     'usdcxUnsupportedFaucet',
     'verifyStepWrong',
+    'walletAccessUnavailableBody',
     'walletSetupDidNotComplete'
   ]
 >([
@@ -431,6 +432,7 @@ export const USER_ERROR_IDS = Object.freeze<
   'usdcxSendMoreThanPayoutFee',
   'usdcxUnsupportedFaucet',
   'verifyStepWrong',
+  'walletAccessUnavailableBody',
   'walletSetupDidNotComplete'
 ]);
 

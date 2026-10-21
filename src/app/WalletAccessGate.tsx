@@ -7,10 +7,12 @@ import { Spinner } from 'components/ui/Spinner';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import type { GeoLookup } from 'lib/remote-config/geo';
 import { initFeatureEligibility } from 'lib/remote-config/runtime';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const [geo, setGeo] = useState<GeoLookup>({ state: 'loading' });
+  useUserVisibleError(geo.state === 'failed' ? 'walletAccessUnavailableBody' : null, 'startup');
 
   useEffect(() => {
     let mounted = true;

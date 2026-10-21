@@ -30,7 +30,12 @@ export function FeatureUnavailableNotice({
   'data-testid': dataTestId = 'feature-unavailable-notice'
 }: FeatureUnavailableNoticeProps): JSX.Element | null {
   const { t } = useTranslation();
-  useUserVisibleError(availability.state === 'unavailable' ? 'bridgeFeatureUnavailableBody' : null, 'notice');
+  useUserVisibleError(
+    availability.state === 'unavailable' && availability.reason !== 'restricted'
+      ? 'bridgeFeatureUnavailableBody'
+      : null,
+    'notice'
+  );
   if (availability.state !== 'unavailable') return null;
   const restricted = availability.reason === 'restricted';
   return (
