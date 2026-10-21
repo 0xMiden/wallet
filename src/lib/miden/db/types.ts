@@ -541,6 +541,8 @@ export interface IBridgeInInfo {
   sourceAmount?: string;
   /** EVM-side input token symbol (e.g. USDC). */
   sourceSymbol?: string;
+  /** agglayer: the deposited ERC-20's address, lowercase, copied from the tracker it settled; absent for ETH. */
+  sourceToken?: string;
   /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
   intentNonce?: string;
   intentOwner?: string;

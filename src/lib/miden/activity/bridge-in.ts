@@ -432,6 +432,7 @@ export async function takeAgglayerBridgeInInfo(args: {
     provider: 'agglayer',
     sourceAmount: inputs.sourceAmount,
     sourceSymbol: inputs.sourceSymbol,
+    ...(inputs.agglayerDelivery ? { sourceToken: inputs.agglayerDelivery.originToken } : {}),
     evmTxHash: inputs.evmTxHash,
     bridgeReceiveTxId: match.id
   };

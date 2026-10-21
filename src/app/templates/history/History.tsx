@@ -588,6 +588,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
       bridgeInSourceSymbol: bridgedReceive?.sourceSymbol ?? bridgeIn?.sourceSymbol,
+      bridgeInSourceToken: bridgedReceive?.agglayerDelivery?.originToken ?? bridgeIn?.sourceToken,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInCctp: bridgedReceive?.cctp,

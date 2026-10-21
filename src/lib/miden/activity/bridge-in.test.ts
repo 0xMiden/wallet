@@ -413,7 +413,7 @@ describe('takeAgglayerBridgeInInfo', () => {
 
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
-    ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row', sourceToken: usdcToken.originToken });
     expect(mockReadBridgeRegistry).toHaveBeenCalledWith('0xbridge', 'https://rpc.miden.test');
   });
 
