@@ -3,7 +3,7 @@ import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getNativeAssetMetadata, getSdkSyncedNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hasNoUsdMarket } from 'lib/prices/feed';
-import { getPriceMicro } from 'lib/prices/usd';
+import { getPriceMicro, prefetchUsdPrices } from 'lib/prices/usd';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { loadTokenPriceAssets } from 'lib/token-list/runtime';
 
@@ -83,7 +83,14 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
     }
   }
-  let total = 0n;
+  const priced: {
+    label: string;
+    symbol: string;
+    decimals: number;
+    amount: bigint;
+    priceSymbol: string;
+    nativeId?: string;
+  }[] = [];
   for (const spend of spends) {
     let faucetId: string;
     let symbol: string;
@@ -129,13 +136,36 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       throw new SpendingLimitPriceUnavailableError(symbol, { cause: nativeIdentityCause });
     }
     if (priceSymbol === undefined) continue;
-    const priceMicro = await getPriceMicro(priceSymbol, now);
+    priced.push({
+      label: spend.faucetId,
+      symbol,
+      decimals,
+      amount: spend.amount,
+      priceSymbol,
+      ...(authenticatedNativeUsdcx ? { nativeId: faucetId } : {})
+    });
+  }
+  await prefetchUsdPrices([...new Set(priced.map(entry => entry.priceSymbol))], now);
+  let total = 0n;
+  for (const entry of priced) {
+    if (entry.nativeId !== undefined) {
+      // The native proof must still hold after every price await, not only when the spend was identified.
+      try {
+        const syncedId = getSdkSyncedNativeAssetIdSync();
+        if (!syncedId || canonicalFaucetId(syncedId) !== entry.nativeId) {
+          throw new Error('native protocol identity has not been synchronized');
+        }
+      } catch (cause) {
+        throw new SpendingLimitPriceUnavailableError(entry.label, { cause });
+      }
+    }
+    const priceMicro = await getPriceMicro(entry.priceSymbol, now);
     if (priceMicro === undefined) {
       // A verified symbol that neither market lists has no price, like a faucet the wallet does not price.
-      if (hasNoUsdMarket(priceSymbol)) continue;
-      throw new SpendingLimitPriceUnavailableError(symbol);
+      if (hasNoUsdMarket(entry.priceSymbol)) continue;
+      throw new SpendingLimitPriceUnavailableError(entry.symbol);
     }
-    total += usdMicroFromAmount(spend.amount, decimals, priceMicro);
+    total += usdMicroFromAmount(entry.amount, entry.decimals, priceMicro);
   }
   return total;
 };

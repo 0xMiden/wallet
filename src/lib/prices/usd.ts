@@ -91,24 +91,48 @@ const cachedPriceMicro = (cache: UsdPriceCache, symbol: string, now: number): bi
   return price > 0n ? price : undefined;
 };
 
-// Calls for the same asset share one request. Cache writes run in order across assets.
+// A symbol in flight shares its request with every caller. Cache writes run in order across requests.
 const inFlightRefresh = new Map<string, Promise<UsdPriceCache>>();
 
-const refresh = async (now: number, symbol: string): Promise<UsdPriceCache> => {
-  let pending = inFlightRefresh.get(symbol);
-  if (pending === undefined) {
-    pending = (async () => {
+/** One request for the symbols not already in flight; resolves to the caches that hold `symbols`. */
+const refresh = (now: number, symbols: readonly string[]): Promise<UsdPriceCache[]> => {
+  const missing = [...new Set(symbols)].filter(symbol => !inFlightRefresh.has(symbol));
+  if (missing.length > 0) {
+    const pending = (async () => {
       try {
-        return await mergeIntoCache(await fetchTokenPrices([symbol]), now);
+        return await mergeIntoCache(await fetchTokenPrices(missing), now);
       } catch {
         return await readCache();
       } finally {
-        inFlightRefresh.delete(symbol);
+        for (const symbol of missing) inFlightRefresh.delete(symbol);
       }
     })();
-    inFlightRefresh.set(symbol, pending);
+    for (const symbol of missing) inFlightRefresh.set(symbol, pending);
   }
-  return pending;
+  return Promise.all(new Set(symbols.flatMap(symbol => inFlightRefresh.get(symbol) ?? [])));
+};
+
+const refreshedPriceMicro = (caches: readonly UsdPriceCache[], symbol: string, now: number): bigint | undefined => {
+  for (const cache of caches) {
+    const price = cachedPriceMicro(cache, symbol, now);
+    if (price !== undefined) return price;
+  }
+  return undefined;
+};
+
+/** Refresh one valuation's cold symbols in a single feed request, so pricing several assets waits once. */
+export const prefetchUsdPrices = async (
+  symbols: readonly string[],
+  now: number = Math.floor(Date.now() / 1000)
+): Promise<void> => {
+  const cache = await readCache();
+  const cold = symbols.filter(
+    symbol =>
+      fixedQuote(symbol) === undefined &&
+      !isE2eFixtureSymbol(symbol) &&
+      cachedPriceMicro(cache, symbol, now) === undefined
+  );
+  if (cold.length > 0) await refresh(now, cold);
 };
 
 /**
@@ -128,7 +152,7 @@ export const getPriceMicro = async (
   if (isE2eFixtureSymbol(symbol)) return USD_SCALE;
   const cached = cachedPriceMicro(await readCache(), symbol, now);
   if (cached !== undefined) return cached;
-  return cachedPriceMicro(await refresh(now, symbol), symbol, now);
+  return refreshedPriceMicro(await refresh(now, [symbol]), symbol, now);
 };
 
 /** Test seam: the single-flight handle is module state and would leak between cases. */

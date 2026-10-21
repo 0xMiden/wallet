@@ -1,7 +1,7 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
-import { fetchTokenPrices } from './feed';
 import type { TokenPrices } from './binance';
+import { fetchTokenPrices } from './feed';
 import {
   getPriceMicro,
   isCoveredSymbol,
