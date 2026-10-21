@@ -6652,5 +6652,87 @@
   "breadPresentationError": {
     "message": "このアプリの読み込みが完了しませんでした。もう一度試すか、Breadに戻ってください。",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "arcadeGameCoins": {
+    "message": "ゲームコイン",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "残高利用不可",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "毎週10 GC",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "リセットは、パートナーメインネットの月曜日 00:00 UTC に行われます。未使用の GC は繰り越されますが、見逃した週は累積されません。ネットワーク手数料はお客様のご負担となります。",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "週ごとの手当を確認中…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "今週の請求済み。次回の請求：$date$（UTC）。",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "日付不明",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "残高に関わらず、毎週10 GCが受け取れるようになっています。",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "確認と受領待ちです。再試行する前にステータスを確認してください。",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "この請求は失敗したことが確認されました。再度お試しください。",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "週次クレームおよびGC残高は、このネットワークではまだ設定されていません。引き続き無料でプレイできます。",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "10 GCを請求",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "今週の主張",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "受領待ち",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "再試行の主張",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "ステータスを確認する",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "プレイ、リプレイ、ソーシャルシェアは、GC残高に関わらず無料です。このゲームのリーダーボードへの登録には、1 GCとネットワーク手数料（ご自身で負担）が必要です。",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }

@@ -6652,5 +6652,87 @@
   "breadPresentationError": {
     "message": "Diese App wurde nicht vollständig geladen. Versuche es erneut oder kehre zu Bread zurück.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "arcadeGameCoins": {
+    "message": "Spielmünzen",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Guthaben nicht verfügbar",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "10 GC pro Woche",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "Das Reset erfolgt montags um 00:00 Uhr UTC im Partner-Mainnet. Nicht ausgegebene GC werden übertragen; verpasste Wochen rechnen sich nicht zusammen. Sie zahlen Netzwerkgebühren.",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "Überprüfung des wöchentlichen Budgets…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "Diese Woche beansprucht. Nächster Anspruch: $date$ UTC.",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "Datum nicht verfügbar",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "Ihre wöchentlichen 10 GC stehen bereit, unabhängig von Ihrem Kontostand.",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "Warten auf Bestätigung und Empfang. Überprüfen Sie den Status, bevor Sie es erneut versuchen.",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "Die Anfrage wurde als erfolglos bestätigt. Sie können es erneut versuchen.",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "Wöchentliche Ansprüche und der GC-Saldo sind für dieses Netzwerk noch nicht konfiguriert. Sie können weiterhin kostenlos spielen.",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "Anspruch 10 GC",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "Diese Woche behauptet",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "Warten auf den Eingang",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "Anspruch erneut geltend machen",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "Status prüfen",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "Das Spielen, Wiederholen und Teilen in sozialen Netzwerken ist kostenlos, unabhängig von Ihrem GC-Guthaben. Die Teilnahme an der Rangliste dieses Spiels kostet 1 GC zuzüglich Netzwerkgebühren, die von Ihnen zu tragen sind.",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }
