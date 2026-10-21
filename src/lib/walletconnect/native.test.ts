@@ -554,6 +554,36 @@ describe('ensureNativeSessionChain', () => {
     expect(rawNativeRequest).toHaveBeenCalledWith(expect.objectContaining({ method: 'wallet_addEthereumChain' }));
   });
 
+  it.each(['wallet_addEthereumChain', 'wallet_switchEthereumChain'])(
+    'carriesTheSwallowedNativeRejectionSnapshotOnTheRefusal: %s',
+    async method => {
+      jest.mocked(isAndroid).mockReturnValue(true);
+      const rejection = Object.assign(new Error('User rejected'), { code: nativeFailureCode });
+      if (method === 'wallet_addEthereumChain') rawNativeRequest.mockRejectedValueOnce(rejection);
+      else rawNativeRequest.mockResolvedValueOnce({ result: null }).mockRejectedValueOnce(rejection);
+      rawNativeReown.getState.mockResolvedValue(sessionState([SEPOLIA]));
+
+      const { error: refusal } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+      expect(rawNativeRequest).toHaveBeenLastCalledWith(expect.objectContaining({ method }));
+      expect(refusal).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(readReownNativeFailure(refusal)).toEqual(expectedSnapshot);
+      expect(refusal).not.toHaveProperty('cause');
+      expect(String(refusal)).not.toContain('User rejected');
+    }
+  );
+
+  it('leaves the refusal unmarked when the swallowed rejection carries no native snapshot', async () => {
+    jest.mocked(isAndroid).mockReturnValue(true);
+    rawNativeRequest.mockRejectedValueOnce(new Error('Invalid permissions for call.'));
+    rawNativeReown.getState.mockResolvedValue(sessionState([SEPOLIA]));
+
+    const { error: refusal } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(refusal).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(readReownNativeFailure(refusal)).toBeUndefined();
+  });
+
   // A wallet that does not know the chain rejects an add request with an empty RPC URL.
   it('refuses a missing chain with no public RPC without asking the wallet to add it', async () => {
     rawNativeRequest.mockRejectedValue(new Error('rpcUrls must contain a valid URL'));
@@ -786,7 +816,8 @@ describe('buildNativeReownProvider', () => {
 
     expect(caught).toBeInstanceOf(NativeSessionChainNotApprovedError);
     expect(caught).not.toBe(original);
-    expect(readReownNativeFailure(caught)).toBeUndefined();
+    expect(caught).not.toHaveProperty('cause');
+    expect(readReownNativeFailure(caught)).toEqual(expectedSnapshot);
     expect(readReownNativeFailure(original)).toEqual(expectedSnapshot);
 
     expect(rawNativeSend).not.toHaveBeenCalled();

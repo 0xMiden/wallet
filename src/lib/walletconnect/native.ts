@@ -6,7 +6,12 @@ import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { getChain, type EvmChain } from './config';
 import { readNativeFeeFields } from './fees';
-import { decodeReownNativeFailureCode, markReownNativeFailure } from './native-request-failure';
+import {
+  decodeReownNativeFailureCode,
+  markReownNativeFailure,
+  readReownNativeFailure,
+  type ReownNativeFailure
+} from './native-request-failure';
 
 export interface ReownConfigureOptions {
   projectId: string;
@@ -260,13 +265,20 @@ async function waitForSessionChain(state: ReownState, chainId: number): Promise<
  * sends each request once at most and never retries.
  */
 export async function ensureNativeSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
+  return (await requestSessionChain(state, chainId)).state;
+}
+
+async function requestSessionChain(
+  state: ReownState,
+  chainId: number
+): Promise<{ state: ReownState; native?: ReownNativeFailure }> {
   const approved = state.chainIds;
-  if (!Array.isArray(approved) || approved.includes(chainId)) return state;
+  if (!Array.isArray(approved) || approved.includes(chainId)) return { state };
   const chain = getChain(chainId);
   const requestChainId = state.chainId !== undefined && approved.includes(state.chainId) ? state.chainId : approved[0];
   // The public RPC: `rpcUrl` can be the WalletConnect proxy, which carries our project id. A chain without one
   // cannot be added, so the caller's guard refuses it.
-  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return state;
+  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return { state };
 
   const hexChainId = `0x${chainId.toString(16)}`;
   try {
@@ -292,9 +304,9 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
     });
   } catch (err) {
     console.warn(`[NativeReown] could not add or switch to eip155:${chainId}`, err);
-    return readNativeState(state);
+    return { state: await readNativeState(state), native: readReownNativeFailure(err) };
   }
-  return waitForSessionChain(state, chainId);
+  return { state: await waitForSessionChain(state, chainId) };
 }
 
 /**
@@ -303,8 +315,14 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
  * the first wallet prompt of a signing flow.
  */
 export async function prepareNativeSessionChain(chainId: number): Promise<void> {
-  const state = await ensureNativeSessionChain(await NativeReown.getState(), chainId);
-  assertNativeSessionChain(state, chainId, nativeChainName(chainId));
+  const { state, native } = await requestSessionChain(await NativeReown.getState(), chainId);
+  try {
+    assertNativeSessionChain(state, chainId, nativeChainName(chainId));
+  } catch (refusal) {
+    // Only the refused add or switch request's closed values travel; its text and the rejection stay behind.
+    if (native !== undefined && refusal instanceof Error) markReownNativeFailure(refusal, native);
+    throw refusal;
+  }
 }
 
 export interface NativeReownProviderOptions {
