@@ -1,11 +1,14 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
 import * as Repo from 'lib/miden/repo';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
 import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
+import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagnostic-log';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
   reportTransactionFailure,
@@ -21,6 +24,7 @@ import {
   isUnconfirmedFailure,
   isUnconfirmedFailureReason,
   isWalletFailureReason,
+  PRE_SUBMIT_STAGES,
   resolveTransactionErrorMessage,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
@@ -51,6 +55,7 @@ import {
 } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, hasLeftQueue, ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { canonicalWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import {
   indefiniteSubmitTransactionId,
@@ -81,6 +86,18 @@ const REPORTED_ROTATION_REFUSALS = new Map<string, TransactionFailureReason>([
   [ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, 'rotation_funding_note_unavailable'],
   [ROTATION_FUNDING_NON_NATIVE_ERROR, 'rotation_funding_not_native']
 ]);
+
+// How a failed swap's end is recorded; every reason not named here, and an unnamed error, is `failed` unless it timed out.
+const SWAP_END_BY_REASON = new Map<TransactionFailureReason, DiagnosticEndOutcome>([
+  ['user_cancelled', 'cancelled'],
+  ['interrupted_on_startup', 'interrupted'],
+  ['stuck_reaped', 'timeout'],
+  ['queued_expired', 'timeout']
+]);
+
+const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: string): DiagnosticEndOutcome =>
+  (reason === undefined ? undefined : SWAP_END_BY_REASON.get(reason)) ??
+  (classifyError(rawError) === 'timeout' ? 'timeout' : 'failed');
 
 const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
   error instanceof RotationGateConsumeRefusal
@@ -225,6 +242,13 @@ export const cancelTransaction = async (
     return false;
   }
 
+  if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
+    logOperationEnd(
+      'swap',
+      swapEndOutcome(reportedReason ?? reportedWalletReason(error), rawError),
+      elapsedMsSince(committed.initiatedAt)
+    );
+  }
   if (committed !== undefined && !committed.restoredFromBackup) {
     reportTransactionFailure({
       point: 'pipeline',
@@ -368,6 +392,9 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     return undefined;
   });
   if (!entered) return;
+  if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
+    logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
+  }
   if (committed !== undefined && !committed.restoredFromBackup) {
     reportTransactionFailure({
       point: 'pipeline',
@@ -746,6 +773,32 @@ const hasUnexplainedFutureStamp = (tx: Transaction, nowSeconds: number): boolean
   tx.processingStartedAt > nowSeconds + MAX_WAIT_BEFORE_CANCEL;
 
 /**
+ * Hand the candidate a dead process's Guardian write left before its submit back to the account's abandon retry
+ * (#1666): that process's record of it died with it, so the next write met the Guardian's 409 for its whole hold.
+ * Only the candidate the dead attempt itself proposed, on a row that recorded no submit crossing and whose stage is
+ * before its submit: a write that may have reached the node keeps its candidate, since abandoning one still in the
+ * mempool releases the account onto stale state. A record this process already holds is a later write's and stands.
+ * The retry window is measured from the wall-clock stamp alone, because the monotonic one restarted with the process:
+ * a clock set back while the app was down can make an older candidate look younger, and past its hold an abandon at
+ * that nonce could only reach another device's candidate. Accepted.
+ */
+const handBackInterruptedCandidate = (tx: ITransaction): void => {
+  const candidate = tx.guardianCandidate;
+  if (candidate === undefined || candidate.attemptId !== tx.attemptId || tx.mayHaveSubmitted === true) return;
+  if (tx.stage === undefined || !PRE_SUBMIT_STAGES.has(tx.stage)) return;
+  const ageMs = Date.now() - candidate.proposedAt;
+  const accountId = canonicalWalletAccountId(tx.accountId);
+  if (ageMs < 0 || getGuardianCandidate(accountId) !== undefined) return;
+  recordGuardianCandidate(accountId, {
+    endpoint: candidate.endpoint,
+    nonce: candidate.nonce,
+    proposedAt: candidate.proposedAt,
+    proposedAtMono: monotonicNowMs() - ageMs,
+    abandon: true
+  });
+};
+
+/**
  * Fail every transaction an earlier process or browser session left in `GeneratingTransaction`,
  * regardless of age.
  *
@@ -788,6 +841,7 @@ export const failInterruptedTransactions = async () => {
   );
   await Promise.all(
     transactions.map(async tx => {
+      handBackInterruptedCandidate(tx);
       await recordOutOfBandEnd(tx.id);
       return cancelTransaction(
         tx,

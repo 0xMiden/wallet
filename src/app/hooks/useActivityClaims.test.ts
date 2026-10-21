@@ -171,13 +171,13 @@ jest.mock('lib/miden/fees/spendable', () => {
 });
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
-// The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
+// This registry has only the native ETH faucet. The SDK mock returns each ID unchanged.
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => ({}),
   initBridgeConfig: async () => ({})
 }));
 jest.mock('lib/remote-config/values', () => ({
-  selectNativeEthFaucets: () => [
+  selectAgglayerDeliveryFaucets: () => [
     jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
       .TEST_NATIVE_ETH_FAUCET
   ]
