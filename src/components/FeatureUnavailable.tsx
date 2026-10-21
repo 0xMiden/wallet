@@ -30,17 +30,18 @@ export function FeatureUnavailableNotice({
 }: FeatureUnavailableNoticeProps): JSX.Element | null {
   const { t } = useTranslation();
   if (availability.state !== 'unavailable') return null;
+  const restricted = availability.reason === 'restricted';
   return (
     <Notice
       tone="warning"
       variant={variant}
       icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-      title={t('bridgeFeatureUnavailableTitle')}
+      title={t(restricted ? 'geoRestrictedTitle' : 'bridgeFeatureUnavailableTitle')}
       className={className}
       id={id}
       data-testid={dataTestId}
     >
-      {t('bridgeFeatureUnavailableBody')}
+      {t(restricted ? 'geoRestrictedBody' : 'bridgeFeatureUnavailableBody')}
     </Notice>
   );
 }

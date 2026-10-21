@@ -489,12 +489,16 @@ describe('depositClaimProblem', () => {
 });
 
 describe('grantFundingProblem', () => {
-  it("passes a vault that leaves each burn its own fee margin: 2 USDCx for the 1 USDCx burn, 3 for Sepolia's 2", () => {
+  it('passes a vault that leaves each requested burn its own fee margin', () => {
     expect(grantFundingProblem(2_000_000n, 1_000_000n)).toBeUndefined();
     expect(grantFundingProblem(3_000_000n, 2_000_000n)).toBeUndefined();
+    expect(grantFundingProblem(6_000_000n, 5_000_000n)).toBeUndefined();
   });
 
   it('names what the burn and its fees need when the vault falls short of them', () => {
+    expect(grantFundingProblem(5_999_999n, 5_000_000n)).toBe(
+      'the vault holds 5.999999 USDCx, under the 6 a 5 USDCx burn and its fees need'
+    );
     expect(grantFundingProblem(2_999_999n, 2_000_000n)).toBe(
       'the vault holds 2.999999 USDCx, under the 3 a 2 USDCx burn and its fees need'
     );

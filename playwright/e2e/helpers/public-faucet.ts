@@ -78,8 +78,11 @@ export function publicFaucetFailure(error: unknown, what: string): PublicFaucetE
  * through the body read and aborts with a TimeoutError naming the bound, and the request is aborted once `read`
  * settles, which ends any body it left unread.
  */
-async function faucetFetch<T>(url: string, read: (response: Response) => Promise<T>): Promise<T> {
+async function faucetFetch<T>(url: string, read: (response: Response) => Promise<T>, signal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.throwIfAborted();
+  signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(
     () => controller.abort(new DOMException(`Request timed out after ${FETCH_TIMEOUT_MS} ms`, 'TimeoutError')),
     FETCH_TIMEOUT_MS
@@ -87,6 +90,7 @@ async function faucetFetch<T>(url: string, read: (response: Response) => Promise
   try {
     return await read(await fetch(url, { signal: controller.signal }));
   } finally {
+    signal?.removeEventListener('abort', abort);
     clearTimeout(timer);
     controller.abort();
   }
@@ -116,7 +120,8 @@ class PowUnsolvedError extends Error {}
 export async function solvePow(
   challengeHex: string,
   target: bigint,
-  deadlineMs: number = POW_SOLVE_DEADLINE_MS
+  deadlineMs: number = POW_SOLVE_DEADLINE_MS,
+  signal?: AbortSignal
 ): Promise<number> {
   const challengeBytes = hexToBytes(challengeHex);
   const buffer = Buffer.alloc(challengeBytes.length + 8);
@@ -124,6 +129,7 @@ export async function solvePow(
   const deadline = Date.now() + deadlineMs;
 
   for (;;) {
+    signal?.throwIfAborted();
     for (let i = 0; i < POW_HASHES_PER_SLICE; i++) {
       const nonce = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
       buffer.writeBigUInt64BE(BigInt(nonce), challengeBytes.length);
@@ -196,7 +202,8 @@ async function requestGrant(
   baseUrl: string,
   accountId: string,
   amount: bigint,
-  powDeadlineMs: number
+  powDeadlineMs: number,
+  signal?: AbortSignal
 ): Promise<{ noteId: string }> {
   const { challenge, target } = await faucetFetch(
     `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`,
@@ -206,9 +213,10 @@ async function requestGrant(
       }
       const json: { challenge: string; target: number } = await response.json();
       return json;
-    }
+    },
+    signal
   );
-  const nonce = await solvePow(challenge, BigInt(target), powDeadlineMs);
+  const nonce = await solvePow(challenge, BigInt(target), powDeadlineMs, signal);
 
   const params = new URLSearchParams({
     account_id: accountId,
@@ -216,17 +224,55 @@ async function requestGrant(
     challenge,
     nonce: nonce.toString()
   });
-  return faucetFetch(`${baseUrl}/get_tokens?${params}`, async response => {
-    if (!response.ok) {
-      throw await failedResponse('Public faucet mint failed', response);
-    }
-    const json: unknown = await response.json();
-    const noteId = json && typeof json === 'object' ? Reflect.get(json, 'note_id') : undefined;
-    if (typeof noteId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(noteId)) {
-      throw new Error('Public faucet returned an invalid note ID');
-    }
-    return { noteId };
-  });
+  return faucetFetch(
+    `${baseUrl}/get_tokens?${params}`,
+    async response => {
+      if (!response.ok) {
+        throw await failedResponse('Public faucet mint failed', response);
+      }
+      const json: unknown = await response.json();
+      const noteId = json && typeof json === 'object' ? Reflect.get(json, 'note_id') : undefined;
+      if (typeof noteId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(noteId)) {
+        throw new Error('Public faucet returned an invalid note ID');
+      }
+      return { noteId };
+    },
+    signal
+  );
+}
+
+/** Try one grant for a round trip that already has enough funds. Keep invalid replies as test failures. */
+export async function optionalPublicFaucetGrant(
+  baseUrl: string,
+  accountId: string,
+  amount: bigint,
+  signal: AbortSignal
+): Promise<{ kind: 'granted'; noteId: string } | { kind: 'unavailable'; reason: string }> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal.reason);
+  signal.throwIfAborted();
+  signal.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Optional grant exceeded 30 seconds', 'TimeoutError')),
+    30_000
+  );
+  try {
+    const grant = await requestGrant(baseUrl, accountId, amount, POW_SOLVE_DEADLINE_MS, controller.signal);
+    return { kind: 'granted', noteId: grant.noteId };
+  } catch (error) {
+    signal.throwIfAborted();
+    const unavailable =
+      error instanceof FaucetServerError ||
+      error instanceof FaucetRateLimitedError ||
+      error instanceof PowUnsolvedError ||
+      (error instanceof DOMException && error.name === 'TimeoutError') ||
+      (error instanceof TypeError && error.message === 'fetch failed');
+    if (!unavailable) throw error;
+    return { kind: 'unavailable', reason: error.message };
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', abort);
+  }
 }
 
 async function advertisedGrantAmount(baseUrl: string): Promise<bigint> {

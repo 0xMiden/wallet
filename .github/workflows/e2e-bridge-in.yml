@@ -185,6 +185,9 @@ jobs:
           echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
 
       # Kick the cold boot off now so it overlaps the ~25-minute app build.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |

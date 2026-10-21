@@ -95,6 +95,9 @@ jobs:
         # `--with-deps` shells out to apt and the download has wedged for hours; the cap fails a stall fast.
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension
         # test:e2e:blockchain:build bakes MIDEN_NETWORK from E2E_NETWORK, so the build matches the run's network.
         run: yarn test:e2e:blockchain:build

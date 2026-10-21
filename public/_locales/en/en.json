@@ -18,9 +18,8 @@
   "usdcxInvalidDestination": "Enter a valid address on a supported network for this withdrawal.",
   "usdcxUnsupportedFaucet": "USDCx withdrawals are not available for this token on this network.",
   "usdcxInvalidAmount": "Enter a positive USDCx amount with at most six decimal places.",
-  "usdcxBelowMinimumBurn": "The amount is below the faucet's minimum burn amount.",
-  "usdcxIncompatibleBurnScript": "The wallet's burn script does not match the USDCx faucet.",
-  "usdcxFaucetUnavailable": "Unable to read the USDCx faucet's burn policy. Reopen review to try again.",
+  "usdcxBelowMinimumBurn": "Send at least $amount$ USDCx.",
+  "usdcxFaucetUnavailable": "The USDCx faucet is not known yet. Reopen review to try again.",
   "usdcxSendMoreThanPayoutFee": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
   "usdcxPayoutFeeUpTo": "Up to $amount$ USDC",
   "usdcxPayoutAtLeast": "At least $amount$ USDC",
@@ -913,6 +912,8 @@
   "unavailable": "Unavailable",
   "bridgeFeatureUnavailableTitle": "Temporarily unavailable",
   "bridgeFeatureUnavailableBody": "This external service is currently down. Please try again later.",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "Swap is not available on this network",
   "swapUnavailableBody": "No swap tokens are configured for this network yet.",
   "agglayerCheckingToken": "Checking whether this token supports the Slow route…",
@@ -1558,5 +1559,11 @@
   "webViewUpdateChromeBody": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again.",
   "webViewStartFailedTitle": "Bread couldn't start",
   "webViewStartFailedBody": "Something stopped Bread from loading. Try again, or close Bread and open it again.",
-  "webViewStartFailedAction": "Try again"
+  "webViewStartFailedAction": "Try again",
+  "walletAccessCheckingTitle": "Checking availability",
+  "walletAccessCheckingBody": "Please wait while we check whether the wallet is available in your region.",
+  "walletAccessRestrictedTitle": "Wallet unavailable in your region",
+  "walletAccessRestrictedBody": "The wallet is not available from your current location.",
+  "walletAccessUnavailableTitle": "Could not check availability",
+  "walletAccessUnavailableBody": "Check your connection and try again."
 }
