@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "O valor está abaixo do valor mínimo de queima do faucet.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "O script de queima da carteira não corresponde ao faucet do USDCx.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "Envie pelo menos $amount$ em USDCx.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "Não foi possível ler a política de queima do USDCx faucet. Reabrir a revisão para tentar novamente.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "A “faucet” do USDCx ainda não é conhecida. Reabra a revisão para tentar novamente.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "Envie mais de $amount$ USDCx para $network$: a taxa da Circle é deduzida do pagamento.",
@@ -4040,6 +4041,14 @@
     "message": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
   "swapUnavailableTitle": {
     "message": "A troca não está disponível nesta rede",
     "englishSource": "Swap is not available on this network"
@@ -7044,5 +7053,29 @@
   "webViewStartFailedAction": {
     "message": "Tente novamente",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "A verificar a disponibilidade",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Aguarde enquanto verificamos se a carteira está disponível na sua região.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Carteira indisponível na sua região",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "A carteira não está disponível na sua localização atual.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Não foi possível verificar a disponibilidade",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Verifique a sua ligação e tente novamente.",
+    "englishSource": "Check your connection and try again."
   }
 }

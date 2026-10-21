@@ -141,6 +141,25 @@ export class BreadConnectWallet extends EventEmitter<MidenWalletEvents> implemen
     return { noteId: stringField(response, 'noteId') };
   }
 
+  /** The account's login key for the callback's domain, as Bread's own provider returns it. */
+  async requestLoginKey(): Promise<{ loginKey: Uint8Array }> {
+    const response = await this.send({ type: 'LOGIN_KEY_REQUEST', sourceAccountId: this.connectedAddress() });
+    expectType(response, 'LOGIN_KEY_RESPONSE');
+    return { loginKey: fromBase64(stringField(response, 'loginKey')) };
+  }
+
+  /** A signature by that key over the login message for these bytes. The kind is only `word`. */
+  async signLoginBytes(data: Uint8Array, kind: 'word'): Promise<{ signature: Uint8Array }> {
+    const response = await this.send({
+      type: 'LOGIN_SIGN_REQUEST',
+      sourceAccountId: this.connectedAddress(),
+      payload: toBase64(data),
+      kind
+    });
+    expectType(response, 'LOGIN_SIGN_RESPONSE');
+    return { signature: fromBase64(stringField(response, 'signature')) };
+  }
+
   async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array }> {
     const publicKey = this.publicKey;
     if (!publicKey) throw new WalletError('The app is not connected to Bread');

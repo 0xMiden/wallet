@@ -3,8 +3,11 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 
 import { isExtension } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import GuardianReplaceHotKey from './GuardianReplaceHotKey';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mocks.
@@ -311,6 +314,10 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await confirmRotate();
 
     expect(screen.getByText('initiate exploded')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_guardian_replace_hot_key_failed', 'inline');
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 

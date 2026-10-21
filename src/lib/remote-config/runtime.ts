@@ -12,6 +12,8 @@ import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type Unavaila
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
+import type { GeoLookup } from './geo';
+import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
   bridgeConfigCacheKey,
@@ -31,6 +33,7 @@ export interface BridgeConfigSnapshot {
   /** Only ever the derivation of `config`. */
   derived: DerivedBridgeConfig | null;
   lastFetch: { at: number; ok: boolean; error?: string } | null;
+  geo?: GeoLookup;
 }
 
 export const HEALTHY_POLL_MS = 3_600_000;
@@ -71,6 +74,8 @@ const listeners = new Set<() => void>();
 let holds = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let schedulerInstalled = false;
+let startupGeo: GeoLookup | undefined;
+let startupEligibility: Promise<GeoLookup> | undefined;
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -90,7 +95,14 @@ function stateFor(network: string): NetworkState {
     failures: 0,
     logged: {},
     subscriptions: [],
-    snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null }
+    snapshot: {
+      network,
+      status: 'loading',
+      config: null,
+      derived: null,
+      lastFetch: null,
+      ...(startupGeo ? { geo: startupGeo } : {})
+    }
   };
   states.set(network, state);
   return state;
@@ -115,7 +127,8 @@ function publish(state: NetworkState): void {
     status: state.derived !== null || state.attempted ? 'ready' : 'loading',
     config: state.stored?.config ?? null,
     derived: state.derived,
-    lastFetch: state.lastFetch
+    lastFetch: state.lastFetch,
+    ...(startupGeo ? { geo: startupGeo } : {})
   };
   // The Guardian operators follow the accepted document. With no document there is nothing to follow, so a list this
   // realm already took stays.
@@ -444,6 +457,29 @@ export async function ensureBridgeConfig(): Promise<BridgeConfigSnapshot> {
   }
 }
 
+/** One eligibility decision for this page lifetime. Ordinary document refreshes never repeat it. */
+export function initFeatureEligibility(): Promise<GeoLookup> {
+  if (startupEligibility) return startupEligibility;
+  startupGeo = { state: 'loading' };
+  startupEligibility = (async (): Promise<GeoLookup> => {
+    let geo: GeoLookup;
+    try {
+      const snapshot = await ensureBridgeConfig();
+      const decision = snapshot.config
+        ? await lookupFeatureEligibility(snapshot.network, snapshot.config.version)
+        : null;
+      geo = decision ? { state: 'ready', ...decision } : { state: 'failed' };
+    } catch {
+      geo = { state: 'failed' };
+    }
+    startupGeo = geo;
+    states.forEach(state => publish(state));
+    return geo;
+  })();
+  states.forEach(state => publish(state));
+  return startupEligibility;
+}
+
 /** Test-only: fetches and re-derives now, awaited. */
 export async function _refreshBridgeConfigForTest(): Promise<BridgeConfigSnapshot> {
   const state = await hydrateCurrent();
@@ -476,4 +512,6 @@ export function _resetBridgeConfigRuntimeForTest(): void {
   holds = 0;
   if (schedulerInstalled) document.removeEventListener('visibilitychange', onVisibilityChange);
   schedulerInstalled = false;
+  startupGeo = undefined;
+  startupEligibility = undefined;
 }

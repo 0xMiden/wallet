@@ -8,6 +8,7 @@ import { Button } from 'components/ui/Button';
 import { Notice } from 'components/ui/Notice';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
@@ -21,6 +22,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
   const { open: connect } = useAppKit();
   const { status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
   const testNetwork = getTestNetworkNameKey() !== null;
+  useUserVisibleError(open && nativeReown.error ? 'raw_bridge_connect_failed' : null, 'inline');
 
   const handleConnect = useCallback(async () => {
     hapticMedium();

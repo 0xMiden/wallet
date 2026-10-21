@@ -10,6 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { IconButton } from 'components/ui/IconButton';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { PasswordStrengthIndicator, PasswordValidation } from 'screens/onboarding/common/CreatePassword';
 
 export interface ExportFilePasswordProps {
@@ -80,6 +81,8 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
   );
 
   const canContinue = !!passwordValue && !!verifyPassword && !!fileName && isValidPassword;
+  const passwordsDiffer = verifyPassword.length >= passwordValue.length && passwordValue !== verifyPassword;
+  useUserVisibleError(passwordsDiffer ? 'passwordsDoNotMatch' : null, 'inline');
 
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<TextFieldElement>) => {
@@ -169,12 +172,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         >
           {t('itsAMatch')}
         </p>
-        <p
-          className={classNames(
-            'h-4 px-1 text-caption text-negative-ink',
-            verifyPassword.length >= passwordValue.length && passwordValue !== verifyPassword ? 'block' : 'hidden'
-          )}
-        >
+        <p className={classNames('h-4 px-1 text-caption text-negative-ink', passwordsDiffer ? 'block' : 'hidden')}>
           {t('passwordsDoNotMatch')}
         </p>
       </div>

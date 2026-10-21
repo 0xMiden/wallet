@@ -1,3 +1,5 @@
+import { dedupeIntegration } from '@sentry/browser';
+
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
@@ -82,6 +84,20 @@ const SENTRY_DEFAULT_INTEGRATIONS = [
   'CultureContext',
   'BrowserSession'
 ];
+
+it('bypasses Dedupe for user-visible errors while keeping ordinary crash deduplication', () => {
+  const dedupe = {
+    name: 'Dedupe',
+    processEvent: (_event: unknown, _hint: unknown, _client: unknown): null => null
+  } satisfies ReturnType<typeof dedupeIntegration>;
+  jest.mocked(dedupeIntegration).mockReturnValueOnce(dedupe);
+  initCrashReporting();
+  const event = { exception: { values: [{ type: 'WalletUserVisibleError', value: 'closed message' }] } };
+  expect(dedupe.processEvent(event, {}, {})).toBe(event);
+  expect(
+    dedupe.processEvent({ exception: { values: [{ type: 'Error', value: 'ordinary crash' }] } }, {}, {})
+  ).toBeNull();
+});
 
 const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 0));
 

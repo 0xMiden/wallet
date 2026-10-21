@@ -301,10 +301,10 @@ describe('readNativeDisplaySymbol', () => {
 
 describe('usdcxPayoutRowsText', () => {
   it("reads both payout rows from the destination's own fee allowance in the wallet", () => {
-    // The harness's own burn, whose two rows the small-burn probe read live.
+    // The harness's own burn uses the wallet's minimum floor.
     expect(usdcxPayoutRowsText(ARC_CHAIN_ID, formatUnits(BURN_UNITS, USDCX_DECIMALS))).toEqual({
       fee: 'Up to 0.1 USDC',
-      net: 'At least 0.9 USDC'
+      net: 'At least 4.9 USDC'
     });
     expect(usdcxPayoutRowsText(sepolia.id, '10')).toEqual({ fee: 'Up to 1.5 USDC', net: 'At least 8.5 USDC' });
   });
@@ -316,23 +316,23 @@ describe('usdcxPayoutRowsText', () => {
     expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001').net).toBe('At least 0.000001 USDC');
   });
 
-  // The payout rows carry no chain, so the L2 burns show Arc's text for their own 1 USDCx.
+  // The payout rows carry no chain, so the L2 burns show Arc's text for the same live burn amount.
   it("quotes the same rows on Base Sepolia and Arbitrum Sepolia for each one's own burn, whose allowance is Arc's", () => {
     for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
       expect(usdcxPayoutRowsText(chain.chainId, formatUnits(chain.burnUnits, USDCX_DECIMALS))).toEqual({
         fee: 'Up to 0.1 USDC',
-        net: 'At least 0.9 USDC'
+        net: 'At least 4.9 USDC'
       });
     }
   });
 
-  it("quotes Ethereum's 1.5 USDC allowance for Sepolia's own 2 USDCx burn, and refuses the 1 USDCx the others burn", () => {
+  it("quotes Ethereum's 1.5 USDC allowance for the live burn and refuses a 1 USDCx burn", () => {
     const sepolia = ETHEREUM_SEPOLIA_PAYOUT.chainId;
     expect(usdcxPayoutRowsText(sepolia, formatUnits(ETHEREUM_SEPOLIA_PAYOUT.burnUnits, USDCX_DECIMALS))).toEqual({
       fee: 'Up to 1.5 USDC',
-      net: 'At least 0.5 USDC'
+      net: 'At least 3.5 USDC'
     });
-    expect(() => usdcxPayoutRowsText(sepolia, formatUnits(BASE_SEPOLIA_PAYOUT.burnUnits, USDCX_DECIMALS))).toThrow(
+    expect(() => usdcxPayoutRowsText(sepolia, '1')).toThrow(
       '1 USDCx does not exceed the 1.5 USDC payout fee allowance on Sepolia'
     );
   });

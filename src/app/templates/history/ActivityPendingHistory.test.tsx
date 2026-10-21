@@ -63,7 +63,12 @@ let mockPathname = '/history';
 jest.mock('react-i18next', () => ({
   // Interpolations are appended to the key, so a test can read the count a line was given.
   useTranslation: () => ({
-    t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${Object.values(params).join(':')}` : key)
+    t: (key: string, params?: Record<string, unknown>) =>
+      key === 'activityHiddenNotesError'
+        ? 'Visible hidden transfer read failure'
+        : params
+          ? `${key}:${Object.values(params).join(':')}`
+          : key
   })
 }));
 jest.mock('app/hooks/useActivityClaims', () => ({
@@ -686,5 +691,74 @@ describe('a search for the name a transfer is shown under', () => {
       publishMockBridgeSnapshot();
     });
     expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible pending-history errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockHidden.failed = false;
+  });
+  afterEach(() => {
+    mockHidden.failed = false;
+    jest.useRealTimers();
+  });
+
+  it('reports activityHiddenNotesError after the actual hidden-set failure dwells', async () => {
+    mockHidden.failed = true;
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible hidden transfer read failure');
+    await expectErrorAfterDwell('activityHiddenNotesError', 'inline');
+  });
+
+  it.each(['recovery', 'unmount'])('clears a hidden-set failure on %s before dwell', async control => {
+    mockHidden.failed = true;
+    const view = render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible hidden transfer read failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'recovery') {
+      mockHidden.failed = false;
+      view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+    } else view.unmount();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps fetching, fee-blocked actions and persisted failed notes silent', async () => {
+    mockState.isLoadingNotes = true;
+    mockCannotPayFee.mockReturnValue(true);
+    mockState.items = mockItems.map(item => ({ ...item, status: 'failed' }));
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-accept-all')).toBeDisabled();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

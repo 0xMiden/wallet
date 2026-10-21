@@ -14,6 +14,8 @@ import { Avatar } from 'components/ui/Avatar';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { balanceFormatterFor } from './amount-format';
@@ -29,6 +31,7 @@ export interface SelectAmountProps {
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  errorId?: UserErrorId | null;
   /**
    * Keep the field's invalid (red) state for `error` but leave its message to the caller, which
    * draws it elsewhere (the swap's fee notice sits under the token, with its own action).
@@ -103,6 +106,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  errorId,
   hideErrorText = false,
   label,
   confirmTitle,
@@ -139,6 +143,12 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   // rather than at the confirmation.
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount && (!isBridge || !!network);
+  const amountErrorId = errorId === undefined && isUserErrorId(error) ? error : errorId;
+  const amountError = !hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined;
+  useUserVisibleError(
+    !amountError && showBalanceHelper && token && token.balance !== null && !scaleIsKnown ? 'unknownTokenScale' : null,
+    'inline'
+  );
 
   const tokenSelector = (
     <button
@@ -267,7 +277,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       invalid={!!error}
-      error={!hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
+      errorId={hideErrorText ? null : amountErrorId}
+      error={amountError}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
       // how much is spendable (#461). Embedded callers that don't want it (e.g.

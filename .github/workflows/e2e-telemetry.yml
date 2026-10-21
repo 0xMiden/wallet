@@ -69,6 +69,9 @@ jobs:
       # SENTRY_DSN is unset, so a suite that accepts consent cannot reach
       # anything off the runner. `build:chrome:telemetry` holds the values;
       # the spec reads them back out of the bundle before it trusts them.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension with telemetry pointed at the local sink
         run: yarn build:chrome:telemetry
 

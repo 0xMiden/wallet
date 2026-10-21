@@ -129,7 +129,12 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
       }
     >
       {noneReachable ? (
-        <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
+        <Notice
+          errorId={noOperators ? null : 'meetGuardianNoneReachable'}
+          tone="negative"
+          role="status"
+          data-testid="meet-guardian-none-reachable"
+        >
           {t('meetGuardianNoneReachable')}
         </Notice>
       ) : (

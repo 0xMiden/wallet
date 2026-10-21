@@ -10,6 +10,7 @@ import {
   RELAY_TRIGGERS,
   RELAY_VISIBILITY
 } from './relay-diagnostics';
+import { USER_ERROR_IDS, USER_ERROR_SURFACES } from './user-visible-error';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
 
 const crashReportPolicy = (): string => {
@@ -33,6 +34,8 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['storage owner', STORAGE_OWNERS],
   ['storage operation', STORAGE_OPERATIONS],
   ['page visibility', PAGE_VISIBILITY],
+  ['which message it was', USER_ERROR_IDS],
+  ['which kind of display showed it', USER_ERROR_SURFACES],
   ['shared memory could still grow', SHARED_MEMORY_PROBES],
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],
@@ -74,3 +77,18 @@ it.each(mutationCases)(
     }
   }
 );
+
+it("tells a value missing from one field's list, or listed but never sent, from a correct list", () => {
+  const policy = crashReportPolicy();
+  const withoutViewsValue = policy.replace('`4+` or `unavailable`)', '`4+`)');
+  expect(withoutViewsValue).not.toBe(policy);
+  expect(new Set(listedAfter(withoutViewsValue, "the App's own pages"))).not.toEqual(new Set(EXTENSION_VIEW_COUNTS));
+  expect(new Set(listedAfter(withoutViewsValue, 'shared memory could still grow'))).toEqual(
+    new Set(SHARED_MEMORY_PROBES)
+  );
+  const withExtraValue = policy.replace('`grew`,', '`grew`, `shrank`,');
+  expect(withExtraValue).not.toBe(policy);
+  expect(new Set(listedAfter(withExtraValue, 'shared memory could still grow'))).not.toEqual(
+    new Set(SHARED_MEMORY_PROBES)
+  );
+});
