@@ -1,4 +1,4 @@
-import React, { FC, PropsWithChildren, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import React, { FC, PropsWithChildren, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -18,6 +18,16 @@ export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
   const [booted, setBooted] = useState(false);
   const [bootFailed, setBootFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [hasOpened, setHasOpened] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const allowed = booted && access.status === 'allowed';
+  const status = bootFailed ? 'unavailable' : !booted ? 'loading' : access.status;
+
+  useEffect(() => {
+    if (allowed) setHasOpened(true);
+    else if (status !== 'loading') setHasOpened(false);
+    contentRef.current?.toggleAttribute('inert', !allowed);
+  }, [allowed, status]);
 
   useEffect(() => {
     let mounted = true;
@@ -44,8 +54,6 @@ export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
     else void ensureWalletAccessAllowed().catch(() => undefined);
   }, [booted]);
 
-  if (booted && access.status === 'allowed') return <>{children}</>;
-  const status = bootFailed ? 'unavailable' : !booted ? 'loading' : access.status;
   const [title, body] =
     status === 'restricted'
       ? (['walletAccessRestrictedTitle', 'walletAccessRestrictedBody'] as const)
@@ -54,21 +62,28 @@ export const WalletAccessGate: FC<PropsWithChildren> = ({ children }) => {
         : (['walletAccessCheckingTitle', 'walletAccessCheckingBody'] as const);
 
   return (
-    <main
-      data-testid="wallet-access-gate"
-      data-access-state={status}
-      className="min-h-screen bg-page text-ink flex items-center justify-center px-6 py-12 font-inter antialiased"
-    >
-      <section className="w-full max-w-92.5 flex flex-col items-center text-center gap-4" aria-live="polite">
-        {status === 'loading' && <Spinner size="lg" />}
-        <h1 className="text-xl font-semibold">{t(title)}</h1>
-        <p className="text-sm text-muted leading-relaxed">{t(body)}</p>
-        {status !== 'loading' && (
-          <Button variant={ButtonVariant.Secondary} onClick={retry} data-testid="wallet-access-retry">
-            {t('retry')}
-          </Button>
-        )}
-      </section>
-    </main>
+    <>
+      <div ref={contentRef} hidden={!allowed} style={{ display: allowed ? 'contents' : 'none' }}>
+        {(allowed || (hasOpened && status === 'loading')) && children}
+      </div>
+      {!allowed && (
+        <main
+          data-testid="wallet-access-gate"
+          data-access-state={status}
+          className="min-h-screen bg-page text-ink flex items-center justify-center px-6 py-12 font-inter antialiased"
+        >
+          <section className="w-full max-w-92.5 flex flex-col items-center text-center gap-4" aria-live="polite">
+            {status === 'loading' && <Spinner size="lg" />}
+            <h1 className="text-xl font-semibold">{t(title)}</h1>
+            <p className="text-sm text-muted leading-relaxed">{t(body)}</p>
+            {status !== 'loading' && (
+              <Button variant={ButtonVariant.Secondary} onClick={retry} data-testid="wallet-access-retry">
+                {t('retry')}
+              </Button>
+            )}
+          </section>
+        </main>
+      )}
+    </>
   );
 };
