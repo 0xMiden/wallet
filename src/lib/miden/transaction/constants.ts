@@ -1,3 +1,4 @@
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
@@ -97,6 +98,46 @@ export const TRANSACTION_STUCK_ERROR = 'Transaction took too long to process and
 export const TRANSACTION_EXPIRED_ERROR = 'Transaction expired after being queued too long';
 
 export const TRANSACTION_INTERRUPTED_ERROR = 'Transaction was interrupted';
+
+/**
+ * The most input notes one unattended claim takes (#1644). A consume proves every input note, so its proof time
+ * grows with the count: on the extension one note proves in 13 to 16 s on the device, and a 63-note swap settlement
+ * never reached its submit inside the service worker's write deadline (`WRITE_DEADLINE_MS` in
+ * `back/miden-client-proxy.ts`), and each cut-off kept a Guardian proposal that blocked the account. A set over the
+ * cap is queued as several rows, each with its own fee. Far below the protocol's 1,024-input ceiling.
+ */
+export const MAX_NOTES_PER_UNATTENDED_CLAIM = 8;
+
+/**
+ * Split notes into claims of at most {@link MAX_NOTES_PER_UNATTENDED_CLAIM}. The notes are sorted by id first, so a
+ * repeated tick builds the same rows and the per-note dedup in `queueConsumeRows` covers each chunk as a whole.
+ */
+export function chunkNotesForClaim<T extends { id: string }>(notes: readonly T[]): T[][] {
+  const sorted = [...notes].sort((a, b) => a.id.localeCompare(b.id));
+  const chunks: T[][] = [];
+  for (let start = 0; start < sorted.length; start += MAX_NOTES_PER_UNATTENDED_CLAIM) {
+    chunks.push(sorted.slice(start, start + MAX_NOTES_PER_UNATTENDED_CLAIM));
+  }
+  return chunks;
+}
+
+/**
+ * An unattended auto-consume batch as the claims to queue, each at most {@link MAX_NOTES_PER_UNATTENDED_CLAIM} notes.
+ * The caller measured the whole batch against the claim floor, which only a single chunk inherits: over the cap each
+ * chunk pays its own fee, so one not worth that fee is left out and waits for more notes, as the whole pile did below
+ * the floor. Shared by every unattended native claimer (the service worker, Home, the mobile/desktop manager and the
+ * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644).
+ */
+export function chunkAutoConsumeBatch<T extends { id: string; amount: string }>(
+  notes: readonly T[],
+  verificationBaseFee: number | null
+): T[][] {
+  const chunks = chunkNotesForClaim(notes);
+  if (chunks.length <= 1) return chunks;
+  return chunks.filter(chunk =>
+    isWorthClaiming(totalClaimableAmount(chunk.map(note => note.amount)), verificationBaseFee)
+  );
+}
 
 // The cold-start sweep reason (failInterruptedTransactions). Special-cased in
 // cancelTransaction so a tx interrupted while its stage was 'proving' is NOT

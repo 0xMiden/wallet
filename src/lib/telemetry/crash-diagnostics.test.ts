@@ -3,7 +3,13 @@ import { runInNewContext } from 'node:vm';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
+import {
+  PROPOSAL_GUARDS,
+  PROPOSAL_STEPS,
+  annotateCrash,
+  snapshotCrashDiagnostics,
+  withProposalStep
+} from './crash-diagnostics';
 import { USER_ERROR_SURFACES } from './user-visible-error';
 
 describe('source-bound crash diagnostics', () => {
@@ -663,6 +669,38 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
     Object.defineProperty(cause, 'cause', { value: outer });
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
+  });
+
+  it('accepts every proposal step and guard, and a guard only beside its step', () => {
+    for (const proposalStep of PROPOSAL_STEPS) {
+      for (const proposalGuard of PROPOSAL_GUARDS) {
+        const error = new Error('refused');
+        annotateCrash(error, { proposalStep, proposalGuard });
+        expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep, proposalGuard });
+      }
+    }
+    const guardOnly = new Error('guard only');
+    annotateCrash(guardOnly, { proposalGuard: 'hot_key_missing' });
+    expect(snapshotCrashDiagnostics(guardOnly)).toEqual({});
+    const unlisted = new Error('unlisted');
+    annotateCrash(unlisted, { proposalStep: 'consume_build 0xabcdef', proposalGuard: 'other' });
+    annotateCrash(unlisted, { proposalStep: { toString: () => 'service_load' } });
+    expect(snapshotCrashDiagnostics(unlisted)).toEqual({});
+  });
+
+  it('keeps the innermost proposal step when an outer boundary names a broader one', async () => {
+    const error = new Error('load failed');
+    const inner = withProposalStep('service_load', () => Promise.reject(error));
+    await expect(withProposalStep('service_select', () => inner)).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load' });
+    annotateCrash(error, { proposalStep: 'chain_sync', proposalGuard: 'account_not_guardian', portReconnected: true });
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load', portReconnected: true });
+  });
+
+  it('returns the operation result and rethrows a non-Error rejection untouched', async () => {
+    await expect(withProposalStep('proposal_create', async () => 7)).resolves.toBe(7);
+    const refusal = { status: 409 };
+    await expect(withProposalStep('proposal_create', () => Promise.reject(refusal))).rejects.toBe(refusal);
   });
 });
 

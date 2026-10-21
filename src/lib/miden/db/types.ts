@@ -36,6 +36,19 @@ export enum ITransactionStatus {
 export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
 
+/**
+ * A claim of one settlement kind for one swap order that has not settled yet: queued, generating, or waiting for the
+ * node's verdict. Neither stamp writer marks the order settled while one is open (#1644).
+ */
+export const isOpenSettlementClaim = (
+  row: Pick<ITransaction, 'type' | 'status' | 'extraInputs'>,
+  settle: Pick<IConsumeSwapSettleExtraInputs, 'swapOrderTxId' | 'swapSettleKind'>
+): boolean =>
+  row.type === 'consume' &&
+  row.extraInputs?.swapOrderTxId === settle.swapOrderTxId &&
+  row.extraInputs?.swapSettleKind === settle.swapSettleKind &&
+  (isLiveTransaction(row) || row.status === ITransactionStatus.Unconfirmed);
+
 /** The pipeline is done with the row: it completed, failed, or waits for the node's verdict (#1081). */
 export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Completed ||
@@ -561,6 +574,12 @@ export interface IConsumeSwapSettleExtraInputs {
   swapOrderTxId: string;
   /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
   swapSettleKind: 'settle' | 'reclaim';
+  /**
+   * Queued by a settlement pass that split the order over several claims, each at most MAX_NOTES_PER_UNATTENDED_CLAIM
+   * notes of one kind (#1644). Its completion never stamps the order: the settlement tick stamps it once no note of
+   * the order is left to claim.
+   */
+  swapSettlePartial?: boolean;
 }
 
 export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> & Partial<IConsumeSwapSettleExtraInputs>;
