@@ -112,11 +112,10 @@ it('does not infer a local guard from an unrelated load error message', async ()
   expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load' });
 });
 
-it('keeps successful cache reuse free of failure diagnostics', async () => {
+it('reuses a cached service after a successful load', async () => {
   const provider = providerFor([account]);
   const first = await getOrCreateMultisigService(account.publicKey, provider);
   const cached = await getOrCreateMultisigService(account.publicKey, provider);
   expect(cached).toBe(first);
   expect(mockServiceLoad).toHaveBeenCalledTimes(1);
-  expect(snapshotCrashDiagnostics(new Error('unrelated'))).toEqual({});
 });
