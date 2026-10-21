@@ -11,6 +11,8 @@ import {
 
 import {
   BACKGROUND_AGES,
+  COMPLETION_GUARDS,
+  COMPLETION_STEPS,
   CONFIRMATION_HANDLER_STATES,
   CONFIRMATION_REGISTRY_STATES,
   CONFIRMATION_REQUEST_SHAPES,
@@ -79,6 +81,8 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['how that step ended', DIAGNOSTIC_STEP_OUTCOMES],
   ['how the operation ended', DIAGNOSTIC_END_OUTCOMES],
   ['how long it took, as a range', DIAGNOSTIC_DURATIONS],
+  ['the finishing step that failed', COMPLETION_STEPS],
+  ['which finishing check refused it', COMPLETION_GUARDS],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],
