@@ -2066,7 +2066,8 @@ async function attemptColdReRegisterSelfHeal(
   // set still stands, as completion swaps when its re-register fails.
   const finishing = rotation;
   if (finishing && verifiedSigners?.some(signer => sameCommitment(signer, finishing.commitment))) {
-    return await finishOwnRotation(account, finishing, isCurrent, expectedScope);
+    const outcome = await finishOwnRotation(account, finishing, isCurrent, expectedScope);
+    return attempted && outcome === 'refused-transiently' ? 'attempted' : outcome;
   }
   return attempted ? 'attempted' : 'refused-transiently';
 }

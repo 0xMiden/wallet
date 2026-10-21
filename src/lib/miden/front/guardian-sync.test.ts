@@ -2955,7 +2955,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
   // The user's own rotation completed while the push ran: the heal swaps only from the record it read
   // at the start of its lap, so the vault refuses and the newer key stays (#1233).
-  it("does not finish its own rotation when the account's hot key moved during the push, and keeps the budget open (#1233)", async () => {
+  it("does not overwrite a moved hot pointer and keeps all issued configures charged (#1233)", async () => {
     arrangeOwnRotation('acct-own-moved');
     swapAsTheVault();
     let pushes = 0;
@@ -2989,8 +2989,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect.objectContaining({ guardianEndpoint: expect.any(String), guardianEpoch: 0 })
     );
     expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
-    // Two attempts booked, not three.
-    expect(isGuardianUnrepairable('acct-own-moved')).toBe(false);
+    // All three configures were issued even though the final pointer comparison refused.
+    expect(isGuardianUnrepairable('acct-own-moved')).toBe(true);
   });
 
   // #1233: a post-recovery or migrated account has no hot key, so the sync loop filters it out and it
