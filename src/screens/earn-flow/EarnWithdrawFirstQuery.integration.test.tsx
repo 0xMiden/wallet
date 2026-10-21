@@ -246,7 +246,7 @@ function FlowRoute({ retainStatus = false }: { retainStatus?: boolean }) {
   mockLastLocation = location;
   const match = /^\/earn\/withdraw-status\/([^/]+)$/.exec(location.pathname);
   const kept = useRef<{ txId: string; location: LocationState }>();
-  if (match) kept.current = { txId: decodeURIComponent(match[1]), location };
+  if (match) kept.current = { txId: decodeURIComponent(match[1]!), location };
   const shown = Boolean(match);
   if (kept.current && (shown || retainStatus)) {
     // Mirrors MobilePageLayers' retained snapshot and real active context, without animation timing.
@@ -346,7 +346,7 @@ describe('Earn withdrawal first-query reporting', () => {
       expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
       await act(async () => {
         releaseProducer.resolve();
-        await expect(jest.mocked(gaslessEarnWithdrawalToMiden).mock.results[0].value).rejects.toBe(failure);
+        await expect(jest.mocked(gaslessEarnWithdrawalToMiden).mock.results[0]!.value).rejects.toBe(failure);
       });
       expect(await Repo.transactions.get(id)).toMatchObject({
         id,
