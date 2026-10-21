@@ -423,6 +423,10 @@ export async function reconcileSwapOrderNotes(
     // so a chunk already queued is deduplicated whole on the next lap.
     const paybackChunks = chunkNotesForClaim(paybackNotes);
     const reclaimChunks = chunkNotesForClaim(reclaimNotes);
+    // Split over several rows, the order is stamped by the repair, never by one row's completion, and that holds
+    // for both kinds: a lone tip row that stamped Reclaimed would leave the order Reclaimed for good, since the
+    // payback chunks never stamp and the repair runs only while both stamps are absent.
+    const splitOrder = paybackChunks.length > 1 || reclaimChunks.length > 1;
     for (const batch of [...paybackChunks, ...reclaimChunks]) {
       if (batch.length === 0) continue;
       // No `verificationBaseFee`, so no claim floor — unlike the three native
@@ -446,12 +450,12 @@ export async function reconcileSwapOrderNotes(
       // `completeConsumeTransaction` can stamp the settlement on the swap row.
       // The queue writes the link in the insert that creates the row, so a
       // processor already running never completes an unlinked chunk (#1644).
-      // A kind split over several rows marks each partial: none of them alone
-      // may stamp the order (`completeConsumeTransaction`).
+      // Every row of a split order is partial: none of them alone may stamp it
+      // (`completeConsumeTransaction`).
       const settlementLink: IConsumeSwapSettleExtraInputs = {
         swapOrderTxId: order.id,
         swapSettleKind: hasPayback ? 'settle' : 'reclaim',
-        ...((hasPayback ? paybackChunks : reclaimChunks).length > 1 ? { swapSettlePartial: true } : {})
+        ...(splitOrder ? { swapSettlePartial: true } : {})
       };
       let txId: string;
       try {

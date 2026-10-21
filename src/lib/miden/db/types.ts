@@ -575,8 +575,9 @@ export interface IConsumeSwapSettleExtraInputs {
   /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
   swapSettleKind: 'settle' | 'reclaim';
   /**
-   * One of several claims of this kind for the order, each at most MAX_NOTES_PER_UNATTENDED_CLAIM notes (#1644). Its
-   * completion never stamps the order: the settlement tick stamps it once no note of the order is left to claim.
+   * Queued by a settlement pass that split the order over several claims, each at most MAX_NOTES_PER_UNATTENDED_CLAIM
+   * notes of one kind (#1644). Its completion never stamps the order: the settlement tick stamps it once no note of
+   * the order is left to claim.
    */
   swapSettlePartial?: boolean;
 }

@@ -697,6 +697,25 @@ describe('swap order note settlement', () => {
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true, ...SETTLE);
   });
 
+  it('marks every row of an expired order partial when its paybacks need more than one claim (#1644)', async () => {
+    const paybacks = Array.from({ length: 9 }, (_, i) => consumable(`payback-${i}`, 'payback'));
+    const tip = consumable('tip', 'tip');
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-a')
+      .mockResolvedValueOnce('consume-b')
+      .mockResolvedValueOnce('consume-tip');
+
+    await reconcileSwapOrderNotes('account-1', [tip, ...paybacks], true, 220);
+
+    // A lone tip row that stamped Reclaimed on completion would leave the order Reclaimed for good: the payback
+    // chunks never stamp, and the repair runs only while both stamps are absent.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls.map(call => call[8])).toEqual([
+      { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true },
+      { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true },
+      { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim', swapSettlePartial: true }
+    ]);
+  });
+
   it('persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks', async () => {
     const tip = consumable('tip', 'tip');
     const payback = consumable('payback', 'payback');
