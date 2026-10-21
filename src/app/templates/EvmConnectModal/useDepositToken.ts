@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-import type { DepositToken } from './EvmBridgeTokenDrawer';
+import { type DepositToken, sameDepositToken } from './deposit-token';
 
 /**
  * The token the deposit screen bridges. Picking a different token switches it and calls `onChange`, which clears what
@@ -17,7 +17,7 @@ export function useDepositToken(
   const [token, setToken] = useState<DepositToken>(initialToken);
   const selectToken = useCallback(
     (next: DepositToken) => {
-      if (next === token) return;
+      if (sameDepositToken(next, token)) return;
       setToken(next);
       onChange();
     },

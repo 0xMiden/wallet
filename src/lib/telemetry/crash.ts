@@ -3,8 +3,11 @@ import {
   Scope,
   dedupeIntegration,
   defaultStackParser,
+  getGlobalScope,
+  getIsolationScope,
   inboundFiltersIntegration,
   linkedErrorsIntegration,
+  logger,
   makeFetchTransport
 } from '@sentry/browser';
 
@@ -20,6 +23,7 @@ import {
   type PageVisibility
 } from './crash-diagnostics';
 import { sanitizeWalletFrame } from './crash-frames';
+import { isClosedDiagnosticLog } from './diagnostic-log-contract';
 import { REDACTED, containsSeedMaterialDeep, redactInPlace, redactMessage, redactText } from './redact';
 import {
   RELAY_SERVICE,
@@ -275,6 +279,31 @@ export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }):
   return event;
 }
 
+/** The record `captureDiagnosticLog` is emitting; `scrubLog` admits nothing else. */
+let pendingLog: { message: string; attributes: Readonly<Record<string, string>> } | null = null;
+
+/**
+ * `beforeSendLog`. Rebuilds the log from the record in flight, keeping of what the SDK added only the release, so
+ * scope users, SDK names and any attribute a future SDK version adds before this hook never reach the wire.
+ */
+export function scrubLog<T extends { message: unknown; attributes?: Record<string, unknown> }>(log: T): T | null {
+  const record = pendingLog;
+  if (record === null || log.message !== record.message) return null;
+  const release = log.attributes?.['sentry.release'];
+  return {
+    ...log,
+    message: record.message,
+    attributes: { ...record.attributes, ...(typeof release === 'string' ? { 'sentry.release': release } : {}) }
+  };
+}
+
+function hasScopeAttributes(target: Scope): boolean {
+  // The SDK merges scope attributes into a log AFTER `beforeSendLog`, so a record is sent only while none exist.
+  return [getGlobalScope(), getIsolationScope(), target].some(
+    candidate => Object.keys(candidate.getScopeData().attributes ?? {}).length > 0
+  );
+}
+
 let scope: Scope | null = null;
 let client: BrowserClient | null = null;
 let reportingGeneration = 0;
@@ -311,7 +340,9 @@ export function initCrashReporting(options: { listenToGlobals?: boolean } = {}):
       integrations: buildIntegrations(),
       sendDefaultPii: false,
       release: resolveTelemetryContext().appVersion,
-      beforeSend: scrubEvent
+      beforeSend: scrubEvent,
+      enableLogs: true,
+      beforeSendLog: scrubLog
     });
 
     const createdScope = new Scope();
@@ -472,5 +503,36 @@ export function captureCrash(
     })();
   } catch {
     // A malformed error must not prevent the wallet from handling its failure.
+  }
+}
+
+/**
+ * Send one diagnostic record as a Sentry log, under the same permission and lifetime as crash reports. Only
+ * `diagnostic-log.ts` calls this; a record outside its closed vocabulary is dropped here as well.
+ */
+export function captureDiagnosticLog(message: string, attributes: Readonly<Record<string, string>>): void {
+  try {
+    if (!isClosedDiagnosticLog(message, attributes)) return;
+    const record = { message, attributes: { ...attributes } };
+    const generation = reportingGeneration;
+    void (async () => {
+      try {
+        if (!(await isCrashReportingEnabledAsync())) return;
+        if (generation !== reportingGeneration) return;
+        if (client === null) initCrashReporting({ listenToGlobals: false });
+        const target = scope;
+        if (target === null || hasScopeAttributes(target)) return;
+        pendingLog = record;
+        try {
+          logger.info(record.message, record.attributes, { scope: target });
+        } finally {
+          pendingLog = null;
+        }
+      } catch {
+        // Best-effort: diagnostics must not be able to fail a wallet operation.
+      }
+    })();
+  } catch {
+    // A malformed record must not reach the operation it describes.
   }
 }
