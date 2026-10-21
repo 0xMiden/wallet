@@ -13,7 +13,12 @@ import { isCrashReportingEnabledAsync } from 'lib/settings/helpers';
 
 import { resolveTelemetryContext } from './context';
 import { getCrashBuildIdentity, type CrashBuildIdentity } from './crash-build';
-import { snapshotCrashDiagnostics, type CrashDiagnostics } from './crash-diagnostics';
+import {
+  readPageVisibility,
+  snapshotCrashDiagnostics,
+  type CrashDiagnostics,
+  type PageVisibility
+} from './crash-diagnostics';
 import { sanitizeWalletFrame } from './crash-frames';
 import { REDACTED, containsSeedMaterialDeep, redactInPlace, redactMessage, redactText } from './redact';
 import {
@@ -175,7 +180,7 @@ type CrashSource = 'manual' | 'react' | 'onerror' | 'onunhandledrejection';
 type DiagnosticSnapshot = CrashDiagnostics &
   ReturnType<typeof resolveTelemetryContext> &
   CrashBuildIdentity &
-  Partial<RelayDiagnostics>;
+  Partial<RelayDiagnostics> & { pageVisibility: PageVisibility };
 const capturedDiagnostics = new WeakMap<Error, DiagnosticSnapshot>();
 type ReportableFrame = {
   filename?: string;
@@ -211,6 +216,8 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
   event.tags = {
     ...tags,
     network: diagnostics.network,
+    ...(diagnostics.storageOwner === undefined ? {} : { storage_owner: diagnostics.storageOwner }),
+    ...(diagnostics.storageOperation === undefined ? {} : { storage_operation: diagnostics.storageOperation }),
     ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
     ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
     ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface }),
@@ -431,6 +438,7 @@ export function captureCrash(
       ...snapshotCrashDiagnostics(error),
       ...resolveTelemetryContext(),
       ...getCrashBuildIdentity(),
+      pageVisibility: readPageVisibility(),
       ...(relay?.report ? relay.diagnostics : {})
     });
     // WalletConnect retries a failed relay on its own, so the failure is a warning however it surfaced.
