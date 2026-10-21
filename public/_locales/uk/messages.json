@@ -709,9 +709,33 @@
     "message": "Особисті досягнення вашого гаманця.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Зароблено",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Заблоковано",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Скоро",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Колекція значків",
-    "englishSource": "Badge collection"
+    "message": "Усі значки",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Лише Mainnet",
@@ -722,8 +746,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Значки відкриваються в Mainnet. Тестова активність не враховується.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Бейджі розблоковуються в Mainnet. Діяльність у тестовій мережі не враховується.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, отримано",

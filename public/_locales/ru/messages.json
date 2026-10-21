@@ -709,9 +709,33 @@
     "message": "Личные достижения вашего кошелька.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Заработанный",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Заблокирован",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Скоро",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Коллекция значков",
-    "englishSource": "Badge collection"
+    "message": "Все значки",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Только Mainnet",
@@ -722,8 +746,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Значки открываются в Mainnet. Тестовая активность не учитывается.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Бейджи разблокируются в Mainnet. Тестовая активность не учитывается.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, получен",

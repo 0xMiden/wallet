@@ -709,9 +709,33 @@
     "message": "ウォレットの非公開のマイルストーン。",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "獲得",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "ロック済み",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "近日公開予定",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "バッジコレクション",
-    "englishSource": "Badge collection"
+    "message": "すべてのバッジ",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Mainnetのみ",
@@ -722,8 +746,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "バッジはMainnetで獲得できます。テストでの活動は対象外です。",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "バッジはメインネット上でアンロックされます。テスト環境での活動はカウントされません。",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$、獲得済み",

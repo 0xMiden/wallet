@@ -709,9 +709,33 @@
     "message": "你的私人钱包里程碑。",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "赚取",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "已锁定",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "即将推出",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "徽章收藏",
-    "englishSource": "Badge collection"
+    "message": "所有标识",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "仅限 Mainnet",
@@ -722,8 +746,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "徽章可在 Mainnet 解锁。测试活动不计入。",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "徽章在主网（Mainnet）上解锁。测试活动不计入其中。",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$，已获得",
