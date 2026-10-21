@@ -909,6 +909,26 @@
     "message": "此操作是從備份還原而來，因此錢包無法檢查操作是否成功，也無法重新嘗試。請在重複操作前檢查錢包。",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Your Guardian refused this submission. Try again.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "The network refused this submission. Try again.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionRejectedOnDevice": {
+    "message": "This device refused the submission. Try again.",
+    "englishSource": "This device refused the submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "顯示完整錯誤訊息",
     "englishSource": "Show full error"

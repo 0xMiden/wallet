@@ -28,6 +28,7 @@ import {
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
@@ -494,7 +495,9 @@ async function fetchTransactionsAsHistoryEntries(
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
-    const isUnconfirmed = isOutcomeUnconfirmed(tx);
+    const submission = submissionFeedback(tx);
+    const isUnconfirmed =
+      submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed

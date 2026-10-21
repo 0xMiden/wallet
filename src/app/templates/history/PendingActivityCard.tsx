@@ -13,6 +13,7 @@ import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/anim
 import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -39,6 +40,8 @@ export interface PendingActivityItem {
   cannotPayFee?: boolean;
   /** Its claim is queued again because the Guardian is still settling the previous change, #1666. */
   guardianBusy?: true;
+  /** A stored proof-submission outcome for this claim. Absent while the submit is still in progress. */
+  submission?: SubmissionFeedback;
 }
 
 interface PendingActivityCardProps {
@@ -94,8 +97,12 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   // Separate from `canAccept`: Decline costs no fee, so it stays.
   const feeBlocked = canAccept && item.cannotPayFee === true;
   const held = status === 'claiming' && item.held === true;
-  const busy = (status === 'claiming' && !held) || status === 'checking';
-  const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true;
+  const submission = item.retryError === undefined ? item.submission : undefined;
+  // A stored submit outcome already has its verdict. Retry is the existing guarded one, and the
+  // button stops spinning so the notice is the explanation.
+  const guardedRetry = held || (status === 'claiming' && submission !== undefined);
+  const busy = (status === 'claiming' && !guardedRetry) || status === 'checking';
+  const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true && submission === undefined;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
   // flicker. Read on every render, so a claim landing mid-tween drops the rest of it.
@@ -107,7 +114,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
       actionLabel = t('activityCheckingTransfer');
       break;
     case 'claiming':
-      actionLabel = held ? t('retry') : t('activityAcceptingTransfer');
+      actionLabel = guardedRetry ? t('retry') : t('activityAcceptingTransfer');
       break;
     case 'failed':
       actionLabel = t('retry');
@@ -121,12 +128,15 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   // failure; the words say it too, so the block is never colour alone.
   // A held claim awaits its verdict and may already have gone through, and its only action is Retry, so it says it
   // is not confirmed rather than inviting a review (#1081).
+  const submissionText = submission !== undefined ? (submission.rowCopy ?? t(submission.messageKey)) : undefined;
   let hint = t('activityNotYetAccepted');
   if (item.retryError !== undefined) hint = item.retryError;
+  else if (submissionText !== undefined) hint = submissionText;
   else if (held) hint = t('transactionNotConfirmedHint');
   else if (status === 'failed') hint = t('noteClaimFailedRetry');
   else if (waitingOnGuardian) hint = t('guardianBusyDescription');
-  const negative = status === 'failed' || item.retryError !== undefined;
+  const negative =
+    item.retryError !== undefined || (submission !== undefined ? submission.kind === 'rejected' : status === 'failed');
   const failureId =
     item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
   const [observedFailure, setObservedFailure] = useState<{
@@ -282,6 +292,19 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
               </Notice>
             </div>
           )}
+          {submissionText !== undefined && submission !== undefined && (
+            <div className="px-4 pb-3">
+              <Notice
+                variant="inline"
+                tone={submission.kind === 'rejected' ? 'negative' : 'neutral'}
+                role={submission.kind === 'rejected' ? 'alert' : 'status'}
+                errorId={submission.rowCopy === undefined ? submission.messageKey : undefined}
+                data-testid="pending-activity-submission"
+              >
+                {submissionText}
+              </Notice>
+            </div>
+          )}
           {feeBlocked && (
             <div className="px-4 pb-3">
               <Notice id={feeNoticeId} variant="inline" tone="warning" data-testid="pending-activity-fee-notice">
@@ -325,14 +348,14 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
               className="h-12 min-w-0 flex-1 rounded-none"
               title={actionLabel}
               disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked}
-              isLoading={status === 'claiming' && !held}
+              isLoading={status === 'claiming' && !guardedRetry}
               aria-busy={busy}
               aria-describedby={feeBlocked ? feeNoticeId : undefined}
               onClick={() => {
                 // Accepting IS the decision, so the transfer is read from here on even though no
                 // detail page was opened.
                 markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
-                if (held) onRetryHeld?.(item);
+                if (guardedRetry) onRetryHeld?.(item);
                 else onAccept(note);
               }}
             />

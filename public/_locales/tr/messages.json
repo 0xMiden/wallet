@@ -909,6 +909,26 @@
     "message": "Bu işlem bir yedekten geri yüklendi, bu nedenle cüzdan işlemin başarılı olup olmadığını kontrol edemez veya yeniden deneme yapamaz. Tekrar etmeden önce cüzdanı kontrol edin.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Your Guardian refused this submission. Try again.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "The network refused this submission. Try again.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionRejectedOnDevice": {
+    "message": "This device refused the submission. Try again.",
+    "englishSource": "This device refused the submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "Hatanın tamamını göster",
     "englishSource": "Show full error"
