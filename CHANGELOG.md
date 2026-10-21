@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [FEATURE][all] Arcade adds a weekly 10 GC allowance card while preserving the featured game and details design. Global balance rankings are removed; live claims and balances remain disabled pending the authoritative backend (#1691).
+
 - [CHANGE][all] Arcade polish: the featured game card's actions run edge to edge like Activity's pending card and drop the redundant Arcade tag, game details show a one-line wallet-access footnote, the Rankings / Coins / Activity shortcuts are a row of taller chips, and Rankings, Game Coins and Activity's Arcade filter show a dashed coming-soon state with a privacy footnote and a Browse games action instead of unreachable balance actions.
 
 ## 1.17.5 (TBD)

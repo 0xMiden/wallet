@@ -7,7 +7,6 @@ import {
 import type { ExploreCatalog } from 'lib/explore-config/schema';
 
 export const ARCADE_PATH = '/browser?category=arcade';
-export const ARCADE_RANKINGS_PATH = '/arcade/rankings';
 export const ARCADE_COINS_PATH = '/arcade/coins';
 export const ARCADE_ACTIVITY_PATH = '/history?filter=arcade&view=list';
 
