@@ -4148,6 +4148,67 @@ describe('Welcome — E2E onboarding bypass', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
   });
 
+  it('imports a public account and passes the access code through to registerWallet', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    window.history.replaceState(
+      null,
+      '',
+      '/?__test_skip_onboarding=1&walletType=on-chain&seed=alpha+beta+gamma&accessCode=ABCD23456789&password=pw'
+    );
+    await renderWelcome();
+    expect(mockFlowProps.current.seedPhrase).toEqual(['alpha', 'beta', 'gamma']);
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.OnChain,
+      'pw',
+      'alpha beta gamma',
+      true,
+      undefined,
+      'ABCD23456789'
+    );
+    expect(log.mock.calls.flat().join(' ')).not.toContain('ABCD23456789');
+    log.mockRestore();
+  });
+
+  it('reads a create access code from the E2E global and does not log it', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    (globalThis as { __TEST_MAINNET_ACCESS_CODE__?: string }).__TEST_MAINNET_ACCESS_CODE__ = 'ABCD23456789';
+    window.history.replaceState(null, '', '/?__test_skip_onboarding=1&walletType=on-chain&password=pw');
+    try {
+      await renderWelcome();
+      expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+      await dispatch({ id: 'confirmation' });
+      expect(mockRegisterWallet).toHaveBeenCalledWith(
+        WalletType.OnChain,
+        'pw',
+        expect.any(String),
+        false,
+        undefined,
+        'ABCD23456789'
+      );
+      expect(log.mock.calls.flat().join(' ')).not.toContain('ABCD23456789');
+    } finally {
+      delete (globalThis as { __TEST_MAINNET_ACCESS_CODE__?: string }).__TEST_MAINNET_ACCESS_CODE__;
+      log.mockRestore();
+    }
+  });
+
+  it('imports the seed passed on the E2E global', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    (globalThis as { __TEST_IMPORT_SEED__?: string }).__TEST_IMPORT_SEED__ = 'alpha beta gamma';
+    window.history.replaceState(null, '', '/?__test_skip_onboarding=1&walletType=on-chain&password=pw');
+    try {
+      await renderWelcome();
+      expect(mockFlowProps.current.seedPhrase).toEqual(['alpha', 'beta', 'gamma']);
+      expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    } finally {
+      delete (globalThis as { __TEST_IMPORT_SEED__?: string }).__TEST_IMPORT_SEED__;
+    }
+  });
+
   it('creates a fresh off-chain wallet via the CDP global', async () => {
     process.env.MIDEN_E2E_TEST = 'true';
     (globalThis as any).__TEST_SKIP_ONBOARDING = true;
