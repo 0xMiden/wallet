@@ -285,8 +285,12 @@ describe('GuardianSwitchSuccess', () => {
       expect(rows[0]).toHaveTextContent('New Guardian co-signs once confirmed');
       expect(rows[0]).toHaveTextContent('guardianSwitchUnconfirmedInfo1');
       expect(rows[0]).not.toHaveTextContent('Your new Guardian co-signs');
+      expect(rows[1]).toHaveTextContent('Nothing moved');
+      expect(rows[1]).toHaveTextContent('guardianSwitchSuccessInfo2');
       expect(rows[2]).toHaveTextContent('Keep it reachable');
       expect(rows[2]).toHaveTextContent('guardianSwitchUnconfirmedInfo3');
+      expect(rows[3]).toHaveTextContent('Switch again anytime');
+      expect(rows[3]).toHaveTextContent('guardianSwitchSuccessInfo4');
     });
 
     it('drops the fourth row when the local state is unrecoverable', () => {
