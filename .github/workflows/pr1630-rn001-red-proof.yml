@@ -1,0 +1,544 @@
+name: PR1630 RN001 expected native red
+
+on:
+  push:
+    branches: [ci/pr1630-rn001-red-index]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr1630-rn001-red-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - name: Freeze signed source and materialize evidence helper
+        shell: bash
+        run: |
+          set -u
+          export PROOF_DIR="$RUNNER_TEMP/pr1630-rn001-proof"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$PROOF_DIR"
+          cat > "$PROOF_DIR/collector.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import stat
+          import struct
+          import subprocess
+          import sys
+          import traceback
+          import xml.etree.ElementTree as ET
+
+          ROOT = Path(os.environ["GITHUB_WORKSPACE"])
+          PROOF = Path(os.environ["PROOF_DIR"])
+          SOURCE = "2ff9fbf6843139856dad6bd3d04225d9c27e2d9a"
+          TREE = "09e8b4858657b3f7c6bc44a0c46ad531dd013798"
+          PARENT = "26318793cf7e774d7d0d91db75b91138358ce13a"
+          WORKFLOW = ".github/workflows/pr1630-rn001-red-proof.yml"
+          GENERATED = ("android/capacitor.settings.gradle", "android/app/capacitor.build.gradle")
+          PINS = {
+              "android/app/build.gradle": "72b3f76dfe5ca81d74bc2d632814cefd061d8d7bc4fd8e1f194632da1d7a2f4b",
+              "android/app/src/main/java/com/miden/wallet/ReownPlugin.kt": "ee64d1035d32c8cff36eb99c17acac114c91bc507d752ad2a01836aace9f7c3e",
+              "android/app/src/main/java/com/miden/wallet/ReownRequestObservations.kt": "efdc08251c748ee175538ec544c021cb7d6a834abe2f13e67b6c819e0f70d83b",
+              "android/app/src/test/java/com/miden/wallet/ReownRequestObservationsTest.kt": "7fe4fc9b668e6c7e0d0ad597714a510a67d198883a50f2f5a6ebf6021eddf0fe",
+              "android/app/src/test/java/com/miden/wallet/ReownPluginWiringTest.kt": "f912ec543b3894c867e41c413888cdf21aba337b62ea27c323c72c73389582bb",
+              "android/app/src/test/java/com/miden/wallet/ReownPluginSessionDeleteTest.kt": "8ec13bf77f8290b5ebb58a3032c7b6675014e972d88005da37bffdb0106b0b90",
+          }
+          METHODS = {
+              "ReownRequestObservationsTest": [
+                  "categorizesWalletRejectionBeforePluginWiring", "mapsOnlyNumericWalletCodes",
+                  "bucketsExactMonotonicBoundaries", "keepsPauseStickyBeforeAndAfterPublication",
+                  "omitsBackgroundWithoutContinuousCoverage", "isolatesConcurrentInvocations",
+                  "completionIsIdempotentUnderRacingCallbacks", "matchesJavaScriptEnvelopeFixture",
+              ],
+              "ReownPluginWiringTest": [
+                  "observesBeforeAppKitInvocation", "instrumentsOnlyRequestGuards",
+                  "mapsEveryExistingRequestSettlement", "doesNotInventGenericEventSettlements",
+              ],
+              "ReownPluginSessionDeleteTest": [
+                  "deletionBeforePublicationSettlesRequest", "deletionBeforePublicationSettlesSendTransaction",
+                  "publicationDuringDeletionSettlesRequest", "publicationDuringDeletionSettlesSendTransaction",
+                  "deletionRejectsPublishedCallsAcrossTopics", "completedCallIsNotRejectedByDeletion",
+                  "newInvocationAfterDeletionCanResolveItsHash", "ordinaryExpiryStillSettlesOnce",
+              ],
+          }
+          TARGETS = {
+              "deletionBeforePublicationSettlesRequest": ("assertDeletionBeforePublication", 186),
+              "deletionBeforePublicationSettlesSendTransaction": ("assertDeletionBeforePublication", 186),
+              "publicationDuringDeletionSettlesRequest": ("assertPublicationDuringDeletion", 220),
+              "publicationDuringDeletionSettlesSendTransaction": ("assertPublicationDuringDeletion", 220),
+          }
+
+          def require(condition, message):
+              if not condition:
+                  raise AssertionError(message)
+
+          def git(*args):
+              return subprocess.check_output(["git", *args], cwd=ROOT)
+
+          def write_json(path, value):
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+          def file_record(path):
+              info = path.lstat()
+              if stat.S_ISLNK(info.st_mode):
+                  data = os.fsencode(os.readlink(path))
+                  mode = "120000"
+              else:
+                  require(stat.S_ISREG(info.st_mode), "Non-regular tracked input: " + str(path))
+                  data = path.read_bytes()
+                  mode = "100755" if info.st_mode & 0o111 else "100644"
+              blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              return {"mode": mode, "permissions": stat.S_IMODE(info.st_mode), "blob": blob, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+
+          def index_path():
+              raw = git("rev-parse", "--git-path", "index").decode().strip()
+              path = Path(raw)
+              return path if path.is_absolute() else ROOT / path
+
+          def index_bytes():
+              return index_path().read_bytes()
+
+          def parsed_index(raw):
+              require(len(raw) >= 32 and raw[:4] == b"DIRC", "Invalid raw index header")
+              require(hashlib.sha1(raw[:-20]).digest() == raw[-20:], "Invalid raw index checksum")
+              version, count = struct.unpack(">II", raw[4:12])
+              require(version == 2, "Expected the frozen version2 index")
+              fields = ("ctime_seconds", "ctime_nanoseconds", "mtime_seconds", "mtime_nanoseconds",
+                        "device", "inode", "mode", "uid", "gid", "size", "oid", "flags")
+              entries = {}
+              offset = 12
+              for _ in range(count):
+                  start = offset
+                  require(start + 62 < len(raw) - 20, "Truncated raw index entry")
+                  values = list(struct.unpack(">10I20sH", raw[start:start + 62]))
+                  values[10] = values[10].hex()
+                  require(not values[11] & 0x4000, "Unexpected extended index entry")
+                  end = raw.find(b"\0", start + 62, len(raw) - 20)
+                  require(end >= 0, "Unterminated raw index path")
+                  name = os.fsdecode(raw[start + 62:end])
+                  require(name and name not in entries, "Invalid or duplicate raw index path")
+                  offset = start + ((end + 1 - start + 7) // 8) * 8
+                  require(offset <= len(raw) - 20, "Truncated raw index padding")
+                  require(raw[end:offset] == b"\0" * (offset - end), "Invalid raw index padding")
+                  entries[name] = {"offset": start, "fields": dict(zip(fields, values))}
+              extensions = raw[offset:-20]
+              cursor = 0
+              while cursor < len(extensions):
+                  require(cursor + 8 <= len(extensions), "Truncated raw index extension header")
+                  length = struct.unpack(">I", extensions[cursor + 4:cursor + 8])[0]
+                  cursor += 8 + length
+                  require(cursor <= len(extensions), "Truncated raw index extension")
+              return entries, extensions
+
+          def restore_raw_index():
+              original = (PROOF / "before" / "index.raw").read_bytes()
+              current = index_bytes()
+              require(current == (PROOF / "pre-restoration-index.raw").read_bytes(), "Index changed during restoration")
+              before, before_extensions = parsed_index(original)
+              after, after_extensions = parsed_index(current)
+              require(list(before) == list(after), "Raw index entry paths/order changed")
+              require(before_extensions == after_extensions, "Raw index TREE or other extension changed")
+              require(set(GENERATED).issubset(before), "Generated framework index entries missing")
+              permitted = {"ctime_seconds", "ctime_nanoseconds", "mtime_seconds", "mtime_nanoseconds"}
+              changes = {}
+              for name in before:
+                  require(before[name]["offset"] == after[name]["offset"], "Raw index entry offset changed")
+                  delta = {field: {"before": value, "after": after[name]["fields"][field]}
+                           for field, value in before[name]["fields"].items()
+                           if value != after[name]["fields"][field]}
+                  if delta:
+                      require(name in GENERATED and set(delta).issubset(permitted), "Unexpected raw index entry delta: " + name)
+                      changes[name] = delta
+              require(not changes or set(changes) == set(GENERATED), "Expected both generated timestamp entries or no delta")
+              normalized_before = bytearray(original[:-20])
+              normalized_after = bytearray(current[:-20])
+              for name in GENERATED:
+                  offset = before[name]["offset"]
+                  normalized_before[offset:offset + 16] = b"\0" * 16
+                  normalized_after[offset:offset + 16] = b"\0" * 16
+              require(normalized_before == normalized_after, "Raw index changed outside permitted timestamp bytes")
+              record = {
+                  "original_sha256": hashlib.sha256(original).hexdigest(),
+                  "pre_restoration_sha256": hashlib.sha256(current).hexdigest(),
+                  "entry_count": len(before), "permitted_paths": list(GENERATED),
+                  "timestamp_deltas": changes, "all_other_index_bytes_identical": True,
+                  "original_and_pre_restoration_checksums_valid": True,
+              }
+              write_json(PROOF / "index-restoration-check.json", record)
+              path = index_path()
+              require(path.is_file() and not path.is_symlink(), "Unsafe raw index destination")
+              lock = Path(str(path) + ".lock")
+              created = False
+              try:
+                  with lock.open("xb") as handle:
+                      created = True
+                      handle.write(original)
+                      handle.flush()
+                      os.fsync(handle.fileno())
+                  os.chmod(lock, stat.S_IMODE(path.stat().st_mode))
+                  os.replace(lock, path)
+                  created = False
+              finally:
+                  if created and lock.exists():
+                      lock.unlink()
+              require(index_bytes() == original, "Original raw index bytes not restored")
+
+          def tree_records():
+              records = {}
+              for entry in git("ls-tree", "-rz", "--full-tree", "HEAD").split(b"\0"):
+                  if not entry:
+                      continue
+                  meta, raw_name = entry.split(b"\t", 1)
+                  mode, kind, blob = meta.decode().split()
+                  require(kind == "blob", "Unexpected tree entry type")
+                  records[os.fsdecode(raw_name)] = {"mode": mode, "blob": blob}
+              return records
+
+          def snapshot(label):
+              folder = PROOF / label
+              folder.mkdir(parents=True, exist_ok=False)
+              raw_index = index_bytes()
+              require(raw_index[:4] == b"DIRC", "Missing raw Git index")
+              require(hashlib.sha1(raw_index[:-20]).digest() == raw_index[-20:], "Raw index checksum mismatch")
+              (folder / "index.raw").write_bytes(raw_index)
+              (folder / "stage.z").write_bytes(git("ls-files", "--stage", "-z"))
+              (folder / "status.z").write_bytes(git("status", "--porcelain=v1", "-z", "--untracked-files=no"))
+              (folder / "tree.z").write_bytes(git("ls-tree", "-rz", "--full-tree", "HEAD"))
+              (folder / "identity.txt").write_bytes(git("rev-parse", "HEAD", "HEAD^{tree}"))
+              physical = {name: file_record(ROOT / name) for name in tree_records()}
+              write_json(folder / "physical.json", physical)
+              return physical
+
+          def check_matches_tree(physical, permitted=()):
+              expected = tree_records()
+              changed = []
+              for name, record in physical.items():
+                  if record["mode"] != expected[name]["mode"] or record["blob"] != expected[name]["blob"]:
+                      changed.append(name)
+              require(set(changed) <= set(permitted), "Unexpected tracked byte/mode changes: " + repr(changed))
+              return changed
+
+          def copy_inputs(label):
+              destination = PROOF / label / "inputs"
+              for name in set(PINS) | set(GENERATED) | {
+                  "package.json", "yarn.lock", "capacitor.config.ts", "android/build.gradle",
+                  "android/settings.gradle", "android/variables.gradle", "android/gradle.properties",
+                  "android/gradle/wrapper/gradle-wrapper.properties", "android/gradle/wrapper/gradle-wrapper.jar",
+                  "packages/dapp-browser/android/build.gradle", "packages/native-prover/android/build.gradle",
+                  "src/lib/walletconnect/testing/native-request-failure-envelope.txt",
+                  WORKFLOW,
+              }:
+                  target = destination / name
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(ROOT / name, target)
+
+          def before():
+              require(git("rev-parse", "HEAD^").decode().strip() == SOURCE, "Transport parent mismatch")
+              require(git("rev-parse", SOURCE + "^{tree}").decode().strip() == TREE, "Source tree mismatch")
+              require(git("rev-parse", SOURCE + "^").decode().strip() == PARENT, "Source parent mismatch")
+              delta = git("diff", "--name-only", SOURCE, "HEAD").decode().splitlines()
+              require(delta == [WORKFLOW], "Transport must add only its workflow")
+              require(git("diff", "--name-status", SOURCE, "HEAD").decode().strip() == "A\t" + WORKFLOW, "Workflow must be newly added")
+              changed = git("diff-tree", "--no-commit-id", "--name-only", "-r", SOURCE).decode().splitlines()
+              require(set(changed) == {"android/app/build.gradle", "android/app/src/test/java/com/miden/wallet/ReownPluginSessionDeleteTest.kt"}, "Wrong test checkpoint delta")
+              for name, digest in PINS.items():
+                  require(hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, "Pinned source mismatch: " + name)
+              physical = snapshot("before")
+              check_matches_tree(physical)
+              require((PROOF / "before" / "status.z").read_bytes() == b"", "Dirty transport checkout")
+              copy_inputs("before")
+              for ref, name in (("HEAD", "transport"), (SOURCE, "source"), (PARENT, "parent")):
+                  (PROOF / (name + ".commit.raw")).write_bytes(git("cat-file", "-p", ref))
+              write_json(PROOF / "identity.json", {
+                  "transport": git("rev-parse", "HEAD").decode().strip(), "source": SOURCE,
+                  "source_tree": TREE, "source_parent": PARENT, "run_id": os.environ["GITHUB_RUN_ID"],
+                  "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "methods": METHODS,
+              })
+
+          def ready():
+              physical = snapshot("ready")
+              changed = check_matches_tree(physical, GENERATED)
+              require(index_bytes() == (PROOF / "before" / "index.raw").read_bytes(), "Index changed during setup")
+              require((PROOF / "ready" / "identity.txt").read_bytes() == (PROOF / "before" / "identity.txt").read_bytes(), "HEAD changed during setup")
+              require((PROOF / "ready" / "stage.z").read_bytes() == (PROOF / "before" / "stage.z").read_bytes(), "Logical stages changed")
+              copy_inputs("ready")
+              (PROOF / "generated-framework.diff").write_bytes(git("diff", "--binary", "--", *GENERATED))
+              write_json(PROOF / "ready" / "generated-changes.json", changed)
+              generated = ROOT / "android/capacitor-cordova-android-plugins"
+              require((generated / "build.gradle").is_file(), "Missing generated Cordova Gradle module")
+              require((generated / "cordova.variables.gradle").is_file(), "Missing generated Cordova variables")
+              for path in sorted(generated.rglob("*")):
+                  if path.is_file():
+                      require(not path.is_symlink(), "Generated source link")
+                      target = PROOF / "ready" / "generated" / path.relative_to(ROOT)
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copyfile(path, target)
+              versions = {
+                  name: json.loads((ROOT / "node_modules" / name / "package.json").read_text())["version"]
+                  for name in ("@capacitor/cli", "@capacitor/android")
+              }
+              write_json(PROOF / "ready" / "package-versions.json", versions)
+              require(set(versions.values()) == {"8.4.0"}, "Unexpected Capacitor package versions")
+
+          def restore():
+              (PROOF / "pre-restoration-index.raw").write_bytes(index_bytes())
+              for relative in ("android/app/build/test-results/testDebugUnitTest", "android/app/build/reports/tests/testDebugUnitTest"):
+                  source = ROOT / relative
+                  if source.exists():
+                      shutil.copytree(source, PROOF / "native-results" / relative, dirs_exist_ok=True)
+              gradle_home = Path(os.environ.get("GRADLE_USER_HOME", str(Path.home() / ".gradle")))
+              cache = gradle_home / "caches/modules-2/files-2.1"
+              dependency_files = {}
+              if cache.exists():
+                  for group in sorted(cache.iterdir()):
+                      if group.name.startswith(("com.reown", "org.robolectric", "org.mockito", "net.bytebuddy", "org.objenesis", "junit")):
+                          for path in sorted(group.rglob("*")):
+                              if path.is_file() and not path.is_symlink():
+                                  data = path.read_bytes()
+                                  dependency_files[str(path.relative_to(cache))] = {
+                                      "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)
+                                  }
+              write_json(PROOF / "resolved-native-files.json", dependency_files)
+              framework_files = {}
+              locations = [(Path.home() / ".m2/repository/org/robolectric", "robolectric-maven")]
+              sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+              if sdk:
+                  locations.extend((Path(sdk) / relative, "android-sdk/" + relative) for relative in ("platforms/android-36", "build-tools/36.0.0"))
+              for base, prefix in locations:
+                  if base.exists():
+                      for path in sorted(base.rglob("*")):
+                          if path.is_file() and not path.is_symlink() and path.suffix in (".jar", ".pom", ".properties"):
+                              data = path.read_bytes()
+                              framework_files[prefix + "/" + str(path.relative_to(base))] = {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+              write_json(PROOF / "runtime-framework-files.json", framework_files)
+              for name in GENERATED:
+                  destination = ROOT / name
+                  destination.write_bytes(git("show", "HEAD:" + name))
+                  os.chmod(destination, 0o644)
+              physical = snapshot("pre-index-restoration")
+              check_matches_tree(physical)
+              require((PROOF / "pre-index-restoration" / "identity.txt").read_bytes() == (PROOF / "before" / "identity.txt").read_bytes(), "HEAD changed before index restoration")
+              require((PROOF / "pre-index-restoration" / "stage.z").read_bytes() == (PROOF / "before" / "stage.z").read_bytes(), "Logical index changed before restoration")
+              require((PROOF / "pre-index-restoration" / "physical.json").read_bytes() == (PROOF / "before" / "physical.json").read_bytes(), "Tracked source/modes changed before index restoration")
+              require((PROOF / "pre-index-restoration" / "status.z").read_bytes() == b"", "Tracked checkout dirty before index restoration")
+              restore_raw_index()
+              physical = snapshot("after")
+              check_matches_tree(physical)
+              require(index_bytes() == (PROOF / "before" / "index.raw").read_bytes(), "Raw index not restored")
+              require((PROOF / "after" / "identity.txt").read_bytes() == (PROOF / "before" / "identity.txt").read_bytes(), "HEAD changed during execution")
+              require((PROOF / "after" / "stage.z").read_bytes() == (PROOF / "before" / "stage.z").read_bytes(), "Logical index changed")
+              require((PROOF / "after" / "physical.json").read_bytes() == (PROOF / "before" / "physical.json").read_bytes(), "Tracked source/modes not restored")
+              require((PROOF / "after" / "status.z").read_bytes() == b"", "Tracked checkout is dirty after restoration")
+              copy_inputs("after")
+              write_json(PROOF / "restoration.json", {"complete": True, "restored_paths": list(GENERATED), "original_raw_index_restored": True})
+
+          def validate():
+              for name in ("before", "install", "capacitor-update", "dependencies", "ready", "restore"):
+                  require((PROOF / (name + ".exit")).read_text().strip() == "0", "Prerequisite failed: " + name)
+              for name in ("install", "capacitor-update", "dependencies"):
+                  require((PROOF / (name + "-tee.exit")).read_text().strip() == "0", "Prerequisite tee failed: " + name)
+              require((PROOF / "native.exit").read_text().strip() == "1", "Expected natural Gradle1")
+              require((PROOF / "native-tee.exit").read_text().strip() == "0", "Expected natural tee0")
+              require(json.loads((PROOF / "restoration.json").read_text())["complete"], "Restoration missing")
+              directory = PROOF / "native-results/android/app/build/test-results/testDebugUnitTest"
+              rows = []
+              for path in sorted(directory.glob("TEST-*.xml")):
+                  suite = ET.parse(path).getroot()
+                  cases = suite.findall("testcase")
+                  for attribute, children in (("tests", cases), ("failures", suite.findall("testcase/failure")), ("errors", suite.findall("testcase/error")), ("skipped", suite.findall("testcase/skipped"))):
+                      require(int(suite.attrib.get(attribute, "0")) == len(children), "Inconsistent XML suite count: " + attribute)
+                  for case in cases:
+                      failures = case.findall("failure")
+                      errors = case.findall("error")
+                      skipped = case.findall("skipped")
+                      rows.append({
+                          "class": case.attrib["classname"], "method": case.attrib["name"],
+                          "file": str(path.relative_to(PROOF)), "failures": [
+                              {"type": f.attrib.get("type"), "message": f.attrib.get("message"), "text": f.text or ""}
+                              for f in failures
+                          ], "errors": len(errors), "skipped": len(skipped),
+                      })
+              write_json(PROOF / "raw-method-inventory.json", rows)
+              wanted = {("com.miden.wallet." + cls, method) for cls, methods in METHODS.items() for method in methods}
+              actual = {(row["class"], row["method"]) for row in rows}
+              require(len(rows) == 20 and len(actual) == 20 and actual == wanted, "Expected exact20-method inventory")
+              failed = []
+              for row in rows:
+                  require(row["errors"] == 0 and row["skipped"] == 0, "JUnit error/skip: " + row["method"])
+                  target = row["class"] == "com.miden.wallet.ReownPluginSessionDeleteTest" and row["method"] in TARGETS
+                  require(len(row["failures"]) == (1 if target else 0), "Wrong failure distribution: " + row["method"])
+                  if not target:
+                      continue
+                  failure = row["failures"][0]
+                  require(failure["type"] == "java.lang.AssertionError", "Non-assertion failure")
+                  require(failure["message"] == "java.lang.AssertionError: Every started call must be settled once by deletion expected:<1> but was:<0>", "Wrong count failure")
+                  frames = re.findall(r"^\s*at (com\.miden\.wallet\.ReownPluginSessionDeleteTest\.[^\n]+)", failure["text"], re.M)
+                  method, line = TARGETS[row["method"]]
+                  require(frames[:2] == [
+                      "com.miden.wallet.ReownPluginSessionDeleteTest.assertDeletedOnce(ReownPluginSessionDeleteTest.kt:282)",
+                      "com.miden.wallet.ReownPluginSessionDeleteTest." + method + "(ReownPluginSessionDeleteTest.kt:" + str(line) + ")",
+                  ], "Wrong first application frames: " + row["method"])
+                  failed.append(row["method"])
+              require(set(failed) == set(TARGETS), "Missing causal target")
+              write_json(PROOF / "expected-red.json", {
+                  "status": "EXPECTED_CAUSAL_RED", "passed": 16, "failed": 4, "methods": 20,
+                  "errors": 0, "skipped": 0, "natural_gradle_exit": 1, "tee_exit": 0,
+                  "source": SOURCE, "product_fixed": False, "targets": sorted(failed),
+              })
+
+          def seal():
+              records = {}
+              for path in sorted(PROOF.rglob("*")):
+                  if path.is_file() and path.name != "payload-sha256.json":
+                      require(not path.is_symlink(), "Evidence symlink")
+                      data = path.read_bytes()
+                      records[str(path.relative_to(PROOF))] = {
+                          "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)
+                      }
+              write_json(PROOF / "payload-sha256.json", records)
+
+          if __name__ == "__main__":
+              action = sys.argv[1]
+              PROOF.mkdir(parents=True, exist_ok=True)
+              try:
+                  {"before": before, "ready": ready, "restore": restore, "validate": validate, "seal": seal}[action]()
+              except Exception:
+                  (PROOF / (action + "-failure.txt")).write_text(traceback.format_exc())
+                  raise
+          PY
+          set +e
+          python3 "$PROOF_DIR/collector.py" before > "$PROOF_DIR/before.log" 2>&1
+          status=$?
+          printf '%s\n' "$status" > "$PROOF_DIR/before.exit"
+          cat "$PROOF_DIR/before.log"
+          exit "$status"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Record toolchain and install Android compile SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            node --version
+            yarn --version
+            java --version
+            git --version
+            sdkmanager --version
+          } > "$PROOF_DIR/toolchain.log" 2>&1
+          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 2>&1 | tee "$PROOF_DIR/android-sdk.log"
+      - name: Install exact Yarn workspace
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          yarn install --frozen-lockfile --network-timeout 600000 2>&1 | tee "$PROOF_DIR/install.log"
+          result=("${PIPESTATUS[@]}")
+          printf '%s\n' "${result[0]}" > "$PROOF_DIR/install.exit"
+          printf '%s\n' "${result[1]}" > "$PROOF_DIR/install-tee.exit"
+          test "${result[0]}" -eq 0 && test "${result[1]}" -eq 0
+      - name: Generate native Gradle bridge for JVM tests
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -uo pipefail
+          # This empty target prevents Capacitor update from copying or building web assets.
+          mkdir -p android/app/src/main/assets/public
+          set +e
+          yarn cap update android 2>&1 | tee "$PROOF_DIR/capacitor-update.log"
+          result=("${PIPESTATUS[@]}")
+          printf '%s\n' "${result[0]}" > "$PROOF_DIR/capacitor-update.exit"
+          printf '%s\n' "${result[1]}" > "$PROOF_DIR/capacitor-update-tee.exit"
+          test "${result[0]}" -eq 0 && test "${result[1]}" -eq 0
+      - name: Bind effective generated framework and unchanged source
+        shell: bash
+        run: |
+          set +e
+          python3 "$PROOF_DIR/collector.py" ready > "$PROOF_DIR/ready.log" 2>&1
+          status=$?
+          printf '%s\n' "$status" > "$PROOF_DIR/ready.exit"
+          cat "$PROOF_DIR/ready.log"
+          exit "$status"
+      - name: Record resolved native test dependency graph
+        timeout-minutes: 10
+        working-directory: android
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          ./gradlew --no-daemon --max-workers=2 :app:dependencies --configuration debugUnitTestRuntimeClasspath --console=plain 2>&1 | tee "$PROOF_DIR/dependencies.log"
+          result=("${PIPESTATUS[@]}")
+          printf '%s\n' "${result[0]}" > "$PROOF_DIR/dependencies.exit"
+          printf '%s\n' "${result[1]}" > "$PROOF_DIR/dependencies-tee.exit"
+          test "${result[0]}" -eq 0 && test "${result[1]}" -eq 0
+      - name: Measure natural twenty-method native expected red
+        timeout-minutes: 20
+        working-directory: android
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          ./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest --tests com.miden.wallet.ReownPluginSessionDeleteTest --tests com.miden.wallet.ReownRequestObservationsTest --tests com.miden.wallet.ReownPluginWiringTest --console=plain 2>&1 | tee "$PROOF_DIR/native.log"
+          result=("${PIPESTATUS[@]}")
+          printf '%s\n' "${result[0]}" > "$PROOF_DIR/native.exit"
+          printf '%s\n' "${result[1]}" > "$PROOF_DIR/native-tee.exit"
+          exit 0
+      - name: Preserve raw results and restore generated tracked framework
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          python3 "$PROOF_DIR/collector.py" restore > "$PROOF_DIR/restore.log" 2>&1
+          status=$?
+          printf '%s\n' "$status" > "$PROOF_DIR/restore.exit"
+          cat "$PROOF_DIR/restore.log"
+          exit "$status"
+      - name: Classify only exact causal assertion red
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          python3 "$PROOF_DIR/collector.py" validate > "$PROOF_DIR/validate.log" 2>&1
+          status=$?
+          printf '%s\n' "$status" > "$PROOF_DIR/validate.exit"
+          cat "$PROOF_DIR/validate.log"
+          exit "$status"
+      - name: Seal all retained evidence
+        if: always()
+        shell: bash
+        run: python3 "$PROOF_DIR/collector.py" seal
+      - name: Upload raw evidence even on unexpected failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr1630-rn001-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr1630-rn001-proof
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
