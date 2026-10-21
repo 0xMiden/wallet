@@ -55,6 +55,68 @@ describe('EvmBridgeTokenDrawer', () => {
     expect(within(row).getByText('0.5 ETH')).toBeInTheDocument();
   });
 
+  it('draws each offered ERC-20 after ETH and Circle USDC, keyed by address, with its own logo and balance', () => {
+    const onSelect = jest.fn();
+    const wbtc = {
+      symbol: 'WBTC',
+      contractAddress: '0x21472df1b5d2b673f6444b41258c6460294a2c06' as const,
+      decimals: 8,
+      delivery: { midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e', scale: 0 }
+    };
+    render(
+      <EvmBridgeTokenDrawer
+        open
+        onOpenChange={jest.fn()}
+        selected={{ kind: 'erc20', contractAddress: wbtc.contractAddress }}
+        ethBalance="0.5"
+        circleUsdcBalance="12"
+        erc20Rows={[
+          { token: wbtc, name: 'WBTC', balance: '1.5' },
+          {
+            token: { symbol: 'BUG', contractAddress: '0x22939b3a4dfd9fc6211f99cdc6bd9f6708ae2956', decimals: 18 },
+            name: 'BUG',
+            balance: '0',
+            loading: true
+          }
+        ]}
+        onSelect={onSelect}
+      />
+    );
+
+    expect(screen.getAllByRole('button').map(row => row.getAttribute('data-testid'))).toEqual([
+      'bridge-token-ETH',
+      'bridge-token-CIRCLE_USDC',
+      `bridge-token-ERC20_${wbtc.contractAddress}`,
+      'bridge-token-ERC20_0x22939b3a4dfd9fc6211f99cdc6bd9f6708ae2956'
+    ]);
+    const row = screen.getByTestId(`bridge-token-ERC20_${wbtc.contractAddress}`);
+    expect(within(row).getByText('1.5 WBTC')).toBeInTheDocument();
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'WBTC');
+    expect(
+      within(screen.getByTestId('bridge-token-ERC20_0x22939b3a4dfd9fc6211f99cdc6bd9f6708ae2956')).getByText('loading')
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('bridge-token-list-unavailable')).not.toBeInTheDocument();
+
+    row.click();
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'erc20', contractAddress: wbtc.contractAddress });
+  });
+
+  it('says when the token list could not be read instead of showing a shorter list', () => {
+    render(
+      <EvmBridgeTokenDrawer
+        open
+        onOpenChange={jest.fn()}
+        selected="ETH"
+        ethBalance="0.5"
+        erc20Rows={[]}
+        erc20Unavailable
+        onSelect={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('bridge-token-list-unavailable')).toHaveTextContent('bridgeDepositTokensUnavailable');
+  });
+
   // A mainnet document names no AggLayer chain and no Epoch test USDC: Circle's USDC is the one token, and the
   // Epoch USDC is not a token there at all.
   it('lists only Circle USDC when the host offers no ETH and no Epoch USDC', () => {

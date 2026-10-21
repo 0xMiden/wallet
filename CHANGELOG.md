@@ -2,9 +2,15 @@
 
 ## 1.17.6 (TBD)
 
+### Fixes
+
+- [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
+
 ### Changes
 
 - [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
+- [CHANGE][all] Profile and My badges polish: every badge has its own illustrated medallion; Profile shows the address as one copy chip with a network tag and opens My badges from a progress card; My badges leads with Earned / Locked / Coming soon counts, an earned fraction beside All badges, and the Mainnet note at the foot of the page.
+- [CHANGE][extension] The EVM wallet connect modal on the extension opens on the WalletConnect QR code and hides the browser-extension, EIP-6963 and Coinbase wallets and the "All Wallets" grid, since an extension page cannot reach another extension's wallet.
 - [FIX][all] The send amount step says Continue before review, so it no longer suggests the payment will be sent immediately, and Continue buttons in Japanese read 続ける instead of 続きを読む (read more).
 
 - [CHANGE][all] Login key commitment tests verify key handles are freed and root and scalar buffers are zeroed for stored EVM keys and legacy seed-derived keys (#1579).
@@ -22,8 +28,10 @@
 - [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. The schedule stays off until the accounts are funded (#1629).
 - [FEATURE][all] Verified tokens can show USD prices from Binance, using a USDT market first and a USDC market second, with the quote currency converted to USD. If neither market exists, the wallet uses a direct USD market on Kraken, including PYUSD. Totals and token order use the current verified price assets. The wallet checks the saved token list once when it opens and keeps the saved list if the check fails.
 - [FEATURE][all] Every error message the wallet shows is reported to the team as a crash report naming only which message it was and where, never its text (#1616).
+- [FEATURE][all] A Guardian swap sends a short diagnostic history with crash reports, through the same crash-reporting permission: each step from preparing the Guardian service to running the proposal, how it ended (including a timeout, an eviction or a locked wallet) and how the swap ended (including a cancel, a timeout or an unknown outcome), in fixed values and duration ranges only, at most 10 records in 10 seconds and 60 in 10 minutes; the privacy policy lists every value.
 - [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
+- [FEATURE][all] The AggLayer bridge-in picker offers more than ETH and USDC: the ERC-20s the wallet-config document lists under the chain's `agglayer.tokens`, each only while the Miden bridge's faucet registry holds a faucet for it and at its contract's decimals, and on a test network every ERC-20 the connected wallet holds above 1e-5 of a token, read from the chain's Blockscout (`agglayer.tokenApiUrl`), since the testnet bridge registers a token's faucet on its first deposit. A deposit of one saves its faucet with the row, or reads it from the registry once registered, so its delivery is matched like bridged ETH; a token list that could not be read is said in the picker instead of shown as a shorter list (#1649). An empty token list stays stable between config updates so balance updates cannot cause a render loop.
 - [FEATURE][all] At startup, geographic rules in `0xMiden/wallet-config` block wallet access, including withdrawals, in Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. New Earn deposits are additionally blocked in New York and the UK. A Cloudflare Worker keeps MaxMind credentials on the server and returns only access decisions; a missing or failed check keeps the wallet closed.
 
 ### Fixes
@@ -35,15 +43,18 @@
 - [FIX][all] An AggLayer deposit whose receipt cannot be read (a timeout or an RPC failure) stays pending and is read again, instead of being marked failed; only a reverted deposit fails (#1622).
 - [FIX][all] A Guardian switch shows a key in Activity instead of the swap arrows, and its success screen lists what changes as titled rows (#1645).
 - [FIX][all] Existing crash reports add fixed storage owner, operation and page visibility values without reporting storage contents or changing report grouping; the privacy policy lists every value (#1613)
+- [FIX][extension] A crash report for an approval window whose request the background could not answer also says, in fixed values only, the shape of the id the request carried, whether the background's memory of recent approvals was empty, holding some or had dropped older ones, how long the background had been running and how the window was last loaded; the privacy policy lists every value
 - [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
 - [FIX][all] The external-wallet connection picker offers wallet connections without email or social sign-in, including when the remote dashboard enables them (#1625).
 - [FIX][tests] The live iOS USDCx round trip deposits 5.2 USDC for a 5 USDCx return withdrawal. A public faucet outage no longer stops bridge-out coverage. A verified faucet grant raises the return amount to 6 USDCx; both paths check the payout and wallet confirmation.
 - [FIX][extension] Incoming-note notifications use the Chrome fallback when the Web Notifications API fails during permission or construction.
 - [FIX][all] An incoming transfer whose claim the Guardian holds back while it settles the previous change says "Waiting for your Guardian" on its Activity card, open or closed, instead of only showing a spinner (#1666).
+- [FIX][all] After the app restarts mid-transaction, the Guardian change that transaction left before it was submitted is abandoned at the next transaction, instead of holding the account for about ten minutes (#1666).
 
 - [FIX][all] CI dependency installation retries registry failures and timeouts before giving up, so a transient outage does not immediately discard builds or UI smoothness measurements.
 - [FIX][all] A USDCx withdrawal no longer fails with `Unable to read the USDCx faucet's burn policy`, which every review on testnet showed once the faucet's nonce map outgrew the full-account read. A burn must be at least 5 USDCx, or the faucet's minimum burn when that is larger; the wallet reads that minimum from an account proof, and a failed read keeps 5 USDCx instead of blocking the burn.
 - [FIX][all] Token metadata reads public proof values without loading unrelated storage maps or vault assets, so a large nonce registry no longer prevents reading the token name, symbol and authoritative decimals (#1632).
+- [FIX][all] A swap's payback notes and a pile of native notes are claimed at most 8 to a transaction instead of all in one, the swap reads Confirmed once the last of those claims completes, the extension's background settlement proves with the current delegated-proving setting instead of the one saved when the order was placed, and its background write limit is 180 seconds instead of 90, so an order a solver filled in dozens of partial fills no longer fails every claim at the limit and blocks the account's other transactions behind the Guardian proposal each attempt left (#1644).
 
 - [FIX][android] In release builds the in-app browser no longer writes dApp requests, the wallet's answers, or page URLs, origins, hosts and scripts to the device log (#1582).
 - [FIX][android] An Android WebView older than 98 (Android System WebView, or Chrome on Android 9), which cannot run the wallet, now opens a page that sends the user to update it from Google Play, instead of an error screen Bread can never leave (#1597, #1598).
