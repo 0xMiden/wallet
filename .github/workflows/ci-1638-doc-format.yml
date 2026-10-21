@@ -33,6 +33,30 @@ jobs:
         if: always()
         shell: bash
         run: yarn -s prettier playwright/e2e/docs/e2e-architecture.md > e2e-architecture.formatted.md
+      - name: Compare unchanged formatter against main baseline
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin abc6eaefd5598daf9f803927045b733b57c74668
+          git diff --exit-code abc6eaefd5598daf9f803927045b733b57c74668 HEAD -- package.json yarn.lock .prettierignore .prettierrc .prettierrc.js .prettierrc.json
+          target=playwright/e2e/docs/e2e-architecture.md
+          cp "$target" current-document.md
+          trap 'cp current-document.md "$target"' EXIT
+          git show "abc6eaefd5598daf9f803927045b733b57c74668:$target" > "$target"
+          sha256sum current-document.md "$target" > baseline-source-sha256.txt
+          set +e
+          yarn -s prettier --check "$target" 2>&1 | tee baseline-doc-format.log
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > baseline-formatter.exit
+          printf '%s\n' "${statuses[1]}" > baseline-tee.exit
+          cp "$target" baseline-document.md
+          cp current-document.md "$target"
+          cmp current-document.md "$target"
+          git diff --exit-code -- "$target"
+          test "${statuses[1]}" -eq 0
+          exit "${statuses[0]}"
       - name: Preserve formatter output
         if: always()
         uses: actions/upload-artifact@v4
@@ -41,4 +65,6 @@ jobs:
           path: |
             doc-format.log
             e2e-architecture.formatted.md
+            baseline-*
+            current-document.md
           if-no-files-found: error
