@@ -177,10 +177,9 @@ describe('the mobile legs of the dApp E2E workflow', () => {
       const step = text.match(/ {6}- name: Collect emulator logs.*\n(?:(?! {6}- ).*\n)*/)?.[0];
       expect(step).toBeDefined();
       expect(step).toMatch(/\n {8}timeout-minutes: \d+\n/);
-      const unbounded = (step ?? '')
-        .split('\n')
-        .filter(line => /(^|\s)adb\s/.test(line) && !/timeout 15s adb\s/.test(line));
-      expect(unbounded).toEqual([]);
+      const adb = (step ?? '').split('\n').filter(line => /(^|\s)adb\s/.test(line));
+      expect(adb.length).toBeGreaterThan(0);
+      expect(adb.filter(line => !/timeout 15s adb\s/.test(line))).toEqual([]);
     }
   );
 });
