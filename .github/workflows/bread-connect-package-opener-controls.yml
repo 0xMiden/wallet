@@ -24,6 +24,11 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+      - name: Install emulator audio runtime
+        timeout-minutes: 4
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libpulse0
       - name: Run existing Kotlin suites and five real platform controls
         shell: bash
         run: |
