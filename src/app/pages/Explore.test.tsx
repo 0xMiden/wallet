@@ -1566,6 +1566,23 @@ describe('Explore', () => {
       const ids = mockInitiateConsumeTransaction.mock.calls.map(c => c[1].id);
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
     });
+
+    it('claims a backlog at most MAX_NOTES_PER_UNATTENDED_CLAIM notes to a transaction (#1644)', async () => {
+      mockAutoConsume = true;
+      mockInitiateConsumeNotesTransaction.mockResolvedValue('batch-tx');
+      mockClaimableNotes = Array.from({ length: 20 }, (_unused, index) =>
+        makeNote(`n${String(index).padStart(2, '0')}`, 'faucet-native', false)
+      );
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction.mock.calls.map(call => call[1].length)).toEqual([8, 8, 4]);
+      const queued = mockInitiateConsumeNotesTransaction.mock.calls.flatMap(call =>
+        call[1].map((n: { id: string }) => n.id)
+      );
+      expect(new Set(queued).size).toBe(20);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+    });
   });
 
   // AnimatedNumber renders its first value as-is and counts only on a change, so a figure keyed by

@@ -773,6 +773,19 @@ describe('HotKeyRotationGate', () => {
       });
     });
 
+    it('splits a backlog into claims of at most MAX_NOTES_PER_UNATTENDED_CLAIM notes (#1644)', async () => {
+      trackShortfall();
+      mockClaimable = {
+        data: Array.from({ length: 10 }, (_unused, index) => nativeNote(`n${String(index).padStart(2, '0')}`)),
+        isFallback: false
+      };
+
+      render(<HotKeyRotationGate />);
+
+      await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(2));
+      expect(mockEnqueue.mock.calls.map(call => (call[1] as ConsumableNote[]).length)).toEqual([8, 2]);
+    });
+
     it('writes no claim and asks nothing of the service worker when the lock lands before the claim is written', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
       mockPlatform.isExtension = true;

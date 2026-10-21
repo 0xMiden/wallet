@@ -1,3 +1,4 @@
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
@@ -118,6 +119,24 @@ export function chunkNotesForClaim<T extends { id: string }>(notes: readonly T[]
     chunks.push(sorted.slice(start, start + MAX_NOTES_PER_UNATTENDED_CLAIM));
   }
   return chunks;
+}
+
+/**
+ * An unattended auto-consume batch as the claims to queue, each at most {@link MAX_NOTES_PER_UNATTENDED_CLAIM} notes.
+ * The caller measured the whole batch against the claim floor, which only a single chunk inherits: over the cap each
+ * chunk pays its own fee, so one not worth that fee is left out and waits for more notes, as the whole pile did below
+ * the floor. Shared by every unattended native claimer (the service worker, Home, the mobile/desktop manager and the
+ * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644).
+ */
+export function chunkAutoConsumeBatch<T extends { id: string; amount: string }>(
+  notes: readonly T[],
+  verificationBaseFee: number | null
+): T[][] {
+  const chunks = chunkNotesForClaim(notes);
+  if (chunks.length <= 1) return chunks;
+  return chunks.filter(chunk =>
+    isWorthClaiming(totalClaimableAmount(chunk.map(note => note.amount)), verificationBaseFee)
+  );
 }
 
 // The cold-start sweep reason (failInterruptedTransactions). Special-cased in

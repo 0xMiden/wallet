@@ -45,7 +45,7 @@ import {
   reconcileSwapOrderNotes
 } from '../swap/settlement';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
-import { chunkNotesForClaim } from '../transaction/constants';
+import { chunkAutoConsumeBatch } from '../transaction/constants';
 import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
@@ -855,15 +855,10 @@ async function runSync(force: boolean): Promise<void> {
           // batch pays its own fee, so each is measured against the floor on its own;
           // the whole pile was measured together above, which only a single batch
           // inherits. A batch below the floor waits for more notes, as the pile did.
-          const batches = chunkNotesForClaim(nativeAutoConsumeNotes);
+          const batches = chunkAutoConsumeBatch(nativeAutoConsumeNotes, nativeAutoConsumeBaseFee);
+          const batchedNotes = batches.reduce((count, batch) => count + batch.length, 0);
           let feeRefusedNotes = 0;
           for (const batch of batches) {
-            if (
-              batches.length > 1 &&
-              !isWorthClaiming(totalClaimableAmount(batch.map(n => n.amount)), nativeAutoConsumeBaseFee)
-            ) {
-              continue;
-            }
             try {
               await initiateConsumeNotesTransaction(
                 accountPubKey,
@@ -898,7 +893,7 @@ async function runSync(force: boolean): Promise<void> {
               }
             }
           }
-          if (feeRefusedNotes === nativeAutoConsumeNotes.length) return;
+          if (feeRefusedNotes === batchedNotes) return;
           const { startTransactionProcessing } = await import('./transaction-processor');
           startTransactionProcessing().catch(err => console.warn('[native-auto-consume] processing failed', err));
         } catch (err) {
