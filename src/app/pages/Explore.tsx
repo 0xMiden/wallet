@@ -619,7 +619,9 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
                 </div>
               ))}
             </div>
-            <ErrorLine data-testid="hidden-assets-error">{unhideFailed ? t('hiddenTokensError') : null}</ErrorLine>
+            <ErrorLine data-testid="hidden-assets-error" errorId="hiddenTokensError">
+              {unhideFailed ? t('hiddenTokensError') : null}
+            </ErrorLine>
           </motion.div>
         )}
       </AnimatePresence>

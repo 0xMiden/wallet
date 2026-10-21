@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-sdk android:minSdkVersion="28" />
+    <application>
+        <uses-library android:name="android.test.base" android:required="true" />
+        <uses-library android:name="android.test.runner" android:required="true" />
+        <uses-library android:name="android.test.mock" android:required="true" />
+    </application>
+</manifest>

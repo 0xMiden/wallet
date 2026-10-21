@@ -8,6 +8,7 @@ import { usdFormatterFor } from 'lib/i18n/numbers';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { getPendingNotesUsdTotal, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 
 import { ClaimsLoadingBar } from './ActivityClaimsStatus';
@@ -37,6 +38,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
     declinedIds,
     hiddenCount
   } = useActivityClaimList(search, filter);
+  useUserVisibleError(hidden.failed ? 'activityHiddenNotesError' : null, 'inline');
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   useBridgeConfigSnapshot({ load: false });
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);

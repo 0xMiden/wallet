@@ -87,11 +87,11 @@ Please read these Terms carefully. They describe what Bread Wallet does, what we
 
 **5.6 Risks specific to Earn.** Deposited assets are subject to the lending market's smart-contract and solvency risk; to the risk that Epoch cannot execute or settle; to withdrawal delays or limits set by the market; to partial failure across two networks, which can leave assets at your EVM address or in the settlement lock until recovered; to price movement and slippage on any route that converts assets; and to loss of both your device and your Recovery Phrase, which also loses the EVM key that owns the position. You may receive back less than you deposited. Earn is not a bank deposit and is not insured or guaranteed by any government scheme.
 
-**5.7 Withdrawal.** You may request withdrawal at any time through Bread Wallet. A deposit and a withdrawal are separate orders with separate quotes. Processing time depends on both networks and on the market, and may be longer than for a transaction on Miden alone.
+**5.7 Withdrawal.** You may request withdrawal through Bread Wallet while wallet access is permitted under section 11. A deposit and a withdrawal are separate orders with separate quotes. Processing time depends on both networks and on the market, and may be longer than for a transaction on Miden alone.
 
 **5.8 Open positions on suspension or termination.** Your position is held at your EVM address in the lending market, not in Bread Wallet and not with Epoch. If we suspend or terminate your access to Bread Wallet, or withdraw the Earn feature, the position is unaffected. Because the EVM key derives from your Recovery Phrase, you can also recover the position with any wallet that supports the same key derivation as Bread Wallet. If Epoch stops providing the service, you can still withdraw on the EVM side with your EVM key, and you can return assets to Miden through another route (section 6). We have no obligation to make you whole for anything that happens in the lending market or at Epoch.
 
-**5.9 Availability.** Earn is not available to residents of the United Kingdom or of the State of New York, and the feature is blocked for connections from those places. We may add or remove jurisdictions, markets and networks at any time.
+**5.9 Availability.** New Earn deposits are not available to residents of the United Kingdom or of the State of New York and are blocked for connections from those places. This Earn-specific restriction permits withdrawals while wallet access is allowed under section 11. We may add or remove jurisdictions, markets and networks at any time.
 
 ## 6. Swaps, bridges and solver routing
 
@@ -198,9 +198,9 @@ Please read these Terms carefully. They describe what Bread Wallet does, what we
 
 ## 11. Geographic restrictions
 
-**11.1 Blocked jurisdictions.** Access to Bread Wallet is restricted through geoblocking at the application level and at the network's sequencer for comprehensively sanctioned jurisdictions, listed in the Sanctions Compliance Statement.
+**11.1 Blocked jurisdictions.** The network's sequencer is geoblocked for the comprehensively sanctioned jurisdictions listed in the Sanctions Compliance Statement. Bread Wallet additionally applies the broader application access policy in that Statement: all wallet access, including withdrawals, is blocked for connections from Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts of Ukraine. The App checks eligibility once at startup and keeps the decision for the page session; a failed startup check keeps wallet access closed.
 
-**11.2 Feature-level restrictions.** Individual features may be unavailable in further jurisdictions. Current restrictions: Earn is not available in the United Kingdom or the State of New York and is blocked for connections from those places (5.9); Transak on-ramp and off-ramp are available only in the countries Transak supports (7.8). We may change these at any time.
+**11.2 Feature-level restrictions.** Individual features may be unavailable in further jurisdictions. Current restrictions: new Earn deposits are not available in the United Kingdom or the State of New York and are blocked for connections from those places, while withdrawals remain available where wallet access is permitted (5.9); Transak on-ramp and off-ramp are available only in the countries Transak supports (7.8). We may change these at any time.
 
 **11.3 No circumvention.** You may not use VPNs, proxies or other means to circumvent geographic or compliance restrictions. Attempting to do so is a material breach of these Terms.
 
@@ -278,7 +278,7 @@ You will indemnify and hold harmless Miden and its affiliates, officers, employe
 
 **19.2 What termination does not do.** Termination ends your license to use our software. It does not and cannot: (a) take, freeze or move assets in your on-chain accounts, which remain controlled by your keys; (b) revoke your Guardian Operator's obligations to you under its own terms; or (c) close an Earn position, a pending swap or a Transak order, each of which continues under the relevant third party's terms. Compliance controls that operate at the asset or network layer (sections 8 and 11) are separate from termination and continue to apply.
 
-**19.3 Access to your assets after termination.** After termination you can access your accounts with any software compatible with the Miden network. Where we withdraw the app or a feature entirely, we will keep a withdraw-only mode available for at least 90 days after notice so that you can move assets, close Earn positions and rotate or disable your Guardian.
+**19.3 Access to your assets after termination.** After termination you can access your accounts with any software compatible with the Miden network. Where we withdraw the app or a feature entirely, we will keep a withdraw-only mode available for at least 90 days after notice so that you can move assets, close Earn positions and rotate or disable your Guardian, subject to the wallet access restrictions in section 11. That mode does not bypass those restrictions.
 
 **19.4 Survival.** Sections 3, 4.7, 8, 9.3, 10, 12, 14 and 16 to 22 survive termination.
 

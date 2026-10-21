@@ -555,12 +555,17 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
         </Notice>
       )}
       {canHide && saveFailed && (
-        <ErrorLine className="mt-2" data-testid="token-detail-hidden-error">
+        <ErrorLine className="mt-2" data-testid="token-detail-hidden-error" errorId="hiddenTokensError">
           {t('hiddenTokensError')}
         </ErrorLine>
       )}
       {canHide && hiddenTokens.unreadable && (
-        <ErrorLine role="note" className="mt-2" data-testid="token-detail-hidden-unreadable">
+        <ErrorLine
+          role="note"
+          className="mt-2"
+          data-testid="token-detail-hidden-unreadable"
+          errorId="hiddenTokensUnreadable"
+        >
           {t('hiddenTokensUnreadable')}
         </ErrorLine>
       )}

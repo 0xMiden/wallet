@@ -750,6 +750,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
         options.setCallbacks(
             new WebViewCallbacks() {
+                @Override
+                public void permissionDeniedToast() {
+                    notifyListeners("permissionDeniedToast", new JSObject());
+                }
+
                 @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime) {
                     JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("policyRevision", revision).put("visibilitySequence", sequence);
                     if (lifetime != null) event.put("managedHostCloseToken", lifetime);

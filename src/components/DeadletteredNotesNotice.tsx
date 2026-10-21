@@ -9,6 +9,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 export interface DeadletteredNotesNoticeProps {
   className?: string;
@@ -50,6 +51,10 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
   });
 
   const count = data ?? 0;
+  useUserVisibleError(
+    count === 0 ? null : count === 1 ? 'deadletteredNotesBodyOne' : 'deadletteredNotesBody',
+    'inline'
+  );
   const [retrying, setRetrying] = useState(false);
   // Set in the effect BODY, not just cleared in the cleanup: StrictMode invokes
   // setup, cleanup, setup, so an initializer-only `true` is false forever after

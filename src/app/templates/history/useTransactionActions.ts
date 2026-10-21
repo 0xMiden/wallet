@@ -16,6 +16,7 @@ import {
 import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
 
@@ -35,6 +36,7 @@ export interface TransactionActions {
   canCancel: boolean;
   isCancelling: boolean;
   cancelError: string | null;
+  cancelErrorId: UserErrorId | null;
   onCancel: () => void;
 
   /** Re-queue a Failed row through the FIFO loop. */
@@ -43,6 +45,7 @@ export interface TransactionActions {
   earnRetryKind: EarnWithdrawalRetryKind | undefined;
   isRetrying: boolean;
   retryError: string | null;
+  retryErrorId: UserErrorId | null;
   /**
    * The acknowledgement the last refusal offered, exactly as rendered: it answers the attempt the user was shown
    * (#1081). Null when the refusal offers none, as the liveness refusal never does.
@@ -53,6 +56,7 @@ export interface TransactionActions {
   /** Take a live swap order's offered tip back (swap rows only). */
   isCancellingOrder: boolean;
   cancelOrderError: string | null;
+  cancelOrderErrorId: UserErrorId | null;
   onCancelOrder: () => void;
 }
 
@@ -65,21 +69,26 @@ export const useTransactionActions = (
   const confirm = useConfirm();
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelErrorId, setCancelErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryErrorId, setRetryErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
   const [isCancellingOrder, setIsCancellingOrder] = useState(false);
   const [cancelOrderError, setCancelOrderError] = useState<string | null>(null);
+  const [cancelOrderErrorId, setCancelOrderErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
     setCancelError(null);
+    setCancelErrorId(null);
 
     try {
       await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
     } catch (error) {
       console.error('[HistoryDetails] Failed to cancel transaction:', error);
       setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
+      setCancelErrorId({ id: error instanceof Error ? 'raw_history_cancel_failed' : 'smthWentWrong', transactionId });
     } finally {
       setIsCancelling(false);
     }
@@ -90,6 +99,7 @@ export const useTransactionActions = (
       if (!entry) return;
       setIsRetrying(true);
       setRetryError(null);
+      setRetryErrorId(null);
       setAcknowledgement(null);
       try {
         if (entry.txType === 'earn-withdraw') {
@@ -103,9 +113,11 @@ export const useTransactionActions = (
       } catch (error) {
         if (error instanceof ClaimFeeRefusedError) {
           setRetryError(t('insufficientFeeAsset'));
+          setRetryErrorId({ id: 'insufficientFeeAsset', transactionId });
         } else {
           console.error('[HistoryDetails] Failed to retry transaction:', error);
           setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+          setRetryErrorId({ id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong', transactionId });
         }
         setAcknowledgement(acknowledgementOf(error));
       } finally {
@@ -133,11 +145,16 @@ export const useTransactionActions = (
 
     setIsCancellingOrder(true);
     setCancelOrderError(null);
+    setCancelOrderErrorId(null);
     try {
       await cancelSwapOrder(transactionId);
     } catch (error) {
       console.error('[HistoryDetails] Failed to cancel swap order:', error);
       setCancelOrderError(error instanceof Error ? error.message : t('smthWentWrong'));
+      setCancelOrderErrorId({
+        id: error instanceof Error ? 'raw_history_swap_cancel_failed' : 'smthWentWrong',
+        transactionId
+      });
     } finally {
       setIsCancellingOrder(false);
     }
@@ -167,15 +184,18 @@ export const useTransactionActions = (
     canCancel,
     isCancelling,
     cancelError,
+    cancelErrorId: cancelErrorId?.transactionId === transactionId ? cancelErrorId.id : null,
     onCancel: () => void handleCancel(),
     canRetry,
     earnRetryKind,
     isRetrying,
     retryError,
+    retryErrorId: retryErrorId?.transactionId === transactionId ? retryErrorId.id : null,
     acknowledgement,
     onRetry: acknowledged => void handleRetry(acknowledged),
     isCancellingOrder,
     cancelOrderError,
+    cancelOrderErrorId: cancelOrderErrorId?.transactionId === transactionId ? cancelOrderErrorId.id : null,
     onCancelOrder: () => void handleCancelOrder()
   };
 };

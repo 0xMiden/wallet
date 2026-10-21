@@ -20,6 +20,7 @@ import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/r
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
@@ -452,6 +453,7 @@ export const HistoryLoadErrorCard: React.FC<{ surface?: 'fill' | 'dashed'; onRet
   onRetry
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError('tokenActivityLoadError', 'inline');
   return (
     <EmptyState
       role="alert"
@@ -470,6 +472,7 @@ export const HistoryLoadErrorCard: React.FC<{ surface?: 'fill' | 'dashed'; onRet
 /** A failed history read under rows already on screen: they are not the whole history. */
 export const HistoryLoadErrorNotice: React.FC<{ onRetry?: () => void }> = ({ onRetry }) => {
   const { t } = useTranslation();
+  useUserVisibleError('tokenActivityLoadError', 'inline');
   return (
     <div
       role="alert"

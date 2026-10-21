@@ -6,6 +6,7 @@ import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state'
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ConnectivityIssueBanner, ExtensionMessageListener } from './ConnectivityIssueBanner';
 
@@ -19,7 +20,18 @@ import { ConnectivityIssueBanner, ExtensionMessageListener } from './Connectivit
 
 // i18n: identity translator so we can assert on the raw message keys.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string) =>
+      [
+        'connectivityNetworkBody',
+        'connectivityNodeBody',
+        'connectivityGuardianBody',
+        'connectivityProverBody',
+        'connectivityResolvingBody'
+      ].includes(key)
+        ? `Visible ${key}`
+        : key
+  })
 }));
 
 // Haptics wrap the native Capacitor plugin; a spy lets us assert the light
@@ -160,7 +172,7 @@ describe('ConnectivityIssueBanner', () => {
 
     expect(screen.getByTestId('connectivity-banner-network')).toBeInTheDocument();
     expect(screen.getByText('connectivityNetworkTitle')).toBeInTheDocument();
-    expect(screen.getByText('connectivityNetworkBody')).toBeInTheDocument();
+    expect(screen.getByText('Visible connectivityNetworkBody')).toBeInTheDocument();
     // Retry CTA present with the network-specific label.
     expect(screen.getByRole('button', { name: 'connectivityRetry' })).toBeInTheDocument();
     // Leading icon uses the warning fill.
@@ -240,7 +252,7 @@ describe('ConnectivityIssueBanner', () => {
 
     expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
     expect(screen.getByText('connectivityGuardianTitle')).toBeInTheDocument();
-    expect(screen.getByText('connectivityGuardianBody')).toBeInTheDocument();
+    expect(screen.getByText('Visible connectivityGuardianBody')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'connectivityGuardianCta' }));
     expect(mockHapticLight).toHaveBeenCalled();
@@ -455,5 +467,83 @@ describe('ExtensionMessageListener', () => {
   it('renders nothing (legacy no-op)', () => {
     const { container } = render(<ExtensionMessageListener />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible connectivity errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    guardianOutage.accounts.clear();
+    guardianOutage.listeners.clear();
+    currentAccount.publicKey = 'acct-1';
+    setState({});
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['network', 'connectivityNetworkBody'],
+    ['node', 'connectivityNodeBody'],
+    ['guardian', 'connectivityGuardianBody']
+  ] as const)('reports only the selected %s outage using %s after 1000 ms', (category, id) => {
+    if (category === 'guardian') guardianOutage.accounts.add('acct-1');
+    else setState({ [category]: true, prover: true, resolving: true });
+    const view = render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId(`connectivity-banner-${category}`)).toHaveTextContent(`Visible ${id}`);
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+    view.rerender(<ConnectivityIssueBanner className="layout-only" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+  });
+
+  it.each(['prover', 'resolving'] as const)('does not report %s informational state', category => {
+    setState({ [category]: true });
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId(`connectivity-banner-${category}`)).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it.each(['none', 'other-account'] as const)('does not report %s hidden state', category => {
+    if (category === 'other-account') guardianOutage.accounts.add('other-account');
+    render(<ConnectivityIssueBanner />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('drops a guardian outage dismissed at 999 ms', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('drops a network outage recovered at 999 ms', () => {
+    setState({ network: true });
+    const view = render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-network')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    setState({});
+    view.rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
   });
 });

@@ -1,6 +1,12 @@
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
+import {
+  USER_ERROR_SURFACES,
+  isUserErrorId,
+  type UserErrorId,
+  type UserErrorSurface
+} from './user-visible-error-contract';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES, type WasmStartupEvidence } from './wasm-startup';
 
 /** The background's state for a dApp approval no handler answered; its Not Found code is `confirmation_<state>`. */
@@ -22,6 +28,8 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   workerMode?: 'enabled' | 'disabled';
   confirmationHandler?: ConfirmationHandlerState;
   portReconnected?: boolean;
+  userErrorId?: UserErrorId;
+  userErrorSurface?: UserErrorSurface;
 };
 
 const diagnosticsByError = new WeakMap<Error, CrashDiagnostics>();
@@ -47,7 +55,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       sharedMemoryProbe: suppliedProbe,
       extensionViews: suppliedViews,
       confirmationHandler: suppliedCode,
-      portReconnected
+      portReconnected,
+      userErrorId,
+      userErrorSurface: suppliedSurface
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -65,6 +75,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     const confirmationHandler = CONFIRMATION_HANDLER_STATES.find(state => `confirmation_${state}` === suppliedCode);
     if (confirmationHandler !== undefined) safe.confirmationHandler = confirmationHandler;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
+    if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
+    const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
+    if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
     diagnosticsByError.set(error, { ...diagnosticsByError.get(error), ...safe });
   } catch {
     // Reporting cannot change the failure being handled.

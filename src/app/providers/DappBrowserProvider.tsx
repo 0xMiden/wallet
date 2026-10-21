@@ -99,6 +99,7 @@ import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isIOS, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { selectIsReady, useWalletStore } from 'lib/store';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { useModalsParams } from 'lib/ui/dialog';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -839,6 +840,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         }
       });
       listenerRemovers.push(() => closeL.remove());
+
+      const permissionL = await InAppBrowser.addListener('permissionDeniedToast', () => {
+        if (mounted) reportUserVisibleError('raw_dapp_permission_denied', 'native_toast');
+      });
+      listenerRemovers.push(() => permissionL.remove());
 
       if (!mounted) {
         // If we already unmounted while awaiting, tear down immediately.

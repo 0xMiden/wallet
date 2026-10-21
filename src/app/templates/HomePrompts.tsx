@@ -13,6 +13,8 @@ import { PromptCard, PromptCardHero, PromptCardStatus, PromptCarousel, PromptCar
 import {
   clearGuardianNoteRecoveryProgress,
   dismissGuardianNoteRecoveryProgress,
+  fetchGuardianNoteRecoveryProgress,
+  type GuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryDismissal
 } from 'lib/guardian-note-recovery-progress';
 import { formatUsd } from 'lib/i18n/numbers';
@@ -33,6 +35,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import {
@@ -64,6 +67,7 @@ import {
 import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {
+  errorId?: UserErrorId | null;
   body?: string;
   bodyValue?: string;
   // Overrides `definition.dismissible`. `onDismiss: undefined` cannot express this,
@@ -184,6 +188,20 @@ const formatUsdTotal = (total: number | null): string | undefined => (total === 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 // A refusal the user can act on reads in plain words; any other failure keeps its own message (#425).
+const faucetFailureId = (error: Error): UserErrorId => {
+  if (error instanceof FaucetRateLimitedError) {
+    return error.retryAfterSeconds !== null && error.retryAfterSeconds > 1
+      ? 'faucetRateLimitedWait'
+      : 'faucetRateLimited';
+  }
+  return error instanceof FaucetAmountOverCapError ? 'faucetOverCap' : 'raw_home_faucet_failed';
+};
+
+const faucetFailure = (error: unknown): { cause: Error; id: UserErrorId } => {
+  const cause = error instanceof Error ? error : new Error(String(error));
+  return { cause, id: faucetFailureId(cause) };
+};
+
 const faucetFailureBody = (error: Error, t: Translate): string => {
   if (error instanceof FaucetRateLimitedError) {
     const seconds = error.retryAfterSeconds;
@@ -281,7 +299,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const faucetFundsArrived = fundsArrivedFor !== null && fundsArrivedFor === account.publicKey;
   // The faucet's actual failure reason, rendered in the card body — a bare red
   // X can't distinguish a rate limit from an outage (#425).
-  const [faucetError, setFaucetError] = useState<Error | null>(null);
+  const [faucetError, setFaucetError] = useState<ReturnType<typeof faucetFailure> | null>(null);
   // Whether this account's persisted funding marker has been read on THIS visit.
   // Until then a wait may still be about to resume - a mint that acked before a
   // remount has no in-flight join left - so offering Fund could start a second
@@ -570,7 +588,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       setFundingWait(current => (current !== null && current.address === address ? null : current));
       if (accountKeyRef.current !== address) return;
       setFaucetStatusIndicator('failure');
-      setFaucetError(error instanceof Error ? error : new Error(String(error)));
+      setFaucetError(faucetFailure(error));
     });
     return () => {
       cancelled = true;
@@ -663,7 +681,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         // …but only paint the failure if that account is still on screen.
         if (accountKeyRef.current === address) {
           setFaucetStatusIndicator('failure');
-          setFaucetError(error instanceof Error ? error : new Error(String(error)));
+          setFaucetError(faucetFailure(error));
         }
         console.error('[wallet-prompts] faucet request failed:', error);
       }
@@ -961,6 +979,39 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     seedStatus
   ]);
 
+  const [recoveryBaseline, setRecoveryBaseline] = useState<{
+    accountId: string;
+    progress: GuardianNoteRecoveryProgress | null;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setRecoveryBaseline(null);
+    fetchGuardianNoteRecoveryProgress(account.publicKey)
+      .then(progress => {
+        if (!cancelled) setRecoveryBaseline({ accountId: account.publicKey, progress });
+      })
+      .catch(error => {
+        if (!cancelled) setRecoveryBaseline(null);
+        console.warn('[wallet-prompts] failed to read the recovery reporting baseline:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account.publicKey]);
+  const persistedRecoveryFailure =
+    recoveryBaseline?.progress?.step === noteRecoveryProgress?.step &&
+    recoveryBaseline?.progress?.updatedAt === noteRecoveryProgress?.updatedAt;
+  const recoveryFailureId: UserErrorId | null =
+    recoveryBaseline?.accountId === account.publicKey &&
+    noteRecoveryProgress?.accountId === account.publicKey &&
+    !persistedRecoveryFailure
+      ? noteRecoveryProgress?.step === 'history-failed'
+        ? 'guardianHistoryFailed'
+        : noteRecoveryProgress?.step === 'history-partial'
+          ? 'guardianHistoryPartial'
+          : null
+      : null;
+
   // Per-type runtime behavior in one place; anything not set here falls back
   // to the static definition (route click, plain body, default dismiss).
   const promptOverrides = useCallback(
@@ -969,6 +1020,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.GuardianNoteRecovery:
           return {
             body: noteRecoveryBody,
+            errorId: recoveryFailureId,
             status:
               noteRecoveryProgress?.step === 'history-partial' || noteRecoveryProgress?.step === 'history-failed'
                 ? 'failure'
@@ -1004,12 +1056,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             // and reasonably concludes the prompt is not about them -- name the missing asset.
             body:
               faucetStatusIndicator === 'failure' && faucetError
-                ? faucetFailureBody(faucetError, t)
+                ? faucetFailureBody(faucetError.cause, t)
                 : unresolvedHere !== null
                   ? t('faucetPromptUnresolvedBody')
                   : cannotPayFee
                     ? t('insufficientFeeAsset')
                     : undefined,
+            errorId: faucetStatusIndicator === 'failure' && faucetError ? faucetError.id : null,
             // While the account cannot pay a fee this prompt re-arms on every render
             // (see `faucetIsTerminal`), so a dismiss X would write storage, fire haptics
             // and change nothing. Withhold the control rather than ship one that lies.
@@ -1048,11 +1101,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           };
         case WalletPromptType.HotKeyHardwareUnavailable:
           return {
+            errorId: copyStatusIndicator === 'failure' ? 'hotKeyHardwareErrorPromptBody' : null,
             onAction: copyHotKeyError,
             status: copyStatusIndicator
           };
         case WalletPromptType.HotKeyRotationNeeded:
           return {
+            errorId: rotationStatusIndicator === 'failure' ? 'hotKeyRotationPromptBody' : null,
             onAction: rotateHotKey,
             status: rotationStatusIndicator,
             actionDisabled: rotationStatusIndicator === 'loading'
@@ -1074,6 +1129,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       copyHotKeyError,
       copyStatusIndicator,
       faucetError,
+      recoveryFailureId,
       faucetFundsArrived,
       faucetStatusIndicator,
       formattedFundedMintUsdTotal,
@@ -1112,6 +1168,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             onAction={overrides.onAction}
             actionDisabled={overrides.actionDisabled ?? false}
             status={overrides.status}
+            errorId={overrides.errorId ?? null}
             // Whether the card is dismissible decides alone; only then is the handler
             // chosen. The faucet case always supplies its own: its status is per account.
             onDismiss={

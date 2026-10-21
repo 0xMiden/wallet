@@ -1,9 +1,14 @@
-import { act, renderHook } from '@testing-library/react';
+import { createElement } from 'react';
+
+import { Scope } from '@sentry/browser';
+import { act, render, renderHook } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
+import { englishWordlist } from '@miden/hd-key';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { deserializeInternalError } from 'lib/intercom/helpers';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
@@ -17,8 +22,10 @@ import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry'
 
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
+import { getCrashBuildIdentity } from './crash-build';
 import { annotateCrash } from './crash-diagnostics';
 import { encodingVariantsOf } from './egress-guard';
+import { containsSeedMaterial } from './redact';
 import { __resetRelayDiagnosticsForTest, recordRelaySurface } from './relay-diagnostics';
 import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
@@ -33,6 +40,7 @@ import {
   TelemetryResult,
   TelemetryStep
 } from './types';
+import { USER_ERROR_SURFACES, _resetUserVisibleErrorLimitsForTest, reportUserVisibleError } from './user-visible-error';
 import packageJson from '../../../package.json';
 
 jest.mock('./crash-artifacts', () => ({
@@ -1541,6 +1549,234 @@ describe('crash-report egress', () => {
 
     const hosts = new Set(captured.map(entry => new URL(entry.url).host));
     expect(hosts).toEqual(new Set(['o0.ingest.de.sentry.io']));
+  });
+});
+
+describe('user-visible error reports', () => {
+  beforeEach(() => {
+    _resetUserVisibleErrorLimitsForTest();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('a raw display leaks none of its text', async () => {
+    consentOn();
+    jest.useFakeTimers();
+    try {
+      render(
+        createElement(
+          ErrorLine,
+          { errorId: 'raw_send_submit_failed' },
+          `Unable to send ${POISON.amount} to ${POISON.addressTestnet}: ${PHRASE_12}`
+        )
+      );
+      act(() => jest.advanceTimersByTime(1000));
+    } finally {
+      jest.useRealTimers();
+    }
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'raw_send_submit_failed',
+      'user_error.surface': 'inline'
+    });
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_send_submit_failed', 'inline']);
+    expect(wireText()).toContain('raw_send_submit_failed');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('puts only the closed id and surface on the wire', async () => {
+    consentOn();
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({
+        type: 'WalletUserVisibleError',
+        value: 'User-visible error: usdcxFaucetUnavailable; surface review',
+        stacktrace: { frames: [] },
+        mechanism: expect.objectContaining({ handled: true })
+      })
+    ]);
+    expect(event.level).toBe('warning');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'usdcxFaucetUnavailable',
+      'user_error.surface': 'review'
+    });
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toEqual({
+      ...resolveTelemetryContext(),
+      ...getCrashBuildIdentity(),
+      userErrorId: 'usdcxFaucetUnavailable',
+      userErrorSurface: 'review'
+    });
+    expect(wireText()).not.toContain('"filename"');
+    expect(wireText()).not.toContain('"cause"');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('preserves every closed surface through crash scrubbing', async () => {
+    consentOn();
+    for (const surface of USER_ERROR_SURFACES) {
+      reportUserVisibleError('usdcxFaucetUnavailable', surface);
+      await flushEgress();
+    }
+    expect(captured).toHaveLength(12);
+    for (const [index, surface] of USER_ERROR_SURFACES.entries()) {
+      const event = parsePayload(captured[index]?.body.split('\n')[2] ?? '');
+      expect(objectAt(event, 'tags')['user_error.surface']).toBe(surface);
+      expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', surface]);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each([
+    ['identifier fragments in a breadcrumb', 'breadcrumb', 'account', 'key', 'seed'],
+    ['identifier fragments in extra data', 'extra', 'account', 'key', 'seed'],
+    ['a closed surface in a breadcrumb', 'breadcrumb', 'review', 'review', 'review'],
+    ['a closed surface in extra data', 'extra', 'review', 'review', 'review']
+  ] as const)('drops a contaminated report despite %s', async (_name, location, first, second, third) => {
+    const syntheticWords = [
+      'abandon',
+      'ability',
+      'able',
+      first,
+      'about',
+      'above',
+      'absent',
+      second,
+      'absorb',
+      'abstract',
+      'absurd',
+      third
+    ];
+    const text = syntheticWords.join(' ');
+    expect(syntheticWords.every(word => englishWordlist.includes(word))).toBe(true);
+    expect(containsSeedMaterial(text, englishWordlist)).toBe(true);
+    consentOn();
+    const policyInputs: unknown[] = [];
+    const stopObservers: Array<() => void> = [];
+    const captureException = Scope.prototype.captureException;
+    const capture = jest.spyOn(Scope.prototype, 'captureException').mockImplementationOnce(function (
+      this: Scope,
+      error,
+      hint
+    ) {
+      if (location === 'breadcrumb') this.addBreadcrumb({ category: 'fixture', message: text });
+      else this.setExtra('fixture', text);
+      const reportingClient = this.getClient();
+      if (!reportingClient) throw new Error('Missing reporting client');
+      stopObservers.push(
+        reportingClient.on('postprocessEvent', event => {
+          policyInputs.push(
+            location === 'breadcrumb'
+              ? event.breadcrumbs?.find(breadcrumb => breadcrumb.category === 'fixture')?.message
+              : event.extra?.fixture
+          );
+        })
+      );
+      return captureException.call(this, error, hint);
+    });
+
+    try {
+      reportUserVisibleError('raw_account_export_failed', 'review');
+      await flushEgress();
+    } finally {
+      stopObservers.forEach(stop => stop());
+    }
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(policyInputs).toEqual([text]);
+    expect(captured).toHaveLength(0);
+    expect(wireText()).not.toContain(text);
+  });
+
+  it('preserves canonical closed data with harmless free-text fields', async () => {
+    consentOn();
+    const captureException = Scope.prototype.captureException;
+    const capture = jest.spyOn(Scope.prototype, 'captureException').mockImplementationOnce(function (
+      this: Scope,
+      error,
+      hint
+    ) {
+      this.addBreadcrumb({ category: 'fixture', message: 'fallback unavailable' });
+      this.setExtra('fixture', 'fallback unavailable');
+      return captureException.call(this, error, hint);
+    });
+
+    reportUserVisibleError('raw_account_export_failed', 'review');
+    await flushEgress();
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'raw_account_export_failed',
+      'user_error.surface': 'review'
+    });
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_account_export_failed', 'review']);
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({
+        type: 'WalletUserVisibleError',
+        value: 'User-visible error: raw_account_export_failed; surface review'
+      })
+    ]);
+    expect(event.breadcrumbs).toEqual([
+      expect.objectContaining({ category: 'fixture', message: 'fallback unavailable' })
+    ]);
+    expect(objectAt(event, 'extra')).toEqual({
+      walletDiagnostics: {
+        ...resolveTelemetryContext(),
+        ...getCrashBuildIdentity(),
+        userErrorId: 'raw_account_export_failed',
+        userErrorSurface: 'review'
+      }
+    });
+  });
+
+  it('retains a repeated report after the minute instead of letting Sentry deduplicate it', async () => {
+    consentOn();
+    const clock = jest.spyOn(performance, 'now').mockReturnValue(0);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    clock.mockReturnValue(59_999);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    clock.mockReturnValue(60_000);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(2);
+  });
+
+  it('drops raw text containing an address, amount and recovery phrase before capture', async () => {
+    consentOn();
+    const report: unknown = reportUserVisibleError;
+    if (typeof report !== 'function') throw new Error('Missing reporter');
+    report(`Unable to send ${POISON.amount} to ${POISON.addressTestnet}: ${PHRASE_12}`, 'review');
+    report('usdcxFaucetUnavailable', `toast ${POISON.addressTestnet}`);
+    await flushEgress();
+    expect(captured).toHaveLength(0);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('sends nothing without crash-report permission', async () => {
+    consentOff();
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toEqual([]);
   });
 });
 
