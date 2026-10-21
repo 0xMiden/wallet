@@ -19,7 +19,7 @@ import { isOpenRecoveredOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { bridgeInSourceLabel, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 
@@ -422,9 +422,11 @@ export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHisto
       : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
-  // ETH and Circle's USDC (the xReserve route) keep their symbol; any other source is the configured Epoch USDC.
-  const keepsSourceSymbol = entry.bridgeInProvider === 'usdcx' || inSymbol === 'ETH';
-  const inLabel = keepsSourceSymbol ? inSymbol : evmUsdcLabel(snapshot, inSymbol);
+  const inLabel = bridgeInSourceLabel(snapshot, {
+    provider: entry.bridgeInProvider,
+    symbol: inSymbol,
+    sourceToken: entry.bridgeInSourceToken
+  });
   return {
     inSymbol,
     outSymbol,

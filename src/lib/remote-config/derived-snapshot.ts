@@ -1,6 +1,13 @@
 import { isRecord } from 'lib/update/guards';
 
-import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig, Probe, TokenMetadata } from './derive';
+import type {
+  AgglayerDepositToken,
+  BridgeToken,
+  DerivedBridgeConfig,
+  DerivedChainConfig,
+  Probe,
+  TokenMetadata
+} from './derive';
 import type { BridgeConfig, EvmAddress } from './schema';
 import { parseSwapPairs, type SwapPairs } from './swap-pairs';
 import type { EarnMarket } from './values';
@@ -47,6 +54,33 @@ function bridgeTokens(value: unknown): BridgeToken[] | null {
   return tokens.every((token): token is BridgeToken => token !== null) ? tokens : null;
 }
 
+// A symbol the derivation stored: the document's key, checked again as any other stored text.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
+const isTokenSymbol = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= 32 && !CONTROL_CHARACTER.test(value);
+
+function depositToken(value: unknown): AgglayerDepositToken | null {
+  if (!isRecord(value)) return null;
+  const { symbol, contractAddress, decimals, midenFaucetId, scale } = value;
+  if (
+    !isTokenSymbol(symbol) ||
+    !isLowercaseEvmAddress(contractAddress) ||
+    !isCount(decimals) ||
+    !isMidenAccountId(midenFaucetId) ||
+    !isCount(scale)
+  ) {
+    return null;
+  }
+  return { symbol, contractAddress, decimals, midenFaucetId, scale };
+}
+
+function depositTokens(value: unknown): AgglayerDepositToken[] | null {
+  if (!Array.isArray(value)) return null;
+  const tokens = value.map(depositToken);
+  return tokens.every((token): token is AgglayerDepositToken => token !== null) ? tokens : null;
+}
+
 function probe<T>(value: unknown, read: (value: unknown) => T | null): Probe<T> | null {
   if (!isRecord(value)) return null;
   if (value.state === 'absent') return { state: 'absent' };
@@ -87,9 +121,14 @@ function chainReads(value: unknown): DerivedChainConfig | null {
   const tokens = probe(agglayer.tokens, bridgeTokens);
   const evmNetworkId = probe(agglayer.evmNetworkId, count);
   const l1BridgeCode = probe(agglayer.l1BridgeCode, yes);
+  // A copy stored by a build that read no deposit tokens has no such probe, so it reads as missing and is derived again.
+  const deposits = probe(agglayer.depositTokens, depositTokens);
   const evmUsdc = probe(epoch.evmUsdc, metadata);
-  if (!rollupId || !tokens || !evmNetworkId || !l1BridgeCode || !evmUsdc) return null;
-  return { agglayer: { rollupId, tokens, evmNetworkId, l1BridgeCode }, epoch: { evmUsdc } };
+  if (!rollupId || !tokens || !evmNetworkId || !l1BridgeCode || !deposits || !evmUsdc) return null;
+  return {
+    agglayer: { rollupId, tokens, evmNetworkId, l1BridgeCode, depositTokens: deposits },
+    epoch: { evmUsdc }
+  };
 }
 
 /**
@@ -139,7 +178,7 @@ export function failedDerivation(config: BridgeConfig, message: string, derivedA
   const chains: Record<number, DerivedChainConfig> = {};
   for (const { chainId } of Object.values(config.supportedEvmChains)) {
     chains[chainId] = {
-      agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error },
+      agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, depositTokens: error },
       epoch: { evmUsdc: error }
     };
   }

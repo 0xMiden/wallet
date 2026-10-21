@@ -3,9 +3,11 @@ import React, { useEffect } from 'react';
 import { type AppKitNetwork, defineChain } from '@reown/appkit/networks';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
+import { RouterController } from '@reown/appkit-controllers';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 
+import { isExtension } from 'lib/platform';
 import { initBridgeConfig, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { getThemeSetting } from 'lib/settings/helpers';
 import { resolveTheme } from 'lib/settings/theme';
@@ -60,6 +62,28 @@ export const wagmiConfig = wagmiAdapter.wagmiConfig;
 
 const queryClient = new QueryClient();
 
+// On the extension the modal offers only mobile wallets through the WalletConnect QR code: a
+// browser-extension wallet cannot be reached from an extension page, so the injected, EIP-6963 and
+// Coinbase connectors and the "All Wallets" grid are hidden there. The QR code stays on by default.
+const extensionPage = isExtension();
+
+/** The modal view a connect opens: the QR code at once on the extension, else the wallet list. */
+export const CONNECT_VIEW = extensionPage ? 'ConnectingWalletConnectBasic' : 'Connect';
+
+/**
+ * The view the extension shows once the modal is open. The basic QR view draws a wallet list instead
+ * of a QR code when AppKit classifies the page as mobile (a coarse pointer or a mobile user agent), and
+ * each wallet in that list opens a page with a Browser tab. The wallet-less WalletConnect view always
+ * draws the QR code, but `open()` does not accept it, so the router is pointed at it after the open.
+ */
+const EXTENSION_QR_VIEW = 'ConnectingWalletConnect';
+
+/** Open the connect modal for the EVM namespace, on the QR code alone on the extension. */
+export async function openConnectModal(): Promise<void> {
+  await modal.open({ view: CONNECT_VIEW, namespace: 'eip155' });
+  if (extensionPage) RouterController.reset(EXTENSION_QR_VIEW);
+}
+
 export const modal = createAppKit({
   adapters: [wagmiAdapter],
   networks,
@@ -73,6 +97,10 @@ export const modal = createAppKit({
     '1ae92b26df02f0abca6304df07debccd18262fdf5fe82daa81593582dac9a369', // rainbow
     'c03dfee351b6fcc421b4494ea33b9d4b92a984f87aa76d1663bb28705e95034a' // uniswap
   ],
+  enableInjected: !extensionPage,
+  enableEIP6963: !extensionPage,
+  enableCoinbase: !extensionPage,
+  allWallets: extensionPage ? 'HIDE' : 'SHOW',
   features: { analytics: false, email: false, socials: false, connectMethodsOrder: ['wallet'] }
 });
 

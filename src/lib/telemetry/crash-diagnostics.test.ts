@@ -9,6 +9,8 @@ import {
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
   annotateCrash,
+  backgroundAgeOf,
+  readPageNavigation,
   snapshotCrashDiagnostics,
   withCompletionStep,
   withProposalStep
@@ -660,6 +662,77 @@ describe('source-bound crash diagnostics', () => {
     const error = new Error('Not Found');
     annotateCrash(error, { portReconnected: false });
     expect(snapshotCrashDiagnostics(error)).toEqual({ portReconnected: false });
+  });
+
+  it("reads the request shape, registry state and age the background's code carries after the state", () => {
+    const error = new Error('Not Found');
+    annotateCrash(error, {
+      confirmationHandler: 'confirmation_unknown:array_with_string:pruned:10_to_60s',
+      pageNavigation: 'reload'
+    });
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      confirmationHandler: 'unknown',
+      confirmationRequestShape: 'array_with_string',
+      confirmationRegistry: 'pruned',
+      backgroundAge: '10_to_60s',
+      pageNavigation: 'reload'
+    });
+  });
+
+  it('drops the whole code when any part after the state is not exactly one of its values', () => {
+    for (const confirmationHandler of [
+      'confirmation_unknown:',
+      'confirmation_unknown:string',
+      'confirmation_unknown:string:empty',
+      'confirmation_unknown:string:empty:under_10s:',
+      'confirmation_unknown:string:empty:under_10s:navigate',
+      'confirmation_unknown:V1StGXR8_Z5jdHi6B-myT:empty:under_10s',
+      'confirmation_unknown:string:V1StGXR8_Z5jdHi6B-myT:under_10s',
+      'confirmation_unknown:string:empty:12034',
+      'confirmation_V1StGXR8_Z5jdHi6B-myT:string:empty:under_10s'
+    ]) {
+      const error = new Error('Not Found');
+      annotateCrash(error, { confirmationHandler, pageNavigation: 'https://evil.example/' });
+      expect(snapshotCrashDiagnostics(error)).toEqual({});
+    }
+  });
+
+  it.each([
+    [0, 'under_10s'],
+    [9_999, 'under_10s'],
+    [10_000, '10_to_60s'],
+    [59_999, '10_to_60s'],
+    [60_000, '60_to_300s'],
+    [299_999, '60_to_300s'],
+    [300_000, 'over_300s'],
+    [-1, 'unknown'],
+    [Number.NaN, 'unknown'],
+    [Number.POSITIVE_INFINITY, 'unknown']
+  ])('buckets a background running for %p ms as %s', (ms, age) => {
+    expect(backgroundAgeOf(ms)).toBe(age);
+  });
+
+  it("reads the page's navigation type, and unknown for anything else", () => {
+    const withEntries = (getEntriesByType: (type: string) => unknown): string => {
+      Object.defineProperty(performance, 'getEntriesByType', { configurable: true, value: getEntriesByType });
+      try {
+        return readPageNavigation();
+      } finally {
+        Reflect.deleteProperty(performance, 'getEntriesByType');
+      }
+    };
+    for (const type of ['navigate', 'reload', 'back_forward', 'prerender']) {
+      expect(withEntries(kind => (kind === 'navigation' ? [{ type }] : []))).toBe(type);
+    }
+    expect(withEntries(() => [{ type: 'https://evil.example/' }])).toBe('unknown');
+    expect(withEntries(() => [])).toBe('unknown');
+    expect(withEntries(() => [null])).toBe('unknown');
+    expect(
+      withEntries(() => {
+        throw new Error('no timeline');
+      })
+    ).toBe('unknown');
+    expect(readPageNavigation()).toBe('unknown');
   });
 
   it('returns detached snapshots and preserves annotations across wrappers', () => {

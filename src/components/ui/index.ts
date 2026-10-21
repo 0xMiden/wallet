@@ -63,6 +63,9 @@ export { StatusBadge } from './StatusBadge';
 // vocabularies have no importer, so they stay internal until one exists.
 export type { Status, StatusBadgeProps } from './StatusBadge';
 
+export { ProgressMeter } from './ProgressMeter';
+export type { ProgressMeterProps } from './ProgressMeter';
+
 export { PromptCard } from './PromptCard';
 export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
 

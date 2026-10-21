@@ -603,6 +603,27 @@ describe('EvmBridgeDepositStatus', () => {
       expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12.5 USDC');
     });
 
+    it('names a Slow ERC-20 deposit by its own symbol', () => {
+      mockRowState = {
+        row: makeRow(
+          makeInputs({
+            provider: 'agglayer',
+            sourceAmount: '1.5',
+            sourceSymbol: 'WBTC',
+            outputAmount: '1.5',
+            outputSymbol: 'WBTC',
+            phase: 'delivering',
+            agglayerDelivery: { originToken: '0x00000000000000000000000000000000000000d1' }
+          }),
+          { faucetId: '' }
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('1.5 WBTC → 1.5 WBTC');
+    });
+
     it('keeps a Slow ETH deposit on ETH', () => {
       mockRowState = {
         row: makeRow(

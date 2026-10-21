@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 
-import { useAppKit, useDisconnect } from '@reown/appkit/react';
+import { useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
@@ -29,7 +29,6 @@ interface BridgeDepositProps {
 export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const { t } = useTranslation();
   const currentMidenAccount = useWalletStore(s => s.currentAccount);
-  const { open: connect } = useAppKit();
   const { disconnect } = useDisconnect();
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
   // The test-wallet warning belongs to the test networks; on mainnet the funds are real and it is not shown.
@@ -60,11 +59,11 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       }
       const appkit = await import('lib/walletconnect/appkit');
       await appkit.prepareAppKitConnection();
-      await connect({ view: 'Connect', namespace: 'eip155' });
+      await appkit.openConnectModal();
     } catch (err) {
       console.error('[BridgeDeposit] connect failed', err);
     }
-  }, [connect, nativeReown, useNativeReownWallet]);
+  }, [nativeReown, useNativeReownWallet]);
 
   // AppKit won't open the Connect view while a wallet is already connected, so
   // "switch wallet" = disconnect the current one, then reopen the picker.
@@ -79,11 +78,11 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       await disconnect();
       const appkit = await import('lib/walletconnect/appkit');
       await appkit.prepareAppKitConnection();
-      await connect({ view: 'Connect', namespace: 'eip155' });
+      await appkit.openConnectModal();
     } catch (err) {
       console.error('[BridgeDeposit] switch wallet failed', err);
     }
-  }, [connect, disconnect, nativeReown, useNativeReownWallet]);
+  }, [disconnect, nativeReown, useNativeReownWallet]);
 
   if (walletReady) {
     return (
