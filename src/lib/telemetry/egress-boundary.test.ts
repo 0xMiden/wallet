@@ -1,11 +1,11 @@
 import { createElement } from 'react';
 
-import { englishWordlist } from '@miden/hd-key';
 import { Scope } from '@sentry/browser';
 import { act, render, renderHook } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
+import { englishWordlist } from '@miden/hd-key';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { ErrorLine } from 'components/ui/ErrorLine';
@@ -1662,19 +1662,39 @@ describe('user-visible error reports', () => {
     expect(syntheticWords.every(word => englishWordlist.includes(word))).toBe(true);
     expect(containsSeedMaterial(text, englishWordlist)).toBe(true);
     consentOn();
+    const policyInputs: unknown[] = [];
+    const stopObservers: Array<() => void> = [];
     const captureException = Scope.prototype.captureException;
-    const capture = jest
-      .spyOn(Scope.prototype, 'captureException')
-      .mockImplementationOnce(function (this: Scope, error, hint) {
-        if (location === 'breadcrumb') this.addBreadcrumb({ category: 'fixture', message: text });
-        else this.setExtra('fixture', text);
-        return captureException.call(this, error, hint);
-      });
+    const capture = jest.spyOn(Scope.prototype, 'captureException').mockImplementationOnce(function (
+      this: Scope,
+      error,
+      hint
+    ) {
+      if (location === 'breadcrumb') this.addBreadcrumb({ category: 'fixture', message: text });
+      else this.setExtra('fixture', text);
+      const reportingClient = this.getClient();
+      if (!reportingClient) throw new Error('Missing reporting client');
+      stopObservers.push(
+        reportingClient.on('postprocessEvent', event => {
+          policyInputs.push(
+            location === 'breadcrumb'
+              ? event.breadcrumbs?.find(breadcrumb => breadcrumb.category === 'fixture')?.message
+              : event.extra?.fixture
+          );
+        })
+      );
+      return captureException.call(this, error, hint);
+    });
 
-    reportUserVisibleError('raw_account_export_failed', 'review');
-    await flushEgress();
+    try {
+      reportUserVisibleError('raw_account_export_failed', 'review');
+      await flushEgress();
+    } finally {
+      stopObservers.forEach(stop => stop());
+    }
 
     expect(capture).toHaveBeenCalledTimes(1);
+    expect(policyInputs).toEqual([text]);
     expect(captured).toHaveLength(0);
     expect(wireText()).not.toContain(text);
   });
@@ -1682,13 +1702,15 @@ describe('user-visible error reports', () => {
   it('preserves canonical closed data with harmless free-text fields', async () => {
     consentOn();
     const captureException = Scope.prototype.captureException;
-    const capture = jest
-      .spyOn(Scope.prototype, 'captureException')
-      .mockImplementationOnce(function (this: Scope, error, hint) {
-        this.addBreadcrumb({ category: 'fixture', message: 'fallback unavailable' });
-        this.setExtra('fixture', 'fallback unavailable');
-        return captureException.call(this, error, hint);
-      });
+    const capture = jest.spyOn(Scope.prototype, 'captureException').mockImplementationOnce(function (
+      this: Scope,
+      error,
+      hint
+    ) {
+      this.addBreadcrumb({ category: 'fixture', message: 'fallback unavailable' });
+      this.setExtra('fixture', 'fallback unavailable');
+      return captureException.call(this, error, hint);
+    });
 
     reportUserVisibleError('raw_account_export_failed', 'review');
     await flushEgress();
@@ -1711,7 +1733,14 @@ describe('user-visible error reports', () => {
     expect(event.breadcrumbs).toEqual([
       expect.objectContaining({ category: 'fixture', message: 'fallback unavailable' })
     ]);
-    expect(objectAt(event, 'extra').fixture).toBe('fallback unavailable');
+    expect(objectAt(event, 'extra')).toEqual({
+      walletDiagnostics: {
+        ...resolveTelemetryContext(),
+        ...getCrashBuildIdentity(),
+        userErrorId: 'raw_account_export_failed',
+        userErrorSurface: 'review'
+      }
+    });
   });
 
   it('retains a repeated report after the minute instead of letting Sentry deduplicate it', async () => {

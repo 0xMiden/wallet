@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
+
 import { useUserVisibleError } from './use-user-visible-error';
 import { reportUserVisibleError, UserErrorId, UserErrorSurface } from './user-visible-error';
 
@@ -108,4 +110,76 @@ it('cancels the old dwell when the id changes before it finishes', () => {
   expect(reportUserVisibleError).not.toHaveBeenCalled();
   advance(1);
   expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_send_submit_failed', 'inline']]);
+});
+
+describe('retained page activity', () => {
+  const pane = (active: boolean) => (
+    <div aria-hidden={!active || undefined} style={{ visibility: active ? 'visible' : 'hidden' }}>
+      <PageActiveContext.Provider value={active}>
+        <Display id="deadletteredNotesBodyOne">
+          <span>Retained error</span>
+        </Display>
+      </PageActiveContext.Provider>
+    </div>
+  );
+
+  it('keeps an inactive retained page silent until a full reveal dwell', () => {
+    const { getByText, rerender } = render(pane(false));
+    const message = getByText('Retained error');
+    expect(message).toBeInTheDocument();
+    expect(message.parentElement).toHaveStyle({ visibility: 'hidden' });
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(pane(true));
+    expect(getByText('Retained error')).toBe(message);
+    expect(message.parentElement).toHaveStyle({ visibility: 'visible' });
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['deadletteredNotesBodyOne', 'inline']]);
+  });
+
+  it('cancels a retained page dwell at 999 ms and starts a full dwell on reveal', () => {
+    const { getByText, rerender } = render(pane(true));
+    const message = getByText('Retained error');
+    expect(message).toBeInTheDocument();
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(pane(false));
+    expect(getByText('Retained error')).toBe(message);
+    expect(message.parentElement).toHaveStyle({ visibility: 'hidden' });
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(pane(true));
+    expect(getByText('Retained error')).toBe(message);
+    expect(message.parentElement).toHaveStyle({ visibility: 'visible' });
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['deadletteredNotesBodyOne', 'inline']]);
+  });
+
+  it('does not repeat a reported episode when the retained page is hidden and revealed', () => {
+    const { getByText, rerender } = render(pane(true));
+    const message = getByText('Retained error');
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['deadletteredNotesBodyOne', 'inline']]);
+
+    rerender(pane(false));
+    expect(getByText('Retained error')).toBe(message);
+    expect(message.parentElement).toHaveStyle({ visibility: 'hidden' });
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['deadletteredNotesBodyOne', 'inline']]);
+
+    rerender(pane(true));
+    expect(getByText('Retained error')).toBe(message);
+    expect(message.parentElement).toHaveStyle({ visibility: 'visible' });
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['deadletteredNotesBodyOne', 'inline']]);
+    advance(5000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['deadletteredNotesBodyOne', 'inline']]);
+  });
 });
