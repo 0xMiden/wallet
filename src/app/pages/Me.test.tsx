@@ -6,6 +6,8 @@ import { navigate } from 'lib/woozie';
 
 import Me from './Me';
 
+// The root __mocks__ makes truncateAddress the identity; the address chip's shortening is what is tested here.
+jest.unmock('utils/string');
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) =>
@@ -17,13 +19,14 @@ jest.mock('react-i18next', () => ({
   })
 }));
 let mockEarned: string[] = [];
+let mockPublicKey = '0x1234567890123456789012345678901234567890';
 jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => mockEarned }));
 jest.mock('./Settings', () => ({
   __esModule: true,
   default: ({ embedded }: { embedded: boolean }) => <div data-testid="original-settings" data-embedded={embedded} />
 }));
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({ publicKey: '0x1234567890123456789012345678901234567890', name: 'Account 1' }),
+  useAccount: () => ({ publicKey: mockPublicKey, name: 'Account 1' }),
   useNetwork: () => ({ id: 'testnet', name: 'Testnet' })
 }));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
@@ -39,6 +42,7 @@ jest.mock('lib/woozie', () => ({
 
 afterEach(() => {
   mockEarned = [];
+  mockPublicKey = '0x1234567890123456789012345678901234567890';
   jest.clearAllMocks();
 });
 
@@ -87,4 +91,12 @@ it('shows the address as one short copy chip and the network as its own tag', ()
   render(<Me />);
   expect(screen.getByTestId('profile-address')).toHaveTextContent('0x123456…7890');
   expect(screen.getByTestId('profile-network')).toHaveTextContent('Testnet');
+});
+
+it('shortens a composite account key by its address, not its suffix', () => {
+  mockPublicKey = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5_qruqqypuyph';
+  render(<Me />);
+  const chip = screen.getByTestId('profile-address');
+  expect(chip).toHaveTextContent('mtst1apl...5qv5');
+  expect(chip).not.toHaveTextContent('uyph');
 });

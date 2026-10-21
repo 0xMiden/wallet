@@ -15,7 +15,7 @@ import { useAccount, useNetwork } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 import { BADGE_CATALOG } from 'screens/badges/catalog';
-import { truncateHash } from 'utils/string';
+import { truncateAddress } from 'utils/string';
 
 import Settings from './Settings';
 
@@ -47,7 +47,7 @@ const Me: React.FC = () => {
           />
           {/* The address copies whole from one short chip; the network is its own tag, not a second grey line. */}
           <CopyChip text={account.publicKey} size="md" data-testid="profile-address">
-            {truncateHash(account.publicKey, 8, 4)}
+            {truncateAddress(account.publicKey, false, 8)}
           </CopyChip>
           <NetworkChip kind="miden" label={network.name} data-testid="profile-network" />
         </div>
