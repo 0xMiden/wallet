@@ -6902,6 +6902,37 @@ describe('generateTransaction — Guardian routing', () => {
         });
       });
     });
+
+    describe('a candidate a dead process left (#1666)', () => {
+      it("writes the attempt's candidate on its row once the proposal exists", async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = busyService();
+        service.priorCandidateState.mockResolvedValue('settled');
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const client = makeClientApi(makeResult());
+        client.transactions.executeRequest.mockRejectedValueOnce(new Error('failed to execute transaction: kernel'));
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('persists-candidate', SEND);
+
+        await run(row);
+
+        expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+        expect(stored(row.id).guardianCandidate).toEqual({
+          endpoint: GUARDIAN,
+          nonce: 8,
+          proposedAt: expect.any(Number),
+          attemptId: expect.any(String)
+        });
+        const { proposedAt } = stored(row.id).guardianCandidate as { proposedAt: number };
+        expect(proposedAt).toBeGreaterThanOrEqual(testStartedAt);
+        expect(proposedAt).toBeLessThanOrEqual(Date.now());
+      });
+    });
   });
 
   it('Guardian send: an unreachable guardian at signing-proposal requeues (#779)', async () => {

@@ -3066,6 +3066,34 @@ const recordLeftCandidate = (
   });
 
 /**
+ * Keep the candidate this attempt's proposal leaves on its Guardian on the row too (#1666), for the startup sweep:
+ * the record that would abandon it after a failure lives in this process, and a process killed before its submit left
+ * the account held for the Guardian's whole hold. Best-effort like a stage stamp: a lost write only waits that out.
+ */
+const persistGuardianCandidate = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  if (attemptId === undefined) return;
+  const candidate = {
+    endpoint: service.guardianEndpoint,
+    nonce: proposal.nonce,
+    proposedAt: proposalStamps.proposedAt,
+    attemptId
+  };
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      tx.guardianCandidate = candidate;
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not keep candidate ${proposal.nonce} on transaction ${transaction.id}:`, error);
+  }
+};
+
+/**
  * Remember a candidate whose transaction never landed and whose best-effort abandon failed, so the account's next
  * proposal retries the abandon (#1317) instead of meeting that candidate until its Guardian's hold expires. Stamped
  * with the caller's `proposalStamps`, not the failure's time: the hold began at the proposal.
@@ -3708,6 +3736,7 @@ const generateGuardianTransaction = async (
 
   // Sign and execute the proposal
   await setTransactionStage(transaction.id, 'signing-proposal');
+  await persistGuardianCandidate(transaction, service, proposalResult, proposalStamps);
 
   // switch_guardian is on-chain threshold-2 (set at create time via
   // procedureThresholds). Hot's signAndCreateTransactionRequest below
