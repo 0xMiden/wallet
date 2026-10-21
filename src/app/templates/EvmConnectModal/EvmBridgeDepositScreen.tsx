@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAppKitProvider } from '@reown/appkit/react';
+import PQueue from 'p-queue';
 import { useTranslation } from 'react-i18next';
 import { useDebounce } from 'use-debounce';
 import {
@@ -290,6 +291,9 @@ async function readErc20Balance(evmAddress: string, contract: `0x${string}`, cha
   }
   return decodeFunctionResult({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', data: result });
 }
+
+/** The ERC-20 row balances read at once. */
+const ERC20_BALANCE_READS = 4;
 
 const ERC20_DECIMALS_ABI = [
   { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint8' }] }
@@ -774,28 +778,38 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   // Every registered ERC-20's balance on the AggLayer chain, each row settling on its own: one failed read marks only
   // its token, which the amount step then shows when that token is picked.
+  // Keyed on the token set, not the array a config publish rebuilds, and read a few at a time so a long holdings list
+  // cannot flood the chain's RPC.
+  const offeredRef = useRef(offeredErc20s);
+  offeredRef.current = offeredErc20s;
+  const offeredKey = offeredErc20s.map(({ contractAddress, decimals }) => `${contractAddress}:${decimals}`).join(',');
   useEffect(() => {
     setErc20Balances({});
-    if (agglayerChainId === undefined || offeredErc20s.length === 0) return;
+    const offered = offeredRef.current;
+    if (agglayerChainId === undefined || offered.length === 0) return;
     const chainId = agglayerChainId;
     let cancelled = false;
     const settle = (address: string, balance: BridgeBalance) => {
       if (cancelled) return;
       setErc20Balances(current => ({ ...current, [address]: balance }));
     };
-    for (const { contractAddress, decimals } of offeredErc20s) {
-      readErc20Balance(evmAddress, contractAddress, chainId)
-        .then(value =>
-          settle(contractAddress, { value, formatted: formatBalance(value, decimals), loading: false, error: null })
-        )
-        .catch(err =>
-          settle(contractAddress, { value: null, formatted: '0', loading: false, error: errorMessage(err) })
-        );
+    const reads = new PQueue({ concurrency: ERC20_BALANCE_READS });
+    for (const { contractAddress, decimals } of offered) {
+      void reads.add(() =>
+        readErc20Balance(evmAddress, contractAddress, chainId)
+          .then(value =>
+            settle(contractAddress, { value, formatted: formatBalance(value, decimals), loading: false, error: null })
+          )
+          .catch(err =>
+            settle(contractAddress, { value: null, formatted: '0', loading: false, error: errorMessage(err) })
+          )
+      );
     }
     return () => {
       cancelled = true;
+      reads.clear();
     };
-  }, [evmAddress, agglayerChainId, offeredErc20s]);
+  }, [evmAddress, agglayerChainId, offeredKey]);
 
   // A fresh EVM→Miden reverse-quote for the current amount. The typed amount is
   // the Miden-side output (`minTokenOut`, faucet base units); the allocator

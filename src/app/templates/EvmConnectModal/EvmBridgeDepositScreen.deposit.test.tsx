@@ -2686,6 +2686,46 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
     );
   });
 
+  const BALANCE_OF_SELECTOR = '0x70a08231';
+  /** The balanceOf reads the screen sent, by token contract. */
+  const balanceReads = (contract?: string) =>
+    jest.mocked(global.fetch).mock.calls.filter(([, init]) => {
+      const { params } = JSON.parse(String((init as RequestInit).body));
+      const call = params?.[0];
+      return (
+        typeof call?.data === 'string' &&
+        call.data.startsWith(BALANCE_OF_SELECTOR) &&
+        (contract === undefined || call.to === contract)
+      );
+    }).length;
+
+  // A publish rebuilds the listed token array from the same document: the set is unchanged, so nothing is read again.
+  it('reads each ERC-20 balance once across a publish that lists the same tokens', async () => {
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+    expect(balanceReads(WBTC)).toBe(1);
+
+    act(() => publishSnapshot({ ...mockSnapshot, lastFetch: { at: 1, ok: true } }));
+    await settle();
+
+    expect(balanceReads(WBTC)).toBe(1);
+  });
+
+  const tokenAddress = (index: number): `0x${string}` => `0x${(0xd1 + index).toString(16).padStart(40, '0')}`;
+
+  it('keeps at most four ERC-20 balance reads in flight', async () => {
+    mockDepositTokens = Array.from({ length: 6 }, (_, index) => ({
+      ...WBTC_LISTING,
+      symbol: `T${index}`,
+      contractAddress: tokenAddress(index)
+    }));
+    global.fetch = jest.fn(() => new Promise<Response>(() => undefined)) as never;
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+
+    expect(balanceReads()).toBe(4);
+  });
+
   // The decimals a token was offered at may be an indexer's: the contract's own decide what 1.5 means, so a token
   // whose contract reports others is refused before any prompt.
   it('refuses an ERC-20 whose contract reports other decimals than it was offered at', async () => {
