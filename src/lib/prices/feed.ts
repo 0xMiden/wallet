@@ -25,6 +25,11 @@ async function resolveKrakenMarket(symbol: string): Promise<string | null> {
   }
 }
 
+/** True only after both providers answered and neither lists the asset; a failed lookup proves nothing. */
+export function hasNoUsdMarket(symbol: string): boolean {
+  return !isListedSymbol(symbol) && krakenMarkets.get(symbol) === null;
+}
+
 /** Fetch Binance prices first, then direct USD prices for assets it does not list. */
 export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
   const prices = await fetchBinancePrices(symbols);

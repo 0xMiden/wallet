@@ -1,5 +1,5 @@
 import * as binance from './binance';
-import { fetchKlineData, fetchTokenPrices } from './feed';
+import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import * as kraken from './kraken';
 
 jest.mock('./binance');
@@ -98,4 +98,28 @@ it('returns no history for an absent market or failed Kraken lookup', async () =
   expect(await fetchKlineData('NOHISTORY', '1D')).toEqual([]);
   fallback.findKrakenUsdMarket.mockRejectedValueOnce(new Error('rate limit'));
   expect(await fetchKlineData('HISTORYRETRY', '1D')).toEqual([]);
+});
+
+describe('hasNoUsdMarket', () => {
+  it('is true only after Binance and Kraken both complete without a market', async () => {
+    primary.isListedSymbol.mockImplementation(symbol => symbol !== 'NOMARKET');
+    expect(hasNoUsdMarket('NOMARKET')).toBe(false);
+    await fetchTokenPrices(['NOMARKET']);
+    expect(hasNoUsdMarket('NOMARKET')).toBe(true);
+  });
+
+  it('is false while Binance has not proved the market absent', async () => {
+    primary.isListedSymbol.mockReturnValue(true);
+    await fetchTokenPrices(['BINANCERETRY']);
+    expect(hasNoUsdMarket('BINANCERETRY')).toBe(false);
+  });
+
+  it('stays false after a failed Kraken lookup until a later lookup completes', async () => {
+    primary.isListedSymbol.mockReturnValue(false);
+    fallback.findKrakenUsdMarket.mockRejectedValueOnce(new Error('offline'));
+    await fetchTokenPrices(['KRAKENRETRY']);
+    expect(hasNoUsdMarket('KRAKENRETRY')).toBe(false);
+    await fetchTokenPrices(['KRAKENRETRY']);
+    expect(hasNoUsdMarket('KRAKENRETRY')).toBe(true);
+  });
 });

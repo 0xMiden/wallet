@@ -183,7 +183,7 @@ export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
 /** The native fixed quote, verified list assets, then bridge entries. Faucet identity sets coverage. */
-function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
+function pricedFaucets(network: string = getEffectiveNetworkName()): { faucetId: string; priceSymbol: string }[] {
   const nativeId = getNativeAssetIdSync();
   const metadata = getNativeAssetMetadataSync();
   const syncedId = !metadata || metadata.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
@@ -193,7 +193,7 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
       : [];
   return [
     ...fixedNative,
-    ...Array.from(peekTokenPriceAssets(getEffectiveNetworkName()) ?? [], ([faucetId, priceSymbol]) => ({
+    ...Array.from(peekTokenPriceAssets(network) ?? [], ([faucetId, priceSymbol]) => ({
       faucetId,
       priceSymbol
     })),
@@ -204,9 +204,10 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
 function matchPriceSymbol(
   canonicalId: string,
   symbol: string,
-  canonicalize: (faucetId: string) => string
+  canonicalize: (faucetId: string) => string,
+  network?: string
 ): string | undefined {
-  const priced = pricedFaucets().find(entry => canonicalize(entry.faucetId) === canonicalId);
+  const priced = pricedFaucets(network).find(entry => canonicalize(entry.faucetId) === canonicalId);
   if (priced) return priced.priceSymbol;
   return isE2eFixtureSymbol(symbol) ? symbol : undefined;
 }
@@ -226,10 +227,11 @@ export function priceSymbolFor(faucetId: string, symbol: string): string | undef
  * and every allowlist entry are canonicalized when it runs, under one network, so an id canonicalized
  * before a network switch still matches.
  * Either side the SDK cannot parse throws rather than dropping out of the match, since its raw text
- * would miss and count a priced spend as nothing.
+ * would miss and count a priced spend as nothing. `network` names the verified list to match, so a
+ * valuation keeps the list of the network it started on.
  */
-export function strictPriceSymbolFor(faucetId: string, symbol: string): string | undefined {
-  return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId);
+export function strictPriceSymbolFor(faucetId: string, symbol: string, network?: string): string | undefined {
+  return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId, network);
 }
 
 /** The distinct assets for the current network. The first entry for each faucet wins. */

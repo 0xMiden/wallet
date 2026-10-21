@@ -18,9 +18,10 @@ import {
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
+import { hasNoUsdMarket } from 'lib/prices/feed';
 import { getPriceMicro } from 'lib/prices/usd';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { peekTokenPriceAssets } from 'lib/token-list/runtime';
+import { loadTokenPriceAssets, peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { fetchTokenMetadata } from '../metadata';
 import { SpendingLimitPriceUnavailableError } from './types';
@@ -35,6 +36,12 @@ jest.mock('lib/token-list/runtime', () => ({
       ])
   )
 }));
+let mockNetwork: string | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual('lib/miden-chain/effective-endpoints');
+  return { ...actual, getEffectiveNetworkName: () => mockNetwork ?? actual.getEffectiveNetworkName() };
+});
+jest.mock('lib/prices/feed', () => ({ hasNoUsdMarket: jest.fn(() => false) }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => 'native-fee'),
   getNativeAssetMetadata: jest.fn(async () => ({ symbol: 'MIDEN', decimals: 6 })),
@@ -319,6 +326,63 @@ describe('resolveSpendsUsd', () => {
       _setSwapTokensForTest(TEST_SWAP_TOKENS);
     }
   });
+
+  it('counts a verified symbol that no market lists as nothing', async () => {
+    const defaultAssets = jest.mocked(peekTokenPriceAssets).getMockImplementation();
+    jest
+      .mocked(peekTokenPriceAssets)
+      .mockReturnValue(new Map([['mtst1nomarket', 'NOMARKET'], ...(defaultAssets?.('testnet') ?? [])]));
+    jest.mocked(hasNoUsdMarket).mockImplementation(symbol => symbol === 'NOMARKET');
+    try {
+      mockedMetadata.mockImplementation(async faucetId =>
+        faucetId === 'mtst1nomarket' ? base('NOMARKET', 8) : base('IETH', 8)
+      );
+      mockedPrice.mockImplementation(async symbol => (symbol === 'ETH' ? 4_000_000_000n : undefined));
+
+      await expect(
+        resolveSpendsUsd(
+          [
+            { faucetId: 'mtst1nomarket', amount: 100_000_000n },
+            { faucetId: TEST_TOKEN_IETH.faucetId, amount: 100_000_000n }
+          ],
+          10
+        )
+      ).resolves.toBe(4_000_000_000n);
+    } finally {
+      jest.mocked(peekTokenPriceAssets).mockImplementation(defaultAssets);
+      jest.mocked(hasNoUsdMarket).mockImplementation(() => false);
+    }
+  });
+
+  it.each(['SDK readiness', 'metadata'])(
+    'counts a verified spend whose network changes during the %s await',
+    async stage => {
+      const defaultAssets = jest.mocked(peekTokenPriceAssets).getMockImplementation();
+      const assets = new Map([['mtst1listed', 'ETH']]);
+      jest.mocked(peekTokenPriceAssets).mockImplementation(network => (network === 'testnet' ? assets : undefined));
+      mockNetwork = 'testnet';
+      try {
+        if (stage === 'SDK readiness') {
+          mockedSdkReady.mockImplementationOnce(async () => {
+            mockNetwork = 'devnet';
+          });
+        }
+        mockedMetadata.mockImplementation(async () => {
+          mockNetwork = 'devnet';
+          return base('LISTED', 8);
+        });
+        mockedPrice.mockResolvedValue(4_000_000_000n);
+
+        await expect(resolveSpendsUsd([{ faucetId: 'mtst1listed', amount: 100_000_000n }], 10)).resolves.toBe(
+          4_000_000_000n
+        );
+        expect(loadTokenPriceAssets).toHaveBeenLastCalledWith('testnet');
+      } finally {
+        mockNetwork = undefined;
+        jest.mocked(peekTokenPriceAssets).mockImplementation(defaultAssets);
+      }
+    }
+  );
 
   it('still counts registry tokens without a price symbol as nothing (#1133)', async () => {
     mockedMetadata.mockImplementation(async faucetId =>

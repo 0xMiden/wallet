@@ -2,6 +2,7 @@ import { canonicalFaucetId, strictPriceSymbolFor } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getNativeAssetMetadata, getSdkSyncedNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { hasNoUsdMarket } from 'lib/prices/feed';
 import { getPriceMicro } from 'lib/prices/usd';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { loadTokenPriceAssets } from 'lib/token-list/runtime';
@@ -54,6 +55,8 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
   const [first] = spends;
   if (first === undefined) return 0n;
+  // Read before any await: a network change mid-valuation must not swap the verified list it matches.
+  const network = getEffectiveNetworkName();
   try {
     await ensureSdkWasmReady();
   } catch (cause) {
@@ -61,7 +64,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
   }
   // From storage, never the network, and never rejects: a handler can run before this realm hydrated it.
   await initBridgeConfig();
-  await loadTokenPriceAssets(getEffectiveNetworkName());
+  await loadTokenPriceAssets(network);
   let nativeId: string | undefined;
   let nativeIdentityCause: unknown;
   let nativeMetadata;
@@ -118,7 +121,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
     let priceSymbol: string | undefined;
     try {
-      priceSymbol = authenticatedNativeUsdcx ? 'USDCX' : strictPriceSymbolFor(faucetId, symbol);
+      priceSymbol = authenticatedNativeUsdcx ? 'USDCX' : strictPriceSymbolFor(faucetId, symbol, network);
     } catch (cause) {
       throw new SpendingLimitPriceUnavailableError(symbol, { cause });
     }
@@ -127,7 +130,11 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     }
     if (priceSymbol === undefined) continue;
     const priceMicro = await getPriceMicro(priceSymbol, now);
-    if (priceMicro === undefined) throw new SpendingLimitPriceUnavailableError(symbol);
+    if (priceMicro === undefined) {
+      // A verified symbol that neither market lists has no price, like a faucet the wallet does not price.
+      if (hasNoUsdMarket(priceSymbol)) continue;
+      throw new SpendingLimitPriceUnavailableError(symbol);
+    }
     total += usdMicroFromAmount(spend.amount, decimals, priceMicro);
   }
   return total;
