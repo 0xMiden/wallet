@@ -62,14 +62,10 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   // background-repair promise above, and running the switch again would build on the stale copy.
   const localStateUnrecoverable = extra?.localStateUnrecoverable === true;
 
-  // Two of the four bullets assert the rotation took effect, and both are
-  // INVERTED when it may not have landed: info1 says the old guardian can no
-  // longer co-sign, and info3 says new transactions need the NEW guardian
-  // reachable — when in fact, if the switch did not land, they still need the
-  // old one, which is the operator this path already found unreachable. Both
-  // are swapped for "once the switch is confirmed" phrasings. info2 (nothing
-  // moved) and info4 (you can rotate again) hold either way, except that info4 contradicts the
-  // unrecoverable state's "do not run the switch again".
+  // Rows 1 and 3 assert the rotation took effect and are INVERTED when it may not have landed (the old
+  // Guardian would still need to co-sign, and it is the one this path found unreachable), so they swap to
+  // "once the switch is confirmed" wording. Row 2 holds either way; row 4 contradicts the unrecoverable
+  // state's "do not run the switch again".
   const infoRows = [
     {
       id: 'cosign',
