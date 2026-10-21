@@ -3040,7 +3040,7 @@ const proposalAgeMs = (stamps: ProposalStamps): number =>
 
 /**
  * Retry, before the account's next proposal, the abandon a failed Guardian write could not get through (#1317): until
- * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
+ * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about eighteen minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
  * quarantine; refused for any reason, it stays for the next attempt and the proposal goes ahead. A record from another
  * Guardian (a switch since) is dropped unasked. A mark whose candidate is ABANDON_RETRY_WINDOW_MS old turns plain

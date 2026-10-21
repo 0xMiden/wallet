@@ -800,7 +800,7 @@ describe('the Guardian hold (#1081)', () => {
 
   it('refuses while a kept candidate is under 600 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
-    const expected = guardianHoldRetryMessage(NOW + 500);
+    const expected = guardianHoldRetryMessage(NOW + 980);
     expect(await refusal()).toHaveProperty('message', expected);
     expect(await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })).toHaveProperty('message', expected);
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
@@ -811,7 +811,7 @@ describe('the Guardian hold (#1081)', () => {
   it('refuses before the tap-time proof, so a held Retry never writes the verdict the release follows', async () => {
     mockNode.current = DEAD;
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
-    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
     expect((await read())?.neverCommittedAt).toBeUndefined();
     expect((await read())?.submitEvidence?.[0]?.verdict).toBeUndefined();
   });
@@ -824,7 +824,7 @@ describe('the Guardian hold (#1081)', () => {
         submitEvidence: [kept(NOW - 100)]
       })
     );
-    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
   });
 
   it('holds a guardian Agglayer row too', async () => {
@@ -836,14 +836,14 @@ describe('the Guardian hold (#1081)', () => {
         submitEvidence: [kept(NOW - 100)]
       })
     );
-    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
   });
 
-  // Hold bounds, on an injected clock: refused at capturedAt + 599 s, today's path at + 600 s.
-  it('holds until capturedAt + 600 s exactly, then takes the acknowledgeable path', async () => {
+  // Hold bounds, on an injected clock: refused at capturedAt + 1079 s, today's path at + 1080 s.
+  it('holds until capturedAt + 1080 s exactly, then takes the acknowledgeable path', async () => {
     const clock = jest.spyOn(Date, 'now');
     try {
-      await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 599)] }));
+      await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 1079)] }));
       clock.mockReturnValue(NOW * 1000);
       expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 1));
       clock.mockReturnValue((NOW + 1) * 1000);
@@ -857,7 +857,7 @@ describe('the Guardian hold (#1081)', () => {
 
   it('lets the row through once the hold has passed, and never asks for an abandon itself', async () => {
     mockNode.current = DEAD;
-    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 601)] }));
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 1081)] }));
     await requeueFailedTransaction('tx-1');
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Queued);

@@ -314,6 +314,23 @@ jest.mock('../sdk/miden-client', () => ({
 // The routing seam under test: `dispatchGuardianPipeline` is a controllable spy,
 // and `midenClientProxy.syncState` is the pre-guardian sync (no-op here).
 const mockDispatchGuardianPipeline = jest.fn();
+
+// The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
+// gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it. A test turns
+// `mockLeafOpensGate` off for a leaf that stopped before its gate.
+let mockLeafOpensGate = true;
+const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
+  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+  try {
+    const result = await mockDispatchGuardianPipeline(...a);
+    if (mockLeafOpensGate) await gate?.();
+    return result;
+  } catch (error) {
+    if (mockLeafOpensGate && !hasErrorBeforeSubmit(error)) await gate?.();
+    throw error;
+  }
+};
 // The SW-side local-client `getAccount` (structural ops resolve the SDK account
 // here to build a cold service / mint the replacement hot key). Value-moving
 // types never call it, so the default `null` is harmless for them.
@@ -333,7 +350,7 @@ const mockProxyGetInputNoteDetails = jest.fn(async (..._a: unknown[]) => [] as u
 // commit wait fails. Default: still pending, no verdict.
 const mockProxyGetCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
 jest.mock('../back/miden-client-proxy', () => ({
-  dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a),
+  dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
@@ -599,6 +616,7 @@ beforeEach(() => {
   mockClaimRowOnRead = null;
   mockDeclinedWrites = 0;
   mockScansSeeStore = false;
+  mockLeafOpensGate = true;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
 
@@ -1236,10 +1254,10 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
   });
 
   it('an unreachable-looking failure from the offscreen leaf fails the row, never requeues it (#779)', async () => {
-    // The shipping path: flag ON, the leaf runs offscreen and its stamps never author `stage`, so a row that died
-    // there still reads 'sending'. A transport error at submit reads exactly like a silent guardian, and the send
-    // may already be on chain, so the stage gate is what keeps it Failed. Off the extension, so a requeue would also
-    // arm its wake.
+    // The shipping path: flag ON, the leaf runs offscreen and its replayed stamps never author `stage`; only its
+    // submit gate does (#1644), so a row whose leaf got past that gate reads 'submitting'. A transport error at submit
+    // reads exactly like a silent guardian, and the send may already be on chain, so the stage gate is what keeps it
+    // Failed. Off the extension, so a requeue would also arm its wake.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockPlatformIsExtension = false;
     jest.useFakeTimers();
@@ -1257,7 +1275,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
       const stored = txStore.find(r => r.id === 'on-send-unreachable-at-sending') as Record<string, unknown>;
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      expect(stored.stage).toBe('sending');
+      expect(stored.stage).toBe('submitting');
       expect(stored.status).toBe(ITransactionStatus.Failed);
       expect(stored.nextEligibleAt).toBeUndefined();
       expect(jest.getTimerCount()).toBe(0);
@@ -3047,6 +3065,85 @@ describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS t
 // (ConsumedExternal — consumed but NOT provably mine), 'not-landed', 'invalid', and
 // 'unknown' → the unchanged funds-safe Failed. A false 'Received' is impossible —
 // only a LOCAL consumed state completes the row.
+// #1644: the offscreen leaf submits only through a gate this worker opens, so an attempt that never opened it never
+// called submit. A kill that cut such an attempt off, a consume's proof past its deadline in the reported case,
+// abandons its candidate at once instead of holding the account for the Guardian's whole hold.
+describe('guardian offscreen submit gate (#1644)', () => {
+  const consumeRow = { type: 'consume', noteId: '0xn1', noteIds: ['0xn1'] };
+  const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+
+  it.each([
+    ['consume', consumeRow],
+    ['send', sendRow]
+  ])('a %s killed before its gate opened abandons its candidate and keeps none', async (label, row) => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    const id = `gate-shut-${label}`;
+    const { service } = arrange(id, row);
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === id) as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+  });
+
+  it('a kill after the gate opened keeps the candidate for the verdict, as any kill did before', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-kill', 'deadline'));
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    const { service } = arrange('gate-open-kill', consumeRow);
+
+    await generateTransaction(buildTx('gate-open-kill', consumeRow) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'gate-open-kill') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+  });
+
+  it('opening the gate records the crossing before it answers', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    let seenAtGate: Record<string, unknown> | undefined;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate({ refBlock: 9 })).toBe(true);
+      seenAtGate = { ...(txStore.find(r => r.id === 'gate-records') as Record<string, unknown>) };
+      mockLeafOpensGate = false;
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    arrange('gate-records', consumeRow);
+
+    await generateTransaction(buildTx('gate-records', consumeRow) as never, signCallback, false, provider as never);
+
+    expect(seenAtGate?.mayHaveSubmitted).toBe(true);
+    expect(seenAtGate?.stage).toBe('submitting');
+  });
+
+  it('the gate refuses once the attempt has settled', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    let lateGate: ((evidence?: unknown) => Promise<boolean>) | undefined;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      lateGate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    arrange('gate-late', consumeRow);
+
+    await generateTransaction(buildTx('gate-late', consumeRow) as never, signCallback, false, provider as never);
+
+    expect(await lateGate?.()).toBe(false);
+    const stored = txStore.find(r => r.id === 'gate-late') as Record<string, unknown>;
+    expect(stored.stage).not.toBe('submitting');
+  });
+});
+
 describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
   const consumeRow = { type: 'consume', noteId: '0xn1', noteIds: ['0xn1'] };
 

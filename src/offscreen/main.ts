@@ -1117,7 +1117,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       // Still pre-submit: nothing has been broadcast at this point.
       assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
       // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
-      await passSubmitGate(context, readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold));
+      await passSubmitGate(
+        context,
+        readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+      );
       // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
       assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
     } catch (preSubmitError) {
