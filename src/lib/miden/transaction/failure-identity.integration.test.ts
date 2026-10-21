@@ -464,7 +464,7 @@ describe('a pre-flight sync killed by the offscreen deadline', () => {
     expect(rest).toEqual([]);
     expect(report?.message).toContain('Transaction failed: tx_receive; stage syncing; realm unknown;');
     expect(report?.message).toContain(
-      '; point pipeline; offscreen_aborted_deadline; deadline owner collateral; deadline timer started; deadline op write; op started yes. authentication'
+      '; point pipeline; offscreen_aborted_deadline; deadline owner collateral; deadline timer started; deadline op write; op start reported yes. authentication'
     );
     expect(report?.message).not.toContain('3f2c8a9e');
     expect(report?.level).toBe('error');

@@ -229,7 +229,7 @@ export const PIPELINE_KILLS = [
 type PipelineKill = (typeof PIPELINE_KILLS)[number];
 
 // Facts an offscreen abort carries (miden-client-proxy.ts): whose deadline closed the document, which of its timers
-// fired, whether that op was a write, and whether this op had begun executing.
+// fired, whether that op was a write, and whether this op's start signal had arrived (a dropped signal reads `no`).
 export const OFFSCREEN_DEADLINE_OWNERS = ['own', 'collateral', 'unavailable'] as const;
 export const OFFSCREEN_DEADLINE_TIMERS = ['dispatch', 'backstop', 'started', 'resumed', 'unavailable'] as const;
 export const OFFSCREEN_DEADLINE_KILLERS = ['write', 'read', 'unavailable'] as const;
@@ -566,13 +566,13 @@ function offscreenAbortFacts(link: unknown, kill: PipelineKill): string {
     'unavailable'
   );
   if (kill !== 'offscreen_aborted_deadline' && kill !== 'offscreen_aborted_deadline_no_kill') {
-    return `${kill}; op started ${started}`;
+    return `${kill}; op start reported ${started}`;
   }
   const deadline = field(facts, 'deadline');
   const owner = closedFact(field(deadline, 'owner'), OFFSCREEN_DEADLINE_OWNERS, 'unavailable');
   const timer = closedFact(field(deadline, 'timer'), OFFSCREEN_DEADLINE_TIMERS, 'unavailable');
   const killer = closedFact(field(deadline, 'killer'), OFFSCREEN_DEADLINE_KILLERS, 'unavailable');
-  return `${kill}; deadline owner ${owner}; deadline timer ${timer}; deadline op ${killer}; op started ${started}`;
+  return `${kill}; deadline owner ${owner}; deadline timer ${timer}; deadline op ${killer}; op start reported ${started}`;
 }
 
 // Named by class and reason, never by message: the abort's message carries the operation id.

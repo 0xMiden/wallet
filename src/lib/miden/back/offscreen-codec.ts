@@ -465,7 +465,7 @@ export class OperationAbortedError extends Error {
 export type OffscreenDeadlineTimer = 'dispatch' | 'backstop' | 'started' | 'resumed';
 
 export interface OffscreenAbortFacts {
-  /** Whether this op had won the offscreen mutex and begun executing. */
+  /** Whether the offscreen doc's signal that this op won its mutex had arrived; the signal can be dropped. */
   started: boolean;
   /** For a deadline abort: whose deadline fired, which of its timers, and whether that op was a write. */
   deadline?: { owner: 'own' | 'collateral'; timer: OffscreenDeadlineTimer; killer: 'write' | 'read' };
