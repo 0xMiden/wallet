@@ -1,9 +1,10 @@
 name: E2E Mainnet Nightly
 
 # One Chrome job against Miden mainnet, from origin/main. It restores two long-lived
-# accounts and sends one base unit of the native asset each way. Bridge, USDCx, Android,
-# iOS and the localhost suites stay off this schedule: they mint a fresh wallet, or their
-# cheapest honest run is a bridge fee or Circle's 5.2 USDC minimum.
+# accounts, sends one base unit of the native asset each way, then loops the minimum
+# bridge on every mainnet route: USDCx on Arc, Base, Arbitrum and Ethereum, and native
+# ETH over AggLayer. The loops check every chain first and send nothing if any one of
+# them cannot cover tonight and tomorrow.
 #
 # The cron under `schedule` stays commented until the accounts on issue 1629 are funded.
 # workflow_dispatch is how the first funded run happens.
@@ -26,11 +27,12 @@ jobs:
   mainnet-nightly:
     name: Chrome mainnet round trip
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 210 || 180 }}
     env:
       E2E_NETWORK: mainnet
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+      E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,8 +88,10 @@ jobs:
       - name: Build the extension for mainnet
         run: yarn test:e2e:blockchain:build
 
-      - name: Run the mainnet round trip
-        run: xvfb-run -a yarn test:e2e:mainnet:run
+      - name: Run the mainnet round trip, then the bridge loops
+        run: |
+          xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
+          xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
 
       - name: Publish the spend summary
         if: always()
