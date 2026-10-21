@@ -3102,9 +3102,8 @@ const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number
   const attemptId = transaction.attemptId;
   try {
     await Repo.transactions.where({ id: transaction.id }).modify(tx => {
-      if (tx.guardianCandidate?.attemptId === attemptId && tx.guardianCandidate.nonce === nonce) {
-        delete tx.guardianCandidate;
-      }
+      const kept = tx.guardianCandidate;
+      if (kept !== undefined && kept.attemptId === attemptId && kept.nonce === nonce) delete tx.guardianCandidate;
     });
   } catch (error) {
     console.warn(`[Guardian] could not drop candidate ${nonce} from transaction ${transaction.id}:`, error);
