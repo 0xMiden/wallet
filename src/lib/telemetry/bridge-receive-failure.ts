@@ -1,3 +1,19 @@
+import { readReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
+
+export {
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS,
+  type ReownNativeOrigin,
+  type ReownWalletResponseCode,
+  type ReownRequestAge,
+  type ReownPublication,
+  type ReownBackgroundAnswer,
+  type ReownNativeFailure
+} from 'lib/walletconnect/native-request-failure';
+
 /** The routes an inbound bridge's row names as its `provider`. */
 export const BRIDGE_RECEIVE_ROUTES = ['epoch', 'agglayer', 'usdcx'] as const;
 
@@ -60,6 +76,7 @@ export const BRIDGE_RECEIVE_LIBRARY_ERRORS = [
   'reverted',
   'timeout',
   'http_',
+  'invalid_permissions',
   'unknown_rpc_error'
 ] as const;
 
@@ -105,6 +122,7 @@ const LIBRARY_ERROR_RULES: ReadonlyArray<readonly [LibraryError, (link: Link) =>
   ['reverted', link => REVERTED_ERRORS.has(link.name) || /\breverted\b/i.test(link.text)],
   ['timeout', link => TIMEOUT_ERRORS.has(link.name) || TIMED_OUT.test(link.text)],
   ['http_', link => link.name === 'HttpRequestError' || /^HTTP request failed\.$/m.test(link.text)],
+  ['invalid_permissions', link => /^Invalid permissions for call\.$/m.test(link.text)],
   ['unknown_rpc_error', link => link.name === 'UnknownRpcError' || link.text.includes('An unknown RPC error occurred.')]
 ];
 
@@ -161,6 +179,23 @@ export function bridgeReceiveLibraryError(error: unknown): string {
     if (link !== undefined) return identity === 'http_' ? `http_${httpStatus(link)}` : identity;
   }
   return 'other';
+}
+
+/** The nearest boundary-marked native snapshot, independently of wallet-authored display text. */
+export function bridgeReceiveNativeFailure(cause: unknown): ReownNativeFailure | undefined {
+  const seen = new Set<object>();
+  let current = cause;
+  while (typeof current === 'object' && current !== null && seen.size < MAX_LINKS && !seen.has(current)) {
+    seen.add(current);
+    const snapshot = readReownNativeFailure(current);
+    if (snapshot !== undefined) return snapshot;
+    try {
+      current = Reflect.get(current, 'cause');
+    } catch {
+      break;
+    }
+  }
+  return undefined;
 }
 
 const listed = (value: unknown, allowed: readonly string[]): string =>

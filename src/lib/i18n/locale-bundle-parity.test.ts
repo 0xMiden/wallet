@@ -178,6 +178,10 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(loadFlat('tr').openLinkAction).toBe('Aç');
   });
 
+  it('renders the Japanese "Continue" action as 続ける, not 続きを読む (read more), in the bundle the UI reads', () => {
+    expect(loadFlat('ja').continue).toBe('続ける');
+  });
+
   it('calls the 12-word backup the recovery phrase in every English source value', () => {
     // The product term is "recovery phrase": it restores the keys, while the
     // Guardian backs up the account state recovery needs.
