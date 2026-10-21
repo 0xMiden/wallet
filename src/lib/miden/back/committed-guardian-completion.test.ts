@@ -631,7 +631,6 @@ it('GEO012 a numeric endpoint epoch is a real Vault CAS rather than the ordinary
   expect(publications).toBe(0);
 });
 
-
 describe('GEO022 ordinary hot-key mutation authority', () => {
   const secureKeys = jest.requireMock<typeof import('lib/secure-hot-key')>('lib/secure-hot-key');
   const retire = (changed: string) => {
@@ -673,7 +672,9 @@ describe('GEO022 ordinary hot-key mutation authority', () => {
       });
       const outcome = await observed(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'old-hot'));
       expect(outcome.ok).toBe(true);
-      expect(outcome.value?.accounts.find(account => account.publicKey === STORED_ACCOUNT)?.hotPublicKey).toBe('new-hot');
+      expect(outcome.value?.accounts.find(account => account.publicKey === STORED_ACCOUNT)?.hotPublicKey).toBe(
+        'new-hot'
+      );
       expect((await storedAccount()).hotPublicKey).toBe('new-hot');
       expect(await isStored('vault_accauthsecretkey_new-hot')).toBe(true);
       expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(true);
@@ -720,7 +721,9 @@ describe('GEO022 ordinary hot-key mutation authority', () => {
     async expectedHot => {
       await writeStoredAccount({ hotPublicKey: 'new-hot', requiresHotKeyRotation: false });
       mockStorage.set.mockClear();
-      await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', expectedHot)).rejects.toMatchObject({ code: 'HOT_KEY_CHANGED' });
+      await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', expectedHot)).rejects.toMatchObject({
+        code: 'HOT_KEY_CHANGED'
+      });
       expect(mockStorage.set).not.toHaveBeenCalled();
       expect(mockStorage.remove).not.toHaveBeenCalled();
     }
@@ -741,7 +744,9 @@ describe('GEO022 ordinary hot-key mutation authority', () => {
   });
 
   it('GEO022 exact target confirmation refuses a pointer still on the old key', async () => {
-    await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'new-hot')).rejects.toMatchObject({ code: 'HOT_KEY_CHANGED' });
+    await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'new-hot')).rejects.toMatchObject({
+      code: 'HOT_KEY_CHANGED'
+    });
     expect((await storedAccount()).hotPublicKey).toBe('old-hot');
     expect(mockStorage.set).not.toHaveBeenCalled();
     expect(mockStorage.remove).not.toHaveBeenCalled();

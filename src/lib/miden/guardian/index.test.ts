@@ -1391,11 +1391,24 @@ describe('MultisigService', () => {
     const makeBarrier = () => {
       let release = (): void => {};
       let entered = (): void => {};
-      const pending = new Promise<void>(resolve => { release = resolve; });
-      const ready = new Promise<void>(resolve => { entered = resolve; });
-      return { ready, release, wait: async (): Promise<void> => { entered(); await pending; } };
+      const pending = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const ready = new Promise<void>(resolve => {
+        entered = resolve;
+      });
+      return {
+        ready,
+        release,
+        wait: async (): Promise<void> => {
+          entered();
+          await pending;
+        }
+      };
     };
-    const makeStage2Service = async (registerOnGuardian: (state?: string, beforeSend?: () => void) => Promise<void>) => {
+    const makeStage2Service = async (
+      registerOnGuardian: (state?: string, beforeSend?: () => void) => Promise<void>
+    ) => {
       let calls = 0;
       const syncState = jest.fn(async () => {
         if (++calls <= 31) throw new Error('Refusing to overwrite local state');
@@ -1404,7 +1417,11 @@ describe('MultisigService', () => {
       mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
       return MultisigService.init(
-        Account.deserialize(new Uint8Array([1])), 'pub', 'commitment', async () => 'signature', 'https://x'
+        Account.deserialize(new Uint8Array([1])),
+        'pub',
+        'commitment',
+        async () => 'signature',
+        'https://x'
       );
     };
 
@@ -1413,10 +1430,14 @@ describe('MultisigService', () => {
       const barrier = makeBarrier();
       const refused = new Error('original background pass retired');
       let current = true;
-      const assertCurrent = () => { if (!current) throw refused; };
+      const assertCurrent = () => {
+        if (!current) throw refused;
+      };
       const configure = jest.fn();
       const service = await makeStage2Service(async (_state, beforeSend) => {
-        await barrier.wait(); beforeSend?.(); configure();
+        await barrier.wait();
+        beforeSend?.();
+        configure();
       });
       const request: Promise<void> = Reflect.apply(service.sync, service, [assertCurrent]);
       const outcome = request.catch((error: unknown) => error);
@@ -1429,7 +1450,11 @@ describe('MultisigService', () => {
         await outcome;
         expect(configure).not.toHaveBeenCalled();
         expect(await outcome).toBe(refused);
-      } finally { barrier.release(); await outcome; restoreTimers(); }
+      } finally {
+        barrier.release();
+        await outcome;
+        restoreTimers();
+      }
     });
 
     it('GEO024 fences Stage 2 authentication replay with the original background guard', async () => {
@@ -1437,10 +1462,16 @@ describe('MultisigService', () => {
       const barrier = makeBarrier();
       const refused = new Error('background pass retired during replay');
       let current = true;
-      const assertCurrent = () => { if (!current) throw refused; };
+      const assertCurrent = () => {
+        if (!current) throw refused;
+      };
       const configure = jest.fn();
       const service = await makeStage2Service(async (_state, beforeSend) => {
-        beforeSend?.(); configure(); await barrier.wait(); beforeSend?.(); configure();
+        beforeSend?.();
+        configure();
+        await barrier.wait();
+        beforeSend?.();
+        configure();
       });
       const request: Promise<void> = Reflect.apply(service.sync, service, [assertCurrent]);
       const outcome = request.catch((error: unknown) => error);
@@ -1452,17 +1483,25 @@ describe('MultisigService', () => {
         await outcome;
         expect(configure).toHaveBeenCalledTimes(1);
         expect(await outcome).toBe(refused);
-      } finally { barrier.release(); await outcome; restoreTimers(); }
+      } finally {
+        barrier.release();
+        await outcome;
+        restoreTimers();
+      }
     });
 
     it('GEO024 preserves an original post-submit maintenance owner when a background caller joins', async () => {
       const restoreTimers = skipRetryBackoffs();
       const barrier = makeBarrier();
       let current = true;
-      const assertCurrent = () => { if (!current) throw new Error('joining background pass retired'); };
+      const assertCurrent = () => {
+        if (!current) throw new Error('joining background pass retired');
+      };
       const configure = jest.fn();
       const service = await makeStage2Service(async (_state, beforeSend) => {
-        await barrier.wait(); beforeSend?.(); configure();
+        await barrier.wait();
+        beforeSend?.();
+        configure();
       });
       const request = service.sync();
       const outcome = request.catch((error: unknown) => error);
@@ -1474,18 +1513,28 @@ describe('MultisigService', () => {
         barrier.release();
         expect(await outcome).toBeUndefined();
         expect(configure).toHaveBeenCalledTimes(1);
-      } finally { barrier.release(); await outcome; restoreTimers(); }
+      } finally {
+        barrier.release();
+        await outcome;
+        restoreTimers();
+      }
     });
 
     it('GEO024 preserves one live background Stage 2 configure and successful retry', async () => {
       const restoreTimers = skipRetryBackoffs();
       const configure = jest.fn();
-      const service = await makeStage2Service(async (_state, beforeSend) => { beforeSend?.(); configure(); });
+      const service = await makeStage2Service(async (_state, beforeSend) => {
+        beforeSend?.();
+        configure();
+      });
       const request: Promise<void> = Reflect.apply(service.sync, service, [() => undefined]);
       try {
         await expect(request).resolves.toBeUndefined();
         expect(configure).toHaveBeenCalledTimes(1);
-      } finally { await request.catch(() => undefined); restoreTimers(); }
+      } finally {
+        await request.catch(() => undefined);
+        restoreTimers();
+      }
     });
   });
 

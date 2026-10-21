@@ -1965,71 +1965,89 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { change: 'canonical respelling', sends: 1 },
         { change: 'live', sends: 1 }
       ];
-      it.each(cases)('GEO024 admits $sends Stage 2 configures after $change during authentication', async ({ change, sends }) => {
-        jest.useFakeTimers();
-        const clocks = useFakeClocks(1_000);
-        const { MultisigService: RealMultisigService } =
-          jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
-        const { midenClientProxy } =
-          jest.requireActual<typeof import('../back/miden-client-proxy')>('../back/miden-client-proxy');
-        const localSync = jest.spyOn(midenClientProxy, 'syncState').mockResolvedValue(undefined);
-        const barrier = makeBarrier();
-        const configure = jest.fn();
-        let syncCalls = 0;
-        const multisig = {
-          accountId: 'acct-geo024-stage2',
-          syncState: async (): Promise<void> => {
-            if (++syncCalls <= 31) throw new Error('Refusing to overwrite local state');
-          },
-          verifyStateCommitment: async () => ({ localCommitment: '0x1234', onChainCommitment: '0x1234' }),
-          registerOnGuardian: async (_state?: string, beforeSend?: () => void): Promise<void> => {
-            await barrier.wait(); beforeSend?.(); configure();
+      it.each(cases)(
+        'GEO024 admits $sends Stage 2 configures after $change during authentication',
+        async ({ change, sends }) => {
+          jest.useFakeTimers();
+          const clocks = useFakeClocks(1_000);
+          const { MultisigService: RealMultisigService } =
+            jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+          const { midenClientProxy } =
+            jest.requireActual<typeof import('../back/miden-client-proxy')>('../back/miden-client-proxy');
+          const localSync = jest.spyOn(midenClientProxy, 'syncState').mockResolvedValue(undefined);
+          const barrier = makeBarrier();
+          const configure = jest.fn();
+          let syncCalls = 0;
+          const multisig = {
+            accountId: 'acct-geo024-stage2',
+            syncState: async (): Promise<void> => {
+              if (++syncCalls <= 31) throw new Error('Refusing to overwrite local state');
+            },
+            verifyStateCommitment: async () => ({ localCommitment: '0x1234', onChainCommitment: '0x1234' }),
+            registerOnGuardian: async (_state?: string, beforeSend?: () => void): Promise<void> => {
+              await barrier.wait();
+              beforeSend?.();
+              configure();
+            }
+          };
+          const endpoint = 'https://Guardian.Example.com';
+          const service: import('lib/miden/guardian').MultisigService = Reflect.construct(RealMultisigService, [
+            multisig,
+            {},
+            endpoint
+          ]);
+          const account = {
+            publicKey: multisig.accountId,
+            type: WalletType.Guardian,
+            coldPublicKey: 'cold',
+            hotPublicKey: 'hot',
+            guardianEndpoint: endpoint
+          };
+          storeState.accounts = [account];
+          mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
+            'lib/remote-config/wallet-access'
+          );
+          const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+            'lib/remote-config/wallet-access'
+          );
+          const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
+          const scope = 'geo024-stage2';
+          access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
+          access.publishWalletAccessDecision(scope, true);
+          assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
+          const pass = syncGuardianAccounts();
+          try {
+            await jest.advanceTimersByTimeAsync(31_000);
+            await Promise.race([barrier.ready, pass]);
+            expect(barrier.wasEntered()).toBe(true);
+            expect(configure).not.toHaveBeenCalled();
+            if (change === 'retirement') retireGuardianSyncPasses();
+            else if (change === 'endpoint change')
+              storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }];
+            else if (change === 'canonical respelling')
+              storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com:443/' }];
+            else if (change === 'restricted') access.publishWalletAccessDecision(scope, false);
+            else if (change === 'unavailable') access.publishWalletAccessDecision(scope, null);
+            else if (change === 'expired') clocks.advance(60_000);
+            barrier.release();
+            await pass;
+            expect(configure).toHaveBeenCalledTimes(sends);
+            expect(mockReRegister).not.toHaveBeenCalled();
+            expect(storeState.swapHotKey).not.toHaveBeenCalled();
+            expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+          } finally {
+            barrier.release();
+            await pass;
+            localSync.mockRestore();
+            assertBoundary.mockReset().mockImplementation(() => undefined);
+            access.invalidateWalletAccess();
+            clocks.restore();
+            jest.useRealTimers();
           }
-        };
-        const endpoint = 'https://Guardian.Example.com';
-        const service: import('lib/miden/guardian').MultisigService =
-          Reflect.construct(RealMultisigService, [multisig, {}, endpoint]);
-        const account = {
-          publicKey: multisig.accountId, type: WalletType.Guardian,
-          coldPublicKey: 'cold', hotPublicKey: 'hot', guardianEndpoint: endpoint
-        };
-        storeState.accounts = [account];
-        mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
-        mockGetOrCreateMultisigService.mockResolvedValue(service);
-        const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
-        const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
-        const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
-        const scope = 'geo024-stage2';
-        access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
-        access.publishWalletAccessDecision(scope, true);
-        assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
-        const pass = syncGuardianAccounts();
-        try {
-          await jest.advanceTimersByTimeAsync(31_000);
-          await Promise.race([barrier.ready, pass]);
-          expect(barrier.wasEntered()).toBe(true);
-          expect(configure).not.toHaveBeenCalled();
-          if (change === 'retirement') retireGuardianSyncPasses();
-          else if (change === 'endpoint change') storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }];
-          else if (change === 'canonical respelling') storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com:443/' }];
-          else if (change === 'restricted') access.publishWalletAccessDecision(scope, false);
-          else if (change === 'unavailable') access.publishWalletAccessDecision(scope, null);
-          else if (change === 'expired') clocks.advance(60_000);
-          barrier.release();
-          await pass;
-          expect(configure).toHaveBeenCalledTimes(sends);
-          expect(mockReRegister).not.toHaveBeenCalled();
-          expect(storeState.swapHotKey).not.toHaveBeenCalled();
-          expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
-        } finally {
-          barrier.release(); await pass;
-          localSync.mockRestore();
-          assertBoundary.mockReset().mockImplementation(() => undefined);
-          access.invalidateWalletAccess();
-          clocks.restore();
-          jest.useRealTimers();
         }
-      });
+      );
     });
 
     describe('GEO022 residual completion admission', () => {
@@ -2040,11 +2058,15 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         run: (row: import('../db/types').ITransaction) => Promise<void>
       ): Promise<void> => {
         const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
-        const residual = jest.requireActual<typeof import('lib/miden/transaction/hot-key-rotation-residual')>('lib/miden/transaction/hot-key-rotation-residual');
+        const residual = jest.requireActual<typeof import('lib/miden/transaction/hot-key-rotation-residual')>(
+          'lib/miden/transaction/hot-key-rotation-residual'
+        );
         const { ReplaceHotKeyTransaction } = jest.requireActual<typeof import('../db/types')>('../db/types');
         const row: import('../db/types').ITransaction = {
-          ...new ReplaceHotKeyTransaction(accountId, false), status,
-          restoredFromBackup: extra.restoredFromBackup, recovered: extra.recovered,
+          ...new ReplaceHotKeyTransaction(accountId, false),
+          status,
+          restoredFromBackup: extra.restoredFromBackup,
+          recovered: extra.recovered,
           stage: 'complete',
           extraInputs: { newHotPublicKey: 'new-hot-pub', hotKeyPersistFailed: true, nodeDiscarded: extra.nodeDiscarded }
         };
@@ -2052,96 +2074,128 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         mockFindFailedHotKeyRotations.mockImplementation(residual.findFailedHotKeyRotations);
         mockMarkRotationCompleted.mockImplementation(residual.markRotationCompleted);
         mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
-        try { await run(row); }
-        finally {
+        try {
+          await run(row);
+        } finally {
           mockFindFailedHotKeyRotations.mockReset().mockResolvedValue([]);
           mockMarkRotationCompleted.mockReset().mockResolvedValue(undefined);
           await repo.transactions.delete(row.id);
         }
       };
-      it.each(['pending', 'persistent401'])('GEO022 repairs a durable third-push target after denied acknowledgement without a fourth %s configure', async phase => {
-        const clocks = useFakeClocks(1_000);
-        const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
-        const { ITransactionStatus } = jest.requireActual<typeof import('../db/types')>('../db/types');
-        const account = { ...arrangePending(), hotPublicKey: phase === 'persistent401' ? 'hot' : undefined };
-        storeState.accounts = [account];
-        if (phase === 'persistent401') {
-          account.requiresHotKeyRotation = false;
-          mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => { throw authError; }) });
-        }
-        let sends = 0;
-        let durableHot: string | null = account.hotPublicKey ?? null;
-        const verify = jest.fn(async (_options?: unknown, assertCurrent?: () => void): Promise<readonly string[]> => {
-          assertCurrent?.();
-          return ['0xbeef', '0xc01d'];
-        });
-        mockBuildColdMultisigService.mockResolvedValue({
-          adoptGuardianStateOnce: mockAdoptGuardianState,
-          verifyCurrentStateOnChain: verify,
-          reRegisterCurrentStateOnGuardian: async (
-            onBeforeRegister?: (signers: readonly string[]) => void, options?: unknown, assertCurrent?: () => void
-          ) => {
-            await mockPreRegisterHold(); assertCurrent?.();
-            return mockReRegister(options, onBeforeRegister);
-          }
-        });
-        mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
-          onPushStart?.(['0xbeef', '0xc01d']); sends++;
-        });
-        const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
-        const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
-        const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
-        const scope = 'geo022-third-push-ack';
-        access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
-        access.publishWalletAccessDecision(scope, true);
-        assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
-        storeState.swapHotKey.mockImplementation(async (_publicKey: string, target: string, expected?: string | null) => {
-          if (expected === target) {
-            if (durableHot !== target) throw Object.assign(new Error('Hot pointer is not the requested target'), { code: 'HOT_KEY_CHANGED' });
-            account.hotPublicKey = target; account.requiresHotKeyRotation = false;
-            return;
-          }
-          if (sends < 3) throw new Error('Vault temporarily busy');
-          durableHot = target;
-          access.publishWalletAccessDecision(scope, false);
-          throw new access.WalletAccessDeniedError();
-        });
-        try {
-          await withRealRotation(account.publicKey, ITransactionStatus.Completed, {}, async row => {
-            mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
-              onPushStart?.(['0xbeef', '0xc01d']); sends++;
+      it.each(['pending', 'persistent401'])(
+        'GEO022 repairs a durable third-push target after denied acknowledgement without a fourth %s configure',
+        async phase => {
+          const clocks = useFakeClocks(1_000);
+          const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+          const { ITransactionStatus } = jest.requireActual<typeof import('../db/types')>('../db/types');
+          const account = { ...arrangePending(), hotPublicKey: phase === 'persistent401' ? 'hot' : undefined };
+          storeState.accounts = [account];
+          if (phase === 'persistent401') {
+            account.requiresHotKeyRotation = false;
+            mockGetOrCreateMultisigService.mockResolvedValue({
+              sync: jest.fn(async () => {
+                throw authError;
+              })
             });
-            if (phase === 'persistent401') {
-              for (let i = 1; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
-            }
-            for (let i = 0; i < 3; i++) {
-              await syncGuardianAccounts();
-              clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
-              if (i < 2) access.publishWalletAccessDecision(scope, true);
-            }
-            expect(sends).toBe(3);
-            expect(durableHot).toBe('new-hot-pub');
-            expect(account.hotPublicKey).toBe(phase === 'persistent401' ? 'hot' : undefined);
-            expect((await repo.transactions.get(row.id))?.extraInputs?.hotKeyPersistFailed).toBe(true);
-            expect(() => access.assertWalletAccessAllowed()).toThrow(access.WalletAccessDeniedError);
-            access.publishWalletAccessDecision(scope, true);
-            await syncGuardianAccounts();
-            expect((await repo.transactions.get(row.id))?.extraInputs?.hotKeyPersistFailed).toBe(false);
-            expect(account.hotPublicKey).toBe('new-hot-pub');
-            expect(sends).toBe(3);
-            expect(mockReRegister).toHaveBeenCalledTimes(3);
-            expect(verify).toHaveBeenCalledTimes(1);
-            expect(storeState.swapHotKey.mock.calls.at(-1)?.slice(0, 3)).toEqual([account.publicKey, 'new-hot-pub', 'new-hot-pub']);
-            clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
-            access.publishWalletAccessDecision(scope, true);
-            await syncGuardianAccounts();
-            expect(sends).toBe(3);
+          }
+          let sends = 0;
+          let durableHot: string | null = account.hotPublicKey ?? null;
+          const verify = jest.fn(async (_options?: unknown, assertCurrent?: () => void): Promise<readonly string[]> => {
+            assertCurrent?.();
+            return ['0xbeef', '0xc01d'];
           });
-        } finally {
-          assertBoundary.mockReset().mockImplementation(() => undefined);
-          access.invalidateWalletAccess(); clocks.restore();
+          mockBuildColdMultisigService.mockResolvedValue({
+            adoptGuardianStateOnce: mockAdoptGuardianState,
+            verifyCurrentStateOnChain: verify,
+            reRegisterCurrentStateOnGuardian: async (
+              onBeforeRegister?: (signers: readonly string[]) => void,
+              options?: unknown,
+              assertCurrent?: () => void
+            ) => {
+              await mockPreRegisterHold();
+              assertCurrent?.();
+              return mockReRegister(options, onBeforeRegister);
+            }
+          });
+          mockReRegister.mockImplementation(
+            async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
+              onPushStart?.(['0xbeef', '0xc01d']);
+              sends++;
+            }
+          );
+          const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
+            'lib/remote-config/wallet-access'
+          );
+          const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+            'lib/remote-config/wallet-access'
+          );
+          const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
+          const scope = 'geo022-third-push-ack';
+          access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
+          access.publishWalletAccessDecision(scope, true);
+          assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
+          storeState.swapHotKey.mockImplementation(
+            async (_publicKey: string, target: string, expected?: string | null) => {
+              if (expected === target) {
+                if (durableHot !== target)
+                  throw Object.assign(new Error('Hot pointer is not the requested target'), {
+                    code: 'HOT_KEY_CHANGED'
+                  });
+                account.hotPublicKey = target;
+                account.requiresHotKeyRotation = false;
+                return;
+              }
+              if (sends < 3) throw new Error('Vault temporarily busy');
+              durableHot = target;
+              access.publishWalletAccessDecision(scope, false);
+              throw new access.WalletAccessDeniedError();
+            }
+          );
+          try {
+            await withRealRotation(account.publicKey, ITransactionStatus.Completed, {}, async row => {
+              mockReRegister.mockImplementation(
+                async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
+                  onPushStart?.(['0xbeef', '0xc01d']);
+                  sends++;
+                }
+              );
+              if (phase === 'persistent401') {
+                for (let i = 1; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+              }
+              for (let i = 0; i < 3; i++) {
+                await syncGuardianAccounts();
+                clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+                if (i < 2) access.publishWalletAccessDecision(scope, true);
+              }
+              expect(sends).toBe(3);
+              expect(durableHot).toBe('new-hot-pub');
+              expect(account.hotPublicKey).toBe(phase === 'persistent401' ? 'hot' : undefined);
+              expect((await repo.transactions.get(row.id))?.extraInputs?.hotKeyPersistFailed).toBe(true);
+              expect(() => access.assertWalletAccessAllowed()).toThrow(access.WalletAccessDeniedError);
+              access.publishWalletAccessDecision(scope, true);
+              await syncGuardianAccounts();
+              expect((await repo.transactions.get(row.id))?.extraInputs?.hotKeyPersistFailed).toBe(false);
+              expect(account.hotPublicKey).toBe('new-hot-pub');
+              expect(sends).toBe(3);
+              expect(mockReRegister).toHaveBeenCalledTimes(3);
+              expect(verify).toHaveBeenCalledTimes(1);
+              expect(storeState.swapHotKey.mock.calls.at(-1)?.slice(0, 3)).toEqual([
+                account.publicKey,
+                'new-hot-pub',
+                'new-hot-pub'
+              ]);
+              clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+              access.publishWalletAccessDecision(scope, true);
+              await syncGuardianAccounts();
+              expect(sends).toBe(3);
+            });
+          } finally {
+            assertBoundary.mockReset().mockImplementation(() => undefined);
+            access.invalidateWalletAccess();
+            clocks.restore();
+          }
         }
-      });
+      );
 
       it.each([
         { status: 'Failed', repaired: true, extra: {} },
@@ -2149,23 +2203,32 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { status: 'Completed', repaired: false, extra: { restoredFromBackup: true } },
         { status: 'Completed', repaired: false, extra: { recovered: true } },
         { status: 'Completed', repaired: false, extra: { nodeDiscarded: true } }
-      ])('GEO022 repairs $status residual=$repaired when the local hot pointer already matches the chain ($extra)', async ({ status, repaired, extra }) => {
-        const { ITransactionStatus } = jest.requireActual<typeof import('../db/types')>('../db/types');
-        const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
-        const accountId = 'acct-geo022-already-current';
-        arrangeOwnRotation(accountId);
-        storeState.accounts = [{ ...storeState.accounts[0]!, hotPublicKey: 'new-hot-pub', guardianEndpoint: 'https://Guardian.Example.com' }];
-        mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
-        const initialStatus = status === 'Failed' ? ITransactionStatus.Failed : ITransactionStatus.Completed;
-        await withRealRotation(accountId, initialStatus, extra, async row => {
-          await syncGuardianAccounts();
-          const stored = await repo.transactions.get(row.id);
-          expect(stored?.extraInputs?.hotKeyPersistFailed).toBe(!repaired);
-          expect(stored?.status).toBe(repaired ? ITransactionStatus.Completed : initialStatus);
-          expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(repaired ? 1 : 0);
-          expect(mockReRegister).toHaveBeenCalledTimes(repaired ? 1 : 0);
-        });
-      });
+      ])(
+        'GEO022 repairs $status residual=$repaired when the local hot pointer already matches the chain ($extra)',
+        async ({ status, repaired, extra }) => {
+          const { ITransactionStatus } = jest.requireActual<typeof import('../db/types')>('../db/types');
+          const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+          const accountId = 'acct-geo022-already-current';
+          arrangeOwnRotation(accountId);
+          storeState.accounts = [
+            {
+              ...storeState.accounts[0]!,
+              hotPublicKey: 'new-hot-pub',
+              guardianEndpoint: 'https://Guardian.Example.com'
+            }
+          ];
+          mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+          const initialStatus = status === 'Failed' ? ITransactionStatus.Failed : ITransactionStatus.Completed;
+          await withRealRotation(accountId, initialStatus, extra, async row => {
+            await syncGuardianAccounts();
+            const stored = await repo.transactions.get(row.id);
+            expect(stored?.extraInputs?.hotKeyPersistFailed).toBe(!repaired);
+            expect(stored?.status).toBe(repaired ? ITransactionStatus.Completed : initialStatus);
+            expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(repaired ? 1 : 0);
+            expect(mockReRegister).toHaveBeenCalledTimes(repaired ? 1 : 0);
+          });
+        }
+      );
 
       it.each([
         { change: 'retirement', writes: 0 },
@@ -2175,99 +2238,165 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { change: 'expired', writes: 0 },
         { change: 'canonical respelling', writes: 1 },
         { change: 'live', writes: 1 }
-      ])('GEO022 permits $writes row completions after $change during the real Dexie read', async ({ change, writes }) => {
-        const clocks = useFakeClocks(1_000);
-        const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
-        const residual = jest.requireActual<typeof import('lib/miden/transaction/hot-key-rotation-residual')>('lib/miden/transaction/hot-key-rotation-residual');
-        const { default: Dexie } = jest.requireActual<typeof import('dexie')>('dexie');
-        const { ITransactionStatus } = jest.requireActual<typeof import('../db/types')>('../db/types');
-        const account = arrangePending();
-        const barrier = makeBarrier();
-        let armed = false;
-        let reads = 0;
-        const afterRead = <T,>(pending: Promise<T>): Promise<T> => pending.then(async result => {
-          if (armed) { armed = false; reads++; await Dexie.waitFor(barrier.wait()); }
-          return result;
-        });
-        const middleware: import('dexie').Middleware<import('dexie').DBCore> = {
-          stack: 'dbcore', name: 'geo022-real-completion-read',
-          create: down => ({ ...down, table: name => {
-            const table = down.table(name);
-            if (name !== 'transactions') return table;
-            return { ...table, getMany: request => afterRead(table.getMany(request)), query: request => afterRead(table.query(request)) };
-          } })
-        };
-        repo.db.close(); repo.db.use(middleware); await repo.db.open();
-        const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
-        const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
-        const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
-        const scope = 'geo022-row-completion';
-        access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
-        access.publishWalletAccessDecision(scope, true);
-        assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
-        try {
-          await withRealRotation(account.publicKey, ITransactionStatus.Completed, {}, async row => {
-            const written: string[] = [];
-            const onWrite = (_mods: unknown, key: string) => { written.push(key); };
-            repo.transactions.hook('updating', onWrite);
-            mockMarkRotationCompleted.mockImplementation(async (id, assertCurrent) => {
-              armed = true;
-              await Reflect.apply(residual.markRotationCompleted, residual, [id, assertCurrent]);
+      ])(
+        'GEO022 permits $writes row completions after $change during the real Dexie read',
+        async ({ change, writes }) => {
+          const clocks = useFakeClocks(1_000);
+          const repo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+          const residual = jest.requireActual<typeof import('lib/miden/transaction/hot-key-rotation-residual')>(
+            'lib/miden/transaction/hot-key-rotation-residual'
+          );
+          const { default: Dexie } = jest.requireActual<typeof import('dexie')>('dexie');
+          const { ITransactionStatus } = jest.requireActual<typeof import('../db/types')>('../db/types');
+          const account = arrangePending();
+          const barrier = makeBarrier();
+          let armed = false;
+          let reads = 0;
+          const afterRead = <T>(pending: Promise<T>): Promise<T> =>
+            pending.then(async result => {
+              if (armed) {
+                armed = false;
+                reads++;
+                await Dexie.waitFor(barrier.wait());
+              }
+              return result;
             });
-            const pass = syncGuardianAccounts();
-            try {
-              await Promise.race([barrier.ready, pass]);
-              expect(barrier.wasEntered()).toBe(true);
-              expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
-              if (change === 'retirement') retireGuardianSyncPasses();
-              else if (change === 'endpoint change') storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }];
-              else if (change === 'canonical respelling') storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com:443/' }];
-              else if (change === 'restricted') access.publishWalletAccessDecision(scope, false);
-              else if (change === 'unavailable') access.publishWalletAccessDecision(scope, null);
-              else if (change === 'expired') clocks.advance(60_000);
-              barrier.release(); await pass;
-              expect(reads).toBe(1);
-              expect(written).toHaveLength(writes);
-              expect((await repo.transactions.get(row.id))?.extraInputs?.hotKeyPersistFailed).toBe(writes === 0);
-            } finally { barrier.release(); await pass; repo.transactions.hook('updating').unsubscribe(onWrite); }
-          });
-        } finally {
-          barrier.release();
-          assertBoundary.mockReset().mockImplementation(() => undefined);
-          access.invalidateWalletAccess();
-          repo.db.close(); repo.db.unuse({ stack: 'dbcore', name: middleware.name }); await repo.db.open();
-          clocks.restore();
+          const middleware: import('dexie').Middleware<import('dexie').DBCore> = {
+            stack: 'dbcore',
+            name: 'geo022-real-completion-read',
+            create: down => ({
+              ...down,
+              table: name => {
+                const table = down.table(name);
+                if (name !== 'transactions') return table;
+                return {
+                  ...table,
+                  getMany: request => afterRead(table.getMany(request)),
+                  query: request => afterRead(table.query(request))
+                };
+              }
+            })
+          };
+          repo.db.close();
+          repo.db.use(middleware);
+          await repo.db.open();
+          const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
+            'lib/remote-config/wallet-access'
+          );
+          const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
+            'lib/remote-config/wallet-access'
+          );
+          const assertBoundary = jest.mocked(boundary.assertWalletAccessAllowed);
+          const scope = 'geo022-row-completion';
+          access.registerWalletAccessRuntime({ scope: () => scope, refresh: async () => undefined });
+          access.publishWalletAccessDecision(scope, true);
+          assertBoundary.mockImplementation(access.assertWalletAccessAllowed);
+          try {
+            await withRealRotation(account.publicKey, ITransactionStatus.Completed, {}, async row => {
+              const written: string[] = [];
+              const onWrite = (_mods: unknown, key: string) => {
+                written.push(key);
+              };
+              repo.transactions.hook('updating', onWrite);
+              mockMarkRotationCompleted.mockImplementation(async (id, assertCurrent) => {
+                armed = true;
+                await Reflect.apply(residual.markRotationCompleted, residual, [id, assertCurrent]);
+              });
+              const pass = syncGuardianAccounts();
+              try {
+                await Promise.race([barrier.ready, pass]);
+                expect(barrier.wasEntered()).toBe(true);
+                expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+                if (change === 'retirement') retireGuardianSyncPasses();
+                else if (change === 'endpoint change')
+                  storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }];
+                else if (change === 'canonical respelling')
+                  storeState.accounts = [{ ...account, guardianEndpoint: 'https://guardian.example.com:443/' }];
+                else if (change === 'restricted') access.publishWalletAccessDecision(scope, false);
+                else if (change === 'unavailable') access.publishWalletAccessDecision(scope, null);
+                else if (change === 'expired') clocks.advance(60_000);
+                barrier.release();
+                await pass;
+                expect(reads).toBe(1);
+                expect(written).toHaveLength(writes);
+                expect((await repo.transactions.get(row.id))?.extraInputs?.hotKeyPersistFailed).toBe(writes === 0);
+              } finally {
+                barrier.release();
+                await pass;
+                repo.transactions.hook('updating').unsubscribe(onWrite);
+              }
+            });
+          } finally {
+            barrier.release();
+            assertBoundary.mockReset().mockImplementation(() => undefined);
+            access.invalidateWalletAccess();
+            repo.db.close();
+            repo.db.unuse({ stack: 'dbcore', name: middleware.name });
+            await repo.db.open();
+            clocks.restore();
+          }
         }
-      });
+      );
 
-      it.each(['pending', 'persistent401'])('GEO022 carries original operator epoch and network scope through the %s heal', async phase => {
-        const endpoints = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints');
-        const { MIDEN_NETWORK_NAME } = jest.requireActual<typeof import('lib/miden-chain/networks-config')>('lib/miden-chain/networks-config');
-        const network = jest.spyOn(endpoints, 'getEffectiveNetworkName').mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
-        const rpc = jest.spyOn(endpoints, 'getEffectiveRpcUrl').mockReturnValue('https://original-rpc.test');
-        const account = { ...arrangePending(), guardianEpoch: 7, hotPublicKey: phase === 'persistent401' ? 'hot' : undefined };
-        storeState.accounts = [account];
-        if (phase === 'persistent401') {
-          account.requiresHotKeyRotation = false;
-          mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => { throw authError; }) });
-          for (let i = 1; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
-        }
-        const barrier = makeBarrier();
-        mockGetAccount.mockImplementationOnce(async () => { await barrier.wait(); return { __sdkAccount: true }; });
-        const pass = syncGuardianAccounts();
-        try {
-          await Promise.race([barrier.ready, pass]);
-          expect(barrier.wasEntered()).toBe(true);
-          account.guardianEpoch = 8;
-          network.mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
-          rpc.mockReturnValue('https://replacement-rpc.test');
-          barrier.release(); await pass;
-          expect(storeState.swapHotKey).toHaveBeenCalledWith(account.publicKey, 'new-hot-pub', phase === 'persistent401' ? 'hot' : null, {
-            guardianEndpoint: 'https://Guardian.Example.com', guardianEpoch: 7,
-            network: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: 'https://original-rpc.test'
+      it.each(['pending', 'persistent401'])(
+        'GEO022 carries original operator epoch and network scope through the %s heal',
+        async phase => {
+          const endpoints = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+            'lib/miden-chain/effective-endpoints'
+          );
+          const { MIDEN_NETWORK_NAME } = jest.requireActual<typeof import('lib/miden-chain/networks-config')>(
+            'lib/miden-chain/networks-config'
+          );
+          const network = jest.spyOn(endpoints, 'getEffectiveNetworkName').mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+          const rpc = jest.spyOn(endpoints, 'getEffectiveRpcUrl').mockReturnValue('https://original-rpc.test');
+          const account = {
+            ...arrangePending(),
+            guardianEpoch: 7,
+            hotPublicKey: phase === 'persistent401' ? 'hot' : undefined
+          };
+          storeState.accounts = [account];
+          if (phase === 'persistent401') {
+            account.requiresHotKeyRotation = false;
+            mockGetOrCreateMultisigService.mockResolvedValue({
+              sync: jest.fn(async () => {
+                throw authError;
+              })
+            });
+            for (let i = 1; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+          }
+          const barrier = makeBarrier();
+          mockGetAccount.mockImplementationOnce(async () => {
+            await barrier.wait();
+            return { __sdkAccount: true };
           });
-        } finally { barrier.release(); await pass; network.mockRestore(); rpc.mockRestore(); }
-      });
+          const pass = syncGuardianAccounts();
+          try {
+            await Promise.race([barrier.ready, pass]);
+            expect(barrier.wasEntered()).toBe(true);
+            account.guardianEpoch = 8;
+            network.mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
+            rpc.mockReturnValue('https://replacement-rpc.test');
+            barrier.release();
+            await pass;
+            expect(storeState.swapHotKey).toHaveBeenCalledWith(
+              account.publicKey,
+              'new-hot-pub',
+              phase === 'persistent401' ? 'hot' : null,
+              {
+                guardianEndpoint: 'https://Guardian.Example.com',
+                guardianEpoch: 7,
+                network: MIDEN_NETWORK_NAME.TESTNET,
+                rpcUrl: 'https://original-rpc.test'
+              }
+            );
+          } finally {
+            barrier.release();
+            await pass;
+            network.mockRestore();
+            rpc.mockRestore();
+          }
+        }
+      );
     });
 
     describe('GEO023 admitted configure charge', () => {
