@@ -50,6 +50,22 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     // report verification_base_fee = 10000. Testnet's header carries none.
     chargesFees: true
   },
+  mainnet: {
+    name: 'mainnet',
+    rpcUrl: 'https://rpc.cedar.miden.io',
+    provingUrl: 'https://tx-prover.cedar.miden.io',
+    transportUrl: 'https://transport.cedar.miden.io',
+    networkFlag: 'mainnet',
+    pollIntervalMs: 5_000,
+    txTimeoutMs: 180_000,
+    // Mainnet has no faucet. Nothing in the harness mints this. The nightly
+    // sends one base unit of the native asset instead.
+    mintAmount: 1,
+    delegateProving: true,
+    // Bundled mainnet operator (src/lib/miden-chain/networks-config.ts).
+    guardianUrl: 'https://guardian.cedar.internal.lambdaclass.com',
+    chargesFees: true
+  },
   localhost: {
     name: 'localhost',
     rpcUrl: 'http://localhost:57291',

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { formatUnits, parseUnits, type Hash } from 'viem';
 
-import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
+import { SEPOLIA_NETWORK, selectSendNetwork, type FieldNetwork } from './contact-network';
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
 import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
@@ -173,6 +173,8 @@ export interface BridgeOutSlowOptions {
   amount: string;
   /** Per-step timeout (default 30s). */
   stepTimeoutMs?: number;
+  /** Destination network. The testnet suites leave this unset and stay on Sepolia. */
+  network?: FieldNetwork;
 }
 
 const STEP_TIMEOUT_MS = 30_000;
@@ -194,7 +196,7 @@ export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions):
 
   // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await selectSendNetwork(page, SEPOLIA_NETWORK, step);
+  await selectSendNetwork(page, opts.network ?? SEPOLIA_NETWORK, step);
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
   // Amount: pick the funded token, type the amount.

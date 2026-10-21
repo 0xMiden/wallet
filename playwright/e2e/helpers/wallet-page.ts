@@ -259,7 +259,21 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * bypass stashes it on) -- usable to recover this exact account from a
    * separate, clean wallet profile via `recoverGuardianFromSeed`.
    */
-  createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
+  createGuardianWallet(
+    guardianUrl: string,
+    password?: string,
+    accessCode?: string
+  ): Promise<{ address: string; seedPhrase: string[] }>;
+  /**
+   * Create a public single-key account. `accessCode` is the one-time mainnet
+   * invitation, passed only as the onboarding query param.
+   */
+  createOnChainWallet(password?: string, accessCode?: string): Promise<{ address: string; seedPhrase: string[] }>;
+  /**
+   * Import a public single-key account from its seed. The bypass default is a
+   * private account, which cannot restore a public mainnet account.
+   */
+  importOnChainWallet(seedPhrase: string[], password?: string): Promise<{ address: string }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
   quickBalanceSnapshot(scope?: BalanceSnapshotScope): Promise<{
     balance: number;
@@ -683,9 +697,22 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    */
   async createGuardianWallet(
     guardianUrl: string,
-    password: string = PASSWORD
+    password: string = PASSWORD,
+    accessCode?: string
   ): Promise<{ address: string; seedPhrase: string[] }> {
-    return this.createWalletViaBypass({ walletType: 'guardian', guardianUrl, password });
+    return this.createWalletViaBypass({ walletType: 'guardian', guardianUrl, password, accessCode });
+  }
+
+  async createOnChainWallet(
+    password: string = PASSWORD,
+    accessCode?: string
+  ): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createWalletViaBypass({ walletType: 'on-chain', password, accessCode });
+  }
+
+  async importOnChainWallet(seedPhrase: string[], password: string = PASSWORD): Promise<{ address: string }> {
+    const { address } = await this.createWalletViaBypass({ walletType: 'on-chain', password, seed: seedPhrase });
+    return { address };
   }
 
   /**
@@ -696,10 +723,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * "Open wallet" runs register() which creates the vault in the SW.
    */
   private async createWalletViaBypass(opts: {
-    walletType: 'offchain' | 'guardian';
+    walletType: 'offchain' | 'guardian' | 'on-chain';
     password: string;
     guardianUrl?: string;
     seed?: string[];
+    accessCode?: string;
   }): Promise<{ address: string; seedPhrase: string[] }> {
     // The bypass skips the ChooseGuardian / ImportRecoveryMethod screens that
     // would normally set the onboarding guardian endpoint, so thread it in via
@@ -718,9 +746,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       if (opts.guardianUrl) {
         params.set('guardianUrl', opts.guardianUrl);
       }
+    } else if (opts.walletType === 'on-chain') {
+      params.set('walletType', 'on-chain');
     }
     if (opts.seed && opts.seed.length > 0) {
-      params.set('seed', opts.seed.join(' '));
+      // Not a query param: the page URL is what a failure log records.
+      await this.page.addInitScript(phrase => {
+        (globalThis as { __TEST_IMPORT_SEED__?: string }).__TEST_IMPORT_SEED__ = phrase;
+      }, opts.seed.join(' '));
+    }
+    if (opts.accessCode) {
+      await this.page.addInitScript(code => {
+        (globalThis as { __TEST_MAINNET_ACCESS_CODE__?: string }).__TEST_MAINNET_ACCESS_CODE__ = code;
+      }, opts.accessCode);
     }
 
     await this.page.goto(`${this.fullpageUrl}?${params.toString()}`, { waitUntil: 'domcontentloaded' });
