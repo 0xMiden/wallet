@@ -65,7 +65,6 @@ import {
   type ProposalStep
 } from 'lib/telemetry/crash-diagnostics';
 import {
-  logOperationEnd,
   logOperationStep,
   withOperationStep,
   type DiagnosticStep,
@@ -73,7 +72,6 @@ import {
 } from 'lib/telemetry/diagnostic-log';
 import { reportProve } from 'lib/telemetry/report-operation';
 import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
-import { elapsedMsSince } from 'lib/telemetry/transaction-operation';
 import { logger } from 'shared/logger';
 
 import {
@@ -2982,7 +2980,6 @@ const endSwapAttempt = (transaction: ITransaction, error?: unknown): void => {
     const outcome = error === undefined ? 'ok' : swapStepOutcome(error);
     logOperationStep('swap', 'proposal_execute', outcome, performance.now() - createdAt);
   }
-  if (error === undefined) logOperationEnd('swap', 'completed', elapsedMsSince(transaction.initiatedAt));
 };
 
 const generateGuardianTransactionOnFreshState = async (

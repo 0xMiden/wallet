@@ -61,6 +61,7 @@ import {
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
+import { completeVerifiedLandedTransaction } from './helper';
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
@@ -2243,7 +2244,7 @@ describe('generateTransaction — Guardian routing', () => {
         .mocked(captureDiagnosticLog)
         .mock.calls.map(([event, attributes]) => [event, attributes.step, attributes.outcome]);
 
-    const arrangeSwap = () => {
+    const arrangeSwap = (apply?: Parameters<typeof makeClientApi>[1]) => {
       const transaction = Object.assign(new Transaction('mtst1creator_qruqqypuyph', new Uint8Array()), {
         id: 'guardian-swap-diagnostics',
         type: 'swap',
@@ -2284,7 +2285,7 @@ describe('generateTransaction — Guardian routing', () => {
       const result = Object.assign(base, {
         executedTransaction: () => ({ ...executed, outputNotes: () => ({ notes: () => [orderNote] }) })
       });
-      const client = Object.assign(makeClientApi(result), { getSyncHeight: jest.fn(async () => 100) });
+      const client = Object.assign(makeClientApi(result, apply), { getSyncHeight: jest.fn(async () => 100) });
       mockGetMidenClient.mockResolvedValue({
         getAccount: jest.fn(async () => ({ vault: jest.fn() })),
         syncState: jest.fn(async () => {}),
@@ -2300,18 +2301,45 @@ describe('generateTransaction — Guardian routing', () => {
       return { transaction, multisigService, newPswapCreateTransactionRequest, run };
     };
 
-    it('records every step of a swap that completes, in order, then its end', async () => {
+    it('records every step of a swap that completes, in order, and its end once', async () => {
       const { run } = arrangeSwap();
       await run();
       expect(txStore[0]?.status).toBe(ITransactionStatus.Completed);
+      // The end is written with the Completed status, before the attempt closes its execute step.
       expect(swapRecords()).toEqual([
         ['operation_step', 'service_prepare', 'ok'],
         ['operation_step', 'request_build', 'ok'],
         ['operation_step', 'request_persist', 'ok'],
         ['operation_step', 'proposal_create', 'ok'],
-        ['operation_step', 'proposal_execute', 'ok'],
-        ['operation_end', undefined, 'completed']
+        ['operation_end', undefined, 'completed'],
+        ['operation_step', 'proposal_execute', 'ok']
       ]);
+    });
+
+    const swapEnds = () => swapRecords().filter(([event]) => event === 'operation_end');
+
+    it('records the completed end of a swap that landed but could not be applied locally', async () => {
+      const { run } = arrangeSwap(
+        jest.fn(async () => {
+          throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+        })
+      );
+      await run();
+      expect(txStore[0]?.status).toBe(ITransactionStatus.Completed);
+      expect(swapEnds()).toEqual([['operation_end', undefined, 'completed']]);
+      expect(swapRecords().at(-1)).toEqual(['operation_end', undefined, 'completed']);
+    });
+
+    it('records no second end when a failed swap is later reconciled as landed', async () => {
+      const { run, multisigService } = arrangeSwap();
+      multisigService.signAndCreateTransactionRequest.mockRejectedValueOnce(new Error('signing refused'));
+      await run();
+      expect(txStore[0]?.status).toBe(ITransactionStatus.Failed);
+      // A fresh budget, so a second end could not be hidden by the rate limit.
+      _resetDiagnosticLogLimitsForTest();
+      await completeVerifiedLandedTransaction('guardian-swap-diagnostics');
+      expect(txStore[0]?.status).toBe(ITransactionStatus.Completed);
+      expect(swapEnds()).toEqual([['operation_end', undefined, 'failed']]);
     });
 
     it('names the request build as the failed step, and records nothing after it', async () => {
