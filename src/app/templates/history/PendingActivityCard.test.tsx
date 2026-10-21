@@ -510,3 +510,55 @@ describe('PendingActivityCard live failure reporting', () => {
     ]);
   });
 });
+
+describe('Guardian wait on a pending card (#1666)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('keeps the current wait visible while closed and removes it on the same card when cleared', () => {
+    const item: PendingActivityItem & { guardianBusy: true } = {
+      note,
+      status: 'claiming',
+      txId: 'tx-wait',
+      guardianBusy: true
+    };
+    const onAccept = jest.fn();
+    const view = render(<PendingActivityCard item={item} onAccept={onAccept} />);
+    const card = view.container.querySelector('[data-pending-status="claiming"]');
+
+    expect(card).not.toBeNull();
+    expect(screen.getByRole('button', { expanded: false })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+    expect(view.container.textContent).toContain('guardianBusyStep');
+    const reason = screen.getByText('guardianBusyStep');
+    expect(reason).toBeVisible();
+    expect(reason.closest('[aria-hidden="true"]')).toBeNull();
+
+    view.rerender(<PendingActivityCard item={{ note, status: 'claiming', txId: 'tx-wait' }} onAccept={onAccept} />);
+    expect(view.container.querySelector('[data-pending-status="claiming"]')).toBe(card);
+    expect(view.container.textContent).not.toContain('guardianBusyStep');
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('keeps a held Retry refusal ahead of a stale Guardian wait flag', () => {
+    const item: PendingActivityItem & { guardianBusy: true } = {
+      note,
+      status: 'claiming',
+      txId: 'tx-held',
+      held: true,
+      retryError: 'Saved refusal',
+      guardianBusy: true
+    };
+    const onAccept = jest.fn();
+    const onRetryHeld = jest.fn();
+    const { container } = render(<PendingActivityCard item={item} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('Saved refusal');
+    const retry = screen.getByRole('button', { name: 'retry' });
+    expect(retry).toBeEnabled();
+    expect(retry).not.toHaveAttribute('aria-busy', 'true');
+    expect(container.textContent).not.toContain('guardianBusyStep');
+    fireEvent.click(retry);
+    expect(onRetryHeld).toHaveBeenCalledWith(item);
+    expect(onAccept).not.toHaveBeenCalled();
+  });
+});
