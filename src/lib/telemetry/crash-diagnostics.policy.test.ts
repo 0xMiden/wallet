@@ -20,6 +20,7 @@ import {
   PAGE_VISIBILITY,
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
+  SECURITY_CHANGE_ACTIONS,
   STORAGE_OPERATIONS,
   STORAGE_OWNERS
 } from './crash-diagnostics';
@@ -75,6 +76,7 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['reconnected to the background', ['true', 'false']],
   ['the preparation step that failed', PROPOSAL_STEPS],
   ['which check refused it', PROPOSAL_GUARDS],
+  ['which security change failed', SECURITY_CHANGE_ACTIONS],
   ['two fixed events', DIAGNOSTIC_LOG_EVENTS],
   ['the operation it is about', DIAGNOSTIC_OPERATIONS],
   ['the step it describes', DIAGNOSTIC_STEPS],
