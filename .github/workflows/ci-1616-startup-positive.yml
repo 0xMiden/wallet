@@ -1,0 +1,162 @@
+name: NEVER-MERGE 1616 startup eligibility positive and omissions
+on:
+  push:
+    branches: [ci/1616-startup-eligibility-positive-v2]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+      CI: 'true'
+      FORCE_COLOR: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Bind exact source and inert transport
+        run: |
+          set -euo pipefail
+          export PROOF_DIR="$RUNNER_TEMP/1616-startup-positive"
+          test ! -e "$PROOF_DIR"
+          mkdir "$PROOF_DIR"
+          echo "PROOF_DIR=$PROOF_DIR" >> "$GITHUB_ENV"
+          source='2cc2426806ed73fbe9eada1fa5acc6867c1dba54'
+          test "$(git rev-parse HEAD^)" = "$source"
+          test "$(git cat-file commit HEAD | awk '$1 == "parent" {count++} END {print count}')" = '1'
+          git rev-parse HEAD > "$PROOF_DIR/transport.txt"
+          git rev-parse HEAD^{tree} > "$PROOF_DIR/transport-tree.txt"
+          git cat-file commit HEAD > "$PROOF_DIR/transport-commit.txt"
+          git cat-file commit "$source" > "$PROOF_DIR/source-commit.txt"
+          git diff-tree --no-commit-id --name-status -r HEAD > "$PROOF_DIR/transport-paths.txt"
+          python3 - <<'PY'
+          import json, os, hashlib, subprocess
+          from pathlib import Path
+          proof = Path(os.environ['PROOF_DIR'])
+          prefix = '.github/ci/1616-startup-positive/'
+          files = ['capture.py', 'source-spec.json', 'expected-cases.json', 'candidate-feature.tsx',
+                   'candidate-wallet.tsx', 'omission-feature.tsx', 'omission-wallet.tsx']
+          expected = {prefix + name: name for name in files}
+          expected['.github/workflows/ci-1616-startup-positive.yml'] = 'workflow.yml'
+          changes = subprocess.check_output(['git', 'diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD', '-z']).split(b'\0')
+          assert changes[-1] == b'' and len(changes[:-1]) == 2 * len(expected)
+          actual = {}
+          for status, name in zip(changes[0:-1:2], changes[1:-1:2]):
+              assert status == b'A'
+              actual[name.decode()] = status.decode()
+          assert set(actual) == set(expected)
+          rows = []
+          for source, target in expected.items():
+              data = Path(source).read_bytes()
+              (proof / target).write_bytes(data)
+              rows.append({'source': source, 'artifact': target, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+          (proof / 'transport-inputs.json').write_text(json.dumps(rows, indent=2) + '\n')
+          PY
+          git checkout --detach "$source"
+          test "$(git rev-parse HEAD^{tree})" = 'eb2e00a9a4cdeae9c4588928480ed3287b4dba91'
+          python3 "$PROOF_DIR/capture.py" snapshot initial positive noframework
+      - name: Install exact locked dependencies
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          node --version | tee "$PROOF_DIR/node-version.txt"
+          yarn --version | tee "$PROOF_DIR/yarn-version.txt"
+          python3 --version > "$PROOF_DIR/python-version.txt"
+          command=(yarn install --frozen-lockfile --network-timeout 600000)
+          printf '%s\0' "${command[@]}" > "$PROOF_DIR/install.argv.bin"
+          set +e
+          "${command[@]}" 2>&1 | tee "$PROOF_DIR/install.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/install.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/install.tee.exit"
+          test "${codes[0]}" = 0
+          test "${codes[1]}" = 0
+      - name: Run actual formatter lint and type prerequisites
+        run: |
+          set -euo pipefail
+          tsfiles=(src/components/FeatureUnavailable.tsx src/app/WalletAccessGate.tsx src/lib/telemetry/user-visible-error-contract.ts src/components/FeatureUnavailable.test.tsx src/app/WalletAccessGate.test.tsx)
+          for check in format lint types; do
+            case "$check" in
+              format) command=(yarn prettier --check "${tsfiles[@]}" docs/privacy/index.md) ;;
+              lint) command=(yarn eslint --max-warnings=0 "${tsfiles[@]}") ;;
+              types) command=(yarn ts --noEmit) ;;
+            esac
+            printf '%s\0' "${command[@]}" > "$PROOF_DIR/$check.argv.bin"
+            set +e
+            "${command[@]}" 2>&1 | tee "$PROOF_DIR/$check.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$check.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$check.tee.exit"
+            test "${codes[0]}" = 0
+            test "${codes[1]}" = 0
+          done
+      - name: Retain all four natural regression outcomes
+        run: |
+          set -euo pipefail
+          tests=(src/components/FeatureUnavailable.test.tsx src/app/WalletAccessGate.test.tsx)
+          for arm in positive feature wallet restored; do
+            python3 "$PROOF_DIR/capture.py" select "$arm"
+            python3 "$PROOF_DIR/capture.py" snapshot "before-$arm" "$arm" framework
+            result="$PROOF_DIR/results/$arm"
+            command=(yarn jest --runTestsByPath "${tests[@]}" --maxWorkers=2 --coverage=false --watch=false --json "--outputFile=$result/jest.json")
+            printf '%s\0' "${command[@]}" > "$result/argv.bin"
+            set +e
+            "${command[@]}" 2>&1 | tee "$result/jest.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$result/jest.exit"
+            printf '%s\n' "${codes[1]}" > "$result/tee.exit"
+            python3 "$PROOF_DIR/capture.py" snapshot "after-$arm" "$arm" framework
+          done
+      - name: Retain complete registry privacy and hook compatibility suites
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" restore
+          result="$PROOF_DIR/results/compatibility"
+          test ! -e "$result"
+          mkdir "$result"
+          python3 "$PROOF_DIR/capture.py" snapshot before-compatibility restored framework
+          command=(yarn jest --runTestsByPath src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/crash-diagnostics.policy.test.ts --maxWorkers=2 --coverage=false --watch=false --json "--outputFile=$result/jest.json")
+          printf '%s\0' "${command[@]}" > "$result/argv.bin"
+          set +e
+          "${command[@]}" 2>&1 | tee "$result/jest.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$result/jest.exit"
+          printf '%s\n' "${codes[1]}" > "$result/tee.exit"
+          python3 "$PROOF_DIR/capture.py" snapshot after-compatibility restored framework
+      - name: Always restore and capture final source
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" restore
+          python3 "$PROOF_DIR/capture.py" snapshot final restored framework
+      - name: Validate every raw outcome and source boundary
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" classify
+      - name: Seal every retained payload including hidden files
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" seal
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 1616-startup-eligibility-positive-omissions
+          path: ${{ env.PROOF_DIR }}/
+          include-hidden-files: true
+          if-no-files-found: error

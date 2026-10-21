@@ -1,0 +1,356 @@
+[
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 0,
+    "full_name": "WalletAccessGate startup only waits for endpoint loading and the startup decision before mounting the wallet",
+    "title": "waits for endpoint loading and the startup decision before mounting the wallet",
+    "ancestor_titles": [
+      "WalletAccessGate startup only"
+    ],
+    "positive_passing_assertions": 7
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 1,
+    "full_name": "WalletAccessGate startup only keeps the wallet unmounted after a restricted startup result",
+    "title": "keeps the wallet unmounted after a restricted startup result",
+    "ancestor_titles": [
+      "WalletAccessGate startup only"
+    ],
+    "positive_passing_assertions": 4
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 2,
+    "full_name": "WalletAccessGate startup only keeps the wallet unmounted after a unavailable startup result",
+    "title": "keeps the wallet unmounted after a unavailable startup result",
+    "ancestor_titles": [
+      "WalletAccessGate startup only"
+    ],
+    "positive_passing_assertions": 4
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 3,
+    "full_name": "WalletAccessGate startup only shows startup unavailability when endpoint bootstrap fails",
+    "title": "shows startup unavailability when endpoint bootstrap fails",
+    "ancestor_titles": [
+      "WalletAccessGate startup only"
+    ],
+    "positive_passing_assertions": 3
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 4,
+    "full_name": "WalletAccessGate startup only handles StrictMode effect replay without changing the startup decision",
+    "title": "handles StrictMode effect replay without changing the startup decision",
+    "ancestor_titles": [
+      "WalletAccessGate startup only"
+    ],
+    "positive_passing_assertions": 3
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 5,
+    "full_name": "WalletAccessGate startup only keeps recovery input, mount and pending completion stable through time, foreground and rerenders",
+    "title": "keeps recovery input, mount and pending completion stable through time, foreground and rerenders",
+    "ancestor_titles": [
+      "WalletAccessGate startup only"
+    ],
+    "positive_passing_assertions": 6
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 6,
+    "full_name": "startup eligibility failure reporting reports a visible decision failure after a full dwell",
+    "title": "reports a visible decision failure after a full dwell",
+    "ancestor_titles": [
+      "startup eligibility failure reporting"
+    ],
+    "positive_passing_assertions": 6,
+    "omission": {
+      "arm": "wallet",
+      "passing_assertions": 4,
+      "first_frame": {
+        "file": "src/app/WalletAccessGate.test.tsx",
+        "line": 199,
+        "column": 60
+      },
+      "matcher_actual": [],
+      "matcher_expected": [
+        [
+          "walletAccessUnavailableBody",
+          "startup"
+        ]
+      ]
+    }
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 7,
+    "full_name": "startup eligibility failure reporting reports a visible endpoint bootstrap failure after a full dwell",
+    "title": "reports a visible endpoint bootstrap failure after a full dwell",
+    "ancestor_titles": [
+      "startup eligibility failure reporting"
+    ],
+    "positive_passing_assertions": 6,
+    "omission": {
+      "arm": "wallet",
+      "passing_assertions": 4,
+      "first_frame": {
+        "file": "src/app/WalletAccessGate.test.tsx",
+        "line": 199,
+        "column": 60
+      },
+      "matcher_actual": [],
+      "matcher_expected": [
+        [
+          "walletAccessUnavailableBody",
+          "startup"
+        ]
+      ]
+    }
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 8,
+    "full_name": "startup eligibility failure reporting keeps a loading startup result quiet",
+    "title": "keeps a loading startup result quiet",
+    "ancestor_titles": [
+      "startup eligibility failure reporting"
+    ],
+    "positive_passing_assertions": 2
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 9,
+    "full_name": "startup eligibility failure reporting keeps a restricted startup result quiet",
+    "title": "keeps a restricted startup result quiet",
+    "ancestor_titles": [
+      "startup eligibility failure reporting"
+    ],
+    "positive_passing_assertions": 2
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 10,
+    "full_name": "startup eligibility failure reporting keeps a allowed startup result quiet",
+    "title": "keeps a allowed startup result quiet",
+    "ancestor_titles": [
+      "startup eligibility failure reporting"
+    ],
+    "positive_passing_assertions": 2
+  },
+  {
+    "file": "src/app/WalletAccessGate.test.tsx",
+    "ordinal": 11,
+    "full_name": "startup eligibility failure reporting drops a startup failure removed before its dwell completes",
+    "title": "drops a startup failure removed before its dwell completes",
+    "ancestor_titles": [
+      "startup eligibility failure reporting"
+    ],
+    "positive_passing_assertions": 2
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 0,
+    "full_name": "FeatureUnavailableNotice says the built-in copy as a warning, never the cause",
+    "title": "says the built-in copy as a warning, never the cause",
+    "ancestor_titles": [
+      "FeatureUnavailableNotice"
+    ],
+    "positive_passing_assertions": 6
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 1,
+    "full_name": "FeatureUnavailableNotice renders nothing for { state: 'available' }",
+    "title": "renders nothing for { state: 'available' }",
+    "ancestor_titles": [
+      "FeatureUnavailableNotice"
+    ],
+    "positive_passing_assertions": 1
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 2,
+    "full_name": "FeatureUnavailableNotice renders nothing for { state: 'loading' }",
+    "title": "renders nothing for { state: 'loading' }",
+    "ancestor_titles": [
+      "FeatureUnavailableNotice"
+    ],
+    "positive_passing_assertions": 1
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 3,
+    "full_name": "FeatureUnavailableNotice ships the exact English copy",
+    "title": "ships the exact English copy",
+    "ancestor_titles": [
+      "FeatureUnavailableNotice"
+    ],
+    "positive_passing_assertions": 4
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 4,
+    "full_name": "FeatureUnavailableNotice says a place block is the location, not a service outage",
+    "title": "says a place block is the location, not a service outage",
+    "ancestor_titles": [
+      "FeatureUnavailableNotice"
+    ],
+    "positive_passing_assertions": 4
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 5,
+    "full_name": "isFeatureBlocked({ state: 'available' }) is false",
+    "title": "isFeatureBlocked({ state: 'available' }) is false",
+    "ancestor_titles": [],
+    "positive_passing_assertions": 1
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 6,
+    "full_name": "isFeatureBlocked({ state: 'loading' }) is true",
+    "title": "isFeatureBlocked({ state: 'loading' }) is true",
+    "ancestor_titles": [],
+    "positive_passing_assertions": 1
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 7,
+    "full_name": "isFeatureBlocked({\n  state: 'unavailable',\n  reason: 'service-down',\n  detail: 'allocator /health: 503'\n}) is true",
+    "title": "isFeatureBlocked({\n  state: 'unavailable',\n  reason: 'service-down',\n  detail: 'allocator /health: 503'\n}) is true",
+    "ancestor_titles": [],
+    "positive_passing_assertions": 1
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 8,
+    "full_name": "user-visible unavailable-feature errors reports bridgeFeatureUnavailableBody once for an unavailable service despite warning styling",
+    "title": "reports bridgeFeatureUnavailableBody once for an unavailable service despite warning styling",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 4
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 9,
+    "full_name": "user-visible unavailable-feature errors does not report hidden { state: 'available' } state",
+    "title": "does not report hidden { state: 'available' } state",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 2
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 10,
+    "full_name": "user-visible unavailable-feature errors does not report hidden { state: 'loading' } state",
+    "title": "does not report hidden { state: 'loading' } state",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 2
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 11,
+    "full_name": "user-visible unavailable-feature errors keeps a visible geographic restriction quiet",
+    "title": "keeps a visible geographic restriction quiet",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 2,
+    "omission": {
+      "arm": "feature",
+      "passing_assertions": 1,
+      "first_frame": {
+        "file": "src/components/FeatureUnavailable.test.tsx",
+        "line": 109,
+        "column": 35
+      },
+      "matcher_actual": [
+        [
+          "bridgeFeatureUnavailableBody",
+          "notice"
+        ]
+      ],
+      "matcher_expected": []
+    }
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 12,
+    "full_name": "user-visible unavailable-feature errors cancels an outage dwell when a geographic restriction replaces it",
+    "title": "cancels an outage dwell when a geographic restriction replaces it",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 3,
+    "omission": {
+      "arm": "feature",
+      "passing_assertions": 2,
+      "first_frame": {
+        "file": "src/components/FeatureUnavailable.test.tsx",
+        "line": 119,
+        "column": 35
+      },
+      "matcher_actual": [
+        [
+          "bridgeFeatureUnavailableBody",
+          "notice"
+        ]
+      ],
+      "matcher_expected": []
+    }
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 13,
+    "full_name": "user-visible unavailable-feature errors starts a full outage dwell after a geographic restriction clears",
+    "title": "starts a full outage dwell after a geographic restriction clears",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 3,
+    "omission": {
+      "arm": "feature",
+      "passing_assertions": 1,
+      "first_frame": {
+        "file": "src/components/FeatureUnavailable.test.tsx",
+        "line": 128,
+        "column": 35
+      },
+      "matcher_actual": [
+        [
+          "bridgeFeatureUnavailableBody",
+          "notice"
+        ]
+      ],
+      "matcher_expected": []
+    }
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 14,
+    "full_name": "user-visible unavailable-feature errors drops an unavailable episode cleared at 999 ms by { state: 'available' }",
+    "title": "drops an unavailable episode cleared at 999 ms by { state: 'available' }",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 3
+  },
+  {
+    "file": "src/components/FeatureUnavailable.test.tsx",
+    "ordinal": 15,
+    "full_name": "user-visible unavailable-feature errors drops an unavailable episode cleared at 999 ms by { state: 'loading' }",
+    "title": "drops an unavailable episode cleared at 999 ms by { state: 'loading' }",
+    "ancestor_titles": [
+      "user-visible unavailable-feature errors"
+    ],
+    "positive_passing_assertions": 3
+  }
+]
