@@ -104,15 +104,14 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     const storageOperation = STORAGE_OPERATIONS.find(value => value === suppliedStorageOperation);
     const previous = { ...diagnosticsByError.get(error) };
     if (
+      storageOwner !== undefined &&
       storageOperation !== undefined &&
-      ((storageOwner !== undefined &&
-        (storageOwner !== 'wallet_database' || storageOperation === 'transaction' || storageOperation === 'open')) ||
-        (suppliedOwner === undefined && storageOperation === 'open'))
+      (storageOwner !== 'wallet_database' || storageOperation === 'transaction' || storageOperation === 'open')
     ) {
       // Do not join a new operation to a stale owner.
       delete previous.storageOwner;
       delete previous.storageOperation;
-      if (storageOwner !== undefined) safe.storageOwner = storageOwner;
+      safe.storageOwner = storageOwner;
       safe.storageOperation = storageOperation;
     }
     diagnosticsByError.set(error, { ...previous, ...safe });
@@ -146,10 +145,8 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined
     seen.add(link);
     if (seen.size > 32) return {};
     const explicit = diagnosticsByError.get(link);
-    if (explicit?.storageOperation !== undefined) {
-      return explicit.storageOwner === undefined
-        ? { storageOperation: explicit.storageOperation }
-        : { storageOwner: explicit.storageOwner, storageOperation: explicit.storageOperation };
+    if (explicit?.storageOwner !== undefined && explicit.storageOperation !== undefined) {
+      return { storageOwner: explicit.storageOwner, storageOperation: explicit.storageOperation };
     }
     visiting.add(link);
     const inner: unknown = 'inner' in link ? link.inner : undefined;
@@ -203,7 +200,7 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
     Object.assign(snapshot, other);
     const storage = storageDiagnosticsAt(link);
     if (storage !== undefined) {
-      // Rejected promotion and ownerless annotations must clear inherited storage fields.
+      // A link's own pair replaces inherited storage fields, and a rejected promotion clears them.
       delete snapshot.storageOwner;
       delete snapshot.storageOperation;
       Object.assign(snapshot, storage);

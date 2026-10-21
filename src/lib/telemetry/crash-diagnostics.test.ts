@@ -45,9 +45,6 @@ describe('source-bound crash diagnostics', () => {
       expect(exported).toHaveLength(values.length);
       expect(new Set(exported)).toEqual(new Set(values));
     }
-    const failure = new Error('opening');
-    annotateCrash(failure, { storageOperation: 'open' });
-    expect(snapshotCrashDiagnostics(failure)).toEqual({ storageOperation: 'open' });
   });
 
   it('rejects hostile and incompatible storage metadata without changing the failure', () => {
@@ -69,6 +66,7 @@ describe('source-bound crash diagnostics', () => {
       { storageOperation: 'cursor' },
       { storageOperation: 'mutate' },
       { storageOperation: 'transaction' },
+      { storageOperation: 'open' },
       { pageVisibility: 'visible' }
     ];
     for (const storageOperation of ['get', 'query', 'count', 'cursor', 'mutate']) {
@@ -167,8 +165,9 @@ describe('source-bound crash diagnostics', () => {
       workerMode: 'disabled'
     });
     const opening = new Error('opening', { cause: inner });
-    annotateCrash(opening, { storageOperation: 'open' });
+    annotateCrash(opening, { storageOwner: 'wallet_database', storageOperation: 'open' });
     expect(snapshotCrashDiagnostics(opening)).toEqual({
+      storageOwner: 'wallet_database',
       storageOperation: 'open',
       operation: 'sdk_initialize',
       stage: 'client_create',
@@ -424,7 +423,11 @@ describe('source-bound crash diagnostics', () => {
         storageOperation: 'open'
       });
       annotateCrash(outer, { storageOperation: 'open' });
-      expect(snapshotCrashDiagnostics(outer)).toEqual({ ...other, storageOperation: 'open' });
+      expect(snapshotCrashDiagnostics(outer)).toEqual({
+        ...other,
+        storageOwner: 'wallet_database',
+        storageOperation: 'open'
+      });
     }
   );
 
@@ -441,7 +444,7 @@ describe('source-bound crash diagnostics', () => {
     expect(earlier).toEqual(pair);
     expect(snapshotCrashDiagnostics(failure)).toEqual(next);
     annotateCrash(failure, { storageOperation: 'open' });
-    expect(snapshotCrashDiagnostics(failure)).toEqual({ storageOperation: 'open' });
+    expect(snapshotCrashDiagnostics(failure)).toEqual(next);
   });
 
   it('reads page visibility once with honest unknown fallback', () => {
