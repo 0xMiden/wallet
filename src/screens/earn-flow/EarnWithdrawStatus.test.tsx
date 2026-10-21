@@ -47,6 +47,8 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
+  HistoryAction: jest.requireActual<typeof import('lib/woozie/history')>('lib/woozie/history').HistoryAction,
+  useLocation: () => ({ trigger: null, state: null }),
   navigate: jest.fn()
 }));
 

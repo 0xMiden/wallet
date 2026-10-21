@@ -286,7 +286,10 @@ describe('EarnWithdrawReview', () => {
       underlyingDecimals: 6,
       onRowCreated: expect.any(Function)
     });
-    expect(navigate).toHaveBeenCalledWith('/earn/withdraw-status/tx%2F1');
+    expect(navigate).toHaveBeenCalledWith({
+      pathname: '/earn/withdraw-status/tx%2F1',
+      state: { newSubmissionTxId: 'tx/1' }
+    });
   });
 
   it('rejects a position not owned by the current wallet account', async () => {
