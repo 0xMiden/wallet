@@ -437,6 +437,7 @@ export default defineConfig({
     'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
     'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
     'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
-    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? '')
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(process.env.MIDEN_ELIGIBILITY_OPEN ?? '')
   }
 });

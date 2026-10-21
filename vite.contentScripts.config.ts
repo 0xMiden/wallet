@@ -123,6 +123,7 @@ export default defineConfig({
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(process.env.MIDEN_ELIGIBILITY_OPEN ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   }
