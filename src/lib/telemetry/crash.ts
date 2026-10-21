@@ -184,10 +184,19 @@ type ReportableFrame = {
   colno?: number;
 };
 const capturedFrames = new WeakMap<Error, ReportableFrame[]>();
-const capturedClosedNames = new WeakMap<Error, ReadonlySet<string>>();
+const capturedClosedReports = new WeakMap<Error, Readonly<Pick<Error, 'name' | 'message'>>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function closedReportValue(event: unknown, original: unknown): Record<string, unknown> | undefined {
+  const captured = original instanceof Error ? capturedClosedReports.get(original) : undefined;
+  if (captured === undefined || !isRecord(event) || !isRecord(event.exception)) return undefined;
+  const values = event.exception.values;
+  if (!Array.isArray(values)) return undefined;
+  const value: unknown = values[values.length - 1];
+  return isRecord(value) && value.type === captured.name && value.value === captured.message ? value : undefined;
 }
 
 function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, diagnostics: DiagnosticSnapshot): void {
@@ -230,9 +239,16 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
  */
 export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }): T | null {
   const original = hint?.originalException;
-  const closedNames = original instanceof Error ? capturedClosedNames.get(original) : undefined;
-  if (containsSeedMaterialDeep(event, WORDLIST, closedNames)) return null;
-  redactInPlace(event, WORDLIST, closedNames);
+  const fixedValue = closedReportValue(event, original);
+  const fixedMessage = fixedValue?.value;
+  try {
+    // Only the identity-bound fixed exception text is exempt; SDK-added text always uses the full phrase guard.
+    if (fixedValue !== undefined) fixedValue.value = REDACTED;
+    if (containsSeedMaterialDeep(event, WORDLIST)) return null;
+    redactInPlace(event, WORDLIST);
+  } finally {
+    if (fixedValue !== undefined) fixedValue.value = fixedMessage;
+  }
   const diagnostics = original instanceof Error ? capturedDiagnostics.get(original) : undefined;
   if (diagnostics !== undefined && original instanceof Error && isRecord(event))
     restoreDiagnostics(event, original, diagnostics);
@@ -332,7 +348,7 @@ function rebuildError(
 ): Error {
   seen.add(error);
   const { name, message, stack } = fields;
-  const safeName = redactText(name, WORDLIST, closedNames);
+  const safeName = redactText(name, WORDLIST);
   const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;
   const frames = framesAfterHeader(name, message, stack);
   const reportable = new Error(safeMessage);
@@ -359,7 +375,7 @@ function rebuildError(
     /* Ignore hostile cause accessors. */
   }
   if (cause instanceof Error && depth < 3 && !seen.has(cause)) {
-    reportable.cause = rebuildError(cause, seen, depth + 1, closedNames);
+    reportable.cause = rebuildError(cause, seen, depth + 1);
   }
   return reportable;
 }
@@ -382,7 +398,7 @@ export function captureCrash(
   options: {
     initializeIfNeeded?: boolean;
     level?: 'error' | 'warning';
-    /** The reporter's own closed identifiers, which the recovery-phrase guard reads as non-wordlist words if whole. */
+    /** Closed identifiers used only to rebuild the fixed report message, never arbitrary SDK-added event fields. */
     closedNames?: ReadonlySet<string>;
   } = {}
 ): void {
@@ -396,7 +412,8 @@ export function captureCrash(
     const reportable = relay?.report
       ? rebuildRelayError(fields, relay.message)
       : rebuildError(error, new Set(), 0, options.closedNames, fields);
-    if (options.closedNames !== undefined) capturedClosedNames.set(reportable, options.closedNames);
+    if (options.closedNames !== undefined)
+      capturedClosedReports.set(reportable, { name: reportable.name, message: reportable.message });
     capturedDiagnostics.set(reportable, {
       ...snapshotCrashDiagnostics(error),
       ...resolveTelemetryContext(),
