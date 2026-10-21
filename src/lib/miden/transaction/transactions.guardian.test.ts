@@ -6911,28 +6911,28 @@ describe('generateTransaction — Guardian routing', () => {
         jest.spyOn(console, 'error').mockImplementation(() => {});
         const service = busyService();
         service.priorCandidateState.mockResolvedValue('settled');
-        // Taken, an abandon clears the record; refused, the candidate still awaits one.
-        service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
         mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const row = queueRow('persists-candidate', SEND);
+        // Read while the attempt executes: the window a process death leaves for the next startup sweep.
+        const keptWhileExecuting: unknown[] = [];
         const client = makeClientApi(makeResult());
-        client.transactions.executeRequest.mockRejectedValueOnce(new Error('failed to execute transaction: kernel'));
+        client.transactions.executeRequest.mockImplementationOnce(async () => {
+          keptWhileExecuting.push(stored(row.id).guardianCandidate);
+          throw new Error('failed to execute transaction: kernel');
+        });
         mockGetMidenClient.mockResolvedValue({
           getAccount: jest.fn(async () => undefined),
           syncState: jest.fn(async () => {}),
           client
         });
-        const row = queueRow('persists-candidate', SEND);
 
         await run(row);
 
         expect(service.createSendProposal).toHaveBeenCalledTimes(1);
-        expect(stored(row.id).guardianCandidate).toEqual({
-          endpoint: GUARDIAN,
-          nonce: 8,
-          proposedAt: expect.any(Number),
-          attemptId: expect.any(String)
-        });
-        const { proposedAt } = stored(row.id).guardianCandidate as { proposedAt: number };
+        expect(keptWhileExecuting).toEqual([
+          { endpoint: GUARDIAN, nonce: 8, proposedAt: expect.any(Number), attemptId: expect.any(String) }
+        ]);
+        const { proposedAt } = keptWhileExecuting[0] as { proposedAt: number };
         expect(proposedAt).toBeGreaterThanOrEqual(testStartedAt);
         expect(proposedAt).toBeLessThanOrEqual(Date.now());
       });
@@ -7022,8 +7022,14 @@ describe('generateTransaction — Guardian routing', () => {
           client
         });
         const row = queueRow('abandoned-then-died', SEND);
+        // A death once the Guardian took the abandon must find nothing left to send again.
+        const keptWhileAbandoning: unknown[] = [];
+        service.abandonCandidate.mockImplementation(async () => {
+          keptWhileAbandoning.push(stored(row.id).guardianCandidate);
+        });
         await run(row);
         expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(keptWhileAbandoning).toEqual([undefined]);
         const left = stored(row.id).guardianCandidate as Record<string, unknown> | undefined;
         // What an earlier process that died after that abandon, before failing the row, leaves for this one's sweep.
         deadRow('abandoned-then-died-earlier', {
@@ -8965,9 +8971,12 @@ describe('generateTransaction — Guardian routing', () => {
         newEndpoint: 'https://new.guardian'
       })),
       signAndCreateTransactionRequest: jest.fn(),
-      abandonCandidate: jest.fn(async () => {}),
+      abandonCandidate: jest.fn(async () => {
+        keptWhileAbandoning.push(txStore.find(r => r.id === txId)!.guardianCandidate);
+      }),
       sync: jest.fn(async () => {})
     };
+    const keptWhileAbandoning: unknown[] = [];
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
     mockBuildColdMultisigService.mockRejectedValue(new Error('NetworkError when attempting to fetch resource'));
     mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
@@ -9008,7 +9017,8 @@ describe('generateTransaction — Guardian routing', () => {
     // set, so a delta left pending on a recovered operator cancels the NEXT
     // coordinated switch outright — leaving it is not harmless.
     expect(multisigService.abandonCandidate).toHaveBeenCalledWith(31);
-    // Taken, the abandon leaves nothing for a later startup sweep to send again (#1666).
+    // The row holds no candidate by the time the abandon goes out, so a later startup sweep cannot send it again (#1666).
+    expect(keptWhileAbandoning).toEqual([undefined]);
     expect(txStore.find(r => r.id === txId)!.guardianCandidate).toBeUndefined();
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {

@@ -3094,8 +3094,9 @@ const persistGuardianCandidate = async (
 };
 
 /**
- * Drop the candidate this attempt kept on its row once its Guardian took the abandon (#1666): a later process's
- * startup sweep must not send it again, since the Guardian may already have released that nonce to another write.
+ * Drop the candidate this attempt kept on its row before its abandon goes out (#1666): once the Guardian takes it, a
+ * later process's startup sweep must not send it again, since that nonce may by then be another write's. A death
+ * between the two only waits the hold out.
  */
 const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number): Promise<void> => {
   const attemptId = transaction.attemptId;
@@ -3106,7 +3107,7 @@ const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number
       }
     });
   } catch (error) {
-    console.warn(`[Guardian] could not drop abandoned candidate ${nonce} from transaction ${transaction.id}:`, error);
+    console.warn(`[Guardian] could not drop candidate ${nonce} from transaction ${transaction.id}:`, error);
   }
 };
 
@@ -3835,11 +3836,11 @@ const generateGuardianTransaction = async (
       // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
       // A cleanup step must not be able to cost more than the thing it cleans up.
       try {
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the pending delta on the outgoing guardian'
         );
-        await forgetPersistedCandidate(transaction, proposalResult.nonce);
       } catch (abandonError) {
         console.warn('[Guardian] could not abandon the pending delta before the direct switch (non-fatal)', {
           nonce: proposalResult.nonce,
@@ -4103,11 +4104,11 @@ const generateGuardianTransaction = async (
         // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
         // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
         // the same loop) down with it, so the row is not even reaped.
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the guardian candidate after a failed submission'
         );
-        await forgetPersistedCandidate(transaction, proposalResult.nonce);
       } catch (abandonError) {
         // Cleanup must never mask the transaction failure. The abandonment call
         // is idempotent, so the account's next proposal retries it (#1317), but
