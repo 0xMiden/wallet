@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, render, renderHook } from '@testing-library/react';
 
+import { fetchTokenPrices } from './feed';
 import { PriceProvider, useTokenSparkline } from './index';
 
 let mockNetwork = 'testnet';
@@ -40,6 +41,7 @@ jest.mock('lib/remote-config/runtime', () => ({
 }));
 jest.mock('lib/miden/swap/tokens', () => ({ getPriceAssets: () => mockAssets }));
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockWallet }));
+jest.mock('./feed', () => ({ fetchTokenPrices: jest.fn(async () => ({})), fetchKlineData: jest.fn() }));
 
 const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
@@ -91,7 +93,7 @@ describe('PriceProvider', () => {
   it.each([
     ['locked', { locked: true, ready: false }],
     ['ready', { locked: false, ready: true }]
-  ])('reads prices once a wallet exists (%s)', (_state, wallet) => {
+  ])('reads prices once a wallet exists (%s)', async (_state, wallet) => {
     Object.assign(mockWallet, wallet);
     render(<PriceProvider />);
     const [key, fetcher] = mockUseRetryableSWR.mock.calls[0]!;
@@ -103,7 +105,20 @@ describe('PriceProvider', () => {
         ['verified', 'ARB']
       ])
     ]);
-    expect(fetcher).toEqual(expect.any(Function));
+    await expect(fetcher()).resolves.toEqual({ network: 'testnet', assetKey: key[2], prices: {} });
+    expect(fetchTokenPrices).toHaveBeenLastCalledWith(['ARB', 'ETH']);
+  });
+
+  it('fetches each price asset once and leaves the fixed USDCX quote out', async () => {
+    mockAssets = new Map([
+      ['verified', 'ARB'],
+      ['bridge', 'ETH'],
+      ['twin', 'ETH'],
+      ['native', 'USDCX']
+    ]);
+    render(<PriceProvider />);
+    await mockUseRetryableSWR.mock.lastCall?.[1]();
+    expect(fetchTokenPrices).toHaveBeenLastCalledWith(['ARB', 'ETH']);
   });
 
   it('requests new assets after the list arrives', async () => {
@@ -118,9 +133,11 @@ describe('PriceProvider', () => {
       'testnet',
       JSON.stringify([['new', 'DOGE']])
     ]);
+    await mockUseRetryableSWR.mock.lastCall?.[1]();
+    expect(fetchTokenPrices).toHaveBeenLastCalledWith(['DOGE']);
   });
 
-  it('requests new assets after bridge config arrives', () => {
+  it('requests new assets after bridge config arrives', async () => {
     render(<PriceProvider />);
     act(() => {
       mockAssets = new Map([['bridge', 'BTC']]);
@@ -132,6 +149,8 @@ describe('PriceProvider', () => {
       'testnet',
       JSON.stringify([['bridge', 'BTC']])
     ]);
+    await mockUseRetryableSWR.mock.lastCall?.[1]();
+    expect(fetchTokenPrices).toHaveBeenLastCalledWith(['BTC']);
   });
 
   it('clears quotes when a faucet is removed even when its symbol remains', () => {

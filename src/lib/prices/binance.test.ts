@@ -49,9 +49,18 @@ it('fetches only both USD denominators when no assets are requested', async () =
 });
 
 it('uses USDT first, converts current and prior prices, and caches market resolution', async () => {
-  http.get.mockResolvedValueOnce(market('AAA')).mockResolvedValue({
-    data: [ticker('USDTUSD', '1.1', '0.1'), ticker('USDCUSD', '1'), ticker('AAAUSDT', '20', '10')]
-  });
+  http.get
+    .mockResolvedValueOnce({
+      data: { symbols: [...market('AAA', 'USDC').data.symbols, ...market('AAA').data.symbols] }
+    })
+    .mockResolvedValue({
+      data: [
+        ticker('USDTUSD', '1.1', '0.1'),
+        ticker('USDCUSD', '1'),
+        ticker('AAAUSDT', '20', '10'),
+        ticker('AAAUSDC', '30', '0')
+      ]
+    });
   const result = await engine.fetchTokenPrices(['AAA', 'AAA']);
   expect(result.AAA).toEqual({ price: 22, change24h: 12, percentageChange24h: 120 });
   await engine.fetchTokenPrices(['AAA']);
