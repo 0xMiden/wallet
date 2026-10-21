@@ -1165,6 +1165,8 @@
   "bridgeDepositFailed": "Köprü yatırımı başarısız oldu",
   "bridgeDepositBalanceTooLow": "Bağlı cüzdanınızda $balance$ tutarında $token$, $network$ ağında bulunmaktadır; bu tutar, bu para yatırma işlemi için gereken miktardan daha azdır. Hiçbir şey gönderilmedi.",
   "bridgeDepositBalanceReadFailed": "$network$ ağındaki $token$ bakiyenizi kontrol edilemedi. Hiçbir şey gönderilmedi.",
+  "bridgeDepositBalanceCapExceeded": "Bu hesap en fazla $cap$ USD tutabilir. Şu anda $held$ USD tutmaktadır ve bu para yatırma işlemiyle $deposit$ USD eklenecektir. Daha düşük bir tutar girin.",
+  "bridgeDepositBalanceCapUnpriced": "Bu hesap en fazla $cap$ USD tutabilir ve $token$'ın şu anda bir fiyatı bulunmadığından, para yatırma işlemi bu değerle karşılaştırılamaz. Daha sonra tekrar deneyin.",
   "bridgeDepositSubmitted": "Köprü başlatıldı!",
   "bridgeDepositDeliveryDescription": "Kaynak işlem onaylandı. Köprü aktarımı tamamlandığında paranız Miden'de görünecektir.",
   "viewOnEtherscan": "Etherscan'da görüntüle",

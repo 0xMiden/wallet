@@ -1165,6 +1165,8 @@
   "bridgeDepositFailed": "Échec du dépôt via le pont",
   "bridgeDepositBalanceTooLow": "Votre portefeuille connecté contient $balance$ $token$ sur $network$, ce qui est inférieur au montant requis pour ce dépôt. Rien n’a été envoyé.",
   "bridgeDepositBalanceReadFailed": "Impossible de vérifier le solde de votre $token$ sur $network$. Rien n’a été envoyé.",
+  "bridgeDepositBalanceCapExceeded": "Ce compte peut contenir au maximum $cap$ USD. Il contient $held$ USD et ce dépôt ajoute $deposit$ USD. Saisissez un montant inférieur.",
+  "bridgeDepositBalanceCapUnpriced": "Ce compte peut contenir au maximum $cap$ USD, et $token$ n’a pas de cours pour le moment ; le dépôt ne peut donc pas être validé par rapport à ce montant. Veuillez réessayer plus tard.",
   "bridgeDepositSubmitted": "Pont lancé !",
   "bridgeDepositDeliveryDescription": "La transaction source est confirmée. Vos fonds apparaîtront sur Miden une fois la livraison via le pont terminée.",
   "viewOnEtherscan": "Consulter sur Etherscan",

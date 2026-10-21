@@ -1165,6 +1165,8 @@
   "bridgeDepositFailed": "Помилка під час депозиту через міст",
   "bridgeDepositBalanceTooLow": "У вашому підключеному гаманці на $network$ зберігається $balance$ $token$, що менше, ніж потрібно для цього депозиту. Нічого не було надіслано.",
   "bridgeDepositBalanceReadFailed": "Не вдалося перевірити ваш баланс $token$ у мережі $network$. Нічого не було надіслано.",
+  "bridgeDepositBalanceCapExceeded": "Цей рахунок може містити не більше $cap$ доларів США. На ньому знаходиться $held$ доларів США, і цей депозит додає $deposit$ доларів США. Введіть меншу суму.",
+  "bridgeDepositBalanceCapUnpriced": "Цей рахунок може містити не більше $cap$ доларів США, а $token$ наразі не має ціни, тому депозит не можна перевірити за ним. Спробуйте пізніше.",
   "bridgeDepositSubmitted": "Міст ініційовано!",
   "bridgeDepositDeliveryDescription": "Транзакція-джерело підтверджена. Ваші кошти з’являться на Miden після завершення передачі через міст.",
   "viewOnEtherscan": "Переглянути на Etherscan",

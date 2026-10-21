@@ -1165,6 +1165,8 @@
   "bridgeDepositFailed": "Falha no depósito da ponte",
   "bridgeDepositBalanceTooLow": "Sua carteira conectada possui $balance$ $token$ na $network$, valor inferior ao necessário para este depósito. Nada foi enviado.",
   "bridgeDepositBalanceReadFailed": "Não foi possível verificar seu saldo de $token$ na $network$. Nada foi enviado.",
+  "bridgeDepositBalanceCapExceeded": "Esta conta pode conter, no máximo, $cap$ em dólares americanos. Ela contém $held$ em dólares americanos e este depósito acrescenta $deposit$ em dólares americanos. Insira um valor menor.",
+  "bridgeDepositBalanceCapUnpriced": "Esta conta pode conter, no máximo, $cap$ em dólares americanos, e $token$ não tem preço no momento, portanto, o depósito não pode ser verificado em relação a ele. Tente novamente mais tarde.",
   "bridgeDepositSubmitted": "Bridge iniciada!",
   "bridgeDepositDeliveryDescription": "A transação de origem foi confirmada. Seus fundos aparecerão no Miden assim que a entrega pela ponte for concluída.",
   "viewOnEtherscan": "Ver no Etherscan",

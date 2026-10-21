@@ -5212,6 +5212,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "该账户最多可持有$cap$美元。当前持有$held$美元，本次存款将增加$deposit$美元。请输入较小的金额。",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "该账户最多可持有$cap$美元，且$token$当前无价格，因此无法根据该代币核对存款。请稍后再试。",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "桥接已启动！",
     "englishSource": "Bridge initiated!"

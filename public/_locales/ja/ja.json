@@ -1165,6 +1165,8 @@
   "bridgeDepositFailed": "ブリッジへの入金が失敗しました",
   "bridgeDepositBalanceTooLow": "接続されたウォレットには、$network$上の$balance$分の$token$が保管されていますが、この入金額には不足しています。何も送信されませんでした。",
   "bridgeDepositBalanceReadFailed": "$network$上の$token$残高を確認できませんでした。何も送信されませんでした。",
+  "bridgeDepositBalanceCapExceeded": "このアカウントの最大保有額は$cap$米ドルです。現在$held$米ドルが保有されており、この入金により$deposit$米ドルが追加されます。これより少ない金額を入力してください。",
+  "bridgeDepositBalanceCapUnpriced": "このアカウントの最大保有額は$cap$米ドルです。また、$token$の価格は現在設定されていないため、この金額との照合はできません。後ほど再度お試しください。",
   "bridgeDepositSubmitted": "ブリッジを開始しました！",
   "bridgeDepositDeliveryDescription": "送信元の取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
   "viewOnEtherscan": "Etherscanで表示",
