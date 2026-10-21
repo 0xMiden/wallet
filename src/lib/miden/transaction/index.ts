@@ -2335,7 +2335,7 @@ const runGuardianPipeline = async (
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
   return withWasmClientLock(async hold => {
-    const midenClient = await getMidenClient();
+    const midenClient = await withProposalStep('client_build', () => getMidenClient());
     // The client build can be the LONGEST parking await in this hold - a first
     // build's genesis fetch goes to the same node everything else here is waiting
     // on. The offscreen copy of this pipeline checks the hold right after its own
@@ -3301,7 +3301,12 @@ const generateGuardianTransaction = async (
       sameWalletAccountId(a.publicKey, transaction.accountId)
     );
     if (walletAccount) {
-      assertGuardianInSync(walletAccount);
+      try {
+        assertGuardianInSync(walletAccount);
+      } catch (error) {
+        annotateCrash(error, { proposalStep: 'service_select', proposalGuard: 'guardian_out_of_sync' });
+        throw error;
+      }
     }
   }
 
@@ -4067,9 +4072,9 @@ const generateGuardianTransaction = async (
       // vault-slot rejection included. A guardian send with no recall window
       // takes `createSendProposal` and caches nothing, so it is left alone.
       // Serialized before the pin and the flag: a request that cannot serialize never reached the leaf.
-      const requestBytes = tr.serialize();
+      const requestBytes = await withProposalStep('submit_serialize', async () => tr.serialize());
       if (transaction.requestBytes !== undefined) {
-        await pinGuardianCrossing(transaction.id, attempt);
+        await withProposalStep('submit_pin', () => pinGuardianCrossing(transaction.id, attempt));
       }
       offscreenDispatched = true;
       result = await runWriteLeaf(transaction.id, attempt, true, () =>

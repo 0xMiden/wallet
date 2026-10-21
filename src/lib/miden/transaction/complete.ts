@@ -27,6 +27,7 @@ import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
 import type { BridgeReceiveFailureSource } from 'lib/telemetry/bridge-receive-failure';
 import { classifyError } from 'lib/telemetry/classify';
+import { annotateCrash, withCompletionStep, type CompletionGuard } from 'lib/telemetry/crash-diagnostics';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
@@ -291,30 +292,25 @@ const orderHasSettleClaim = async (swapOrderTxId: string): Promise<boolean> =>
     .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapSettleKind !== 'reclaim')
     .count()) > 0;
 
-export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const inputNotes = result.executedTransaction().inputNotes().notes();
+const readConsumeResult = (result: TransactionResult) => {
+  const executedTransaction = result.executedTransaction();
+  const inputNotes = executedTransaction.inputNotes().notes();
   const firstInputNote = inputNotes[0];
   if (!firstInputNote) {
-    throw new Error('completeConsumeTransaction: no input notes on executed transaction');
+    throw refusedCompletion('completeConsumeTransaction: no input notes on executed transaction', 'no_input_notes');
   }
   const note = firstInputNote.note();
   const sender = getBech32AddressFromAccountId(note.metadata().sender());
-  const executedTransaction = result.executedTransaction();
-
-  const dbTransaction = await Repo.transactions.where({ id }).first();
-  const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
-  const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
-  const secondaryAccountId = reclaimed ? undefined : sender;
   const asset = note.assets().fungibleAssets()[0];
   if (!asset) {
-    throw new Error('completeConsumeTransaction: note has no fungible assets');
+    throw refusedCompletion('completeConsumeTransaction: note has no fungible assets', 'no_fungible_assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
   // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
-  // value the `ConsumeTransaction` constructor wrote is only an estimate — its
-  // `ConsumableNote` inputs carry just the first fungible asset per note — so a
+  // value the `ConsumeTransaction` constructor wrote is only an estimate (its
+  // `ConsumableNote` inputs carry just the first fungible asset per note), so a
   // completed row recomputes it here against the executed transaction and stays
-  // consistent with `amount` below (which is this list's `faucetId` entry).
+  // consistent with `amount` (which is this list's `faucetId` entry).
   const totalsByFaucet = new Map<string, bigint>();
   for (const inputNote of inputNotes) {
     for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
@@ -326,26 +322,52 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     faucetId: id,
     amount: total
   }));
-  const amount = totalsByFaucet.get(faucetId) ?? 0n;
-
-  // Only a uniform batch has a single answer, matching the constructor's rule —
+  // Only a uniform batch has a single answer, matching the constructor's rule;
   // otherwise the details card would label a mixed claim by its first note alone.
   const noteTypes = inputNotes.map(inputNote => toNoteTypeString(inputNote.note().metadata().noteType()));
   const firstNoteType = noteTypes[0];
-  const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
-
-  await updateTransactionStatus(id, ITransactionStatus.Completed, {
-    ...feeFieldsFromResult(result),
-    displayMessage,
+  return {
+    inputNotes,
+    sender,
     transactionId: executedTransaction.id().toHex(),
-    secondaryAccountId,
     faucetId,
-    amount,
     assetTotals,
-    noteType: uniformNoteType,
-    completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
-    resultBytes: result.serialize()
-  });
+    amount: totalsByFaucet.get(faucetId) ?? 0n,
+    uniformNoteType: noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined,
+    fees: feeFieldsFromResult(result)
+  };
+};
+
+function refusedCompletion(message: string, completionGuard: CompletionGuard): Error {
+  const error = new Error(message);
+  annotateCrash(error, { completionStep: 'result_read', completionGuard });
+  return error;
+}
+
+export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
+  const { inputNotes, sender, transactionId, faucetId, assetTotals, amount, uniformNoteType, fees } =
+    await withCompletionStep('result_read', async () => readConsumeResult(result));
+
+  const dbTransaction = await withCompletionStep('row_read', () => Repo.transactions.where({ id }).first());
+  const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
+  const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
+  const secondaryAccountId = reclaimed ? undefined : sender;
+  const resultBytes = await withCompletionStep('result_serialize', async () => result.serialize());
+
+  await withCompletionStep('status_write', () =>
+    updateTransactionStatus(id, ITransactionStatus.Completed, {
+      ...fees,
+      displayMessage,
+      transactionId,
+      secondaryAccountId,
+      faucetId,
+      amount,
+      assetTotals,
+      noteType: uniformNoteType,
+      completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
+      resultBytes
+    })
+  );
 
   // A note parked by an EVM→Miden intent, or minted for a tracked deposit, settles its bridge row. Each executed
   // note goes over by its own first asset: the per-faucet totals above are no single delivery's amount. Must never

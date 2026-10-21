@@ -48,7 +48,10 @@ export type BackgroundAge = (typeof BACKGROUND_AGES)[number];
 export const PAGE_NAVIGATIONS = ['navigate', 'reload', 'back_forward', 'prerender', 'unknown'] as const;
 export type PageNavigation = (typeof PAGE_NAVIGATIONS)[number];
 
-/** The step a Guardian proposal's preparation was in when it failed, from the service lookup to the signing stage. */
+/**
+ * The step a Guardian proposal's preparation was in when it failed, from the service lookup through the signing stage
+ * to the submit crossing that hands the co-signed request to the transaction pipeline.
+ */
 export const PROPOSAL_STEPS = [
   'service_select',
   'service_account_read',
@@ -58,13 +61,24 @@ export const PROPOSAL_STEPS = [
   'reclaim_build',
   'reclaim_persist',
   'proposal_create',
-  'signing_stage_write'
+  'signing_stage_write',
+  'submit_serialize',
+  'submit_pin',
+  'client_build'
 ] as const;
 export type ProposalStep = (typeof PROPOSAL_STEPS)[number];
 
-/** The wallet's own checks that refuse to build a Guardian service for an account. */
-export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing'] as const;
+/** The wallet's own checks that refuse to build a Guardian service for an account, or to use one. */
+export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing', 'guardian_out_of_sync'] as const;
 export type ProposalGuard = (typeof PROPOSAL_GUARDS)[number];
+
+/** The step a submitted transaction's completion was in when it failed, from reading its result to recording it. */
+export const COMPLETION_STEPS = ['result_read', 'row_read', 'result_serialize', 'status_write'] as const;
+export type CompletionStep = (typeof COMPLETION_STEPS)[number];
+
+/** The wallet's own checks that refuse an executed result its completion cannot record. */
+export const COMPLETION_GUARDS = ['no_input_notes', 'no_fungible_assets'] as const;
+export type CompletionGuard = (typeof COMPLETION_GUARDS)[number];
 
 export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
 export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
@@ -105,6 +119,8 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   userErrorSurface?: UserErrorSurface;
   proposalStep?: ProposalStep;
   proposalGuard?: ProposalGuard;
+  completionStep?: CompletionStep;
+  completionGuard?: CompletionGuard;
 };
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
@@ -205,7 +221,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       userErrorId,
       userErrorSurface: suppliedSurface,
       proposalStep: suppliedStep,
-      proposalGuard: suppliedGuard
+      proposalGuard: suppliedGuard,
+      completionStep: suppliedCompletionStep,
+      completionGuard: suppliedCompletionGuard
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -248,6 +266,12 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
       if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
     }
+    const completionStep = COMPLETION_STEPS.find(step => step === suppliedCompletionStep);
+    if (completionStep !== undefined && previous.completionStep === undefined) {
+      safe.completionStep = completionStep;
+      const completionGuard = COMPLETION_GUARDS.find(guard => guard === suppliedCompletionGuard);
+      if (completionGuard !== undefined) safe.completionGuard = completionGuard;
+    }
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
     diagnosticsByError.set(error, { ...previous, ...safe, ...nativeDiagnostics(diagnostics) });
@@ -256,14 +280,23 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
-/** Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did. */
-export async function withProposalStep<T>(step: ProposalStep, operation: () => Promise<T>): Promise<T> {
+async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    annotateCrash(error, { proposalStep: step });
+    annotateCrash(error, diagnostics);
     throw error;
   }
+}
+
+/** Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did. */
+export function withProposalStep<T>(step: ProposalStep, operation: () => Promise<T>): Promise<T> {
+  return annotatingRejection({ proposalStep: step }, operation);
+}
+
+/** {@link withProposalStep} for the completion of a submitted transaction. */
+export function withCompletionStep<T>(step: CompletionStep, operation: () => Promise<T>): Promise<T> {
+  return annotatingRejection({ completionStep: step }, operation);
 }
 
 /** `error` and up to three of its causes, outermost first. */
