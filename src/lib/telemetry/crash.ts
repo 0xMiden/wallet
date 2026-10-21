@@ -206,15 +206,28 @@ function closedReportValue(event: unknown, original: unknown): Record<string, un
 
 function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, diagnostics: DiagnosticSnapshot): void {
   event.extra = { walletDiagnostics: { ...diagnostics } };
+  const tags = isRecord(event.tags) ? { ...event.tags } : {};
+  delete tags.reown_native_origin;
+  delete tags.reown_wallet_response_code;
+  delete tags.reown_request_age;
+  delete tags.reown_published;
+  delete tags.reown_backgrounded;
   // Also a tag, because Sentry can search and filter by tags but not by extra data.
   event.tags = {
-    ...(isRecord(event.tags) ? event.tags : {}),
+    ...tags,
     network: diagnostics.network,
     ...(diagnostics.storageOwner === undefined ? {} : { storage_owner: diagnostics.storageOwner }),
     ...(diagnostics.storageOperation === undefined ? {} : { storage_operation: diagnostics.storageOperation }),
     ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
     ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
-    ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface })
+    ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface }),
+    ...(diagnostics.reownNativeOrigin === undefined ? {} : { reown_native_origin: diagnostics.reownNativeOrigin }),
+    ...(diagnostics.reownWalletResponseCode === undefined
+      ? {}
+      : { reown_wallet_response_code: diagnostics.reownWalletResponseCode }),
+    ...(diagnostics.reownRequestAge === undefined ? {} : { reown_request_age: diagnostics.reownRequestAge }),
+    ...(diagnostics.reownPublished === undefined ? {} : { reown_published: diagnostics.reownPublished }),
+    ...(diagnostics.reownBackgrounded === undefined ? {} : { reown_backgrounded: diagnostics.reownBackgrounded })
   };
   if (
     reportable.name === 'WalletUserVisibleError' &&

@@ -665,3 +665,99 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
   });
 });
+
+const nativeGroup = {
+  reownNativeOrigin: 'wallet_error',
+  reownWalletResponseCode: 'internal_error',
+  reownRequestAge: '120_to_300s',
+  reownPublished: 'confirmed',
+  reownBackgrounded: 'yes'
+};
+
+it('validatesTheWholeNativeGroupOnEveryBoundary', () => {
+  const error = new Error('native failure');
+  annotateCrash(error, { ...nativeGroup, payload: 'secret', code: -32603 });
+  expect(snapshotCrashDiagnostics(error)).toEqual(nativeGroup);
+  const detached = snapshotCrashDiagnostics(error);
+  detached.reownPublished = 'unobserved';
+  expect(snapshotCrashDiagnostics(error)).toEqual(nativeGroup);
+  for (const key of ['reownNativeOrigin', 'reownRequestAge', 'reownPublished']) {
+    for (const value of [undefined, 'unlisted', 42]) {
+      const rejected = new Error('invalid');
+      annotateCrash(rejected, { ...nativeGroup, [key]: value });
+      expect(snapshotCrashDiagnostics(rejected)).toEqual({});
+    }
+  }
+  for (const reownWalletResponseCode of [undefined, 'unlisted', -32603]) {
+    const fallback = new Error('wallet');
+    annotateCrash(fallback, { ...nativeGroup, reownWalletResponseCode, reownBackgrounded: 'unknown' });
+    expect(snapshotCrashDiagnostics(fallback)).toEqual({
+      reownNativeOrigin: 'wallet_error',
+      reownWalletResponseCode: 'other',
+      reownRequestAge: '120_to_300s',
+      reownPublished: 'confirmed'
+    });
+  }
+  const nonWallet = new Error('publisher');
+  annotateCrash(nonWallet, { ...nativeGroup, reownNativeOrigin: 'publish_error' });
+  expect(snapshotCrashDiagnostics(nonWallet)).toEqual({
+    reownNativeOrigin: 'publish_error',
+    reownRequestAge: '120_to_300s',
+    reownPublished: 'confirmed',
+    reownBackgrounded: 'yes'
+  });
+  const reads = new Map<string, number>();
+  const changing: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(nativeGroup))
+    Object.defineProperty(changing, key, {
+      get() {
+        const count = (reads.get(key) ?? 0) + 1;
+        reads.set(key, count);
+        return count === 1 ? value : 'secret';
+      }
+    });
+  const changingError = new Error('changing');
+  annotateCrash(changingError, changing);
+  expect(snapshotCrashDiagnostics(changingError)).toEqual(nativeGroup);
+  expect([...reads.values()]).toEqual([1, 1, 1, 1, 1]);
+});
+
+it('reannotationNeverMixesNativeGroups', () => {
+  const error = new Error('native failure');
+  annotateCrash(error, { ...nativeGroup, operation: 'sdk_initialize', workerMode: 'enabled' });
+  const publicationGroup = {
+    reownNativeOrigin: 'publish_error',
+    reownRequestAge: 'under_30s',
+    reownPublished: 'unobserved'
+  };
+  annotateCrash(error, { ...publicationGroup, stage: 'client_create' });
+  expect(snapshotCrashDiagnostics(error)).toEqual({
+    ...publicationGroup,
+    operation: 'sdk_initialize',
+    workerMode: 'enabled',
+    stage: 'client_create'
+  });
+  annotateCrash(error, { reownPublished: 'confirmed' });
+  expect(snapshotCrashDiagnostics(error)).toEqual({
+    operation: 'sdk_initialize',
+    workerMode: 'enabled',
+    stage: 'client_create'
+  });
+  const inner = new Error('inner');
+  annotateCrash(inner, nativeGroup);
+  const outer = new Error('outer', { cause: inner });
+  annotateCrash(outer, publicationGroup);
+  expect(snapshotCrashDiagnostics(outer)).toEqual(publicationGroup);
+  const partial = new Error('partial', { cause: inner });
+  annotateCrash(partial, { reownPublished: 'unobserved' });
+  expect(snapshotCrashDiagnostics(partial)).toEqual(nativeGroup);
+  const unmarked = new Error('unmarked');
+  annotateCrash(unmarked, { reownPublished: 'confirmed' });
+  expect(snapshotCrashDiagnostics(unmarked)).toEqual({});
+  Object.defineProperty(inner, 'cause', {
+    get() {
+      throw new Error('hostile');
+    }
+  });
+  expect(snapshotCrashDiagnostics(outer)).toEqual(publicationGroup);
+});
