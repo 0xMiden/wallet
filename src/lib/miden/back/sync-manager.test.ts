@@ -2038,6 +2038,36 @@ describe('doSync - zero-fill swap reclaim', () => {
     }
   });
 
+  it("settles with the order's saved proving choice until the popup has mirrored the settings", async () => {
+    // A read miss answers the delegated default, which would prove remotely for a user who chose local proving.
+    mockAreBgMirrored.mockResolvedValue(false);
+    mockSettlementSeen.reconcile.length = 0;
+    const realmClient = {
+      ...mockClient,
+      client: { pswap: { lineages: async () => [zeroFillLineage] } },
+      buildPswapCancelRequest: jest.fn(async () => reclaimBytes)
+    };
+    mockGetMidenClient.mockImplementation(async () => realmClient);
+    await Repo.transactions.put({ ...zeroFillOrderRow, delegateTransaction: false });
+    try {
+      await doSync();
+
+      const [reconciled] = mockSettlementSeen.reconcile;
+      expect(reconciled![2]).toBeUndefined();
+      expect(mockInitiatePswapReclaim).toHaveBeenCalledWith(
+        'pk-1',
+        expect.objectContaining({ id: 'zero-fill-tip' }),
+        reclaimBytes,
+        'swap-1',
+        false,
+        expect.any(Function)
+      );
+    } finally {
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
   it('builds and queues no reclaim while the vault is locked, and the first lap after unlock does', async () => {
     const buildPswapCancelRequest = jest.fn(async () => reclaimBytes);
     mockGetMidenClient.mockImplementation(async () => ({
