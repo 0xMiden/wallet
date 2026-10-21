@@ -2038,6 +2038,38 @@ describe('MidenClientProxy — deadline kill', () => {
     expect(__test.inFlightSize()).toBe(0);
   });
 
+  it('reports the timer that fired even when a start signal lands while the document closes', async () => {
+    const { midenClientProxy, __test, markOpStarted } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+    let finishClose!: () => void;
+    fakeChrome.offscreen.closeDocument.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishClose = resolve;
+        })
+    );
+
+    const p = midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    const [op_id] = __test.inFlightOpIds();
+    await wait(40); // the dispatch deadline fires and the close is now pending
+    markOpStarted(op_id!);
+    finishClose();
+    await flush();
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect((err as any).reason).toBe('deadline');
+    // The start signal did arrive before the rejection; the deadline that fired was still the dispatch one.
+    expect((err as any).facts).toEqual({
+      started: true,
+      deadline: { owner: 'own', timer: 'dispatch', killer: 'read' }
+    });
+  });
+
   it('§3.3 downgrade: a critical op in flight turns a read deadline into reject-without-kill', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');

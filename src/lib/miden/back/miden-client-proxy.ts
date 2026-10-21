@@ -507,8 +507,10 @@ function finishOpError(op_id: string, err: unknown): void {
 }
 
 /** Reject every still-in-flight op with a deadline abort naming the op whose deadline closed the document. */
-function rejectAllInFlight(killerId: string, killer: InFlightOp): void {
-  const deadline = { timer: killer.timerPhase, killer: killer.critical ? 'write' : 'read' } as const;
+function rejectAllInFlight(
+  killerId: string,
+  deadline: { timer: OffscreenDeadlineTimer; killer: 'write' | 'read' }
+): void {
   for (const op_id of Array.from(inFlight.keys())) {
     const op = takeInFlight(op_id);
     op?.reject(
@@ -550,6 +552,8 @@ async function onDeadline(op_id: string): Promise<void> {
 
   // Either this IS the critical op whose own deadline fired (kill the wedge), or
   // a read deadline with no critical op in flight (kill + reopen).
+  // Read before the close: a start signal or sign resume during it re-arms this op's timer.
+  const deadline = { timer: op.timerPhase, killer: op.critical ? 'write' : 'read' } as const;
   const closed = await forceCloseOffscreenDocument();
   // Closing the doc killed every concurrent op's realm — reject them all.
   // TODO(slice 4): there is a small window where an op whose sendMessage is
@@ -557,7 +561,7 @@ async function onDeadline(op_id: string): Promise<void> {
   // collateral 'deadline' abort. Harmless for idempotent reads; slice 4 must
   // weigh this against the write kill-window taxonomy (design §5) before routing
   // writes through here.
-  rejectAllInFlight(op_id, op);
+  rejectAllInFlight(op_id, deadline);
   if (closed) {
     // Reopen eagerly so the next call doesn't pay the cold start on its own
     // critical path. Best-effort: the next call's ensureOffscreenDocument()
