@@ -883,8 +883,9 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-icon row with neutral amount and underscore address', () => {
     renderFull();
     const row = rowByTitle('Failed by icon');
-    // Failed rows use the raw failed-cross SVG (not the Icon component).
-    expect(row.querySelector('svg')).not.toBeNull();
+    // Failed rows use the raw failed-cross SVG (not the Icon component). Every svg is one mock, so the cross's
+    // size tells it from the swap glyph.
+    expect(row.querySelector('svg')).toHaveClass('w-3.5', 'h-3.5');
     expect(row).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
     // Underscore address → slice(0,6)…slice(-7).
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1_…address');
@@ -1541,10 +1542,13 @@ describe('HistoryView Guardian ops', () => {
 
     const failed = rowByTitle('Guardian failed');
     expect(failed).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
-    expect(failed.querySelector('svg')).not.toBeNull();
+    // Every svg is one mock, so each glyph is told apart by the size its branch draws it at.
+    expect(failed.querySelector('svg')).toHaveClass('w-3.5', 'h-3.5');
+    expect(failed.querySelector('svg')).not.toHaveClass('w-5');
     expect(within(failed).queryByTestId('icon')).toBeNull();
     const bridge = rowByTitle('bridgeRowTitle');
-    expect(bridge.querySelector('svg')).not.toBeNull();
+    expect(bridge.querySelector('svg')).toHaveClass('w-5', 'h-5');
+    expect(bridge.querySelector('svg')).not.toHaveClass('w-3.5');
     expect(within(bridge).queryByTestId('icon')).toBeNull();
   });
 });
