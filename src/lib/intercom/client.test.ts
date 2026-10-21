@@ -307,7 +307,13 @@ describe('IntercomClient', () => {
       deliverToPort(0, {
         type: MessageType.Err,
         reqId: 0,
-        data: ['Not Found', undefined, 'Error', undefined, { code: 'confirmation_unknown:array_with_string:empty:under_10s' }]
+        data: [
+          'Not Found',
+          undefined,
+          'Error',
+          undefined,
+          { code: 'confirmation_unknown:array_with_string:empty:under_10s' }
+        ]
       });
       expect(snapshotCrashDiagnostics(await failed)).toEqual({
         operation: 'intercom_request',

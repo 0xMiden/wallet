@@ -1006,7 +1006,9 @@ describe('the state a request no confirmation handler answered is refused with (
 
     expect(refusal().code).toMatch(/^confirmation_answered:/);
     // A second answer from the same window sends the id as a string.
-    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: ID }).code).toMatch(/^confirmation_answered:/);
+    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: ID }).code).toMatch(
+      /^confirmation_answered:/
+    );
   });
 
   it('names a confirmation its timer expired', async () => {
@@ -1052,7 +1054,9 @@ describe('the state a request no confirmation handler answered is refused with (
 
   it('names an id this worker never saw as unknown', () => {
     expect(refusal('never-opened').code).toMatch(/^confirmation_unknown:/);
-    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: 7 }).code).toMatch(/^confirmation_unknown:/);
+    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: 7 }).code).toMatch(
+      /^confirmation_unknown:/
+    );
     expect(dapp.confirmationNotFound({}).code).toMatch(/^confirmation_unknown:/);
   });
 
