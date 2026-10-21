@@ -215,7 +215,8 @@ describe('RouteOptions', () => {
     );
     expect(screen.getByTestId('bridge-route-slow')).toBeEnabled();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    expect(screen.queryByText('bridgeRouteUnavailableTitle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-fast')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-slow')).not.toBeInTheDocument();
   });
 
   it('contains the Epoch explanation inside its visible card boundary', () => {
@@ -356,7 +357,8 @@ describe('RouteOptions', () => {
     );
     expect(screen.getByTestId('bridge-route-fast')).toBeDisabled();
     expect(screen.getByTestId('bridge-route-slow')).toBeDisabled();
-    expect(screen.queryByText('bridgeRouteUnavailableTitle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-fast')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-slow')).not.toBeInTheDocument();
   });
 
   it('names the native fee asset under the USDCx route, never MIDEN', () => {
