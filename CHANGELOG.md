@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
 - [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
 
 ### Changes
