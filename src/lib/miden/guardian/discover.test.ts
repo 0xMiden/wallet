@@ -15,7 +15,7 @@
  * `mock`-prefixed module-scope names are what the hoister allows factories to
  * close over.
  */
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { MIDEN_NETWORK_ENDPOINTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 
 import {
@@ -78,19 +78,23 @@ const mockChainCommitments = new Map<string, string>();
 let mockChainFailWith: Error | undefined;
 /** Account ids the chain was asked about, in order. */
 const mockChainReads: string[] = [];
+/** The node URL each chain-read RpcClient was built on, in order. */
+const mockRpcUrls: string[] = [];
 
-// The chain comparison builds one standalone RpcClient; the SDK's WASM start and the endpoint are not under test.
+// The chain comparison builds one standalone RpcClient; the SDK's WASM start is not under test.
 jest.mock('lib/miden-chain/constants', () => ({
   ...jest.requireActual('lib/miden-chain/constants'),
-  ensureSdkWasmReady: async () => {},
-  getRpcEndpoint: () => 'rpc-endpoint'
+  ensureSdkWasmReady: async () => {}
 }));
 
 // A release build's own network is testnet or devnet; mainnet is a stored choice.
 let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+/** The effective network's RPC URL, a custom override included. */
+let mockEffectiveRpcUrl = 'https://rpc.custom.example';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => mockEffectiveNetwork
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
+  getEffectiveRpcUrl: () => mockEffectiveRpcUrl
 }));
 
 // The shared native-HTTP double records the probe each endpoint takes and its verdict.
@@ -127,7 +131,13 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Account: { deserialize: (bytes: Uint8Array) => mockDeserialize(bytes) },
   // The probe prints an account id and parses it back for the chain read; the fakes keep it a plain string.
   AccountId: { fromHex: (hex: string) => hex },
+  Endpoint: class {
+    constructor(readonly url: string) {}
+  },
   RpcClient: class {
+    constructor(endpoint: { url: string }) {
+      mockRpcUrls.push(endpoint.url);
+    }
     async getAccountProof(accountId: string) {
       mockChainReads.push(accountId);
       if (mockChainFailWith) throw mockChainFailWith;
@@ -223,9 +233,11 @@ beforeEach(() => {
   mockChainCommitments.clear();
   mockChainFailWith = undefined;
   mockChainReads.length = 0;
+  mockRpcUrls.length = 0;
   jest.clearAllMocks();
   scriptNonces();
   mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockEffectiveRpcUrl = 'https://rpc.custom.example';
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -904,5 +916,34 @@ describe('the operators discovery asks when no network is named', () => {
 
     expect(result.probedEndpoints).toContain(OZ);
     expect(result.best?.endpoint).toBe(OZ);
+  });
+
+  // #1648: a recover-only reset probes mainnet before the wallet switches there, so the chain verdict
+  // comes from mainnet's node; the effective network's node knows nothing of the mainnet state.
+  it.each([
+    ['a seed', () => discoverGuardianForSeed(fakeDeriveSeed, { network: MIDEN_NETWORK_NAME.MAINNET })],
+    ['a hot key', () => discoverGuardianForHotKey(HOT_KEY_HEX, { network: MIDEN_NETWORK_NAME.MAINNET })]
+  ] as Array<[string, () => Promise<GuardianDiscoveryResult>]>)(
+    'reads the chain of the network it probes for %s, not the effective one',
+    async (_flow, discover) => {
+      setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, [MAINNET_OPERATOR]);
+      mockBackend.set(MAINNET_OPERATOR.endpoint, { accounts: ['acct-mainnet'], nonces: { 'acct-mainnet': 1n } });
+      mockChainCommitments.set('acct-mainnet', 'chain-after-the-switch');
+
+      const result = await discover();
+
+      expect(mockRpcUrls).toEqual([MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET)]);
+      expect(result.matches[0]).toMatchObject({ endpoint: MAINNET_OPERATOR.endpoint, holdsCurrentState: false });
+      expect(result.best).toBeUndefined();
+    }
+  );
+
+  it.each(flows)('reads the chain of the effective network for %s through its custom RPC', async (_flow, discover) => {
+    mockEffectiveRpcUrl = 'https://rpc.own-node.example';
+
+    const result = await discover();
+
+    expect(mockRpcUrls).toEqual(['https://rpc.own-node.example']);
+    expect(result.best).toMatchObject({ endpoint: OZ, holdsCurrentState: true });
   });
 });

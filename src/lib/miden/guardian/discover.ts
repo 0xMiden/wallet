@@ -56,7 +56,7 @@
  * instead. A node that cannot be read leaves the verdict unknown and the
  * ranking as it was, so an offline probe is no worse than before.
  */
-import { Account, AccountId, AuthSecretKey, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { Account, AccountId, AuthSecretKey, Endpoint, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import type { LookupResponse, StateObject } from '@openzeppelin/guardian-client';
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 import { EcdsaSigner } from '@openzeppelin/miden-multisig-client';
@@ -64,9 +64,9 @@ import { Buffer } from 'buffer';
 
 import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { normalizeHex } from 'lib/miden/sdk/submit-evidence';
-import { ensureSdkWasmReady, getGuardianOptionsForNetwork, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { ensureSdkWasmReady, getGuardianOptionsForNetwork, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
 /** One operator that answered the probe with at least one account. */
@@ -352,20 +352,25 @@ async function readChainCommitment(
 }
 
 /**
- * The chain's tip commitment of every account in `accountIdHexes`, keyed as given. An account whose read
- * failed is absent. Never rejects: a node that cannot be reached leaves every verdict unknown.
+ * The chain's tip commitment of every account in `accountIdHexes` on `network`, keyed as given. An account whose
+ * read failed is absent. Never rejects: a node that cannot be reached leaves every verdict unknown.
+ *
+ * The node is the probed network's, not the effective one's: a recover-only reset probes mainnet before the wallet
+ * switches there. On the effective network it is the effective node, so a custom RPC override is kept.
  */
 async function readChainCommitments(
   accountIdHexes: readonly string[],
+  network: MIDEN_NETWORK_NAME,
   timeoutMs: number,
   signal?: AbortSignal
 ): Promise<Map<string, string>> {
   const commitments = new Map<string, string>();
-  if (accountIdHexes.length === 0 || signal?.aborted) return commitments;
+  const rpcUrl = network === getEffectiveNetworkName() ? getEffectiveRpcUrl() : MIDEN_NETWORK_ENDPOINTS.get(network);
+  if (accountIdHexes.length === 0 || !rpcUrl || signal?.aborted) return commitments;
   let rpc: RpcClient;
   try {
     await ensureSdkWasmReady();
-    rpc = new RpcClient(getRpcEndpoint());
+    rpc = new RpcClient(new Endpoint(rpcUrl));
   } catch (error) {
     console.warn('[guardian/discover] Could not build the RPC client for the chain comparison:', error);
     return commitments;
@@ -713,6 +718,7 @@ async function probeTargets(
   // the list that stale state would otherwise be the lone match and get picked.
   const chainCommitments = await readChainCommitments(
     Array.from(new Set(decoded.flatMap(entry => Array.from(entry.commitments.keys())))),
+    options.network ?? getEffectiveNetworkName(),
     timeoutMs,
     signal
   );
