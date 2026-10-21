@@ -120,6 +120,7 @@ const lockedWithUnlocked = () => {
 
 const mockIntercomBroadcast = jest.fn();
 jest.mock('./defaults', () => ({
+  ...jest.requireActual<typeof import('./defaults')>('./defaults'),
   getIntercom: () => ({ broadcast: mockIntercomBroadcast })
 }));
 
@@ -549,9 +550,12 @@ describe('vaultGuardianProvider.swapHotKey', () => {
     const vault = { swapHotKey, insertKeySink: async () => undefined };
     mockHotKeySwapState = { inited: true, status: WalletStatus.Ready, vault, accounts: [account] };
     mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault }));
-    const realm = await import('lib/miden/sdk/miden-client');
+    const processor = await import('./transaction-processor');
+    // The absolute SDK alias has a manual mock; use the guard's actual module.
+    const realm = jest.requireActual<typeof import('../sdk/miden-client')>('../sdk/miden-client');
     realm.installRealmKeystore({ insertKey: vault.insertKeySink });
     return {
+      processor,
       swapHotKey,
       retire: () => {
         realm.uninstallRealmKeystore({ insertKey: vault.insertKeySink });
@@ -563,9 +567,7 @@ describe('vaultGuardianProvider.swapHotKey', () => {
   it('passes the expectation to the vault (#1233)', async () => {
     const fixture = await vaultSwapping();
     try {
-      const mod = await import('./transaction-processor');
-
-      await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
+      await fixture.processor.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
 
       expect(fixture.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub', expect.any(Function));
     } finally {
@@ -576,9 +578,7 @@ describe('vaultGuardianProvider.swapHotKey', () => {
   it('passes no expectation when the caller passes none (#1233)', async () => {
     const fixture = await vaultSwapping();
     try {
-      const mod = await import('./transaction-processor');
-
-      await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
+      await fixture.processor.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
 
       expect(fixture.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined, expect.any(Function));
     } finally {

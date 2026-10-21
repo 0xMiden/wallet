@@ -3403,7 +3403,7 @@ describe('Vault hardware branches', () => {
       false,
       'https://picked-guardian.example'
     );
-    expect(mockFetchGuardianCreateKey).toHaveBeenCalledWith('https://picked-guardian.example');
+    expect(mockFetchGuardianCreateKey).toHaveBeenCalledWith('https://picked-guardian.example', expect.any(Function));
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ guardianEndpoint: 'https://picked-guardian.example' }),

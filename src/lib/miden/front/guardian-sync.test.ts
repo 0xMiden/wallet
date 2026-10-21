@@ -2281,7 +2281,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { status: 'Completed', repaired: true, extra: {} },
         { status: 'Completed', repaired: false, extra: { restoredFromBackup: true } },
         { status: 'Completed', repaired: false, extra: { recovered: true } },
-        { status: 'Completed', repaired: false, extra: { nodeDiscarded: true } }
+        { status: 'Failed', repaired: false, extra: { nodeDiscarded: true } }
       ])(
         'GEO022 repairs $status residual=$repaired when the local hot pointer already matches the chain ($extra)',
         async ({ status, repaired, extra }) => {
@@ -2340,9 +2340,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
               }
               return result;
             });
+          const middlewareName = 'geo022-real-completion-read';
           const middleware: import('dexie').Middleware<import('dexie').DBCore> = {
             stack: 'dbcore',
-            name: 'geo022-real-completion-read',
+            name: middlewareName,
             create: down => ({
               ...down,
               table: name => {
@@ -2410,7 +2411,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
             assertBoundary.mockReset().mockImplementation(() => undefined);
             access.invalidateWalletAccess();
             repo.db.close();
-            repo.db.unuse({ stack: 'dbcore', name: middleware.name });
+            repo.db.unuse({ stack: 'dbcore', name: middlewareName });
             await repo.db.open();
             clocks.restore();
           }
@@ -3420,7 +3421,14 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 2));
 
       expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
-      expect(storeState.swapHotKey).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+      const swapCalls = storeState.swapHotKey.mock.calls;
+      expect(swapCalls.slice(0, SELF_HEAL_MAX_ATTEMPTS).map(call => call.slice(0, 3))).toEqual(
+        Array.from({ length: SELF_HEAL_MAX_ATTEMPTS }, () => [pendingAccount.publicKey, 'new-hot-pub', null])
+      );
+      expect(swapCalls.slice(SELF_HEAL_MAX_ATTEMPTS).map(call => call.slice(0, 3))).toEqual([
+        [pendingAccount.publicKey, 'new-hot-pub', 'new-hot-pub'],
+        [pendingAccount.publicKey, 'new-hot-pub', 'new-hot-pub']
+      ]);
       expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
     });
 

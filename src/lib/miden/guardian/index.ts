@@ -1242,7 +1242,7 @@ export class MultisigService {
     // Guard against a truncated read: AccountInspector.fromAccount swallows
     // per-slot storage-read failures (skips the slot, no throw), so a partial
     // read could yield an empty set. NEVER overwrite a good cached allowlist with
-    // an empty one and push that to the guardian — that would re-arm the very
+    // an empty one and push that to the guardian - that would re-arm the very
     // 401 this method prevents. On an empty derive, keep the cached set (the
     // guardian-sync 401 self-heal covers any residual staleness).
     if (freshSignerCommitments.length > 0) {

@@ -1,6 +1,5 @@
 // lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
 // this adds no module to that cycle; the functions are only called during a sync, never at module load.
-import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { guardianCandidateRelease, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED } from 'lib/miden/back/defaults';
 import { classifyGuardianRecovery, noteRecoveryDivergence } from 'lib/miden/back/guardian-recovery-dispatcher';
@@ -36,6 +35,7 @@ import {
   findUnsavedSwitchRow,
   markSwitchDeltaPushed
 } from 'lib/miden/transaction/switch-guardian-residual';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { assertWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
