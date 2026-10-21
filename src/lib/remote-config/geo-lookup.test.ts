@@ -115,7 +115,9 @@ describe('lookupFeatureEligibility', () => {
   });
 
   it('opens eligibility only for an explicit non-E2E development build', () => {
-    expect(devEligibilityOpen({ MODE_ENV: 'development', MIDEN_ELIGIBILITY_OPEN: 'true', MIDEN_E2E_TEST: 'false' })).toBe(true);
+    expect(
+      devEligibilityOpen({ MODE_ENV: 'development', MIDEN_ELIGIBILITY_OPEN: 'true', MIDEN_E2E_TEST: 'false' })
+    ).toBe(true);
   });
 
   it('does not treat a development-mode build as yarn dev', async () => {
