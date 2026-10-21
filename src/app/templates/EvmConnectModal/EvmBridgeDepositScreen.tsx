@@ -1360,20 +1360,28 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     depositPriceUsd
   });
   const capHold = capVerdict.state !== 'none' && capVerdict.state !== 'clear';
-  const capHoldNotice = (() => {
+  const capHoldError = ((): { id: UserErrorId; text: string } | undefined => {
     switch (capVerdict.state) {
       case 'exceeded':
-        return t('bridgeDepositBalanceCapExceeded', {
-          cap: approxFiatAmount(capVerdict.capUsd),
-          held: approxFiatAmount(capVerdict.heldUsd),
-          deposit: approxFiatAmount(capVerdict.depositUsd)
-        });
+        return {
+          id: 'bridgeDepositBalanceCapExceeded',
+          text: t('bridgeDepositBalanceCapExceeded', {
+            cap: approxFiatAmount(capVerdict.capUsd),
+            held: approxFiatAmount(capVerdict.heldUsd),
+            deposit: approxFiatAmount(capVerdict.depositUsd)
+          })
+        };
       case 'unpriced':
-        return t('bridgeDepositBalanceCapUnpriced', { cap: approxFiatAmount(capVerdict.capUsd), token: tokenLabel });
+        return {
+          id: 'bridgeDepositBalanceCapUnpriced',
+          text: t('bridgeDepositBalanceCapUnpriced', { cap: approxFiatAmount(capVerdict.capUsd), token: tokenLabel })
+        };
       default:
         return undefined;
     }
   })();
+  const capHoldNotice = capHoldError?.text;
+  const capHoldErrorId = capHoldError?.id;
   const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance && !capHold;
 
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
@@ -1744,7 +1752,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               canConfirm={reviewCanConfirm}
               confirmLabel={reviewConfirmLabel}
               error={error ?? usdcxFeeHoldNotice ?? capHoldNotice}
-              errorId={error != null ? errorId : usdcxFeeHoldNotice ? 'usdcxDepositFeeAboveBalance' : null}
+              errorId={
+                error != null ? errorId : usdcxFeeHoldNotice ? 'usdcxDepositFeeAboveBalance' : (capHoldErrorId ?? null)
+              }
               onConfirm={handleConfirm}
               onBack={goBack}
             />
@@ -1802,7 +1812,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                   : (error ?? selectedBalance.error ?? capHoldNotice ?? undefined)
               }
               errorId={
-                amountExceedsBalance ? 'amountMustBeLessThanBalance' : error != null ? errorId : selectedBalance.errorId
+                amountExceedsBalance
+                  ? 'amountMustBeLessThanBalance'
+                  : error != null
+                    ? errorId
+                    : selectedBalance.error != null
+                      ? selectedBalance.errorId
+                      : capHoldErrorId
               }
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
@@ -1820,6 +1836,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       awaitingNextConfirmation,
       balanceHoldNotice,
       capHoldNotice,
+      capHoldErrorId,
       bridgeTxId,
       reviewAmount,
       error,

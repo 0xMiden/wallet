@@ -12,6 +12,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import type { TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
@@ -154,6 +155,8 @@ let mockEvmUsdcSymbol = 'USDC';
 let mockAgglayerChainId: number | null = 11155111;
 // A USDC of the AggLayer chain's own, which picking Slow moves to; unset, it is the Fast one.
 let mockAgglayerUsdc: string | undefined;
+// The document's bridge-in ceiling: none unless a case sets one.
+let mockBridgeInCapUsd: number | null = null;
 jest.mock('lib/remote-config/values', () => ({
   selectAgglayerRecoveryConfig: () =>
     mockAgglayerChainId === null
@@ -199,8 +202,13 @@ jest.mock('lib/remote-config/values', () => ({
         }
       : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 }),
-  // No bridge-in balance ceiling: this suite is not a test of the gate.
-  selectBridgeInMaxBalanceUsd: () => null
+  selectBridgeInMaxBalanceUsd: () => mockBridgeInCapUsd
+}));
+// The receiving account holds nothing, so a ceiling weighs the deposit alone.
+jest.mock('lib/miden/front', () => ({
+  ...jest.requireActual<typeof import('lib/miden/front')>('lib/miden/front'),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => ({ data: [], isLoading: false })
 }));
 
 jest.mock('use-debounce', () => ({
@@ -2497,9 +2505,10 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
   }
 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'synthetic-native' }));
+let mockTokenPrices: TokenPrices = {};
 jest.mock('lib/store', () => ({
-  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never> }) => T) =>
-    selector({ assetsMetadata: {} })
+  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never>; tokenPrices: TokenPrices }) => T) =>
+    selector({ assetsMetadata: {}, tokenPrices: mockTokenPrices })
 }));
 jest.mock('./UsdcxDepositSteps', () => ({ UsdcxDepositSteps: () => null }));
 jest.mock('./UsdcxExecuteAction', () => ({ UsdcxExecuteAction: () => null }));
@@ -2558,6 +2567,8 @@ describe('user-visible bridge deposit producers', () => {
   afterEach(() => {
     jest.useRealTimers();
     mockRealBridgeDisplays = false;
+    mockBridgeInCapUsd = null;
+    mockTokenPrices = {};
     mockLiveBridgeRow = undefined;
     Object.assign(epochState, idleEpoch);
     mockNativeReown = false;
@@ -2593,6 +2604,55 @@ describe('user-visible bridge deposit producers', () => {
     await flushBridgePromises();
     expect(screen.getByText('private row 42 https://synthetic.invalid/0xabc')).toBeInTheDocument();
     await expectErrorAfterDwell('raw_bridge_deposit_submit_failed', 'review');
+  });
+
+  const typeEthAmount = async () => {
+    renderScreen();
+    await settle();
+    fireEvent.click(screen.getByTestId('send-token-selector'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await flushBridgePromises();
+  };
+  // Review is reached under no ceiling; one that lands while it is open holds Confirm there.
+  const ceilingOnReview = async () => {
+    await realSlowReview();
+    jest.useFakeTimers();
+    mockBridgeInCapUsd = 1;
+    act(() => publishSnapshot({ ...mockSnapshot }));
+    await flushBridgePromises();
+  };
+  const ethQuote = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } };
+
+  it('reports a ceiling the typed deposit passes by its own copy on the amount field', async () => {
+    mockTokenPrices = ethQuote;
+    mockBridgeInCapUsd = 1;
+    await typeEthAmount();
+    expect(screen.getByText(/^bridgeDepositBalanceCapExceeded /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapExceeded', 'field');
+  });
+
+  it('reports a ceiling the deposit passes by its own copy on the review', async () => {
+    mockTokenPrices = ethQuote;
+    await ceilingOnReview();
+    expect(screen.getByText(/^bridgeDepositBalanceCapExceeded /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapExceeded', 'review');
+  });
+
+  it('reports an unpriced deposit token under a ceiling by its own copy on the amount field', async () => {
+    mockBridgeInCapUsd = 1;
+    await typeEthAmount();
+    expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapUnpriced', 'field');
+  });
+
+  it('reports an unpriced deposit token under a ceiling by its own copy on the review', async () => {
+    await ceilingOnReview();
+    expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapUnpriced', 'review');
   });
 
   it('reports the actual balance-read failure through the real amount field', async () => {
