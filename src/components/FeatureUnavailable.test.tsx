@@ -39,6 +39,22 @@ describe('FeatureUnavailableNotice', () => {
   it('ships the exact English copy', () => {
     expect(en.bridgeFeatureUnavailableTitle).toBe('Temporarily unavailable');
     expect(en.bridgeFeatureUnavailableBody).toBe('This external service is currently down. Please try again later.');
+    expect(en.geoRestrictedTitle).toBe('Not available where you are');
+    expect(en.geoRestrictedBody).toBe('This feature is not offered in your location.');
+  });
+
+  it('says a place block is the location, not a service outage', () => {
+    const restricted: FeatureAvailability = {
+      state: 'unavailable',
+      reason: 'restricted',
+      detail: 'blocked by a geo rule'
+    };
+    render(<FeatureUnavailableNotice availability={restricted} />);
+    const notice = screen.getByTestId('feature-unavailable-notice');
+    expect(notice).toHaveTextContent('geoRestrictedTitle');
+    expect(notice).toHaveTextContent('geoRestrictedBody');
+    expect(notice).not.toHaveTextContent('bridgeFeatureUnavailableTitle');
+    expect(notice).not.toHaveTextContent('blocked by a geo rule');
   });
 });
 

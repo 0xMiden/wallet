@@ -1,10 +1,20 @@
 name: Build Chrome Extension
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      network:
+        type: string
+        default: both
+      feature_eligibility_url:
+        type: string
+        required: true
+    secrets:
+      APTABASE_APP_KEY:
+        required: false
+      SENTRY_DSN:
+        required: false
 
-  # Also allow manual trigger from Actions tab (on any branch)
   workflow_dispatch:
     inputs:
       network:
@@ -23,7 +33,7 @@ permissions:
   pull-requests: read # the linked-PR injections read a dispatched branch's pull request
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: build-chrome-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -31,14 +41,41 @@ jobs:
     runs-on: ubuntu-slim
     outputs:
       networks: ${{ steps.set.outputs.networks }}
+      eligibility_url: ${{ steps.eligibility.outputs.endpoint }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - id: set
         shell: bash
+        env:
+          NETWORK_SELECTION: ${{ inputs.network || 'both' }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.network }}" != "both" ]]; then
-            echo 'networks=["${{ inputs.network }}"]' >> "$GITHUB_OUTPUT"
+          case "$NETWORK_SELECTION" in
+            both) echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT" ;;
+            testnet|devnet) printf 'networks=["%s"]\n' "$NETWORK_SELECTION" >> "$GITHUB_OUTPUT" ;;
+            *) echo 'Unsupported build network' >&2; exit 1 ;;
+          esac
+      - name: Check feature eligibility endpoint
+        id: eligibility
+        shell: bash
+        env:
+          FEATURE_ELIGIBILITY_URL: ${{ inputs.feature_eligibility_url || vars.FEATURE_ELIGIBILITY_URL }}
+          FEATURE_ELIGIBILITY_NETWORKS: ${{ steps.set.outputs.networks }}
+          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          import { validateEndpoint } from './services/feature-eligibility/check-deployment.mjs';
+          const endpoint = validateEndpoint(process.env.FEATURE_ELIGIBILITY_URL).href;
+          appendFileSync(process.env.GITHUB_OUTPUT, `endpoint=${endpoint}\n`);
+          NODE
           else
-            echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT"
+            node services/feature-eligibility/check-deployment.mjs
           fi
 
   build:
@@ -54,6 +91,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -103,6 +142,7 @@ jobs:
           # Absent (a fork) each resolves to '' and turns its feature off.
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          FEATURE_ELIGIBILITY_URL: ${{ needs.setup.outputs.eligibility_url }}
         run: yarn build:chrome
 
       - name: Resolve artifact version
@@ -117,9 +157,11 @@ jobs:
           NETWORK="${{ matrix.network }}"
           ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           FILE="MidenWallet.${VERSION}.${ENV_CAP}.zip"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "env_cap=${ENV_CAP}" >> "$GITHUB_OUTPUT"
-          echo "file=${FILE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${VERSION}"
+            echo "env_cap=${ENV_CAP}"
+            echo "file=${FILE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Rename zip
         shell: bash

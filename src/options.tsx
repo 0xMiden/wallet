@@ -5,7 +5,7 @@ import { Buffer } from 'buffer';
 
 import './main.css';
 
-import React, { FC, useCallback } from 'react';
+import React, { FC, Suspense, useCallback } from 'react';
 
 import classNames from 'clsx';
 import { createRoot } from 'react-dom/client';
@@ -14,7 +14,11 @@ import browser from 'webextension-polyfill';
 
 import 'lib/lock-up/run-checks';
 
+import AwaitI18N from 'app/a11y/AwaitI18N';
 import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
+import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
+import { WalletAccessGate } from 'app/WalletAccessGate';
+import './i18n';
 import Dialogs from 'app/layouts/Dialogs';
 import { getMessage } from 'lib/i18n';
 import { resetStorageDestructive } from 'lib/miden/reset';
@@ -25,11 +29,16 @@ import { AlertFn, ConfirmFn, DialogsProvider, useAlert, useConfirm } from 'lib/u
 // Animations enabled for extension
 
 const OptionsWrapper: FC = () => (
-  <DialogsProvider>
-    <Options />
-    <Dialogs />
-    <DisableOutlinesForClick />
-  </DialogsProvider>
+  <Suspense fallback={<RootSuspenseFallback />}>
+    <AwaitI18N />
+    <WalletAccessGate>
+      <DialogsProvider>
+        <Options />
+        <Dialogs />
+        <DisableOutlinesForClick />
+      </DialogsProvider>
+    </WalletAccessGate>
+  </Suspense>
 );
 
 const Options: FC = () => {

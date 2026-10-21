@@ -173,14 +173,15 @@ None of them is a known leak. No part of the App puts a recovery phrase or a pas
 
 Crash reports are sent either way; usage data only if the setting is on:
 
-| Data          | Processor | Where                    |
-| ------------- | --------- | ------------------------ |
-| Usage data    | Aptabase  | European Union (Germany) |
-| Crash reports | Sentry    | European Union           |
+| Data | Processor | Where |
+|---|---|---|
+| Usage data | Aptabase | European Union (Germany) |
+| Crash reports | Sentry | European Union |
+| Feature eligibility check | Cloudflare and MaxMind | Connection address for the lookup; short-lived service records as described below |
 
 Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
 
-Both are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale.
+Aptabase and Sentry are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale. The feature eligibility service runs on Cloudflare and uses MaxMind to check the connection's IP address. The App receives only whether wallet access, Earn and Swap are allowed, plus the network and policy version. The service stores no raw IP address or geographic answer; it stores daily rotating keyed hashes of connection addresses, request counters and feature decisions. Feature decisions expire after five minutes, and expired caller records are removed in batches.
 
 ## How the App uses your device
 
@@ -244,9 +245,11 @@ Earn is provided by Epoch (SYNC TECH LLC, St. Vincent and the Grenadines). When 
 
 ### Geographic restrictions
 
-The App asks for no location permission and reads no location sensor. Two restrictions are, however, applied by the country an IP address comes from. The App and the Miden network are not available from comprehensively sanctioned jurisdictions; the IP address of a request is checked against its country at the application level and at the network's sequencer endpoint. And the Earn feature is not available in the United Kingdom or the State of New York; when you try to use Earn, the App checks the country or region of your connection and declines if it is one of those. The IP address is used for those checks and for the ordinary operation of the connection; the App keeps no record of the result.
+The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions, and some features are not offered in every place. At startup, before allowing wallet access, the App asks a service running on Cloudflare whether wallet access, Earn and Swap are allowed for its connection. It keeps those decisions in memory for the page session and does not repeat the check while the wallet is open. Where a global or enabled feature restriction needs a place check, the service sends the connection's IP address to MaxMind and reads the country and region. The App receives no location and stores no IP address. The service retains only the short-lived records described above. The same address is also used for the ordinary operation of the connection, and the network's sequencer endpoint checks the country of a request.
 
-<!-- TODO: "keeps no record of the result" above assumes the Earn region check is not logged; confirm with engineering, and confirm whether IP addresses are logged anywhere for geoblocking or compliance purposes and for how long. If they are, correct the sentence and add a retention line. -->
+Wallet access, including withdrawals, is unavailable in Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. New Earn deposits are additionally unavailable in New York and the UK. Without a successful startup eligibility decision, wallet access stays closed.
+
+<!-- TODO: confirm whether infrastructure providers retain separate connection or geoblocking logs beyond the application records described here, and add their retention if applicable. -->
 
 ## Network traffic
 
@@ -276,18 +279,19 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 
 ## Why we process data, and on what legal basis
 
-| Purpose                                                                                      | Data                                                                                            | Legal basis (GDPR Article 6)                                                                                           |
-| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Running the App and submitting your transactions                                             | Transaction data sent to the network, Guardian data                                             | Performance of our contract with you (the Terms of Service)                                                            |
-| Fixing crashes                                                                               | Crash reports                                                                                   | Our legitimate interest in keeping the App working                                                                     |
-| Understanding where people get stuck                                                         | Usage data                                                                                      | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place           |
-| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check for sanctioned jurisdictions, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network                           |
-| Restricting the Earn feature by region                                                       | IP country or region check when you open Earn                                                   | Our legitimate interest in not offering Earn where we have chosen not to, and compliance with the laws of those places |
+| Purpose | Data | Legal basis (GDPR Article 6) |
+|---|---|---|
+| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
+| Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
+| Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
+| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country and region check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
+| Restricting new Earn deposits by region | IP country or region check as part of the wallet eligibility request | Our legitimate interest in not offering new Earn deposits where we have chosen not to, and compliance with the laws of those places |
 
 ## How long we keep data
 
 - Usage data and crash reports: 90 days, then deleted automatically (see "Identifiers").
-- Compliance records (block, unblock and legal-process records): at least five years.
+- Compliance records (block, unblock and legal-process records): at least five years. These are separate from the transient eligibility-service records below.
+- Eligibility-service records: feature decisions expire after five minutes; caller records expire after five minutes without a request and are removed in batches. Caller identifiers are keyed hashes that rotate daily. The App keeps its eligibility decision in memory for at most 60 seconds and writes no geographic answer to device storage.
 - Data held by your Guardian Operator: as set out in its privacy notice.
 - Data written to the blockchain: permanent.
 

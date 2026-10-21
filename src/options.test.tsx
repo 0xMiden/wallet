@@ -33,6 +33,17 @@ const mockResetStorage = jest.fn();
 // or heavy child providers run.
 jest.mock('./main.css', () => ({}));
 jest.mock('lib/lock-up/run-checks', () => ({}));
+jest.mock('./i18n', () => ({}));
+jest.mock('app/a11y/AwaitI18N', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: async () => undefined }));
+jest.mock('lib/remote-config/runtime', () => ({
+  initFeatureEligibility: async () => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn: true, swap: true }
+  })
+}));
 
 jest.mock('app/a11y/DisableOutlinesForClick', () => ({
   __esModule: true,

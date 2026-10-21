@@ -1,5 +1,6 @@
 import type { Probe } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
+import type { GeoFeature, GeoLookup } from './geo';
 import type { BridgeConfig, SupportedEvmChainConfig } from './schema';
 
 export const BRIDGE_FEATURES: readonly BridgeFeature[] = [
@@ -19,7 +20,7 @@ export type BridgeFeature =
   | 'bridgeOut'
   | 'usdcxDeposit'
   | 'usdcxWithdrawal';
-export type UnavailableReason = 'off' | 'not-configured' | 'not-deployed' | 'service-down';
+export type UnavailableReason = 'off' | 'not-configured' | 'not-deployed' | 'service-down' | 'restricted';
 export type FeatureAvailability =
   | { state: 'available' }
   | { state: 'loading' }
@@ -29,10 +30,20 @@ export interface AvailabilityInput {
   status: 'loading' | 'ready';
   config: BridgeConfig | null;
   derived: import('./derive').DerivedBridgeConfig | null;
+  /** The page startup decision; absent in backend-only snapshots. */
+  geo?: GeoLookup;
 }
 
 function unavailable(reason: UnavailableReason, detail: string): FeatureAvailability {
   return { state: 'unavailable', reason, detail };
+}
+
+/** Reads the startup feature decision without renewing it. */
+export function geoFeatureGate(feature: GeoFeature, geo: GeoLookup | undefined): FeatureAvailability | null {
+  if (!geo) return null;
+  if (geo.state === 'loading') return { state: 'loading' };
+  if (geo.state === 'failed') return unavailable('service-down', 'startup feature eligibility is unavailable');
+  return geo.allowed[feature] ? null : unavailable('restricted', 'blocked by a geo rule');
 }
 
 function enabled(feature: BridgeFeature, chain: SupportedEvmChainConfig): boolean {
@@ -161,6 +172,10 @@ export function featureAvailability(
   if (snapshot.status === 'loading') return { state: 'loading' };
   if (!snapshot.config) return unavailable('not-configured', 'no accepted document');
   if (!globalEnabled(feature, snapshot.config)) return unavailable('off', 'global feature switch is off');
+  if (feature === 'earnDeposit') {
+    const gated = geoFeatureGate('earn', snapshot.geo);
+    if (gated) return gated;
+  }
   const chains = Object.values(snapshot.config.supportedEvmChains).filter(
     chain => chainId === undefined || chain.chainId === chainId
   );
