@@ -1529,7 +1529,12 @@ describe('HistoryView Guardian ops', () => {
       status: 'confirmed'
     });
     const entries = [
-      makeEntry({ key: 'failed-switch', txType: 'switch-guardian', message: 'Guardian failed', transactionIcon: 'FAILED' }),
+      makeEntry({
+        key: 'failed-switch',
+        txType: 'switch-guardian',
+        message: 'Guardian failed',
+        transactionIcon: 'FAILED'
+      }),
       makeEntry({ key: 'bridge', txType: 'bridged-send', txId: 'bridge-tx' })
     ];
     render(<HistoryView {...baseProps} entries={entries} fullHistory />);
@@ -1591,7 +1596,7 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status', 'failed');
     for (const row of screen.getAllByTestId('activity-row').slice(0, 3)) {
       expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
-      expect(row.querySelector('svg')).not.toBeNull();
+      expect(iconNameIn(row)).toBe('Key');
     }
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
