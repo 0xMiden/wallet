@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
@@ -492,3 +494,27 @@ describe('route availability report', () => {
   });
 });
 
+// The provider Continue labels advance the bridge flow; a translation that reads "continue reading" or "on the
+// website" tells the user something else.
+describe('provider Continue labels', () => {
+  const LOCALES_DIR = path.join(__dirname, '../../../public/_locales');
+  const locales = fs
+    .readdirSync(LOCALES_DIR)
+    .filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
+
+  it('sweeps every locale', () => {
+    expect(locales).toHaveLength(14);
+  });
+
+  it.each(locales)('%s says continue via the provider', locale => {
+    const messages = JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, 'messages.json'), 'utf8'));
+    for (const [key, provider] of [
+      ['bridgeContinueAgglayer', 'Agglayer'],
+      ['bridgeContinueEpoch', 'Epoch']
+    ]) {
+      const label: string = messages[key].message;
+      expect(label).toContain(provider);
+      expect(label).not.toMatch(/読|읽|阅读|閱讀|stronie|serwisie/);
+    }
+  });
+});

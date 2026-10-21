@@ -12,11 +12,11 @@
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
   },
   "bridgeContinueAgglayer": {
-    "message": "Agglayerで続きを読む",
+    "message": "Agglayerで続ける",
     "englishSource": "Continue via Agglayer"
   },
   "bridgeContinueEpoch": {
-    "message": "Epochで続きを読む",
+    "message": "Epochで続ける",
     "englishSource": "Continue via Epoch"
   },
   "usdcxBurnTitle": {
