@@ -455,12 +455,17 @@ describe('a pre-flight sync killed by the offscreen deadline', () => {
     await Repo.transactions.put(row);
     await cancelTransactionAfterPipelineStopped(
       row,
-      new OperationAbortedError('3f2c8a9e-1b4d-4c6e-9a7b-2d5e8f0c1a3b', 'deadline')
+      new OperationAbortedError('3f2c8a9e-1b4d-4c6e-9a7b-2d5e8f0c1a3b', 'deadline', {
+        started: true,
+        deadline: { owner: 'collateral', timer: 'started', killer: 'write' }
+      })
     );
     const [report, ...rest] = captured();
     expect(rest).toEqual([]);
     expect(report?.message).toContain('Transaction failed: tx_receive; stage syncing; realm unknown;');
-    expect(report?.message).toContain('; point pipeline; offscreen_aborted_deadline. authentication');
+    expect(report?.message).toContain(
+      '; point pipeline; offscreen_aborted_deadline; deadline owner collateral; deadline timer started; deadline op write; op started yes. authentication'
+    );
     expect(report?.message).not.toContain('3f2c8a9e');
     expect(report?.level).toBe('error');
   });

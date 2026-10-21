@@ -60,6 +60,7 @@ import {
   bytesToB64,
   encodeArg,
   type GuardianPipelineArgs,
+  type OffscreenDeadlineTimer,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
   type OffscreenReloadEndpointsRequest,
@@ -335,6 +336,10 @@ interface InFlightOp {
   /** True while a reverse-IPC sign round-trip is outstanding for this op — its
    * deadline timer is cleared and re-armed on the sign response (design §2.5). */
   paused: boolean;
+  /** Which timer is armed now, so a deadline abort can say which one fired. */
+  timerPhase: OffscreenDeadlineTimer;
+  /** True once the offscreen doc reported the op won its WASM mutex. */
+  started: boolean;
 }
 
 /**
@@ -425,7 +430,7 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
   const op = takeInFlight(op_id);
   if (!op) return;
   if (resp === undefined) {
-    op.reject(new OperationAbortedError(op_id, 'doc-closed'));
+    op.reject(new OperationAbortedError(op_id, 'doc-closed', { started: op.started }));
     return;
   }
   if (resp.ok) op.resolveResult(resp.resultB64);
@@ -496,16 +501,22 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
 function finishOpError(op_id: string, err: unknown): void {
   const op = takeInFlight(op_id);
   if (!op) return;
-  const aborted = new OperationAbortedError(op_id, 'transport');
+  const aborted = new OperationAbortedError(op_id, 'transport', { started: op.started });
   aborted.cause = err;
   op.reject(aborted);
 }
 
-/** Reject every still-in-flight op with a fresh abort error (its own op_id). */
-function rejectAllInFlight(reason: string): void {
+/** Reject every still-in-flight op with a deadline abort naming the op whose deadline closed the document. */
+function rejectAllInFlight(killerId: string, killer: InFlightOp): void {
+  const deadline = { timer: killer.timerPhase, killer: killer.critical ? 'write' : 'read' } as const;
   for (const op_id of Array.from(inFlight.keys())) {
     const op = takeInFlight(op_id);
-    op?.reject(new OperationAbortedError(op_id, reason));
+    op?.reject(
+      new OperationAbortedError(op_id, 'deadline', {
+        started: op.started,
+        deadline: { ...deadline, owner: op_id === killerId ? 'own' : 'collateral' }
+      })
+    );
   }
 }
 
@@ -528,7 +539,12 @@ async function onDeadline(op_id: string): Promise<void> {
     // A cheap read's deadline while a value-moving critical op owns the doc.
     // Fail only this read — never tear down the realm running the write
     // (design §3.3). The offscreen op keeps running; its result is dropped.
-    takeInFlight(op_id)?.reject(new OperationAbortedError(op_id, 'deadline-no-kill'));
+    takeInFlight(op_id)?.reject(
+      new OperationAbortedError(op_id, 'deadline-no-kill', {
+        started: op.started,
+        deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
+      })
+    );
     return;
   }
 
@@ -541,7 +557,7 @@ async function onDeadline(op_id: string): Promise<void> {
   // collateral 'deadline' abort. Harmless for idempotent reads; slice 4 must
   // weigh this against the write kill-window taxonomy (design §5) before routing
   // writes through here.
-  rejectAllInFlight('deadline');
+  rejectAllInFlight(op_id, op);
   if (closed) {
     // Reopen eagerly so the next call doesn't pay the cold start on its own
     // critical path. Best-effort: the next call's ensureOffscreenDocument()
@@ -603,7 +619,17 @@ async function dispatchOp(
             critical ? CRITICAL_DISPATCH_BACKSTOP_MS : deadlineMs
           )
         : null;
-    inFlight.set(op_id, { resolveResult: resolve, reject, timer, method, deadlineMs, critical, paused: false });
+    inFlight.set(op_id, {
+      resolveResult: resolve,
+      reject,
+      timer,
+      method,
+      deadlineMs,
+      critical,
+      paused: false,
+      timerPhase: critical ? 'backstop' : 'dispatch',
+      started: false
+    });
 
     const envelope: OffscreenCallRequest = {
       target: OFFSCREEN_TARGET,
@@ -656,6 +682,7 @@ function resumeDeadline(op_id: string): void {
   const op = inFlight.get(op_id);
   if (!op || !op.paused) return;
   op.paused = false;
+  op.timerPhase = 'resumed';
   if (op.deadlineMs != null) {
     op.timer = setTimeout(() => {
       void onDeadline(op_id);
@@ -682,6 +709,8 @@ export function markOpStarted(op_id: string): void {
   if (!op) return;
   if (op.timer) clearTimeout(op.timer);
   op.paused = false;
+  op.started = true;
+  op.timerPhase = 'started';
   op.timer =
     op.deadlineMs != null
       ? setTimeout(() => {

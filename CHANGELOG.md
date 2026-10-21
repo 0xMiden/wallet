@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][extension] Crash reports for work the extension stopped on a time limit now say whose limit it was, which limit, and whether the work had started, without any identifier or duration.
 - [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
 
 ### Changes
