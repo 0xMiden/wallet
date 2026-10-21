@@ -351,6 +351,7 @@ describe('resolveSpendsUsd', () => {
           10
         )
       ).resolves.toBe(4_000_000_000n);
+      expect(mockedPrice).not.toHaveBeenCalledWith('NOMARKET', 10);
     } finally {
       jest.mocked(peekTokenPriceAssets).mockImplementation(defaultAssets);
       jest.mocked(hasNoUsdMarket).mockImplementation(() => false);

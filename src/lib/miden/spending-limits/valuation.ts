@@ -159,7 +159,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
         throw new SpendingLimitPriceUnavailableError(entry.label, { cause });
       }
     }
-    const priceMicro = await getPriceMicro(entry.priceSymbol, now);
+    const priceMicro = hasNoUsdMarket(entry.priceSymbol) ? undefined : await getPriceMicro(entry.priceSymbol, now);
     if (priceMicro === undefined) {
       // A verified symbol that neither market lists has no price, like a faucet the wallet does not price.
       if (hasNoUsdMarket(entry.priceSymbol)) continue;
