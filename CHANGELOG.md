@@ -2,6 +2,10 @@
 
 ## 1.17.6 (TBD)
 
+### Fixes
+
+- [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, scope availability explanations to their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
+
 ### Changes
 
 - [CHANGE][all] Login key commitment tests verify key handles are freed and root and scalar buffers are zeroed for stored EVM keys and legacy seed-derived keys (#1579).

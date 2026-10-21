@@ -9,6 +9,7 @@ import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUn
 import { FlowAccent } from 'components/flow/accent';
 import { CardButton } from 'components/ui/Card';
 import { DetailCard } from 'components/ui/DetailCard';
+import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SelectionCheck } from 'components/ui/SelectionCheck';
 import { Skeleton } from 'components/ui/Skeleton';
@@ -29,7 +30,7 @@ export interface RouteStepProps {
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
   fastFeeUsd?: number;
   fastQuoteLoading: boolean;
-  /** Extra message rendered below the cards (e.g. a route-specific notice). */
+  /** Extra message rendered with the selected route card (e.g. a token or balance notice). */
   notice?: React.ReactNode;
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
@@ -164,6 +165,31 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
 const FAST_NOTICE_ID = 'bridge-route-fast-unavailable';
 const SLOW_NOTICE_ID = 'bridge-route-slow-unavailable';
 
+/** Availability describes a route before submission, never a failed transaction. */
+const RouteAvailabilityNotice: React.FC<{
+  availability: FeatureAvailability;
+  label: string;
+  id: string;
+  'data-testid': string;
+}> = ({ availability, label, id, 'data-testid': testId }) => {
+  const { t } = useTranslation();
+  if (availability.state !== 'unavailable') return null;
+  if (availability.reason === 'restricted') {
+    return <FeatureUnavailableNotice availability={availability} variant="inline" id={id} data-testid={testId} />;
+  }
+  return (
+    <Notice
+      tone="neutral"
+      variant="inline"
+      id={id}
+      data-testid={testId}
+      title={t('bridgeRouteUnavailableTitle', { route: label })}
+    >
+      {t('bridgeRouteUnavailableBody')}
+    </Notice>
+  );
+};
+
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
 export const RouteOptions: React.FC<RouteOptionsProps> = ({
   route,
@@ -220,7 +246,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
       <div className="flex flex-col gap-2">
         <RouteCard
           emoji="⚡"
-          label={t('fast')}
+          label={t('bridgeRouteEpoch')}
           selected={route === 'epoch'}
           onSelect={() => select('epoch')}
           fee={fastFee}
@@ -230,17 +256,18 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
           testId="bridge-route-fast"
           accent={accent}
         />
-        <FeatureUnavailableNotice
+        <RouteAvailabilityNotice
           availability={fastAvailability}
-          variant="inline"
+          label={t('bridgeRouteEpoch')}
           id={FAST_NOTICE_ID}
           data-testid="feature-unavailable-notice-fast"
         />
+        {route === 'epoch' && notice && <p className="text-xs text-muted">{notice}</p>}
       </div>
       <div className="flex flex-col gap-2">
         <RouteCard
           emoji="🕐"
-          label={t('slow')}
+          label={t('bridgeRouteAgglayer')}
           selected={route === 'agglayer' && slowAllowed}
           disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
           loading={slowStatus === 'loading'}
@@ -251,19 +278,19 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
           testId="bridge-route-slow"
           accent={accent}
         />
-        <FeatureUnavailableNotice
+        <RouteAvailabilityNotice
           availability={slowAvailability}
-          variant="inline"
+          label={t('bridgeRouteAgglayer')}
           id={SLOW_NOTICE_ID}
           data-testid="feature-unavailable-notice-slow"
         />
+        {route === 'agglayer' && notice && <p className="text-xs text-muted">{notice}</p>}
+        {slowNotice && (
+          <p role="status" className="text-xs text-muted">
+            {slowNotice}
+          </p>
+        )}
       </div>
-      {slowNotice && (
-        <p role="status" className="text-xs text-muted">
-          {slowNotice}
-        </p>
-      )}
-      {notice && <p className="text-xs text-muted">{notice}</p>}
     </div>
   );
 };
@@ -294,7 +321,9 @@ export const Route: React.FC<RouteStepProps> = ({
       top="header"
       footer={
         <Button
-          title={t('continue')}
+          title={t(
+            route === 'agglayer' ? 'bridgeContinueAgglayer' : route === 'epoch' ? 'bridgeContinueEpoch' : 'continue'
+          )}
           variant={ButtonVariant.Primary}
           accent={accent}
           onClick={onConfirm}
