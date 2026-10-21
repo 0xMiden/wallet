@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Hızlı · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Yavaş · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Bu transfer için bu rota kullanılamaz ve şu anda başka bir rota da mevcut değildir. Bu ekrandan herhangi bir işlem gönderilmemiştir.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Agglayer üzerinden devam edin",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Epoch üzerinden devam edin",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "USDCx'i Yak",
     "englishSource": "Burn USDCx"
@@ -709,9 +733,33 @@
     "message": "Cüzdanınızın özel dönüm noktaları.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Kazanılan",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Kilitli",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Yakında",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Rozet koleksiyonu",
-    "englishSource": "Badge collection"
+    "message": "Tüm rozetler",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Yalnızca Mainnet",
@@ -722,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Rozetler Mainnet üzerinde açılır. Test etkinlikleri sayılmaz.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Rozetler Mainnet'te açılır. Test faaliyetleri sayılmaz.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, kazanıldı",
@@ -6864,6 +6912,14 @@
   "bridgeInTitle": {
     "message": "Köprü",
     "englishSource": "Bridge in"
+  },
+  "bridgeDepositTokensUnavailable": {
+    "message": "Köprünün token listesi yüklenemedi, bu nedenle bazı tokenlar eksik olabilir. Daha sonra tekrar deneyin.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "Köprü, bu token'ı bu ağda listelememektedir.",
+    "englishSource": "The bridge does not list this token on this network."
   },
   "bridgeConnectWalletTitle": {
     "message": "Cüzdanınızı bağlayın",

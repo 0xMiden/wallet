@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAppKitProvider } from '@reown/appkit/react';
+import PQueue from 'p-queue';
 import { useTranslation } from 'react-i18next';
 import { useDebounce } from 'use-debounce';
 import {
@@ -24,6 +25,7 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { NetworkModeBanner, NetworkNamedByShell } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, midenAddrToEvmAddr } from 'lib/agglayer';
+import { type Erc20Holding, readErc20Holdings } from 'lib/agglayer/token-holdings';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
@@ -38,7 +40,9 @@ import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-conf
 import {
   type EvmUsdc,
   selectAgglayerChain,
+  selectAgglayerDepositTokens,
   selectAgglayerRecoveryConfig,
+  selectAgglayerRegistryToken,
   selectEvmUsdc,
   selectMidenUsdc
 } from 'lib/remote-config/values';
@@ -86,11 +90,12 @@ import { BridgeNetwork, getBridgeNetworkByChainId } from 'screens/send-flow/brid
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
+import { type DepositToken, type OfferedErc20 } from './deposit-token';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeNetworkDrawer } from './EvmBridgeNetworkDrawer';
-import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
+import { type DepositErc20Row, EvmBridgeTokenDrawer } from './EvmBridgeTokenDrawer';
 import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
 import { useDepositToken } from './useDepositToken';
@@ -274,6 +279,36 @@ async function readEpochUsdcBalance(evmAddress: string, contract: `0x${string}`,
   }
 }
 
+/** A registered ERC-20's balance on the AggLayer chain, through the standard `balanceOf`. */
+async function readErc20Balance(evmAddress: string, contract: `0x${string}`, chainId: number): Promise<bigint> {
+  if (!isAddress(evmAddress)) {
+    throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
+  }
+  const data = encodeFunctionData({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', args: [evmAddress] });
+  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId);
+  if (!isHex(result)) {
+    throw new Error('ERC-20 balanceOf returned no data');
+  }
+  return decodeFunctionResult({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', data: result });
+}
+
+/** The ERC-20 row balances read at once. */
+const ERC20_BALANCE_READS = 4;
+
+const ERC20_DECIMALS_ABI = [
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint8' }] }
+] as const;
+
+/** An ERC-20's decimals as its contract on the AggLayer chain reports them. */
+async function readErc20Decimals(contract: `0x${string}`, chainId: number): Promise<number> {
+  const data = encodeFunctionData({ abi: ERC20_DECIMALS_ABI, functionName: 'decimals' });
+  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId);
+  if (!isHex(result)) {
+    throw new Error('ERC-20 decimals returned no data');
+  }
+  return decodeFunctionResult({ abi: ERC20_DECIMALS_ABI, functionName: 'decimals', data: result });
+}
+
 /** The symbol the recipient gets on Miden. xReserve mints USDCx; the other routes keep the source symbol. */
 function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
   switch (route) {
@@ -288,12 +323,13 @@ function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
 
 /**
  * The route after a token change. Circle's USDC bridges only through xReserve, and no other token
- * can use that route; a token leaving it goes to AggLayer, since only the retired Epoch USDC confirms
- * on Fast. Between ETH and the bridge's own USDC the chosen route stays.
+ * can use that route; a registered ERC-20 bridges only through AggLayer; a token leaving xReserve
+ * goes to AggLayer, since only the retired Epoch USDC confirms on Fast. Between ETH and the
+ * bridge's own USDC the chosen route stays.
  */
 function routeAfterTokenChange(next: DepositToken, current: BridgeRoute): BridgeRoute {
   if (next === 'CIRCLE_USDC') return 'usdcx';
-  if (current === 'usdcx') return 'agglayer';
+  if (typeof next !== 'string' || current === 'usdcx') return 'agglayer';
   return current;
 }
 
@@ -437,7 +473,79 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // The one name the drawer, the amount step and the Review give the bridge's own USDC, while its read is pending
   // too. Circle's USDC on Arc Testnet is another token: it keeps its symbol and never takes that label.
   const usdcLabel = evmUsdcLabel(bridgeConfig, usdcSymbol || 'USDC');
+  // Keep the list stable between config updates, including an empty list. A new list restarts the balance reads.
+  const depositTokens = useMemo(
+    () => selectAgglayerDepositTokens(bridgeConfig, agglayerChainId),
+    [bridgeConfig, agglayerChainId]
+  );
+  // On a test network the picker also offers the connected wallet's holdings, read from the chain's Blockscout: the
+  // testnet bridge registers a token's faucet on its first deposit. Mainnet offers the document's list alone.
+  const tokenApiUrl = agglayerChain?.bridges.agglayer?.tokenApiUrl;
+  const offersHoldings = bridgeConfig.config?.network !== 'mainnet' && tokenApiUrl !== undefined;
+  const [holdings, setHoldings] = useState<{ status: 'idle' | 'loading' | 'ok' | 'error'; tokens: Erc20Holding[] }>({
+    status: 'idle',
+    tokens: []
+  });
+  useEffect(() => {
+    if (!offersHoldings || tokenApiUrl === undefined) {
+      setHoldings({ status: 'idle', tokens: [] });
+      return;
+    }
+    let cancelled = false;
+    setHoldings({ status: 'loading', tokens: [] });
+    readErc20Holdings(tokenApiUrl, evmAddress)
+      .then(tokens => {
+        if (!cancelled) setHoldings({ status: 'ok', tokens });
+      })
+      .catch(err => {
+        console.warn('[EvmBridgeDepositScreen] token holdings read failed', err);
+        if (!cancelled) setHoldings({ status: 'error', tokens: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [offersHoldings, tokenApiUrl, evmAddress]);
+  // What the picker offers: the document's tokens first, then the wallet's other holdings, each once by address. A
+  // holding takes its faucet from the registry when the bridge holds one for it already.
+  const offeredErc20s = useMemo<OfferedErc20[]>(() => {
+    const offered: OfferedErc20[] = (depositTokens ?? []).map(candidate => ({
+      symbol: candidate.symbol,
+      contractAddress: candidate.contractAddress,
+      decimals: candidate.decimals,
+      delivery: { midenFaucetId: candidate.midenFaucetId, scale: candidate.scale }
+    }));
+    const listed = new Set(offered.map(candidate => candidate.contractAddress));
+    for (const held of holdings.tokens) {
+      if (listed.has(held.contractAddress)) continue;
+      listed.add(held.contractAddress);
+      const registered = selectAgglayerRegistryToken(bridgeConfig, held.contractAddress, agglayerChainId);
+      offered.push({
+        symbol: held.symbol,
+        contractAddress: held.contractAddress,
+        decimals: held.decimals,
+        ...(registered ? { delivery: { midenFaucetId: registered.midenFaucetId, scale: registered.scale } } : {})
+      });
+    }
+    return offered;
+  }, [depositTokens, holdings.tokens, bridgeConfig, agglayerChainId]);
+  // The picked ERC-20, resolved from the live list on every render: a document or a wallet that drops it leaves the
+  // pick unresolved, which the route step reports instead of bridging it.
+  const erc20 = useMemo<OfferedErc20 | null>(
+    () =>
+      typeof token === 'string'
+        ? null
+        : (offeredErc20s.find(candidate => candidate.contractAddress === token.contractAddress) ?? null),
+    [token, offeredErc20s]
+  );
+  // The bridge's own USDC keeps its testnet label wherever it is picked from; any other ERC-20 is its symbol.
+  const erc20Label = (candidate: OfferedErc20): string =>
+    evmUsdcAddress !== undefined && candidate.contractAddress === evmUsdcAddress.toLowerCase()
+      ? evmUsdcLabel(bridgeConfig, candidate.symbol)
+      : candidate.symbol;
   const { tokenSymbol, tokenLabel } = (() => {
+    if (typeof token !== 'string') {
+      return { tokenSymbol: erc20?.symbol ?? '', tokenLabel: erc20 ? erc20Label(erc20) : '' };
+    }
     switch (token) {
       case 'ETH':
         return { tokenSymbol: ETH_SYMBOL, tokenLabel: ETH_SYMBOL };
@@ -451,6 +559,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // The route stays chosen when the user steps back, so the amount step names the arriving token as the Review does.
   const arrivingName = arrivingTokenName(route, tokenSymbol, tokenLabel);
   const usdcDecimals = selectedEvmUsdc?.decimals ?? 0;
+  // The decimals a Slow (AggLayer) deposit converts the typed amount with: the picked token's own.
+  const slowSourceDecimals = (() => {
+    if (token === 'ETH') return ETH_DECIMALS;
+    if (erc20) return erc20.decimals;
+    return usdcDecimals;
+  })();
   const evmUsdc = useMemo<EvmUsdc | null>(
     () =>
       evmUsdcAddress && evmUsdcChainId !== undefined
@@ -493,7 +607,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [onAmountStep, token, bridgeConfig.status, usdcxPending, usdcxSource, usdcxAvailable, agglayerChain, selectToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
-  const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
+  const configuredFastAvailability = useFeatureAvailability('fastBridgeIn', {
+    hold: routesAhead,
+    chainId: evmUsdcChainId
+  });
   const configuredSlowAvailability = useFeatureAvailability('bridgeIn', {
     hold: routesAhead,
     chainId: agglayerChainId
@@ -502,10 +619,24 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (token === 'USDC' && (!evmUsdc || evmUsdc.chainId !== agglayerChainId)) {
       return { state: 'unavailable', reason: 'not-configured', detail: 'AggLayer has no supported USDC on this chain' };
     }
+    if (typeof token !== 'string' && erc20 === null) {
+      return { state: 'unavailable', reason: 'not-configured', detail: t('bridgeDepositTokenNotListed') };
+    }
     return configuredSlowAvailability;
   })();
+  // Fast (Epoch) quotes only its own USDC; an offered ERC-20 has the one route, AggLayer.
+  const fastAvailability = useMemo<FeatureAvailability>(
+    () =>
+      typeof token === 'string'
+        ? configuredFastAvailability
+        : { state: 'unavailable', reason: 'not-configured', detail: t('bridgeDepositTokenNotListed') },
+    [token, configuredFastAvailability, t]
+  );
 
+  // The connected wallet's balance of each registered ERC-20, by its lowercase address, read together.
+  const [erc20Balances, setErc20Balances] = useState<Record<string, BridgeBalance>>({});
   const selectedBalance = (() => {
+    if (typeof token !== 'string') return erc20Balances[token.contractAddress] ?? EMPTY_BALANCE;
     switch (token) {
       case 'ETH':
         return ethBalance;
@@ -644,6 +775,41 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       cancelled = true;
     };
   }, [evmAddress, agglayerChainId, agglayerPending]);
+
+  // Every registered ERC-20's balance on the AggLayer chain, each row settling on its own: one failed read marks only
+  // its token, which the amount step then shows when that token is picked.
+  // Keyed on the token set, not the array a config publish rebuilds, and read a few at a time so a long holdings list
+  // cannot flood the chain's RPC.
+  const offeredRef = useRef(offeredErc20s);
+  offeredRef.current = offeredErc20s;
+  const offeredKey = offeredErc20s.map(({ contractAddress, decimals }) => `${contractAddress}:${decimals}`).join(',');
+  useEffect(() => {
+    setErc20Balances({});
+    const offered = offeredRef.current;
+    if (agglayerChainId === undefined || offered.length === 0) return;
+    const chainId = agglayerChainId;
+    let cancelled = false;
+    const settle = (address: string, balance: BridgeBalance) => {
+      if (cancelled) return;
+      setErc20Balances(current => ({ ...current, [address]: balance }));
+    };
+    const reads = new PQueue({ concurrency: ERC20_BALANCE_READS });
+    for (const { contractAddress, decimals } of offered) {
+      void reads.add(() =>
+        readErc20Balance(evmAddress, contractAddress, chainId)
+          .then(value =>
+            settle(contractAddress, { value, formatted: formatBalance(value, decimals), loading: false, error: null })
+          )
+          .catch(err =>
+            settle(contractAddress, { value: null, formatted: '0', loading: false, error: errorMessage(err) })
+          )
+      );
+    }
+    return () => {
+      cancelled = true;
+      reads.clear();
+    };
+  }, [evmAddress, agglayerChainId, offeredKey]);
 
   // A fresh EVM→Miden reverse-quote for the current amount. The typed amount is
   // the Miden-side output (`minTokenOut`, faucet base units); the allocator
@@ -874,8 +1040,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // token address; an ERC-20 is approved to the bridge first, unless its allowance
         // already covers the deposit, and then bridged with its own address and no value.
         const isNative = token === 'ETH';
-        if (!isNative && (!evmUsdc || evmUsdc.chainId !== agglayerChainId)) {
+        if (token === 'USDC' && (!evmUsdc || evmUsdc.chainId !== agglayerChainId)) {
           throw walletRaised(new Error('The bridge config has no supported USDC on this chain.'));
+        }
+        if (typeof token !== 'string' && !erc20) {
+          throw walletRaised(new Error('The bridge does not list this token on this chain.'));
         }
         // The L1 bridge the config names, and the Miden rollup id its bridge account reports.
         if (!agglayerChainId) throw walletRaised(new Error('AggLayer chain is not configured'));
@@ -884,9 +1053,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const captured = agglayerRecovery;
         if (!captured) throw walletRaised(new Error('AggLayer route is not configured'));
         const { contractAddress, rollupId } = captured;
-        const amountInBaseUnits = parseUnits(amount.trim(), isNative ? ETH_DECIMALS : usdcDecimals);
-        const tokenAddress: `0x${string}` =
-          isNative || !evmUsdc ? '0x0000000000000000000000000000000000000000' : evmUsdc.address;
+        // An offered token's decimals may be an indexer's; the contract's own decide the amount sent.
+        if (erc20 && (await readErc20Decimals(erc20.contractAddress, agglayerChainId)) !== erc20.decimals) {
+          throw walletRaised(new Error('The token contract reports other decimals than the wallet offered it at.'));
+        }
+        const sourceDecimals = slowSourceDecimals;
+        const amountInBaseUnits = parseUnits(amount.trim(), sourceDecimals);
+        const tokenAddress: `0x${string}` = (() => {
+          if (isNative) return '0x0000000000000000000000000000000000000000';
+          if (erc20) return erc20.contractAddress;
+          return evmUsdc?.address ?? '0x0000000000000000000000000000000000000000';
+        })();
         const args = [
           rollupId,
           midenAddrToEvmAddr(midenAccount.publicKey),
@@ -898,11 +1075,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const value = isNative ? amountInBaseUnits : 0n;
         step = 'precheck_balance';
         // ETH is held to the deposit alone; a gas shortfall on top stays the wallet's to report.
-        await ensureBalanceCovers(amountInBaseUnits, isNative ? ETH_DECIMALS : usdcDecimals, agglayerChainId, () =>
-          isNative
-            ? readEthBalance(evmAddress, agglayerChainId)
-            : readEpochUsdcBalance(evmAddress, tokenAddress, agglayerChainId)
-        );
+        await ensureBalanceCovers(amountInBaseUnits, sourceDecimals, agglayerChainId, () => {
+          if (isNative) return readEthBalance(evmAddress, agglayerChainId);
+          if (erc20) return readErc20Balance(evmAddress, tokenAddress, agglayerChainId);
+          return readEpochUsdcBalance(evmAddress, tokenAddress, agglayerChainId);
+        });
         // Native Reown signs on the AggLayer chain: a session that did not approve it fails here, before any
         // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.". It comes after the
         // balance check because adding and switching the chain is itself a wallet prompt.
@@ -1030,13 +1207,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       amount,
       depositError,
       ensureBalanceCovers,
+      erc20,
       evmAddress,
       evmUsdc,
       midenAccount.publicKey,
       nativeReownAvailable,
+      slowSourceDecimals,
       switchChainAsync,
       token,
-      usdcDecimals,
       walletProvider,
       writeContract
     ]
@@ -1299,6 +1477,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   );
 
   const setupToken: UITokenWithPendingBalance = useMemo(() => {
+    if (typeof token !== 'string') {
+      const decimals = erc20?.decimals ?? 0;
+      return {
+        id: token.contractAddress,
+        name: erc20?.symbol ?? '',
+        decimals,
+        balance: shownBalance(erc20Balances[token.contractAddress] ?? EMPTY_BALANCE, decimals),
+        // No price feed for a registered token; fiatPrice 0 keeps the review from showing a bogus ≈USD.
+        fiatPrice: 0,
+        scaleIsKnown: erc20 !== null
+      };
+    }
     switch (token) {
       case 'ETH':
         return {
@@ -1332,7 +1522,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           scaleIsKnown: evmUsdc !== null
         };
     }
-  }, [token, ethBalance, usdcBalance, circleUsdcBalance, evmUsdc, usdcSymbol, usdcDecimals, usdcxSource?.usdc]);
+  }, [
+    token,
+    erc20,
+    erc20Balances,
+    ethBalance,
+    usdcBalance,
+    circleUsdcBalance,
+    evmUsdc,
+    usdcSymbol,
+    usdcDecimals,
+    usdcxSource?.usdc
+  ]);
 
   // Compared in base units: a float can round an amount at the balance either way.
   const typedUnits = isValidAmount(amount) ? toBaseUnits(amount, setupToken.decimals) : null;
@@ -1581,7 +1782,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       const expectedAmount = (() => {
         switch (route) {
           case 'agglayer':
-            return parseUnits(amount.trim(), token === 'ETH' ? ETH_DECIMALS : usdcDecimals);
+            return parseUnits(amount.trim(), slowSourceDecimals);
           case 'usdcx':
             return parseUnits(amount.trim(), USDCX_DECIMALS);
           case 'epoch':
@@ -1627,6 +1828,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           sourceAddress: evmAddress,
           sourceChainId,
           agglayerRoute: agglayerRecovery,
+          // The ERC-20 and, once the registry holds it, its faucet, saved with the row: its delivery is matched by
+          // that faucet at its scale, read from the registry later when the testnet bridge registers it on deposit.
+          agglayerDelivery:
+            route === 'agglayer' && erc20
+              ? {
+                  originToken: erc20.contractAddress,
+                  ...(erc20.delivery ? { faucetId: erc20.delivery.midenFaucetId, scale: erc20.delivery.scale } : {})
+                }
+              : undefined,
           usdcxSource,
           epochAllocatorUrl: allocatorUrl,
           sourceAmount: depositAmount.trim(),
@@ -1670,9 +1880,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     requote,
     route,
     sourceChainId,
-    token,
-    tokenSymbol,
-    usdcDecimals
+    erc20,
+    slowSourceDecimals,
+    tokenSymbol
   ]);
 
   const renderStep = useCallback(
@@ -1693,7 +1903,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               amount={reviewAmount}
               symbol={tokenSymbol}
               label={tokenLabel}
-              fiat={token === 'ETH' ? undefined : Number(reviewAmount)}
+              fiat={setupToken.fiatPrice === 0 ? undefined : Number(reviewAmount)}
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
@@ -1800,7 +2010,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       t,
       handleRouteChange,
       route,
-      token,
       routeNotice,
       usdcxFeeHoldNotice,
       usdcxQuotedFee,
@@ -1852,6 +2061,25 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         circleUsdcBalance={usdcxAvailable ? circleUsdcBalance.formatted : undefined}
         circleUsdcLabel={CIRCLE_USDC_SYMBOL}
         circleUsdcLoading={circleUsdcBalance.loading}
+        erc20Rows={
+          agglayerChain
+            ? offeredErc20s.map((candidate): DepositErc20Row => {
+                const balance = erc20Balances[candidate.contractAddress] ?? EMPTY_BALANCE;
+                return {
+                  token: candidate,
+                  name: erc20Label(candidate),
+                  balance: balance.formatted,
+                  loading: balance.loading
+                };
+              })
+            : undefined
+        }
+        // A failed list read, of the document's tokens or of the wallet's holdings, is said, not shown as a shorter
+        // list; while the snapshot loads it is only pending.
+        erc20Unavailable={
+          agglayerChain !== null &&
+          ((depositTokens === null && bridgeConfig.status !== 'loading') || holdings.status === 'error')
+        }
         onSelect={handleTokenSelect}
       />
       <EvmBridgeNetworkDrawer

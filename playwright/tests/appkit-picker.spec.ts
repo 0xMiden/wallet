@@ -68,7 +68,8 @@ test.describe('AppKit external-wallet picker', () => {
       const walletConnect = modal.getByTestId('wallet-selector-walletconnect');
       await expect(walletConnect).toBeVisible();
       await expect(walletConnect.getByRole('button')).toBeEnabled();
-      await expect(modal.getByTestId('all-wallets')).toBeVisible();
+      // The extension hides the "All Wallets" grid: it cannot reach another extension's wallet.
+      await expect(modal.getByTestId('all-wallets')).toHaveCount(0);
       await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*\bdark\b)/);
 
       const screenshotPath = testInfo.outputPath(`appkit-picker-${theme}.png`);
