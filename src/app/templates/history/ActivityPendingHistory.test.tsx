@@ -5,11 +5,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import {
   publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
-  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  testSnapshotWithSwapPairs
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { TEST_TOKEN_IUSDT, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
+import { TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
@@ -46,6 +45,16 @@ let mockRecovery: GuardianNoteRecoveryProgress | null = null;
 let mockRecoveryPending: boolean | undefined = true;
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// Set verified price assets directly. Swap metadata does not set price assets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+});
+
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
@@ -227,14 +236,9 @@ function expandCard(noteId: string): HTMLElement {
   return card;
 }
 
-it('revalues an unchanged pending list on config-only price changes and removes an unavailable total', () => {
+it('revalues an unchanged pending list on verified price asset changes and removes an unavailable total', () => {
   _setSwapTokensForTest(undefined);
-  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot =>
-    testSnapshotWithSwapPairs({
-      tokens: [testSwapPairsToken({ ...TEST_TOKEN_IUSDT, priceSymbol })],
-      pairs: []
-    });
-  mockBridgeSnapshot = snapshotFor('USDC');
+  mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'USDC');
   mockState.items = [
     {
       note: {
@@ -250,19 +254,15 @@ it('revalues an unchanged pending list on config-only price changes and removes 
     }
   ];
   try {
-    render(<ActivityPendingHistory search="" filter="pending" />);
+    const view = render(<ActivityPendingHistory search="" filter="pending" />);
     expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$2.00');
 
-    act(() => {
-      mockBridgeSnapshot = snapshotFor('ETH');
-      publishMockBridgeSnapshot();
-    });
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'ETH');
+    view.rerender(<ActivityPendingHistory search="" filter="pending" />);
     expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$1.00');
 
-    act(() => {
-      mockBridgeSnapshot = snapshotFor();
-      publishMockBridgeSnapshot();
-    });
+    mockVerifiedPriceAssets.delete(TEST_TOKEN_IUSDT.faucetId);
+    view.rerender(<ActivityPendingHistory search="" filter="pending" />);
     expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
     expect(screen.getByText('activityPendingWaiting:1')).toBeInTheDocument();
   } finally {

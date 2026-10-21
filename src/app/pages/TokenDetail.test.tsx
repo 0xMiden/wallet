@@ -23,7 +23,20 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
 
-// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
 
@@ -531,9 +544,8 @@ describe('TokenDetail', () => {
     }
   });
 
-  // E2E builds price the fixture symbol TST by symbol, and the feed never lists it, so with the
-  // switch on it takes the nominal rate: a dollar figure, with no market to chart.
-  it('shows the nominal fiat line and no price section off mainnet for the E2E fixture token', () => {
+  // The E2E fixture has no market quote, even when the nominal display setting is on.
+  it('shows no fiat line or price section without a quote for the E2E fixture token', () => {
     const previousE2e = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
@@ -546,7 +558,9 @@ describe('TokenDetail', () => {
         'mtst1fixture'
       );
 
-      expect(within(screen.getByTestId('token-detail-hero')).getByText('$12.50')).toBeInTheDocument();
+      const hero = screen.getByTestId('token-detail-hero');
+      expect(within(hero).getByText('12.50')).toBeInTheDocument();
+      expect(hero.querySelector('p')).toBeNull();
       expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
     } finally {
       mockedHasUnquotedDefaultPrice.mockReturnValue(false);
