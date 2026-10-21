@@ -253,7 +253,7 @@ jobs:
         if: ${{ always() && steps.reown-native-smoke.outcome != 'skipped' }}
         run: |
           adb -s emulator-5554 emu kill || true
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if ! adb -s emulator-5554 get-state >/dev/null 2>&1; then
               exit 0
             fi
