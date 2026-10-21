@@ -24,6 +24,7 @@ import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { TelemetryStep } from 'lib/telemetry/types';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
 import { errorToMessage, isGuardianNotFound, isMainnetAccessCodeRejected } from 'screens/onboarding/error-message';
@@ -201,6 +202,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // The recovery-method screen's failure text, or null. It keeps its own copy because the page
   // change that reaches that screen clears registrationError.
   const [guardianLookupFailure, setGuardianLookupFailure] = useState<string | null>(null);
+  const [guardianLookupFailureId, setGuardianLookupFailureId] = useState<UserErrorId | null>(null);
   /**
    * A registration failure to show on the confirmation screen.
    *
@@ -211,6 +213,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+  const [registrationErrorId, setRegistrationErrorId] = useState<UserErrorId | null>(null);
   // The identity of the file restore that has landed for the current attempt, or null. Bound to
   // the SAME fileRegistrationBinding() register() keys its own dedup on, so it is the file, not a
   // plain "has anything landed" flag. Only resetFlowState clears it, so it survives a history
@@ -280,6 +283,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     setConfirmPhase('idle');
     setCommittedFileBinding(null);
     setGuardianLookupFailure(null);
+    setGuardianLookupFailureId(null);
     setUseBiometric(true);
     setWalletType(WalletType.Guardian);
     setGuardianEndpoint(undefined);
@@ -553,8 +557,10 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       // Surface it for every path; most used to show nothing. The Guardian import
       // branch below hands off to the recovery-method screen, which retires this
       // message on arrival.
-      const failure = errorToMessage(error) ?? t('smthWentWrong');
+      const ownMessage = errorToMessage(error);
+      const failure = ownMessage ?? t('smthWentWrong');
       setRegistrationError(failure);
+      setRegistrationErrorId(ownMessage ? 'raw_onboarding_recovery_failed' : 'smthWentWrong');
       if (isMainnetAccessCodeRejected(error)) {
         // The backend undid the setup; only another code can start it again.
         setAccessCode(undefined);
@@ -565,18 +571,23 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
         // The page change clears registrationError, so the screen gets its own copy of the reason.
         let lookupFailure: string;
+        let lookupFailureId: UserErrorId;
         if (isGuardianNotFound(error)) {
           // A key-pair import keeps its own translated importHotKeyNoAccount text: the generic
           // copy suggests a public import, which a pasted key cannot use (the screen hides it).
           lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
+          lookupFailureId = keyPairPayload ? 'importHotKeyNoAccount' : 'guardianAccountNotFound';
         } else if (isLikelyNetworkError(error)) {
           // A raw "Failed to fetch" / RPC timeout message is not translated; show the
           // operator-unreachable notice instead.
           lookupFailure = t('guardianUrlUnreachable');
+          lookupFailureId = 'guardianUrlUnreachable';
         } else {
           lookupFailure = failure;
+          lookupFailureId = ownMessage ? 'raw_import_recovery_lookup_failed' : 'smthWentWrong';
         }
         setGuardianLookupFailure(lookupFailure);
+        setGuardianLookupFailureId(lookupFailureId);
         navigate('/#import-select-recovery-method');
         return true;
       }
@@ -782,6 +793,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'import-hot-key-submit':
         // A new key retires a Guardian lookup failure raised for the previous credential.
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         setKeyPairPayload(action.payload);
         // The key replaces a seed or a staged file (see the state comment).
         setSeedPhrase(null);
@@ -804,6 +816,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         break;
       case 'import-wallet-file-submit':
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         setOnboardingType(OnboardingType.Import);
         setWalletFilePayload(action.payload);
         setSeedPhrase(action.payload.seedPhrase.split(' '));
@@ -824,6 +837,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'import-seed-phrase-submit':
         // A new seed retires a Guardian lookup failure raised for the previous one.
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         setWalletFilePayload(null);
         setSeedPhrase(action.payload.split(' '));
         setKeyPairPayload(null);
@@ -863,6 +877,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'retry-guardian-probe':
         // A new detection run retires the lookup failure shown against the last one.
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         if (keyPairPayload) startGuardianProbeWithKey(keyPairPayload);
         else if (seedPhrase) startGuardianProbe(seedPhrase);
         break;
@@ -875,6 +890,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
         );
         setGuardianLookupFailure(null);
+        setGuardianLookupFailureId(null);
         // Arms the auto-register for this resubmit. A routed Guardian failure leaves confirmPhase failed rather than
         // resetting it, since a reset there would re-fire the effect before the route leaves Confirmation.
         setConfirmPhase('idle');
@@ -896,6 +912,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         try {
           setBiometricError(null);
           setRegistrationError(null);
+          setRegistrationErrorId(null);
           await register();
           finishMark.arm();
           // Wait for state to be synced before navigating
@@ -908,6 +925,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
             // Welcome, so the user lands at the start of onboarding with no
             // idea their wallet may already exist. Stay put and say so.
             setRegistrationError(t('walletSetupDidNotComplete'));
+            setRegistrationErrorId('walletSetupDidNotComplete');
             break;
           }
           settleOnboardingFlow(handle => handle.complete());
@@ -1191,6 +1209,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   useEffect(() => {
     if (step !== OnboardingStep.Confirmation) {
       setRegistrationError(null);
+      setRegistrationErrorId(null);
     }
   }, [step]);
 
@@ -1239,7 +1258,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
           guardianLookupFailure={guardianLookupFailure}
+          guardianLookupFailureId={guardianLookupFailureId}
           recoveryError={registrationError}
+          recoveryErrorId={registrationErrorId}
           guardianProbe={guardianProbeState}
           confirmCreating={confirmPhase === 'creating' || (autoRegisterDue && confirmPhase === 'idle')}
           importViaKey={Boolean(keyPairPayload)}

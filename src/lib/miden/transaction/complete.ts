@@ -1575,6 +1575,7 @@ export const updateBridgedReceivePhase = async (
       | 'outputSymbol'
       | 'cctp'
       | 'error'
+      | 'errorId'
       | 'usdcxRemoteRecipient'
       | 'epochAllocatorUrl'
     >

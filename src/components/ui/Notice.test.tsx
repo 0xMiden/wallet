@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { Notice, NoticeTone } from './Notice';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 it('renders the body as a note, with no title or glyph unless given', () => {
   render(<Notice data-testid="notice">Only send test tokens here.</Notice>);
@@ -95,4 +99,62 @@ it('merges a layout className', () => {
   );
 
   expect(screen.getByTestId('notice')).toHaveClass('mt-5', 'w-full');
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the notice surface after the dwell', () => {
+    render(
+      <Notice errorId="usdcxFaucetUnavailable" tone="negative">
+        Failed
+      </Notice>
+    );
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'notice');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(
+      <Notice errorId={errorId} tone="negative">
+        Failed
+      </Notice>
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(
+      <Notice errorId="usdcxFaucetUnavailable" tone="warning">
+        Warning
+      </Notice>
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(
+      <Notice errorId="usdcxFaucetUnavailable" tone="negative">
+        Failed
+      </Notice>
+    );
+    act(() => jest.advanceTimersByTime(999));
+    rerender(
+      <Notice errorId="usdcxFaucetUnavailable" tone="warning">
+        Warning
+      </Notice>
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
 });

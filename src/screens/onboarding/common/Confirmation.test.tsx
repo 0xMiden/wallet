@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { OnboardingType } from 'screens/onboarding/types';
 
 import { ConfirmationScreen } from './Confirmation';
@@ -73,6 +74,24 @@ const renderComponent = (props: Partial<React.ComponentProps<typeof Confirmation
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('ConfirmationScreen', () => {
   describe('creating (side-panel handoff) branch', () => {
@@ -393,5 +412,59 @@ describe('ConfirmationScreen', () => {
         expect(onSwitchToPassword).not.toHaveBeenCalled();
       });
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  it('reports one display when recovery and biometric failures share a notice', () => {
+    renderComponent({ recoveryError: privateErrorFixture, biometricError: privateErrorFixture, biometricAttempts: 1 });
+    expect(screen.getByText('biometricFailed')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-recovery-error')).toHaveTextContent(privateErrorFixture);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('raw_onboarding_recovery_failed', 'notice');
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports recovery failure using its site identity without leaking the message', () => {
+    renderComponent({ recoveryError: privateErrorFixture });
+    expect(screen.getByTestId('onboarding-recovery-error')).toHaveTextContent(privateErrorFixture);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('raw_onboarding_recovery_failed', 'notice');
+  });
+  it('reports the translated biometric failure once', () => {
+    renderComponent({ biometricError: privateErrorFixture, biometricAttempts: 1 });
+    expect(screen.getByText('biometricFailed')).toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('biometricFailed', 'notice');
+  });
+  it.each([
+    { creating: true, recoveryError: privateErrorFixture },
+    { biometricError: privateErrorFixture, biometricAttempts: 0 },
+    {}
+  ])('does not report progress or ready state %j', props => {
+    renderComponent(props);
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+  it('cancels a recovery error episode unmounted before dwell', () => {
+    const view = renderComponent({ recoveryError: privateErrorFixture });
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    view.unmount();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

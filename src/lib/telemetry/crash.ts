@@ -120,8 +120,13 @@ function buildIntegrations() {
   const dedupe = dedupeIntegration();
   const processEvent = dedupe.processEvent;
   dedupe.processEvent = (event, hint, activeClient) => {
-    // Guarded terminal writes already deduplicate no-ops; separate failed attempts must each be counted.
-    if (event.exception?.values?.some(value => value.type === 'WalletTransactionFailure')) return event;
+    // Terminal writes and user-visible reports apply their own limits; each accepted report must be counted.
+    if (
+      event.exception?.values?.some(
+        value => value.type === 'WalletTransactionFailure' || value.type === 'WalletUserVisibleError'
+      )
+    )
+      return event;
     // A relay report is sent once per failure bucket of its window, and repeats the last one's text and frames.
     const original = hint.originalException;
     if (original instanceof Error && capturedDiagnostics.get(original)?.service === RELAY_SERVICE) return event;
@@ -179,10 +184,19 @@ type ReportableFrame = {
   colno?: number;
 };
 const capturedFrames = new WeakMap<Error, ReportableFrame[]>();
-const capturedClosedNames = new WeakMap<Error, ReadonlySet<string>>();
+const capturedClosedReports = new WeakMap<Error, Readonly<Pick<Error, 'name' | 'message'>>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function closedReportValue(event: unknown, original: unknown): Record<string, unknown> | undefined {
+  const captured = original instanceof Error ? capturedClosedReports.get(original) : undefined;
+  if (captured === undefined || !isRecord(event) || !isRecord(event.exception)) return undefined;
+  const values = event.exception.values;
+  if (!Array.isArray(values)) return undefined;
+  const value: unknown = values[values.length - 1];
+  return isRecord(value) && value.type === captured.name && value.value === captured.message ? value : undefined;
 }
 
 function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, diagnostics: DiagnosticSnapshot): void {
@@ -191,8 +205,17 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
   event.tags = {
     ...(isRecord(event.tags) ? event.tags : {}),
     network: diagnostics.network,
-    ...(diagnostics.service === undefined ? {} : { service: diagnostics.service })
+    ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
+    ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
+    ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface })
   };
+  if (
+    reportable.name === 'WalletUserVisibleError' &&
+    diagnostics.userErrorId !== undefined &&
+    diagnostics.userErrorSurface !== undefined
+  ) {
+    event.fingerprint = ['WalletUserVisibleError', diagnostics.userErrorId, diagnostics.userErrorSurface];
+  }
   const exception = event.exception;
   if (!isRecord(exception) || !Array.isArray(exception.values)) return;
   let link: unknown = reportable;
@@ -216,9 +239,16 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
  */
 export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }): T | null {
   const original = hint?.originalException;
-  const closedNames = original instanceof Error ? capturedClosedNames.get(original) : undefined;
-  if (containsSeedMaterialDeep(event, WORDLIST, closedNames)) return null;
-  redactInPlace(event, WORDLIST, closedNames);
+  const fixedValue = closedReportValue(event, original);
+  const fixedMessage = fixedValue?.value;
+  try {
+    // Only the identity-bound fixed exception text is exempt; SDK-added text always uses the full phrase guard.
+    if (fixedValue !== undefined) fixedValue.value = REDACTED;
+    if (containsSeedMaterialDeep(event, WORDLIST)) return null;
+    redactInPlace(event, WORDLIST);
+  } finally {
+    if (fixedValue !== undefined) fixedValue.value = fixedMessage;
+  }
   const diagnostics = original instanceof Error ? capturedDiagnostics.get(original) : undefined;
   if (diagnostics !== undefined && original instanceof Error && isRecord(event))
     restoreDiagnostics(event, original, diagnostics);
@@ -318,7 +348,7 @@ function rebuildError(
 ): Error {
   seen.add(error);
   const { name, message, stack } = fields;
-  const safeName = redactText(name, WORDLIST, closedNames);
+  const safeName = redactText(name, WORDLIST);
   const safeMessage = redactMessage(message, WORDLIST, closedNames) ?? REDACTED;
   const frames = framesAfterHeader(name, message, stack);
   const reportable = new Error(safeMessage);
@@ -345,7 +375,7 @@ function rebuildError(
     /* Ignore hostile cause accessors. */
   }
   if (cause instanceof Error && depth < 3 && !seen.has(cause)) {
-    reportable.cause = rebuildError(cause, seen, depth + 1, closedNames);
+    reportable.cause = rebuildError(cause, seen, depth + 1);
   }
   return reportable;
 }
@@ -368,7 +398,7 @@ export function captureCrash(
   options: {
     initializeIfNeeded?: boolean;
     level?: 'error' | 'warning';
-    /** The reporter's own closed identifiers, which the recovery-phrase guard reads as non-wordlist words if whole. */
+    /** Closed identifiers used only to rebuild the fixed report message, never arbitrary SDK-added event fields. */
     closedNames?: ReadonlySet<string>;
   } = {}
 ): void {
@@ -382,7 +412,8 @@ export function captureCrash(
     const reportable = relay?.report
       ? rebuildRelayError(fields, relay.message)
       : rebuildError(error, new Set(), 0, options.closedNames, fields);
-    if (options.closedNames !== undefined) capturedClosedNames.set(reportable, options.closedNames);
+    if (options.closedNames !== undefined)
+      capturedClosedReports.set(reportable, { name: reportable.name, message: reportable.message });
     capturedDiagnostics.set(reportable, {
       ...snapshotCrashDiagnostics(error),
       ...resolveTelemetryContext(),

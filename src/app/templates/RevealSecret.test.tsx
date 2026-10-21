@@ -5,8 +5,11 @@ import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RevealSecret from './RevealSecret';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The private-key reveal names its account in a real ListRow. It used to be an
 // AccountBanner rendered without an `account` prop, which crashed on
@@ -61,26 +64,43 @@ jest.mock('app/icons/v2', () => ({
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock it so we can drive its onChange/onSubmit callbacks.
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    disabled
-  }: {
-    onSubmit: (code: string) => void;
-    onChange: (code: string) => void;
-    disabled?: boolean;
-  }) => (
-    <div>
-      <button data-testid="passcode-change" onClick={() => onChange('1')}>
-        passcode-change
-      </button>
-      <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
-        passcode-submit
-      </button>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      onChange,
+      disabled
+    }: {
+      onSubmit: (code: string) => void;
+      onChange: (code: string) => void;
+      disabled?: boolean;
+    }) => (
+      <div>
+        <button data-testid="passcode-change" onClick={() => onChange('1')}>
+          passcode-change
+        </button>
+        <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
+          passcode-submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
@@ -143,6 +163,7 @@ describe('RevealSecret', () => {
   });
 
   beforeEach(() => {
+    mockRenderActualPasscode = false;
     jest.clearAllMocks();
     mockWalletState.seedPhraseStatus = 'stored';
     mockSecret = null;
@@ -584,6 +605,10 @@ describe('RevealSecret', () => {
       await new Promise(res => setTimeout(res, 350));
     });
 
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_secret_reveal_failed', 'field');
     expect(mockRevealPrivateKey).toHaveBeenCalled();
     expect(mockSetSecret).not.toHaveBeenCalled();
   });
@@ -606,6 +631,29 @@ describe('RevealSecret', () => {
 
     expect(mockRevealPrivateKey).toHaveBeenCalledWith('deadbeef', '123456');
     expect(mockSetSecret).toHaveBeenCalledWith('PRIVATE_KEY_HEX');
+  });
+
+  it.each(['hardware', 'passcode'])('reports the %s secret-reveal error on its visible surface', async mode => {
+    mockRenderActualPasscode = mode === 'passcode';
+    mockIsMobile = mode === 'passcode';
+    mockHasHardwareProtector.mockResolvedValue(mode === 'hardware');
+    mockRevealPrivateKey.mockRejectedValue(new Error('private reveal failure'));
+    const container = await renderReveal('private-key');
+    await acknowledge(container);
+    await act(async () => {
+      if (mode === 'hardware') buttonWithText(container, 'unlock')!.click();
+      else (container.querySelector('[data-testid="passcode-submit"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 350));
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith(
+      'raw_secret_reveal_failed',
+      mode === 'hardware' ? 'notice' : 'passcode'
+    );
   });
 
   it('clears any revealed secret on unmount', async () => {

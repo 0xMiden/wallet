@@ -10,6 +10,7 @@ import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { IBridgeProvider } from 'lib/miden/db/types';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { USDCX_SYMBOL, usdcxArrivalKey } from 'lib/usdcx/constant';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
 
@@ -44,6 +45,7 @@ export interface EvmBridgeDepositReviewProps {
   confirmLabel?: string;
   /** Bridge submit error, shown above the CTAs. */
   error?: string;
+  errorId?: UserErrorId | null;
   onConfirm: () => void;
   onBack: () => void;
 }
@@ -89,6 +91,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   canConfirm = false,
   confirmLabel,
   error,
+  errorId = 'raw_bridge_deposit_submit_failed',
   onConfirm,
   onBack
 }) => {
@@ -132,6 +135,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       // divide-y around a single child would be a no-op — turned off for clarity.
       dividers={false}
       error={error}
+      errorId={errorId}
       primary={{
         label: confirmLabel ?? t('confirmDeposit'),
         onPress: onConfirm,

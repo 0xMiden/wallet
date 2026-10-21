@@ -85,9 +85,21 @@ beforeAll(() => {
   });
 });
 
+let mockTelemetryCopy = false;
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: Record<string, string>) => (params ? `${key}:${Object.values(params).join(',')}` : key)
+    t: (key: string, params?: Record<string, string>) =>
+      mockTelemetryCopy &&
+      [
+        'hotKeyRotationFailedGeneric',
+        'hotKeyRotationUnconfirmedBody',
+        'hotKeyRotationFundingClaimFailed',
+        'hotKeyRotationFundingClaimUnconfirmed'
+      ].includes(key)
+        ? `Visible ${key}`
+        : params
+          ? `${key}:${Object.values(params).join(',')}`
+          : key
   })
 }));
 
@@ -1400,8 +1412,252 @@ describe('HotKeyRotationGate', () => {
       }
     });
   });
+  describe('user-visible watched rotation errors', () => {
+    const settleTelemetry = () =>
+      act(async () => {
+        for (let tick = 0; tick < 50; tick++) {
+          await Promise.resolve();
+        }
+      });
+    const publishTelemetry = async () => {
+      await act(async () => {
+        mockLiveQueries.forEach(run => run());
+      });
+      await settleTelemetry();
+    };
+    beforeEach(() => {
+      mockTelemetryCopy = true;
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+      mockBalances = [nativeBalance(1)];
+      mockTable = [rotationRow('tx-new')];
+      mockUseTransactionRow.mockImplementation((id: string) => ({
+        row: mockTable.find(row => row.id === id),
+        loaded: true
+      }));
+    });
+    afterEach(() => {
+      mockTelemetryCopy = false;
+      jest.useRealTimers();
+    });
+
+    it('reports the actual fixed generic enqueue failure and never its disclosed cause', async () => {
+      mockTable = [];
+      mockInitiate.mockRejectedValueOnce(new Error('private enqueue amount 42'));
+      render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(
+        'Visible hotKeyRotationFailedGeneric'
+      );
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText('private enqueue amount 42')).toBeInTheDocument();
+      await expectErrorAfterDwell('hotKeyRotationFailedGeneric', 'status_screen');
+    });
+
+    it.each([
+      [{}, 'Visible hotKeyRotationFailedGeneric', 'hotKeyRotationFailedGeneric'],
+      [{ mayHaveSubmitted: true }, 'Visible hotKeyRotationUnconfirmedBody', 'hotKeyRotationUnconfirmedBody'],
+      [
+        { error: 'Private visible rotation reason', rawError: 'Private detailed cause' },
+        'Private visible rotation reason',
+        'raw_hot_key_rotation_failed'
+      ]
+    ])('reports only an observed live rotation failure, branch %#', async (failure, text, id) => {
+      const view = render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.queryByTestId('hot-key-rotation-failed')).not.toBeInTheDocument();
+      mockTable = [rotationRow('tx-new', { status: ITransactionStatus.Failed, ...failure })];
+      await publishTelemetry();
+      view.rerender(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(text);
+      await expectErrorAfterDwell(id, 'status_screen');
+    });
+
+    it.each([
+      [{}, 'Visible hotKeyRotationFundingClaimFailed', 'hotKeyRotationFundingClaimFailed'],
+      [
+        { mayHaveSubmitted: true },
+        'Visible hotKeyRotationFundingClaimUnconfirmed',
+        'hotKeyRotationFundingClaimUnconfirmed'
+      ],
+      [
+        { error: 'Private visible funding reason', rawError: 'Private funding details' },
+        'Private visible funding reason',
+        'raw_hot_key_rotation_funding_claim_failed'
+      ]
+    ])('reports only an observed live funding-claim failure, branch %#', async (failure, text, id) => {
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+      mockClaimable = { data: [nativeNote('note-1')], isFallback: false };
+      mockTable = [shortfallRow(), fundingRow('claim-live')];
+      render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claiming');
+      mockTable = [shortfallRow(), fundingRow('claim-live', { status: ITransactionStatus.Failed, ...failure })];
+      await publishTelemetry();
+      expect(screen.getByText(text)).toBeInTheDocument();
+      await expectErrorAfterDwell(id, 'status_screen');
+    });
+
+    it.each(['retry', 'unmount'])('cancels a short enqueue failure on %s', async control => {
+      mockTable = [];
+      mockInitiate.mockRejectedValueOnce(new Error('private enqueue details'));
+      const view = render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent(
+        'Visible hotKeyRotationFailedGeneric'
+      );
+      await act(async () => {
+        jest.advanceTimersByTime(999);
+      });
+      if (control === 'retry') {
+        fireEvent.click(screen.getByTestId('hot-key-rotation-retry'));
+        await settleTelemetry();
+      } else view.unmount();
+      expect(screen.queryByTestId('hot-key-rotation-failed')).not.toBeInTheDocument();
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    });
+
+    it('keeps first-loaded and reopened failed rotation rows silent', async () => {
+      mockTable = [
+        rotationRow('tx-new', {
+          status: ITransactionStatus.Failed,
+          error: 'Stored rotation reason',
+          rawError: 'Stored details'
+        })
+      ];
+      const view = render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('Stored rotation reason');
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText('Stored details')).toBeInTheDocument();
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+      view.unmount();
+      render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('Stored rotation reason');
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    });
+
+    it('keeps spinner-to-first-loaded failed rows and a failed row/account switch silent', async () => {
+      let observed: { row: TableRow | undefined; loaded: boolean } = { row: undefined, loaded: false };
+      mockUseTransactionRow.mockImplementation(() => observed);
+      const view = render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.queryByTestId('hot-key-rotation-failed')).not.toBeInTheDocument();
+      observed = {
+        row: rotationRow('tx-new', {
+          status: ITransactionStatus.Failed,
+          error: 'Stored first row',
+          rawError: 'Stored first details'
+        }),
+        loaded: true
+      };
+      view.rerender(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('Stored first row');
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+      observed = {
+        row: rotationRow('tx-other', {
+          accountId: 'account-other',
+          status: ITransactionStatus.Failed,
+          error: 'Stored switched row',
+          rawError: 'Stored switched details'
+        }),
+        loaded: true
+      };
+      storeState = { currentAccount: { publicKey: 'account-other', requiresHotKeyRotation: true } };
+      view.rerender(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveTextContent('Stored switched row');
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    });
+
+    it('cancels a watched funding failure when its real retry becomes pending before dwell', async () => {
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+      mockClaimable = { data: [nativeNote('note-1')], isFallback: false };
+      mockTable = [shortfallRow(), fundingRow('claim-live')];
+      render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      mockTable = [shortfallRow(), fundingRow('claim-live', { status: ITransactionStatus.Failed })];
+      await publishTelemetry();
+      expect(screen.getByText('Visible hotKeyRotationFundingClaimFailed')).toBeInTheDocument();
+      await act(async () => {
+        jest.advanceTimersByTime(999);
+      });
+      fireEvent.click(screen.getByTestId('hot-key-rotation-funding-claim-retry'));
+      await settleTelemetry();
+      mockTable = [shortfallRow(), fundingRow('claim-live')];
+      await publishTelemetry();
+      expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'claiming');
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    });
+
+    it('keeps a first-loaded failed funding claim and funding override explanation silent', async () => {
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+      mockClaimable = { data: [nativeNote('note-1')], isFallback: false };
+      mockTable = [
+        shortfallRow(),
+        fundingRow('claim-old', {
+          status: ITransactionStatus.Failed,
+          error: 'Stored claim reason',
+          rawError: 'Stored claim details'
+        })
+      ];
+      render(<HotKeyRotationGate />);
+      await settleTelemetry();
+      expect(screen.getByText('Stored claim reason')).toBeInTheDocument();
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText('Stored claim details')).toBeInTheDocument();
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    });
+  });
 });
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
 });
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};

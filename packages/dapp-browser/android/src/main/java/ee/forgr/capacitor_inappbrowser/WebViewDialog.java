@@ -811,6 +811,9 @@ public class WebViewDialog extends Dialog {
                         currentPermissionRequest.deny();
                         currentPermissionRequest = null;
                     }
+                    if (_options.getCallbacks() != null) {
+                        _options.getCallbacks().permissionDeniedToast();
+                    }
                 }
 
                 // Handle geolocation permission requests

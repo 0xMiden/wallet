@@ -10,6 +10,7 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Pill } from 'components/ui/Pill';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { Calendar } from 'lib/ui/calendar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -113,6 +114,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   // date — that selection is invalid (the note would be recallable instantly),
   // so it renders red and blocks both Confirm and dismissal until fixed.
   const selectionInPast = !!recallDate && combineDateAndTime(recallDate, recallTime) <= now;
+  useUserVisibleError(open && selectionInPast ? 'recallTimeInPast' : null, 'inline');
 
   const applyDateTimeSelection = useCallback(
     (date: Date, time: string) => {

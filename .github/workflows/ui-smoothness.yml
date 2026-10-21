@@ -62,6 +62,9 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chrome
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Measure head and base
         timeout-minutes: 25
         env:
