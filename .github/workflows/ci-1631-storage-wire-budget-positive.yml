@@ -1,0 +1,1386 @@
+name: NEVER-MERGE 1631 storage wire budget positive and tag restoration
+on:
+  push:
+    branches: [ci/1631-storage-wire-budget-positive]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GIT_OPTIONAL_LOCKS: "0"
+      CI: "true"
+      FORCE_COLOR: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Bind signed fixed source and sole inert transport
+        id: bind
+        run: |
+          set -euo pipefail
+          umask 077
+          proof="$RUNNER_TEMP/1631-storage-wire-budget-positive"
+          test ! -e "$proof"
+          mkdir "$proof"
+          printf 'PROOF_DIR=%s\n' "$proof" >> "$GITHUB_ENV"
+          cat > "$proof/capture.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import stat
+          import struct
+          import subprocess
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          ROOT = Path.cwd().resolve()
+          OUT = Path(os.environ['PROOF_DIR'])
+          BIND = json.loads((OUT / 'bindings.json').read_text())
+          SOURCE = BIND['source']
+          FRAMEWORK = ['jest', 'expect', 'jest-circus', 'jest-config', 'jest-runtime', 'jest-resolve',
+                       'jest-runner', 'jest-environment-jsdom', '@jest', '@swc', 'typescript',
+                       '@sentry/browser', '@sentry/core', '@sentry/browser-utils',
+                       'prettier', 'eslint', 'eslint-plugin-import', 'react', 'react-dom',
+                       '@testing-library/react', '@testing-library/dom', 'dexie', 'fake-indexeddb',
+                       'constate', '@epoch-protocol/epoch-intents-sdk', 'viem', '@miden-sdk/miden-sdk',
+                       '@openzeppelin/guardian-client', '@openzeppelin/miden-multisig-client',
+                       '@noble/hashes', '@scure/bip39', '@serh11p/jest-webextension-mock', 'ts-node',
+                       '.bin/jest', '.bin/prettier', '.bin/eslint', '.bin/tsc']
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], cwd=ROOT,
+                                             env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+
+          def save(name, value):
+              (OUT / name).write_text(json.dumps(value, indent=2) + '\n')
+
+
+          def index_identity(raw):
+              assert len(raw) >= 32 and raw[:4] == b'DIRC'
+              assert hashlib.sha1(raw[:-20]).digest() == raw[-20:]
+              version, count = struct.unpack('>II', raw[4:12])
+              assert version in (2, 3), version
+              limit = len(raw) - 20
+              normalized = bytearray(raw[:limit])
+              entries, pos = {}, 12
+              stat_names = ['ctime_seconds', 'ctime_nanoseconds', 'mtime_seconds', 'mtime_nanoseconds',
+                            'device', 'inode', 'uid', 'gid', 'size']
+              for _ in range(count):
+                  start = pos
+                  assert pos + 62 <= limit
+                  fields = struct.unpack('>10I20sH', raw[pos:pos + 62])
+                  pos += 62
+                  flags = fields[-1]
+                  extended = None
+                  if flags & 0x4000:
+                      assert version == 3 and pos + 2 <= limit
+                      extended = struct.unpack('>H', raw[pos:pos + 2])[0]
+                      pos += 2
+                  end = raw.index(b'\0', pos, limit)
+                  path = raw[pos:end]
+                  assert path and path not in entries
+                  assert flags & 0x0fff == min(len(path), 0x0fff)
+                  pos = start + ((end - start + 1 + 7) // 8) * 8
+                  assert pos <= limit and not any(raw[end:pos])
+                  stats = fields[:6] + fields[7:10]
+                  entries[path] = {'mode': format(fields[6], '06o'), 'oid': fields[10].hex(),
+                                   'stage': (flags >> 12) & 3, 'flags': flags, 'extended_flags': extended,
+                                   'stats': dict(zip(stat_names, stats))}
+                  # Only cache metadata is excluded; mode and every following identity byte remain.
+                  normalized[start:start + 24] = b'\0' * 24
+                  normalized[start + 28:start + 40] = b'\0' * 12
+              extension_start = pos
+              while pos < limit:
+                  assert pos + 8 <= limit
+                  assert raw[pos:pos + 4] not in [b'link', b'sdir']
+                  length = struct.unpack('>I', raw[pos + 4:pos + 8])[0]
+                  pos += 8 + length
+                  assert pos <= limit
+              assert pos == limit and len(entries) == count
+              return bytes(normalized), entries, {'version': version, 'entries': count,
+                  'raw_sha256': hashlib.sha256(raw).hexdigest(), 'checksum_sha1': raw[-20:].hex(),
+                  'normalized_sha256': hashlib.sha256(normalized).hexdigest(),
+                  'extension_bytes': limit - extension_start,
+                  'extension_sha256': hashlib.sha256(raw[extension_start:limit]).hexdigest()}
+
+
+          def validate_binding(arm='positive'):
+              assert BIND['ready'] is True
+              assert git('rev-parse', 'HEAD').decode().strip() == SOURCE
+              assert git('rev-parse', 'HEAD^{tree}').decode().strip() == BIND['tree']
+              headers = git('cat-file', '-p', 'HEAD').split(b'\n\n', 1)[0].splitlines()
+              assert [line[7:].decode() for line in headers if line.startswith(b'parent ')] == [BIND['parent']]
+              changed = git('diff', '--name-only').decode().splitlines()
+              assert changed == ([BIND['mutation']['path']] if arm == 'tag-restored' else [])
+              assert not git('diff', '--cached', '--name-only')
+              status = git('status', '--porcelain=v1', '--untracked-files=all').decode().splitlines()
+              assert status == ([' M ' + BIND['mutation']['path']] if arm == 'tag-restored' else [])
+
+
+          def snapshot(label, arm='positive'):
+              validate_binding(arm)
+              stage = git('ls-files', '--stage', '-z')
+              (OUT / (label + '.stage.nul')).write_bytes(stage)
+              files = {}
+              for record in stage.split(b'\0'):
+                  if not record:
+                      continue
+                  header, raw_path = record.split(b'\t', 1)
+                  mode, oid, number = header.decode().split()
+                  assert number == '0' and mode in ['100644', '100755', '120000']
+                  path = raw_path.decode()
+                  p = ROOT / path
+                  info = p.lstat()
+                  if mode == '120000':
+                      assert stat.S_ISLNK(info.st_mode)
+                      data, kind = os.readlink(p).encode(), 'symlink'
+                  else:
+                      assert stat.S_ISREG(info.st_mode) and not p.is_symlink()
+                      assert bool(info.st_mode & 0o111) == (mode == '100755')
+                      data, kind = p.read_bytes(), 'regular'
+                  if arm == 'tag-restored' and path == BIND['mutation']['path']:
+                      assert digest(data) == BIND['mutation']['restored_tag_sha256']
+                  else:
+                      assert data == git('cat-file', 'blob', oid), path
+                  files[path] = {'git_mode': mode, 'oid': oid, 'sha256': digest(data), 'bytes': len(data),
+                                 'physical_mode': format(stat.S_IMODE(info.st_mode), '04o'), 'type': kind}
+              assert len(files) == BIND['tracked_count']
+              for entry in BIND['source_inputs']:
+                  expected = BIND['mutation']['restored_tag_sha256'] if arm == 'tag-restored' and entry['path'] == BIND['mutation']['path'] else entry['sha256']
+                  assert files[entry['path']]['sha256'] == expected
+                  assert files[entry['path']]['git_mode'] == entry['git_mode']
+              framework, versions = {}, {}
+              for package in FRAMEWORK:
+                  base = ROOT / 'node_modules' / package
+                  tool = package.startswith('.bin/')
+                  assert tool or (base.is_dir() and not base.is_symlink()), package
+                  metadata = base / 'package.json'
+                  if not tool and metadata.is_file():
+                      value = json.loads(metadata.read_text())
+                      versions[package] = {'name': value['name'], 'version': value['version'],
+                                           'package_json_sha256': digest(metadata.read_bytes())}
+                  for p in [base] if tool else sorted(base.rglob('*')):
+                      info = p.lstat()
+                      if p.is_symlink():
+                          raw_link = os.readlink(p)
+                          target = p.resolve(strict=True)
+                          assert target.is_relative_to(ROOT) and target != ROOT, str(p)
+                          target_info = target.stat()
+                          assert stat.S_ISREG(target_info.st_mode), str(p)
+                          data = target.read_bytes()
+                          target_hash = digest(data)
+                          retained = OUT / 'framework-symlink-target-bytes' / target_hash
+                          retained.parent.mkdir(exist_ok=True)
+                          if retained.exists():
+                              assert retained.read_bytes() == data
+                          else:
+                              retained.write_bytes(data)
+                          framework[str(p.relative_to(ROOT))] = {
+                              'type': 'symlink', 'lstat_mode': format(stat.S_IMODE(info.st_mode), '04o'),
+                              'raw_link_text': raw_link, 'raw_link_sha256': digest(os.fsencode(raw_link)),
+                              'resolved_root_relative_path': str(target.relative_to(ROOT)),
+                              'target_bytes': len(data), 'target_sha256': target_hash,
+                              'target_mode': format(stat.S_IMODE(target_info.st_mode), '04o'),
+                              'target_byte_copy': str(retained.relative_to(OUT))}
+                      elif p.is_file():
+                          assert p.resolve().is_relative_to(ROOT)
+                          data = p.read_bytes()
+                          framework[str(p.relative_to(ROOT))] = {
+                              'sha256': digest(data), 'bytes': len(data), 'type': 'regular',
+                              'mode': format(stat.S_IMODE(info.st_mode), '04o')}
+              for package, version in BIND['framework_versions'].items():
+                  assert versions[package]['version'] == version, package
+              matcher = BIND['matcher_source']
+              assert framework[matcher['path']]['sha256'] == matcher['sha256']
+              runtime = {}
+              for command in ['node', 'yarn', 'python3']:
+                  path = Path(shutil.which(command)).resolve(strict=True)
+                  assert path.is_file()
+                  runtime[command] = {'path': str(path), 'sha256': digest(path.read_bytes()),
+                                      'mode': format(stat.S_IMODE(path.stat().st_mode), '04o')}
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              if not index.is_absolute():
+                  index = ROOT / index
+              raw_index = index.read_bytes()
+              (OUT / (label + '.index')).write_bytes(raw_index)
+              normalized, entries, index_info = index_identity(raw_index)
+              (OUT / (label + '.index-normalized')).write_bytes(normalized)
+              save(label + '.index-identity.json', {'summary': index_info,
+                   'entries': {path.decode(): row for path, row in entries.items()}})
+              save(label + '.json', {'head': SOURCE, 'tree': BIND['tree'], 'stage_sha256': digest(stage),
+                   'physical_index_sha256': digest(raw_index), 'source': files,
+                   'framework': framework, 'framework_versions': versions, 'runtime': runtime})
+              if label.endswith('before'):
+                  name = 'bound-source.tar' if label == 'before' else label + '.bound-source.tar'
+                  with tarfile.open(OUT / name, 'w') as archive:
+                      for entry in BIND['source_inputs']:
+                          archive.add(ROOT / entry['path'], arcname=entry['path'], recursive=False)
+
+
+          def bookends(first, last):
+              before = json.loads((OUT / (first + '.json')).read_text())
+              after = json.loads((OUT / (last + '.json')).read_text())
+              for key in ['head', 'tree', 'stage_sha256', 'source', 'framework', 'framework_versions', 'runtime']:
+                  assert before[key] == after[key], key
+              a, ae, ai = index_identity((OUT / (first + '.index')).read_bytes())
+              b, be, bi = index_identity((OUT / (last + '.index')).read_bytes())
+              assert a == b and ae.keys() == be.keys(), 'index identity differs beyond stat-cache fields'
+              differences = []
+              for path in ae:
+                  left, right = ae[path], be[path]
+                  assert {k: v for k, v in left.items() if k != 'stats'} == {k: v for k, v in right.items() if k != 'stats'}
+                  fields = {key: {'before': left['stats'][key], 'after': right['stats'][key]}
+                            for key in left['stats'] if left['stats'][key] != right['stats'][key]}
+                  if fields:
+                      differences.append({'path': path.decode(), 'stat_cache_differences': fields})
+              save(first + '-' + last + '.bookend-comparison.json', {'source_stage_framework_runtime_equal': True,
+                   'canonical_index_equal': True, 'raw_index_equal': ai['raw_sha256'] == bi['raw_sha256'],
+                   'before_index': ai, 'after_index': bi, 'stat_cache_differences': differences,
+                   'raw_index_policy': 'Complete raw bytes retained. Only nine cache fields may differ; every identity byte and extension is exact.'})
+
+
+          def change_tag(action):
+              validate_binding('tag-restored' if action == 'restore' and
+                               digest((ROOT / BIND['mutation']['path']).read_bytes()) ==
+                               BIND['mutation']['restored_tag_sha256'] else 'positive')
+              spec = BIND['mutation']
+              path = ROOT / spec['path']
+              base = git('show', SOURCE + ':' + spec['path'])
+              assert digest(base) == spec['base_sha256']
+              anchor, line = spec['anchor'].encode(), spec['line'].encode()
+              assert base.count(anchor) == 1 and line not in base
+              mutant = base.replace(anchor, line + anchor)
+              assert digest(mutant) == spec['restored_tag_sha256']
+              current = path.read_bytes()
+              if action == 'add':
+                  assert current == base
+                  wanted = mutant
+              else:
+                  assert action == 'restore' and current in (base, mutant)
+                  wanted = base
+              (OUT / (action + '.before.source.diff')).write_bytes(git('diff', '--binary', '--', spec['path']))
+              path.write_bytes(wanted)
+              (OUT / (action + '.after.source.diff')).write_bytes(git('diff', '--binary', '--', spec['path']))
+              save(action + '.source-change.json', {'path': spec['path'], 'before': digest(current),
+                   'after': digest(wanted), 'changed': current != wanted,
+                   'stage_sha256': digest(git('ls-files', '--stage', '-z'))})
+
+
+          def check_failure(record, expected):
+              path, _, _, _, failure = expected
+              row = record['assertion']
+              assert len(row['failureDetails']) == len(row['failureMessages']) == 1
+              result = row['failureDetails'][0]['matcherResult']
+              matcher = failure['matcher']
+              keys = {'actual', 'expected', 'message', 'name', 'pass'} if matcher == 'toEqual' else {'message', 'pass'}
+              assert set(result) == keys and result['pass'] is failure['pass']
+              assert isinstance(result['message'], str) and result['message']
+              message = re.sub(r'\x1b\[[0-9;]*m', '', result['message'])
+              assert matcher in message
+              frames = re.findall(re.escape(path) + r':(\d+):(\d+)', row['failureMessages'][0])
+              assert frames and ':'.join(frames[0]) == failure['frame']
+              if matcher == 'toBeLessThanOrEqual':
+                  assert re.search(r'^Expected:\s*<=\s*192\s*$', message, re.M)
+                  assert re.search(r'^Received:\s*197\s*$', message, re.M)
+              elif matcher == 'toEqual':
+                  assert result['name'] == matcher
+                  actual, wanted = result['actual'], result['expected']
+                  assert isinstance(actual, dict) and isinstance(wanted, dict)
+                  assert 'page_visibility' not in wanted and actual['page_visibility'] in ['visible', 'hidden', 'unknown']
+                  assert {k: v for k, v in actual.items() if k != 'page_visibility'} == wanted
+              elif matcher == 'toHaveProperty':
+                  assert failure['pass'] is True
+                  match = re.search(r'^Expected path:\s*not\s+(.+)$', message, re.M)
+                  assert match and json.loads(match[1]) == failure['argument']
+                  value = re.search(r'^Received value:\s*(.+)$', message, re.M)
+                  assert value and json.loads(value[1]) in ['visible', 'hidden', 'unknown']
+              else:
+                  assert matcher == 'toContain'
+                  match = re.search(r'^Expected substring:\s*(.+)$', message, re.M)
+                  assert match
+                  value = match[1]
+                  if failure['pass']:
+                      assert value.startswith('not ')
+                      value = value[4:]
+                  assert json.loads(value) == failure['argument']
+                  assert 'page_visibility' in message
+
+
+          def classify():
+              expected = json.loads((OUT / 'expected-inventory.json').read_text())
+              assert digest((OUT / 'expected-inventory.json').read_bytes()) == BIND['inventory_sha256']
+              assert len(expected) == 677
+              inventories, results = {}, {}
+              for arm in BIND['arms']:
+                  path = OUT / (arm + '.jest.json')
+                  if path.is_file():
+                      result = json.loads(path.read_text())
+                      rows = []
+                      for suite in result['testResults']:
+                          path = str(Path(suite['name']).relative_to(ROOT))
+                          for ordinal, row in enumerate(suite['assertionResults']):
+                              rows.append({'file': path, 'ordinal': ordinal, 'assertion': row})
+                      inventories[arm], results[arm] = rows, result
+                      save(arm + '.inventory.json', rows)
+              gates = ['install', 'format', 'lint', 'types', 'snapshot-before', 'snapshot-positive-after',
+                       'mutation', 'snapshot-mutant-before', 'snapshot-mutant-after', 'restoration',
+                       'snapshot-restored-before', 'snapshot-restored-after']
+              prerequisite = {name: {'exit': (OUT / (name + '.exit')).read_text().strip(),
+                                     'tee': (OUT / (name + '.tee.exit')).read_text().strip()}
+                              for name in gates if (OUT / (name + '.exit')).exists()}
+              save('prerequisite-exits.json', prerequisite)
+              if len(prerequisite) != len(gates) or any(v != {'exit': '0', 'tee': '0'} for v in prerequisite.values()):
+                  save('classification.json', {'status': 'UNRUN_FULL_PROOF_PREREQUISITE', 'gates': prerequisite,
+                       'raw_runtime_arms': list(inventories), 'whole_head_acceptance': False})
+                  raise SystemExit(1)
+              assert (OUT / 'node-version.log').read_text().strip() == BIND['node_version']
+              assert (OUT / 'yarn-version.log').read_text().strip() == BIND['yarn_version']
+              for name in ['corepack-enable', 'corepack-prepare', 'node-version', 'yarn-version', 'python-version', 'jest-version']:
+                  assert (OUT / (name + '.exit')).read_text().strip() == '0'
+                  assert (OUT / (name + '.tee.exit')).read_text().strip() == '0'
+              bookends('before', 'positive-after')
+              bookends('mutant-before', 'mutant-after')
+              bookends('restored-before', 'restored-after')
+              initial = json.loads((OUT / 'before.json').read_text())
+              canonical_index = index_identity((OUT / 'before.index').read_bytes())[0]
+              for label in ['positive-after', 'mutant-before', 'mutant-after', 'restored-before', 'restored-after']:
+                  current = json.loads((OUT / (label + '.json')).read_text())
+                  assert index_identity((OUT / (label + '.index')).read_bytes())[0] == canonical_index
+                  for key in ['head', 'tree', 'stage_sha256', 'framework', 'framework_versions', 'runtime']:
+                      assert current[key] == initial[key], (label, key)
+                  for path, original in initial['source'].items():
+                      observed = current['source'][path]
+                      if label.startswith('mutant') and path == BIND['mutation']['path']:
+                          assert observed['sha256'] == BIND['mutation']['restored_tag_sha256']
+                          assert {k: v for k, v in original.items() if k not in ['sha256', 'bytes']} == {
+                              k: v for k, v in observed.items() if k not in ['sha256', 'bytes']}
+                      else:
+                          assert observed == original, (label, path)
+              summary = {}
+              wanted_keys = {(e[0], e[1], e[2]) for e in expected}
+              assert len(wanted_keys) == 677
+              for arm in BIND['arms']:
+                  x, rows = results[arm], inventories[arm]
+                  assert len(x['testResults']) == x['numTotalTestSuites'] == 7
+                  assert {str(Path(s['name']).relative_to(ROOT)) for s in x['testResults']} == set(BIND['tests'])
+                  assert all(s['assertionResults'] for s in x['testResults'])
+                  assert x['numRuntimeErrorTestSuites'] == 0 and x['wasInterrupted'] is False
+                  assert x['numPendingTests'] == x['numTodoTests'] == x['numPendingTestSuites'] == 0
+                  assert x['numTotalTests'] == len(rows) == 677
+                  observed = {(r['file'], r['ordinal'], r['assertion']['fullName']): r for r in rows}
+                  assert len(observed) == 677 and set(observed) == wanted_keys
+                  failed = 22 if arm == 'tag-restored' else 0
+                  assert x['numFailedTests'] == failed and x['numPassedTests'] == 677 - failed
+                  assert x['success'] is (failed == 0)
+                  assert x['numFailedTestSuites'] == (3 if failed else 0)
+                  assert x['numPassedTestSuites'] == (4 if failed else 7)
+                  for entry in expected:
+                      record = observed[tuple(entry[:3])]
+                      row, failure = record['assertion'], entry[4] if failed else None
+                      assert row['invocations'] == 1 and row['retryReasons'] == []
+                      assert row['status'] == ('failed' if failure else 'passed')
+                      assert row['numPassingAsserts'] == (failure['prior_passing_assertions'] if failure else entry[3])
+                      if failure:
+                          check_failure(record, entry)
+                      else:
+                          assert not row['failureMessages'] and not row['failureDetails']
+                  count = sum(r['assertion']['numPassingAsserts'] for r in rows)
+                  assert count == BIND['expected_assertions'][arm]
+                  assert (OUT / (arm + '.exit')).read_text().strip() == ('1' if failed else '0')
+                  assert (OUT / (arm + '.tee.exit')).read_text().strip() == '0'
+                  summary[arm] = {'cases': 677, 'passed': 677 - failed, 'failed': failed,
+                                  'passing_assertions': count, 'reached_assertions': count + failed}
+              save('classification.json', {'status': 'EXACT_POSITIVE_TAG_RESTORATION_RESTORED_PROOF',
+                   'source': SOURCE, 'arms': summary, 'raw_records': 2031,
+                   'maximum_restoration_first_frame': '1523:27', 'maximum_prior_passing_assertions': 15,
+                   'maximum_restoration_received': 197, 'maximum_limit': 192,
+                   'canonical_index_equal_across_all_six_snapshots': True,
+                   'raw_inventory_retained': True, 'whole_head_coverage_review_merge': 'PENDING'})
+
+
+          def seal():
+              files = []
+              for p in sorted(OUT.rglob('*')):
+                  if p.is_file() and p.name != 'hashes.json':
+                      assert not p.is_symlink()
+                      files.append({'path': str(p.relative_to(OUT)), 'bytes': p.stat().st_size,
+                                    'sha256': digest(p.read_bytes()), 'type': 'regular',
+                                    'mode': format(stat.S_IMODE(p.stat().st_mode), '04o')})
+              save('hashes.json', files)
+
+
+          try:
+              command = sys.argv[1]
+              if command == 'snapshot':
+                  snapshot(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else 'positive')
+              elif command == 'mutate':
+                  change_tag('add')
+              elif command == 'restore':
+                  change_tag('restore')
+              elif command == 'classify':
+                  classify()
+              elif command == 'seal':
+                  seal()
+              else:
+                  raise SystemExit('unknown operation')
+          except Exception as error:
+              save('.'.join(sys.argv[1:]) + '.refusal.json', {'status': 'NOT_ACCEPTED',
+                   'error_type': type(error).__name__, 'detail': str(error)})
+              raise
+          PY
+          cat > "$proof/record.sh" <<'SH'
+          record() {
+            local name="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$name.argv.nul"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$name.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$name.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$name.tee.exit"
+            if test "${codes[1]}" -ne 0; then
+              return "${codes[1]}"
+            fi
+            return "${codes[0]}"
+          }
+          SH
+          cat > "$proof/bindings.json" <<'JSON'
+          {
+            "ready": true,
+            "source": "0a583fe707e476cd6b8377cc6893b020b81cd68d",
+            "tree": "389bae9918a9d5143b4b27c33afc9267c96428ad",
+            "parent": "e7f6e56caede496a80438ea194cfbfad0471b60a",
+            "branch": "ci/1631-storage-wire-budget-positive",
+            "workflow_path": ".github/workflows/ci-1631-storage-wire-budget-positive.yml",
+            "node_version": "v22.23.3",
+            "yarn_version": "1.22.22",
+            "tracked_count": 3660,
+            "source_inputs": [
+              {
+                "path": ".eslintrc",
+                "sha256": "2b70aa065506346da75d71f19f3a138f71b5b5be0889e4074cc04a26fddca629",
+                "git_mode": "100644",
+                "git_blob": "13857ec7c1613ef096ca1e3fa21469f7f7728796",
+                "bytes": 13286
+              },
+              {
+                "path": ".prettierrc",
+                "sha256": "7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf",
+                "git_mode": "100644",
+                "git_blob": "2fdaf943c0c26787ef61d6240834dffac0cecc7a",
+                "bytes": 361
+              },
+              {
+                "path": "__mocks__/@miden-sdk/miden-wallet-adapter-base.ts",
+                "sha256": "f47896dad58875946e2d5c854ad2ad69dcc8d6db9e24ffdb45982f48e9c6302e",
+                "git_mode": "100644",
+                "git_blob": "61d7e9d07108a66e9d076c64b15882d35f32f223",
+                "bytes": 222
+              },
+              {
+                "path": "__mocks__/@openzeppelin/guardian-client.ts",
+                "sha256": "d374369ee20aae00bd32d9bb5d0a51eef67475930acc52e473501907519e8d5a",
+                "git_mode": "100644",
+                "git_blob": "1a0aeb26c73a3f78d7956fdb4880963c760fc5ac",
+                "bytes": 958
+              },
+              {
+                "path": "__mocks__/@openzeppelin/miden-multisig-client.ts",
+                "sha256": "53cb1bb7e65a5d27b107a27b0080ac9714b7be0801a04007692b4c78ec3979ac",
+                "git_mode": "100644",
+                "git_blob": "92c8a3d862dbf2f55bdf5ffa73278bd11db76199",
+                "bytes": 6750
+              },
+              {
+                "path": "__mocks__/app/hooks/useGasToken.ts",
+                "sha256": "a678a30b1e072e591f7881760d0a634bf8dfbc537662ca666e59241fc0c887c3",
+                "git_mode": "100644",
+                "git_blob": "1f5966ef7e2efe646ba087456a85cfc7ad62cf04",
+                "bytes": 67
+              },
+              {
+                "path": "__mocks__/app/hooks/useMidenFaucetId.ts",
+                "sha256": "c60fc69966a0b07ffcf85cf1d7ff97834b48478950f0b26f5b12a6b93768ce8e",
+                "git_mode": "100644",
+                "git_blob": "a8b79b7ba634fb10b9d16a504f78e967ca9d8219",
+                "bytes": 77
+              },
+              {
+                "path": "__mocks__/fileMock.js",
+                "sha256": "e3a48bb2614b52adeca63cfd096bce33eb8c465777057cf9d811749d15640ba5",
+                "git_mode": "100644",
+                "git_blob": "86059f36292497436f0fdbd0fb673f6ea9535159",
+                "bytes": 35
+              },
+              {
+                "path": "__mocks__/lib/amp/amp-interface.ts",
+                "sha256": "0f05d3132e5920bed8dfb0662a8e4a9b3671ecaf8a76350b216cdbe798847385",
+                "git_mode": "100644",
+                "git_blob": "81ec449b9e031f35661122dd7abbd6637b254ac9",
+                "bytes": 45
+              },
+              {
+                "path": "__mocks__/lib/i18n/numbers.ts",
+                "sha256": "19e54ae19bc1917b51dd94086b2d1f824358ec5e46811afe886c90a468bdd3ec",
+                "git_mode": "100644",
+                "git_blob": "c10486eb74971f735150e189b786c42885800256",
+                "bytes": 1797
+              },
+              {
+                "path": "__mocks__/lib/miden/back/dapp.ts",
+                "sha256": "13f8321d96455c4af329747699be11f130c91c80b53197ea09336a6b1270f5a2",
+                "git_mode": "100644",
+                "git_blob": "5333f2c1017f563c278588cb1c6e44344bdb657b",
+                "bytes": 3278
+              },
+              {
+                "path": "__mocks__/lib/miden/back/vault.ts",
+                "sha256": "ec4612339b136d75aa40e01299385c546f3406a3901ee2d50fd2be2eacbd6eb5",
+                "git_mode": "100644",
+                "git_blob": "0b923fb8bc4aad9cc6aa568547221c07a4114fff",
+                "bytes": 3010
+              },
+              {
+                "path": "__mocks__/lib/miden/sdk/miden-client-interface.ts",
+                "sha256": "eb2027f2de1d487c5e78ccd9e6733a0b2da67203bc686b56ae9b4d173125c600",
+                "git_mode": "100644",
+                "git_blob": "d49ed7c654ce70cc7cda04f0a0dc588048a137a9",
+                "bytes": 104
+              },
+              {
+                "path": "__mocks__/lib/miden/sdk/miden-client.ts",
+                "sha256": "fd75b60d9975a2ebba52d245d9ab74087ab735159b44abc89ca5742942c3bd82",
+                "git_mode": "100644",
+                "git_blob": "04c195d77011805ca2525fff816f02e6407e584f",
+                "bytes": 723
+              },
+              {
+                "path": "__mocks__/nanoid.ts",
+                "sha256": "52238e5c35341052fae2ba8f9e3f71fed3caa27d0ae90f72b74c64ca58930e73",
+                "git_mode": "100644",
+                "git_blob": "0d4b493fbec56b0e692077b62d43cb3d7b686184",
+                "bytes": 34
+              },
+              {
+                "path": "__mocks__/reownAppKitNetworks.ts",
+                "sha256": "9319acd4680ba45c55bd2c88dc000453c62db93fe4b56bba6a881318363e0079",
+                "git_mode": "100644",
+                "git_blob": "da22285b58072c8d188038bbe2097405f93bf9bc",
+                "bytes": 249
+              },
+              {
+                "path": "__mocks__/reownAppKitReact.ts",
+                "sha256": "aa0cb01488e3f90ae035e70c47866a92805aa5d101225a622317695480982c7b",
+                "git_mode": "100644",
+                "git_blob": "0a0a99da7fcaee8da8bb5aabc18e434abc20e071",
+                "bytes": 1406
+              },
+              {
+                "path": "__mocks__/reownWagmiAdapter.ts",
+                "sha256": "69462dd65f802ddf61185ecd366f1122f36d9df71758efb1beeccd80f0f5847d",
+                "git_mode": "100644",
+                "git_blob": "00e23a2c5ba4451fc915d52000e8ca89c1664674",
+                "bytes": 50
+              },
+              {
+                "path": "__mocks__/styleMock.ts",
+                "sha256": "450f0af4f4c1ecc4c7180f2e364c8a59bfed69dd350fb6b47bce8641c2a37786",
+                "git_mode": "100644",
+                "git_blob": "ff8b4c56321a3362fc00224b01800f62466f9a1f",
+                "bytes": 19
+              },
+              {
+                "path": "__mocks__/svgMock.js",
+                "sha256": "60baa36ccdf8d0dec19e8ad428b78ec8765960b8048c5f536087c4d00025392d",
+                "git_mode": "100644",
+                "git_blob": "ff8a7dd9f66a5fe8aae4c3888c9e669ea86bc595",
+                "bytes": 64
+              },
+              {
+                "path": "__mocks__/svgRawMock.js",
+                "sha256": "7bb180dd4c9dc69ea44b25502a022c00e0651e941f641b79c7b1cb1438f968cb",
+                "git_mode": "100644",
+                "git_blob": "7a13dc341c3ac760129ddcd34c88bb1db383ce39",
+                "bytes": 85
+              },
+              {
+                "path": "__mocks__/svgUrlMock.js",
+                "sha256": "24a5d978a38849472f8735f554338df41922438f6a96d4fccd8df29c5834e9d6",
+                "git_mode": "100644",
+                "git_blob": "7f6b33936f6e453f54c89186b4c7add59d64b531",
+                "bytes": 33
+              },
+              {
+                "path": "__mocks__/utils/string.ts",
+                "sha256": "e52c393052509c19ee195eabb175f5ee3de1a15b4ca7098005725b9d4c63f0fc",
+                "git_mode": "100644",
+                "git_blob": "a89212ca135f18cff13d659c6e43f35cd344a609",
+                "bytes": 281
+              },
+              {
+                "path": "__mocks__/wagmi.ts",
+                "sha256": "14af0b02462e7c5641a7a63e3ac60c998d273258cb03d0646f68a32337688c88",
+                "git_mode": "100644",
+                "git_blob": "758f99e04a214085446767edc6e0c3c7487a85c9",
+                "bytes": 337
+              },
+              {
+                "path": "__mocks__/wagmiCore.ts",
+                "sha256": "3e04cc45ddb4c7da01771e23c7a609132dc450583e13fa2166747b777698ffd4",
+                "git_mode": "100644",
+                "git_blob": "96735336e839e19f517b01632bc07a9ba8178928",
+                "bytes": 132
+              },
+              {
+                "path": "__mocks__/wasmMock.js",
+                "sha256": "57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66",
+                "git_mode": "100644",
+                "git_blob": "394afab472dbfe3205fe4e67c6463e0894f7d438",
+                "bytes": 3946
+              },
+              {
+                "path": "__mocks__/webextension-polyfill.ts",
+                "sha256": "c8aea13b9a03558f62e33ba9364ec561ca63641a7d201da9854eeae43ef9e9c2",
+                "git_mode": "100644",
+                "git_blob": "064f808ac099d0cf33630fa015312159e322a51d",
+                "bytes": 3773
+              },
+              {
+                "path": "docs/privacy/index.md",
+                "sha256": "e59895eb69c7475486dfb7ce7abf6344060b616563856cb768670cd3a9b40a6d",
+                "git_mode": "100644",
+                "git_blob": "8efaea05541d778a56ef7a25e15bddf5ba323c4f",
+                "bytes": 64688
+              },
+              {
+                "path": "jest.config.ts",
+                "sha256": "73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6",
+                "git_mode": "100644",
+                "git_blob": "f4ca64f9b388d86da39def01c886bbfbba9f65d0",
+                "bytes": 10839
+              },
+              {
+                "path": "jest.setup.js",
+                "sha256": "247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0",
+                "git_mode": "100644",
+                "git_blob": "7f77082c2e8d6fc30afb430325be3ce305c43ef5",
+                "bytes": 1959
+              },
+              {
+                "path": "package.json",
+                "sha256": "9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e",
+                "git_mode": "100644",
+                "git_blob": "5ed317129cab8ec62e4264364d1a0db5d31c9b9b",
+                "bytes": 23234
+              },
+              {
+                "path": "packages/hd-key/src/index.ts",
+                "sha256": "5eaa632b3f338fa23beec025c4f8a5b4e359d4fec42a034efda3991d950724c8",
+                "git_mode": "100644",
+                "git_blob": "72a15cf969fb6d148e2aa0ff40dcf55541b6412c",
+                "bytes": 525
+              },
+              {
+                "path": "packages/hd-key/src/miden.ts",
+                "sha256": "4d501ac03ab9d56d584fec468bf94a07f729c98674d8e8f7a7095f4817f82880",
+                "git_mode": "100644",
+                "git_blob": "bb11abd6278453d9125407b36be03268485b5fac",
+                "bytes": 2054
+              },
+              {
+                "path": "packages/hd-key/src/mnemonic.ts",
+                "sha256": "fcb346e09523667b517b25ef0d743ab3e89885a8aaaf134eafa6fe8edd4f7cd5",
+                "git_mode": "100644",
+                "git_blob": "49db3dbd9743175db3b411c619d99f58ef83e013",
+                "bytes": 1195
+              },
+              {
+                "path": "packages/hd-key/src/slip10.ts",
+                "sha256": "fada9158d046066f7f61eb537892caffcada7ea3919c431a182b6cfc850d605f",
+                "git_mode": "100644",
+                "git_blob": "09a84668d88538b728b66883cdfc1c804fb08b9d",
+                "bytes": 6861
+              },
+              {
+                "path": "src/lib/miden/db/types.ts",
+                "sha256": "936e3f6a4ebe3c76620996344adbcc251b2c6375310a20dc9923b64003af10aa",
+                "git_mode": "100644",
+                "git_blob": "340dff52aa7d960a96bd35b47d71a9167a4b7b76",
+                "bytes": 80856
+              },
+              {
+                "path": "src/lib/miden/repo.test.ts",
+                "sha256": "6c2b1964e07bc16ab387f031900eff67f077f120a50a04025508622f471759c1",
+                "git_mode": "100644",
+                "git_blob": "84f15847e0be00862c963633e5c88ce49433da41",
+                "bytes": 82623
+              },
+              {
+                "path": "src/lib/miden/repo.ts",
+                "sha256": "69e0897c0865d531b6ed4ac4d975c4b4a826483150d4980fcdd0d54d3a7a26f8",
+                "git_mode": "100644",
+                "git_blob": "737faf17dbc11d02920702103ed7814efee074c1",
+                "bytes": 33485
+              },
+              {
+                "path": "src/lib/miden/spending-limits/types.ts",
+                "sha256": "1b007e502e7cdee04fe7150bc411552a081cf561d639ebaf4fae4dd8887ec44b",
+                "git_mode": "100644",
+                "git_blob": "8870d4d4f8b433d7cc3ad1c50fd746998056873b",
+                "bytes": 12336
+              },
+              {
+                "path": "src/lib/telemetry/context.ts",
+                "sha256": "87877069d295fc2219a929ebca9bb1413351bfb80305af10262f14785b64119e",
+                "git_mode": "100644",
+                "git_blob": "569acb41f86b37934da552b866b15b8b90415bb9",
+                "bytes": 1359
+              },
+              {
+                "path": "src/lib/telemetry/crash-build.ts",
+                "sha256": "0014675e090ec542220dc25707b95d36eb08cdcac7ee9180742ed4607eea2f52",
+                "git_mode": "100644",
+                "git_blob": "7dee5dfde389bc7a1eca6c96fc57763f698343ac",
+                "bytes": 820
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+                "sha256": "4c96e2d82af7ab466731d33537055b31dbbcb34668f0e9364ec3bbcf74f9a6f7",
+                "git_mode": "100644",
+                "git_blob": "d9630f189b4e950afaa4877fd8cbe284d450e2bd",
+                "bytes": 4427
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.test.ts",
+                "sha256": "633199ea711c83b3249b141a3a2ea258b2179cbeafbc20e3c9c0ed3bf3fa2590",
+                "git_mode": "100644",
+                "git_blob": "d08b43995175031a35d0b6b7e35220f74157b639",
+                "bytes": 28650
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.ts",
+                "sha256": "561f115784bc1e9decadeb29214275221b2f2dcd4421d5220f3c74a0db3e86fa",
+                "git_mode": "100644",
+                "git_blob": "e90cee59e603d7fcf5625b341f44f0d72f3e2c0c",
+                "bytes": 9272
+              },
+              {
+                "path": "src/lib/telemetry/crash-frames.ts",
+                "sha256": "652babe0b0c22ff94d89cd30f412222c3fcbe083e686137b0f114ef1fadc67ef",
+                "git_mode": "100644",
+                "git_blob": "40929e2dab009581e3a19d80a345c285fca85586",
+                "bytes": 1224
+              },
+              {
+                "path": "src/lib/telemetry/crash.test.ts",
+                "sha256": "24ea5974e6dc656022671934f831b44148771dfa11fb153fd1e5a62f5f275c60",
+                "git_mode": "100644",
+                "git_blob": "5e5d5767d317b1b4b8585dfb91f34aa0a2405bc9",
+                "bytes": 39355
+              },
+              {
+                "path": "src/lib/telemetry/crash.ts",
+                "sha256": "49a37dc9efea6e79ba934d28619c0f9c56ba11c0e1bb8743e579d95deb833592",
+                "git_mode": "100644",
+                "git_blob": "e5fcf0f1daf7539e3049fd5c0324327fec8a9710",
+                "bytes": 20228
+              },
+              {
+                "path": "src/lib/telemetry/crash.visibility.worker.test.ts",
+                "sha256": "c3c882ce7774e57df6a870219977d3b399c42212c15b78a104bfc8351ca9a64f",
+                "git_mode": "100644",
+                "git_blob": "c795d03d0feb3d472aab5f651eebffe7c4fadf40",
+                "bytes": 2905
+              },
+              {
+                "path": "src/lib/telemetry/egress-boundary.test.ts",
+                "sha256": "5ca6649398fcf8091f407797fdcd7581d91e28b949349535b4063a710e83536c",
+                "git_mode": "100644",
+                "git_blob": "54f4a458950254bba325be5ab4438cbcae13da09",
+                "bytes": 107819
+              },
+              {
+                "path": "src/lib/telemetry/egress-guard.ts",
+                "sha256": "72944e2e25569c8339c3cd809b2c84b54a1b60985a820b020e3f1016d0ff66b6",
+                "git_mode": "100644",
+                "git_blob": "2b85b4ba723a460f158fc558937f42248e0935ea",
+                "bytes": 2448
+              },
+              {
+                "path": "src/lib/telemetry/guarantees.test.ts",
+                "sha256": "4eb5a8f806f0bed02b1cc863c787ac0b8ff3e592cfbbd15f7e88eabf2a15f1df",
+                "git_mode": "100644",
+                "git_blob": "2cdad503cb56362f329c38d9d6ed1d71ae24e4f9",
+                "bytes": 63818
+              },
+              {
+                "path": "src/lib/telemetry/protocol-assertions.sources.json",
+                "sha256": "be5107b2fcfbf1bdcb21fafabb5c6af4bcb6f6d7e0c992c252078fdcafcfb594",
+                "git_mode": "100644",
+                "git_blob": "92bdd0b65e5eea7d47d33a55121db42fd7178790",
+                "bytes": 249
+              },
+              {
+                "path": "src/lib/telemetry/redact.ts",
+                "sha256": "1c572f9d02a0c5d6a18caac1eeeeb689b505f0787452337e7e577786a5faf1a6",
+                "git_mode": "100644",
+                "git_blob": "4187caa2ce76b8787660975c6a20a485fe118f2e",
+                "bytes": 16256
+              },
+              {
+                "path": "src/lib/telemetry/relay-diagnostics.ts",
+                "sha256": "ab7f57895cb949bd16987ec48d441f94738b0e96c80a13ae3ebfa5b99560f6da",
+                "git_mode": "100644",
+                "git_blob": "660d2515fbe61214e5e174d61f260db8d9c865f0",
+                "bytes": 6412
+              },
+              {
+                "path": "src/lib/telemetry/report-flow.ts",
+                "sha256": "f4623696e39d0d231382ca8ddd08778ddd5b67e518807c147b10d9386fc3d9e9",
+                "git_mode": "100644",
+                "git_blob": "64bd053f330480bb9800963cb59c9d10864a3b7d",
+                "bytes": 3703
+              },
+              {
+                "path": "src/lib/telemetry/run.ts",
+                "sha256": "8836127f7cd9f5442a950081191a5108f3bb96faf88c9a28c51676af72c3efdf",
+                "git_mode": "100644",
+                "git_blob": "2185a5639dcd5906dc73d5bd5a712762238cd615",
+                "bytes": 2873
+              },
+              {
+                "path": "src/lib/telemetry/serialize.ts",
+                "sha256": "a7157bb1a0f5513ef135d0be86657c6704f2274af49c721d681c26e11d8ae45b",
+                "git_mode": "100644",
+                "git_blob": "945e7f510352fa1872953b259601feb3056ffc2a",
+                "bytes": 2260
+              },
+              {
+                "path": "src/lib/telemetry/sink.ts",
+                "sha256": "efc2d379433e5360495094a38e56378f2354f79d68af3bdd027448d50a60c101",
+                "git_mode": "100644",
+                "git_blob": "26fcdd04b42c08758236802208fc890f66b70382",
+                "bytes": 3700
+              },
+              {
+                "path": "src/lib/telemetry/transaction-failure.ts",
+                "sha256": "ed4394efa44a730904687d9016eb15b3240b88706c6dae8cceb16e5f62fcb412",
+                "git_mode": "100644",
+                "git_blob": "2c0bdcf7ae3be77ff7b521a6e3b1ec0846d48196",
+                "bytes": 34745
+              },
+              {
+                "path": "src/lib/telemetry/transaction-operation.ts",
+                "sha256": "27b30210c5596949dd0f094bf79d2ca404cdc41fce3136c860ec11e4e5c5fc8e",
+                "git_mode": "100644",
+                "git_blob": "92c652ad8b116f8e69b3643d8196302f39e1ad17",
+                "bytes": 7111
+              },
+              {
+                "path": "src/lib/telemetry/types.ts",
+                "sha256": "156283be23ffb4f60000faab2d6b7844488f7e244df6fbbf7f2a8a8c5222f8e2",
+                "git_mode": "100644",
+                "git_blob": "f96a8dc21e013a0552a92b68c99bfd4d5692be83",
+                "bytes": 10116
+              },
+              {
+                "path": "src/lib/telemetry/user-visible-error-contract.ts",
+                "sha256": "af87b4ba57ad625e427b3b4cc87c97397309f01565b0e0bb3e8d2f1a736262f6",
+                "git_mode": "100644",
+                "git_blob": "52eea7c74536f07ab09c82c8e83e51aef88920ce",
+                "bytes": 12937
+              },
+              {
+                "path": "src/lib/telemetry/user-visible-error.ts",
+                "sha256": "b9d92bcbb039bfec79bfe44cc2e523998e6a3d8fd4ef84ce9480e9b6be2d3359",
+                "git_mode": "100644",
+                "git_blob": "96cfd7152c56c7132dbeb6796e93cdc0ea0e118a",
+                "bytes": 2094
+              },
+              {
+                "path": "src/lib/telemetry/wasm-startup.ts",
+                "sha256": "8cf8191223116e09648e06f32a21c6e3f5e92b86d4cc73c7eb71c77ccc0a24f5",
+                "git_mode": "100644",
+                "git_blob": "19e42939fddc8d6febaafee9712d336370d35f03",
+                "bytes": 2325
+              },
+              {
+                "path": "tsconfig-utility.json",
+                "sha256": "a3363a62439b5c1f79849e763697184a3d568cfab0d41c88bc542bb5e2fb400a",
+                "git_mode": "100644",
+                "git_blob": "9ee2179f41a096f39c86147f1692bcfaac863147",
+                "bytes": 553
+              },
+              {
+                "path": "tsconfig.json",
+                "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+                "git_mode": "100644",
+                "git_blob": "0d431024b44e5a2c81cacb32eda3420cda552380",
+                "bytes": 1390
+              },
+              {
+                "path": "yarn.lock",
+                "sha256": "624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7",
+                "git_mode": "100644",
+                "git_blob": "9852dfc4e2a160548e8b3a5023e6edb9cb01aed5",
+                "bytes": 785240
+              }
+            ],
+            "tests": [
+              "src/lib/miden/repo.test.ts",
+              "src/lib/telemetry/crash-diagnostics.test.ts",
+              "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+              "src/lib/telemetry/crash.test.ts",
+              "src/lib/telemetry/crash.visibility.worker.test.ts",
+              "src/lib/telemetry/egress-boundary.test.ts",
+              "src/lib/telemetry/guarantees.test.ts"
+            ],
+            "framework_versions": {
+              "jest": "30.4.2",
+              "expect": "30.4.1",
+              "typescript": "5.9.3",
+              "dexie": "4.4.2",
+              "fake-indexeddb": "4.0.2",
+              "@sentry/browser": "10.70.0",
+              "@sentry/core": "10.70.0",
+              "@sentry/browser-utils": "10.70.0",
+              "react": "18.2.0",
+              "react-dom": "18.2.0"
+            },
+            "matcher_source": {
+              "path": "node_modules/expect/build/index.js",
+              "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4"
+            },
+            "prediction_only": true,
+            "arms": [
+              "positive",
+              "tag-restored",
+              "restored"
+            ],
+            "expected_cases": 677,
+            "expected_assertions": {
+              "positive": 11487,
+              "tag-restored": 10970,
+              "restored": 11487
+            },
+            "mutation": {
+              "path": "src/lib/telemetry/crash.ts",
+              "base_sha256": "49a37dc9efea6e79ba934d28619c0f9c56ba11c0e1bb8743e579d95deb833592",
+              "restored_tag_sha256": "c82ea8758c5356a4065206af48b64678d4803c05903035c025e43a41ed62faf7",
+              "anchor": "    ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),\n",
+              "line": "    page_visibility: diagnostics.pageVisibility,\n",
+              "patch_sha256": "42759bd46a6c95af39a97c8507c56fb03892619d3c1406c5eee5f4359dea6328"
+            },
+            "inventory_sha256": "9e5d0187f49d6fe1b8f472df870273c3161b3a2d02d88fa85e9e1744ba57cbda"
+          }
+          JSON
+          cat > "$proof/expected-inventory.gz.b64" <<'B64'
+          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
+          lMb//p//BxYVN/NZswEA
+          B64
+          cat > "$proof/production-only-restoration.patch" <<'PATCH'
+          --- a/src/lib/telemetry/crash.ts
+          +++ b/src/lib/telemetry/crash.ts
+          @@ -212,6 +212,7 @@
+               network: diagnostics.network,
+               ...(diagnostics.storageOwner === undefined ? {} : { storage_owner: diagnostics.storageOwner }),
+               ...(diagnostics.storageOperation === undefined ? {} : { storage_operation: diagnostics.storageOperation }),
+          +    page_visibility: diagnostics.pageVisibility,
+               ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
+               ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
+               ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface })
+          PATCH
+          base64 --decode "$proof/expected-inventory.gz.b64" | gzip --decompress > "$proof/expected-inventory.json"
+          test "$(sha256sum "$proof/capture.py" | cut -d' ' -f1)" = 'e2c76c7673f41d4508adbb3b60c9bb810ce816ecbb9c69e552af0e487aa46e8f'
+          test "$(sha256sum "$proof/record.sh" | cut -d' ' -f1)" = 'e00464833c124ef521607fba47688b25607119cfa78dfcfbe5c8d6921baa5685'
+          test "$(sha256sum "$proof/bindings.json" | cut -d' ' -f1)" = '350ac4ec4d3b26afa26f2009b3470cb586c9665e3ea9856651fd5b3849d86517'
+          test "$(sha256sum "$proof/expected-inventory.json" | cut -d' ' -f1)" = '9e5d0187f49d6fe1b8f472df870273c3161b3a2d02d88fa85e9e1744ba57cbda'
+          test "$(sha256sum "$proof/production-only-restoration.patch" | cut -d' ' -f1)" = '42759bd46a6c95af39a97c8507c56fb03892619d3c1406c5eee5f4359dea6328'
+          sha256sum "$proof/capture.py" "$proof/record.sh" "$proof/bindings.json" "$proof/expected-inventory.json" "$proof/production-only-restoration.patch" > "$proof/embedded.sha256"
+          cp .github/workflows/ci-1631-storage-wire-budget-positive.yml "$proof/workflow.yml"
+          printf '%s\n' "$GITHUB_SHA" "$GITHUB_REF" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_EVENT_NAME" > "$proof/github-run.txt"
+          git rev-parse HEAD HEAD^{tree} HEAD^ > "$proof/transport.txt"
+          git cat-file -p HEAD > "$proof/transport-commit.raw"
+          git log -1 --format=fuller --show-signature > "$proof/transport-commit.txt" 2>&1
+          git diff-tree --no-commit-id --name-status -r HEAD^ HEAD > "$proof/transport-paths.txt"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = 'refs/heads/ci/1631-storage-wire-budget-positive'
+          test "$GITHUB_EVENT_NAME" = 'push'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test "$(git rev-parse HEAD^)" = '0a583fe707e476cd6b8377cc6893b020b81cd68d'
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD^ HEAD)" = '.github/workflows/ci-1631-storage-wire-budget-positive.yml'
+          test "$(git ls-tree HEAD -- .github/workflows/ci-1631-storage-wire-budget-positive.yml | cut -d' ' -f1)" = '100644'
+          git checkout --detach '0a583fe707e476cd6b8377cc6893b020b81cd68d'
+          test "$(git rev-parse HEAD^{tree})" = '389bae9918a9d5143b4b27c33afc9267c96428ad'
+          git cat-file -p HEAD > "$proof/source-commit.raw"
+          git log -1 --format=fuller --show-signature > "$proof/source-commit.txt" 2>&1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.3"
+      - name: Install frozen lock and retain runtime versions
+        id: install
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record corepack-enable corepack enable
+          record corepack-prepare corepack prepare yarn@1.22.22 --activate
+          record node-version node --version
+          record yarn-version yarn --version
+          record python-version python3 --version
+          record install yarn install --frozen-lockfile --network-timeout 600000
+          record jest-version yarn --silent jest --version
+      - name: Named changed-file format lint and whole types before runtime
+        id: preflight
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot-before python3 "$PROOF_DIR/capture.py" snapshot before
+          failed=0
+          if record format yarn prettier --check src/lib/telemetry/crash.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/crash.visibility.worker.test.ts src/lib/telemetry/egress-boundary.test.ts; then :; else failed=1; fi
+          if record lint yarn eslint src/lib/telemetry/crash.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/crash.visibility.worker.test.ts src/lib/telemetry/egress-boundary.test.ts --max-warnings 0; then :; else failed=1; fi
+          if record types yarn ts --noEmit; then :; else failed=1; fi
+          exit "$failed"
+      - name: Positive seven complete suites
+        id: positive
+        if: steps.preflight.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record positive yarn jest --runTestsByPath src/lib/miden/repo.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/crash.visibility.worker.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/guarantees.test.ts --maxWorkers=2 --coverage=false --watch=false --testLocationInResults --json --outputFile="$PROOF_DIR/positive.jest.json"
+      - name: Retain positive source index runtime and framework
+        id: positive_after
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot-positive-after python3 "$PROOF_DIR/capture.py" snapshot positive-after
+      - name: Restore only duplicate production tag and bind mutant source
+        id: mutation
+        if: always() && steps.positive.outcome == 'success' && steps.positive_after.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record mutation python3 "$PROOF_DIR/capture.py" mutate
+          record snapshot-mutant-before python3 "$PROOF_DIR/capture.py" snapshot mutant-before tag-restored
+      - name: Run seven complete suites with natural sensitivity failure
+        id: mutant
+        if: always() && steps.mutation.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record tag-restored yarn jest --runTestsByPath src/lib/miden/repo.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/crash.visibility.worker.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/guarantees.test.ts --maxWorkers=2 --coverage=false --watch=false --testLocationInResults --json --outputFile="$PROOF_DIR/tag-restored.jest.json"
+      - name: Retain mutant source index runtime and framework
+        id: mutant_after
+        if: always() && steps.mutation.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot-mutant-after python3 "$PROOF_DIR/capture.py" snapshot mutant-after tag-restored
+      - name: Safely restore exact fixed source and retain before snapshot
+        id: restoration
+        if: always() && steps.preflight.outcome == 'success' && steps.positive_after.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record restoration python3 "$PROOF_DIR/capture.py" restore
+          record snapshot-restored-before python3 "$PROOF_DIR/capture.py" snapshot restored-before
+      - name: Exact restored seven complete suites
+        id: restored
+        if: always() && steps.mutation.outcome == 'success' && steps.mutant_after.outcome == 'success' && steps.restoration.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record restored yarn jest --runTestsByPath src/lib/miden/repo.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/crash.visibility.worker.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/guarantees.test.ts --maxWorkers=2 --coverage=false --watch=false --testLocationInResults --json --outputFile="$PROOF_DIR/restored.jest.json"
+      - name: Retain restored source index runtime and framework
+        id: restored_after
+        if: always() && steps.restoration.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot-restored-after python3 "$PROOF_DIR/capture.py" snapshot restored-after
+      - name: Classify positive causal tag restoration and exact restored
+        if: always() && steps.bind.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classification python3 "$PROOF_DIR/capture.py" classify
+      - name: Seal all raw producer payloads
+        if: always() && steps.bind.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" seal
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 1631-storage-wire-budget-positive
+          path: ${{ runner.temp }}/1631-storage-wire-budget-positive/
+          include-hidden-files: true
+          if-no-files-found: error
