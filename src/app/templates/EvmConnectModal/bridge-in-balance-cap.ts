@@ -6,7 +6,7 @@ import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
-import { isListedSymbol } from 'lib/prices/binance';
+import { usdMarketPending } from 'lib/prices/feed';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectBridgeInMaxBalanceUsd } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
@@ -16,8 +16,8 @@ import { useWalletStore } from 'lib/store';
  *
  * - `none`: the document sets no ceiling, so nothing is held.
  * - `loading`: a ceiling is set and the account's holdings or the price feed are not in yet; Continue waits.
- * - `unpriced`: a ceiling is set and the deposit token has no feed price, so the deposit cannot be weighed against
- *   it; the deposit is refused rather than let through unvalued.
+ * - `unpriced`: a ceiling is set and the feed has ruled out a price for the deposit token, so the deposit cannot be
+ *   weighed against it; the deposit is refused rather than let through unvalued.
  * - `clear`: the account's valued holdings plus this deposit stay at or under the ceiling.
  * - `exceeded`: they would pass it; the deposit is refused.
  */
@@ -37,6 +37,8 @@ export interface BridgeInBalanceCapInput {
   depositAmount: number | null;
   /** The deposit token's price in US dollars per whole token, or undefined when the feed has none. */
   depositPriceUsd: number | undefined;
+  /** True while the feed may still quote a deposit token it has no price for (`usdMarketPending`). */
+  depositPricePending?: boolean;
 }
 
 // Two floats summed can land a hair over an exact ceiling; anything further over is past it.
@@ -47,11 +49,14 @@ export function bridgeInBalanceCapVerdict({
   capUsd,
   heldUsd,
   depositAmount,
-  depositPriceUsd
+  depositPriceUsd,
+  depositPricePending = false
 }: BridgeInBalanceCapInput): BridgeInBalanceCapVerdict {
   if (capUsd === null) return { state: 'none' };
   if (heldUsd === null || depositAmount === null) return { state: 'loading' };
-  if (depositPriceUsd === undefined || !(depositPriceUsd > 0)) return { state: 'unpriced', capUsd };
+  if (depositPriceUsd === undefined || !(depositPriceUsd > 0)) {
+    return depositPricePending ? { state: 'loading' } : { state: 'unpriced', capUsd };
+  }
   const depositUsd = depositAmount * depositPriceUsd;
   const verdict = { capUsd, heldUsd, depositUsd };
   return heldUsd + depositUsd > capUsd + FLOAT_NOISE_USD
@@ -62,8 +67,8 @@ export function bridgeInBalanceCapVerdict({
 /**
  * Pure: the holdings as the Home card values them (`valuedBalanceTotal`), or null while a token that valuation would
  * price (held, known scale) still waits for its quote. A total summed before then counts that token at nothing and
- * would wave a deposit through against a balance the next quote values; a token whose market is known to be absent
- * has nothing to wait for.
+ * would wave a deposit through against a balance the next quote values; a token whose market the feed has ruled out
+ * at both providers has nothing to wait for.
  */
 export function settledHeldUsd(balances: readonly TokenBalanceData[], tokenPrices: TokenPrices): number | null {
   const pending = balances.some(
@@ -71,7 +76,7 @@ export function settledHeldUsd(balances: readonly TokenBalanceData[], tokenPrice
       token.balance > 0 &&
       hasKnownScale(token.metadata) &&
       !tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol) &&
-      isListedSymbol(priceSymbolFor(token.tokenId, token.metadata.symbol))
+      usdMarketPending(priceSymbolFor(token.tokenId, token.metadata.symbol))
   );
   return pending ? null : valuedBalanceTotal(balances, tokenPrices).totalFiat;
 }
@@ -83,6 +88,8 @@ export interface UseBridgeInBalanceCapOptions {
   depositAmount: number | null;
   /** The deposit token's price in US dollars per whole token, or undefined when the feed has none. */
   depositPriceUsd: number | undefined;
+  /** True while the feed may still quote a deposit token it has no price for (`usdMarketPending`). */
+  depositPricePending: boolean;
 }
 
 /**
@@ -93,7 +100,8 @@ export interface UseBridgeInBalanceCapOptions {
 export function useBridgeInBalanceCap({
   accountPublicKey,
   depositAmount,
-  depositPriceUsd
+  depositPriceUsd,
+  depositPricePending
 }: UseBridgeInBalanceCapOptions): BridgeInBalanceCapVerdict {
   const bridgeConfig = useBridgeConfigSnapshot();
   const capUsd = selectBridgeInMaxBalanceUsd(bridgeConfig);
@@ -104,6 +112,6 @@ export function useBridgeInBalanceCap({
   return useMemo(() => {
     if (capUsd === null) return { state: 'none' };
     const heldUsd = isLoading ? null : settledHeldUsd(balances, tokenPrices);
-    return bridgeInBalanceCapVerdict({ capUsd, heldUsd, depositAmount, depositPriceUsd });
-  }, [capUsd, balances, isLoading, tokenPrices, depositAmount, depositPriceUsd]);
+    return bridgeInBalanceCapVerdict({ capUsd, heldUsd, depositAmount, depositPriceUsd, depositPricePending });
+  }, [capUsd, balances, isLoading, tokenPrices, depositAmount, depositPriceUsd, depositPricePending]);
 }

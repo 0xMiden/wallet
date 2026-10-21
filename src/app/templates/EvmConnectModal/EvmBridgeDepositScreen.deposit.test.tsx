@@ -2506,6 +2506,12 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'synthetic-native' }));
 let mockTokenPrices: TokenPrices = {};
+// The symbols whose USD market the feed has not yet ruled out at both providers.
+const mockPendingUsdMarkets = new Set<string>();
+jest.mock('lib/prices/feed', () => ({
+  ...jest.requireActual<typeof import('lib/prices/feed')>('lib/prices/feed'),
+  usdMarketPending: (symbol: string | undefined) => symbol !== undefined && mockPendingUsdMarkets.has(symbol)
+}));
 jest.mock('lib/store', () => ({
   useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never>; tokenPrices: TokenPrices }) => T) =>
     selector({ assetsMetadata: {}, tokenPrices: mockTokenPrices })
@@ -2569,6 +2575,7 @@ describe('user-visible bridge deposit producers', () => {
     mockRealBridgeDisplays = false;
     mockBridgeInCapUsd = null;
     mockTokenPrices = {};
+    mockPendingUsdMarkets.clear();
     mockLiveBridgeRow = undefined;
     Object.assign(epochState, idleEpoch);
     mockNativeReown = false;
@@ -2653,6 +2660,18 @@ describe('user-visible bridge deposit producers', () => {
     await ceilingOnReview();
     expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();
     await expectErrorAfterDwell('bridgeDepositBalanceCapUnpriced', 'review');
+  });
+
+  it('holds an ETH deposit with no quote yet under a ceiling without calling it unpriced', async () => {
+    mockPendingUsdMarkets.add('ETH');
+    mockBridgeInCapUsd = 1;
+    await typeEthAmount();
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    expect(screen.queryByText(/^bridgeDepositBalanceCap/)).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 
   it('reports the actual balance-read failure through the real amount field', async () => {

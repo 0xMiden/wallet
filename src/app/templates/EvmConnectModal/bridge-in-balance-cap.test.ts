@@ -1,16 +1,23 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { TokenPrices } from 'lib/prices';
+import { fetchTokenPrices } from 'lib/prices/feed';
 
 import { bridgeInBalanceCapVerdict, settledHeldUsd } from './bridge-in-balance-cap';
 
-// Each faucet prices under its own symbol; LISTED holds the symbols whose market lookup has not settled.
+// Each faucet prices under its own symbol but NOSYM, which has none; LISTED holds the symbols Binance has not ruled out.
+// Kraken lists nothing, and a symbol is ruled out there only once the real feed has asked it.
 const LISTED = new Set<string>();
 jest.mock('lib/miden/swap/tokens', () => ({
-  priceSymbolFor: (_faucetId: string, symbol: string) => symbol,
+  priceSymbolFor: (_faucetId: string, symbol: string) => (symbol === 'NOSYM' ? undefined : symbol),
   tokenQuote: (prices: TokenPrices, _faucetId: string, symbol: string) => prices[symbol]
 }));
 jest.mock('lib/prices/binance', () => ({
+  fetchTokenPrices: async () => ({}),
   isListedSymbol: (symbol: string | undefined) => symbol !== undefined && LISTED.has(symbol)
+}));
+jest.mock('lib/prices/kraken', () => ({
+  findKrakenUsdMarket: async () => null,
+  fetchKrakenPrices: async () => ({})
 }));
 
 describe('bridgeInBalanceCapVerdict', () => {
@@ -29,6 +36,27 @@ describe('bridgeInBalanceCapVerdict', () => {
     expect(bridgeInBalanceCapVerdict({ capUsd: cap, heldUsd: 10, depositAmount: null, depositPriceUsd: 1 })).toEqual({
       state: 'loading'
     });
+  });
+
+  it('waits while the feed may still quote the deposit token, and refuses it once both providers rule it out', () => {
+    expect(
+      bridgeInBalanceCapVerdict({
+        capUsd: cap,
+        heldUsd: 10,
+        depositAmount: 0.5,
+        depositPriceUsd: undefined,
+        depositPricePending: true
+      })
+    ).toEqual({ state: 'loading' });
+    expect(
+      bridgeInBalanceCapVerdict({
+        capUsd: cap,
+        heldUsd: 10,
+        depositAmount: 0.5,
+        depositPriceUsd: undefined,
+        depositPricePending: false
+      })
+    ).toEqual({ state: 'unpriced', capUsd: cap });
   });
 
   it('refuses a deposit whose token has no price', () => {
@@ -97,8 +125,20 @@ describe('settledHeldUsd', () => {
     expect(settledHeldUsd([row('ETH', 1), row('USDC', 5)], { ETH: quote(2000), USDC: quote(1) })).toBe(2005);
   });
 
-  it('does not wait for a token whose market is known to be absent', () => {
+  it('waits for a token Binance does not list until Kraken has ruled it out as well', async () => {
+    expect(settledHeldUsd([row('ETH', 1), row('KPEND', 5)], { ETH: quote(2000) })).toBeNull();
+    await fetchTokenPrices(['KPEND']);
+    expect(settledHeldUsd([row('ETH', 1), row('KPEND', 5)], { ETH: quote(2000) })).toBe(2000);
+  });
+
+  it('does not wait for a token whose market is known to be absent', async () => {
+    await fetchTokenPrices(['NOPE']);
     expect(settledHeldUsd([row('ETH', 1), row('NOPE', 5)], { ETH: quote(2000) })).toBe(2000);
+  });
+
+  it('does not wait for a token with no price symbol, or one the feed never sends to Kraken', () => {
+    expect(settledHeldUsd([row('ETH', 1), row('NOSYM', 5)], { ETH: quote(2000) })).toBe(2000);
+    expect(settledHeldUsd([row('ETH', 1), row('bad/pair', 5)], { ETH: quote(2000) })).toBe(2000);
   });
 
   it('does not wait when nothing held is priced by the valuation', () => {

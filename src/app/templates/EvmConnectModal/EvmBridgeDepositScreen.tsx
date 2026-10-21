@@ -32,6 +32,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
+import { usdMarketPending } from 'lib/prices/feed';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { evmUsdcLabel } from 'lib/remote-config/token-labels';
@@ -1349,15 +1350,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // quote, never the nominal $1 a test network gives an unquoted token), and holds every step while they pass it. A
   // note that lands by any other way is not this screen's to refuse.
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const depositPriceUsd = (() => {
-    if (token !== 'ETH') return 1;
-    const quote = quotedPrice(tokenPrices, 'ETH');
-    return quote && !isNominalQuote(quote) ? quote.price : undefined;
-  })();
+  const ethQuote = token === 'ETH' ? quotedPrice(tokenPrices, 'ETH') : undefined;
+  const depositPriceUsd = token !== 'ETH' ? 1 : ethQuote && !isNominalQuote(ethQuote) ? ethQuote.price : undefined;
   const capVerdict = useBridgeInBalanceCap({
     accountPublicKey: midenAccount.publicKey,
     depositAmount: typedUnits === null ? null : Number(amount),
-    depositPriceUsd
+    depositPriceUsd,
+    // A missing ETH quote is still on its way until the feed rules its market out; only then is the deposit unpriced.
+    depositPricePending: token === 'ETH' && ethQuote === undefined && usdMarketPending('ETH')
   });
   const capHold = capVerdict.state !== 'none' && capVerdict.state !== 'clear';
   const capHoldError = ((): { id: UserErrorId; text: string } | undefined => {
