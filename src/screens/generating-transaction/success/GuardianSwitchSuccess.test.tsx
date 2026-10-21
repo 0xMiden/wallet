@@ -257,9 +257,9 @@ describe('GuardianSwitchSuccess', () => {
       const heading = screen.getByRole('heading', { level: 2 });
       expect(heading).toHaveTextContent('guardianSwitchSuccessInfoTitle');
       const rows = rowsOf();
-      expect(rows[0].closest('ul')).not.toBeNull();
+      expect(rows[0]?.closest('ul')).not.toBeNull();
       expect(rows).toHaveLength(4);
-      const expected = [
+      const expected: Array<[string, string]> = [
         ['Your new Guardian co-signs', 'guardianSwitchSuccessInfo1'],
         ['Nothing moved', 'guardianSwitchSuccessInfo2'],
         ['Keep it reachable', 'guardianSwitchSuccessInfo3'],
