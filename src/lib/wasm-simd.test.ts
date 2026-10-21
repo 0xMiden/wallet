@@ -7,6 +7,11 @@ describe('isWasmSimdSupported', () => {
     jest.restoreAllMocks();
   });
 
+  it('probes with SIMD itself, so a runtime without SIMD rejects it', () => {
+    // A v128 result type (0x7b) and the SIMD opcode prefix (0xfd); a scalar-only module would pass any runtime.
+    expect(Array.from(SIMD_PROBE_MODULE)).toEqual(expect.arrayContaining([0x7b, 0xfd]));
+  });
+
   it('accepts the probe module on a runtime with SIMD', () => {
     expect(WebAssembly.validate(SIMD_PROBE_MODULE)).toBe(true);
     expect(isWasmSimdSupported()).toBe(true);
