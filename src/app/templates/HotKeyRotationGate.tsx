@@ -313,10 +313,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     if (!accepted) return;
     try {
       await resetWalletAndReload(async () => {
-        await alert({ title: t('error'), children: t('resetDidNotFinish') });
+        await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
       });
     } catch {
-      await alert({ title: t('error'), children: t('resetDidNotFinish') });
+      await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
     }
   }, [alert, confirm, t]);
 
