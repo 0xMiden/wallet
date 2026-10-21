@@ -5,6 +5,7 @@ import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  chunkAutoConsumeBatch,
   deterministicKernelFailureCopy,
   ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE,
   formatRawTransactionError,
@@ -39,6 +40,30 @@ import {
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+
+describe('chunkAutoConsumeBatch', () => {
+  const notes = (count: number, amount: string) =>
+    Array.from({ length: count }, (_unused, index) => ({ id: `n${String(index).padStart(2, '0')}`, amount }));
+
+  it('keeps a batch of up to eight notes whole, whatever it is worth, since the caller measured it', () => {
+    expect(chunkAutoConsumeBatch(notes(8, '1'), 10000).map(chunk => chunk.length)).toEqual([8]);
+  });
+
+  it('splits a larger batch into chunks of eight in id order and leaves out a chunk not worth its own fee', () => {
+    // 20 notes of 5 fees: two chunks of 8 are worth 40 fees each, the 4 left over only the floor.
+    const chunks = chunkAutoConsumeBatch([...notes(20, '50000')].reverse(), 10000);
+    expect(chunks.map(chunk => chunk.map(note => note.id))).toEqual([
+      notes(8, '50000').map(note => note.id),
+      notes(16, '50000')
+        .slice(8)
+        .map(note => note.id)
+    ]);
+  });
+
+  it('keeps every chunk on a chain that charges no fee', () => {
+    expect(chunkAutoConsumeBatch(notes(20, '1'), 0).map(chunk => chunk.length)).toEqual([8, 8, 4]);
+  });
+});
 
 // The real native-prover error captured in #487.
 const MISSING_PROCEDURE =

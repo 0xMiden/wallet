@@ -111,6 +111,9 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
 // The queue arguments a settlement consume passes after its delegate flag: none but the entry point that queued it,
 // and no claim guard.
 const SETTLES = [undefined, undefined, undefined, 'swap_settlement', undefined] as const;
+// Then the order link the queue writes in the row's insert (#1644).
+const SETTLE = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'settle' })];
+const RECLAIM = [...SETTLES, expect.objectContaining({ swapOrderTxId: expect.any(String), swapSettleKind: 'reclaim' })];
 
 const tx = (overrides: Record<string, unknown> = {}) => ({
   id: 'swap-1',
@@ -175,7 +178,8 @@ describe('swap order note settlement', () => {
     jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
     mockNoteClaimCoverage.mockReset().mockResolvedValue({ rows: [] });
     (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
-    (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
+    // `where` serves the stamp writes and the repair's read of an order's claims through its swapOrderTxId index.
+    (Repo.transactions.where as jest.Mock).mockReturnValue({ modify, equals: () => ({ toArray }) });
     mockStoreAccounts = [];
   });
 
@@ -292,8 +296,8 @@ describe('swap order note settlement', () => {
     await reconcileSwapOrderNotes('account-1', [tip, payback], false, 300);
 
     expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
-      ['account-1', [payback], false, ...SETTLES],
-      ['account-1', [tip], false, ...SETTLES]
+      ['account-1', [payback], false, ...SETTLE],
+      ['account-1', [tip], false, ...RECLAIM]
     ]);
     expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'swap-1' });
     const expiryWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
@@ -330,20 +334,21 @@ describe('swap order note settlement', () => {
 
     const result = await settleSwapOrders('account-1', false);
 
+    // The notes of one row are in id order (the claim chunks are stable across ticks, #1644).
     expect(jest.mocked(initiateConsumeNotesTransaction).mock.calls).toEqual([
       [
         'account-1',
         [
+          expect.objectContaining({ id: 'assetless-payback', faucetId: '', amount: '', carriesMoreAssets: false }),
           expect.objectContaining({
             id: 'token-payback',
             faucetId: 'requested-token',
             amount: '35',
             carriesMoreAssets: false
-          }),
-          expect.objectContaining({ id: 'assetless-payback', faucetId: '', amount: '', carriesMoreAssets: false })
+          })
         ],
         false,
-        ...SETTLES
+        ...SETTLE
       ],
       [
         'account-1',
@@ -356,7 +361,7 @@ describe('swap order note settlement', () => {
           })
         ],
         false,
-        ...SETTLES
+        ...RECLAIM
       ]
     ]);
     expect(result.managedNoteIds).toEqual(new Set(['token-payback', 'two-asset-remainder', 'assetless-payback']));
@@ -649,7 +654,39 @@ describe('swap order note settlement', () => {
     await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip', 'filled'), payback0, payback1], false, 150);
 
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false, ...SETTLES);
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false, ...SETTLE);
+    // One row covers the whole kind, so its completion may stamp the order.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls[0][8]).toEqual({
+      swapOrderTxId: 'swap-1',
+      swapSettleKind: 'settle'
+    });
+  });
+
+  it('claims the paybacks of one order at most MAX_NOTES_PER_UNATTENDED_CLAIM to a row, in a stable order (#1644)', async () => {
+    const paybacks = Array.from({ length: 9 }, (_, i) => consumable(`payback-${i}`, 'payback', 'filled'));
+    // Handed over in reverse, so the chunking (not the caller) decides which notes share a row.
+    const tip = consumable('tip', 'tip', 'filled');
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-a')
+      .mockResolvedValueOnce('consume-b');
+
+    await reconcileSwapOrderNotes('account-1', [tip, ...[...paybacks].reverse()], false, 150);
+
+    // 63 paybacks of one order went into one consume whose on-device proof overran the extension's write deadline on
+    // every attempt; now a set over the cap is several rows, and a repeated tick sorts them the same way so the dedup
+    // covers each whole chunk.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
+      ['account-1', paybacks.slice(0, 8), false, ...SETTLE],
+      ['account-1', paybacks.slice(8), false, ...SETTLE]
+    ]);
+    // Every chunk is linked to the order in its insert and marked partial, so history suppresses each and none of
+    // them alone stamps the order.
+    for (const call of (initiateConsumeNotesTransaction as jest.Mock).mock.calls) {
+      expect(call[8]).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true });
+    }
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'consume-a' });
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(2, { id: 'consume-b' });
+    expect(modify).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to the swap row delegate preference when no delegate flag is passed', async () => {
@@ -658,7 +695,26 @@ describe('swap order note settlement', () => {
 
     await reconcileSwapOrderNotes('account-1', [payback], undefined, 150);
 
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true, ...SETTLES);
+    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true, ...SETTLE);
+  });
+
+  it('marks every row of an expired order partial when its paybacks need more than one claim (#1644)', async () => {
+    const paybacks = Array.from({ length: 9 }, (_, i) => consumable(`payback-${i}`, 'payback'));
+    const tip = consumable('tip', 'tip');
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-a')
+      .mockResolvedValueOnce('consume-b')
+      .mockResolvedValueOnce('consume-tip');
+
+    await reconcileSwapOrderNotes('account-1', [tip, ...paybacks], true, 220);
+
+    // A lone tip row that stamped Reclaimed on completion would leave the order Reclaimed for good: the payback
+    // chunks never stamp, and the repair runs only while both stamps are absent.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls.map(call => call[8])).toEqual([
+      { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true },
+      { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true },
+      { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim', swapSettlePartial: true }
+    ]);
   });
 
   it('persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks', async () => {
@@ -677,8 +733,8 @@ describe('swap order note settlement', () => {
     // payback claim (funds already delivered to this account) for 5, 10, 20 …
     // minutes.
     expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
-      ['account-1', [payback], true, ...SETTLES],
-      ['account-1', [tip], true, ...SETTLES]
+      ['account-1', [payback], true, ...SETTLE],
+      ['account-1', [tip], true, ...RECLAIM]
     ]);
     // Three writes: the expiry intent on the swap row, then one settlement tag
     // per queued consume row.
@@ -803,6 +859,115 @@ describe('swap order note settlement', () => {
     expect(swapRow.extraInputs).toEqual(expect.objectContaining({ settledAt: 500 }));
   });
 
+  it('repairs no stamp while a same-kind claim of the order still waits for its verdict (#1644)', async () => {
+    const order = tx();
+    const completedChunk = {
+      id: 'consume-done',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 500,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true }
+    };
+    // A submitted chunk's notes leave the consumable list before the node answers.
+    const submittedChunk = {
+      ...completedChunk,
+      id: 'consume-submitted',
+      status: ITransactionStatus.Unconfirmed,
+      completedAt: undefined
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedChunk, submittedChunk]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(modify).not.toHaveBeenCalled();
+
+    toArray
+      .mockResolvedValueOnce([order])
+      .mockResolvedValueOnce([completedChunk, { ...submittedChunk, status: ITransactionStatus.Completed }]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    const stampWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const swapRow = { ...order };
+    stampWriter(swapRow);
+    expect(swapRow.extraInputs).toEqual(expect.objectContaining({ settledAt: 500 }));
+  });
+
+  it('repairs no reclaim stamp while a payback claim of the order is still in flight (#1644)', async () => {
+    const order = tx();
+    const completedReclaim = {
+      id: 'consume-tip',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 500,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+    };
+    const submittedPayback = {
+      id: 'consume-payback',
+      type: 'consume',
+      status: ITransactionStatus.Unconfirmed,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true }
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedReclaim, submittedPayback]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(modify).not.toHaveBeenCalled();
+  });
+
+  it('writes settledAt on an order already stamped Reclaimed once its split payback claims completed (#1644)', async () => {
+    // Guardian history recovery, a reclaim's completion or an earlier repair can write reclaimedAt before a split
+    // payback settlement finishes, and its chunks stamp nothing themselves.
+    const order = tx({
+      extraInputs: {
+        requestedFaucetId: 'requested',
+        requestedAmount: 50n,
+        orderId: 77n,
+        expiresAt: 220,
+        reclaimedAt: 300
+      }
+    });
+    const completedChunk = {
+      id: 'consume-done',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 500,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true }
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedChunk]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    const stampWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const swapRow = { ...order };
+    stampWriter(swapRow);
+    expect(swapRow.extraInputs).toEqual(expect.objectContaining({ settledAt: 500, reclaimedAt: 300 }));
+  });
+
+  it('leaves a reclaimed order with no payback claim untouched on every lap', async () => {
+    const order = tx({
+      extraInputs: {
+        requestedFaucetId: 'requested',
+        requestedAmount: 50n,
+        orderId: 77n,
+        expiresAt: 220,
+        reclaimedAt: 300
+      }
+    });
+    const completedReclaim = {
+      id: 'consume-tip',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 300,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedReclaim]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(modify).not.toHaveBeenCalled();
+  });
+
   it('does not run the stamp repair for an already-stamped order', async () => {
     toArray.mockResolvedValue([
       tx({
@@ -842,7 +1007,7 @@ describe('swap order note settlement', () => {
 
       await reconcileSwapOrderNotes('account-1', [payback], false, 150);
 
-      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], false, ...SETTLES);
+      expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], false, ...SETTLE);
     });
   });
 
@@ -1078,7 +1243,7 @@ describe('swap order note settlement', () => {
         'account-1',
         [expect.objectContaining({ id: 'payback-88' })],
         undefined,
-        ...SETTLES
+        ...SETTLE
       );
     });
 
@@ -1589,7 +1754,8 @@ describe('swap order note settlement', () => {
       undefined,
       undefined,
       'swap_settlement',
-      canSign
+      canSign,
+      { swapOrderTxId: 'swap-2', swapSettleKind: 'settle' }
     );
   });
 });

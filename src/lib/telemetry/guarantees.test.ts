@@ -351,6 +351,7 @@ describe('the guard reads the tree it claims to read', () => {
     expect([...(importedPackages().get('@sentry/browser') ?? [])]).toEqual([
       'src/lib/telemetry/crash.test.ts',
       'src/lib/telemetry/crash.ts',
+      'src/lib/telemetry/diagnostic-log.wire.test.ts',
       'src/lib/telemetry/egress-boundary.test.ts'
     ]);
   });
@@ -1129,6 +1130,7 @@ describe('the background service worker never imports the telemetry barrel', () 
     // `bridge-receive-failure.ts` imports nothing either: the transaction-failure
     // reporter reads it to name a failed inbound bridge's route, step and error.
     // `crash-diagnostics.ts` uses the worker-safe user-visible error allowlists to validate diagnostics.
+    // `diagnostic-log.ts` records the swap steps the pipeline runs here, and its contract imports nothing.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/aptabase.ts',
       'src/lib/telemetry/bridge-receive-failure.ts',
@@ -1139,6 +1141,8 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/crash-diagnostics.ts',
       'src/lib/telemetry/crash-frames.ts',
       'src/lib/telemetry/crash.ts',
+      'src/lib/telemetry/diagnostic-log-contract.ts',
+      'src/lib/telemetry/diagnostic-log.ts',
       'src/lib/telemetry/protocol-assertions.json',
       'src/lib/telemetry/redact.ts',
       // Imports nothing: `crash.ts` classifies relay failures with it, and the pages feed it without the crash client.

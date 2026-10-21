@@ -81,7 +81,7 @@ export interface RotationFundingSelection<T> {
  * The notes the rotation gate may claim (#805). Only a live list counts: the cached list
  * is display-only, and on the extension a snapshot a previous session left behind. The
  * batch is measured by `isWorthClaiming` on its total, the rule every unattended claim
- * uses, and goes out whole, since one claim pays one fee.
+ * uses, and goes out in claims of at most MAX_NOTES_PER_UNATTENDED_CLAIM notes (`chunkAutoConsumeBatch`, #1644).
  *
  * Only standard P2ID or P2IDE payments, a missing flag read as not: generation refuses a
  * whole claim over one other note, and a note worth less than its own fee is never split

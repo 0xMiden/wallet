@@ -37,6 +37,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
@@ -134,12 +135,14 @@ const Explore: FC = () => {
       return;
     }
 
-    // ONE transaction for the batch, matching the other two native auto-consumers
+    // ONE transaction per batch, matching the other native auto-consumers
     // (`NativeNoteAutoConsumeManager`, the SW sync pass): every consume pays its own
     // fee, so a backlog claimed note-by-note charges N fees for what settles in one.
     // This consumer runs on Home and fires on render, so it usually WINS the race
     // against the others -- leaving it per-note meant the batching those two do was
-    // defeated in the common case.
+    // defeated in the common case. For the same reason it takes the same claim cap:
+    // a backlog over MAX_NOTES_PER_UNATTENDED_CLAIM is several batches (#1644), each
+    // measured against the floor on its own (`chunkAutoConsumeBatch`).
     //
     // Poison-note isolation is the `true` argument, not this catch: an un-consumable note
     // fails at generation time, long after this queue write returned, so the catch here
@@ -147,47 +150,53 @@ const Explore: FC = () => {
     //
     // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that lands meanwhile queues
     // nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no processing request.
-    try {
-      await initiateConsumeNotesTransaction(
-        account.publicKey,
-        notesToClaim,
-        isDelegatedProvingEnabled,
-        false,
-        true,
-        verificationBaseFee,
-        'auto_consume',
-        isWalletReadyNow
-      );
-    } catch (batchErr) {
-      if (batchErr instanceof ClaimFeeRefusedError) {
-        console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
-        return;
-      }
-      if (!isWalletReadyNow()) return;
-      console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
-      let feeRefusedNotes = 0;
-      for (const note of notesToClaim) {
-        try {
-          await initiateConsumeTransaction(
-            account.publicKey,
-            note,
-            isDelegatedProvingEnabled,
-            false,
-            'auto_consume',
-            isWalletReadyNow
-          );
-        } catch (noteErr) {
-          if (noteErr instanceof ClaimFeeRefusedError) {
-            console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
-            feeRefusedNotes += 1;
-            continue;
+    const batches = chunkAutoConsumeBatch(notesToClaim, verificationBaseFee);
+    const batchedNotes = batches.reduce((count, batch) => count + batch.length, 0);
+    if (batchedNotes === 0) return;
+    let feeRefusedNotes = 0;
+    for (const batch of batches) {
+      try {
+        await initiateConsumeNotesTransaction(
+          account.publicKey,
+          batch,
+          isDelegatedProvingEnabled,
+          false,
+          true,
+          verificationBaseFee,
+          'auto_consume',
+          isWalletReadyNow
+        );
+      } catch (batchErr) {
+        if (batchErr instanceof ClaimFeeRefusedError) {
+          console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+          feeRefusedNotes += batch.length;
+          continue;
+        }
+        if (!isWalletReadyNow()) return;
+        console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+        for (const note of batch) {
+          try {
+            await initiateConsumeTransaction(
+              account.publicKey,
+              note,
+              isDelegatedProvingEnabled,
+              false,
+              'auto_consume',
+              isWalletReadyNow
+            );
+          } catch (noteErr) {
+            if (noteErr instanceof ClaimFeeRefusedError) {
+              console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+              feeRefusedNotes += 1;
+              continue;
+            }
+            if (!isWalletReadyNow()) return;
+            console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
           }
-          if (!isWalletReadyNow()) return;
-          console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
         }
       }
-      if (feeRefusedNotes === notesToClaim.length) return;
     }
+    if (feeRefusedNotes === batchedNotes) return;
     // The wallet is now auto-claiming these notes, so the "click to claim"
     // notification is stale — dismiss it so it doesn't linger (#459).
     clearNoteReceivedNotification();

@@ -41,9 +41,10 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * None of the three calls this for a seed-recovered account whose everyday-key rotation
  * is pending: its rotation gate claims those notes with the recovery key (#805).
  *
- * The value check runs on the BATCH TOTAL, because the batch is one transaction paying
- * one fee; judged per note, a backlog of individually marginal notes was refused in
- * full. It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
+ * The value check runs on the BATCH TOTAL, because a batch of up to
+ * MAX_NOTES_PER_UNATTENDED_CLAIM notes is one transaction paying one fee; judged per note, a backlog of
+ * individually marginal notes was refused in full. The consumers queue a larger batch in chunks of that size,
+ * each measured on its own (`chunkAutoConsumeBatch`, #1644). It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
  * block header has no fee accessor the fee stays null for good, so refusing on null
  * would switch auto-consume off permanently.
  */

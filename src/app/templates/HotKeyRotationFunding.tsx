@@ -9,6 +9,7 @@ import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { enqueueRotationFundingClaim, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
 import { isRotationFundingRow, isRotationRow, RotationFundingSelection } from 'lib/miden/transaction/rotation-funding';
 import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -106,13 +107,17 @@ export function useRotationFundingClaim({
       if (running || !latest.current.active || current.batch.length === 0 || rows.some(isLiveTransaction)) return;
       running = true;
       try {
-        // Asked by the queue right before the claim row: a lock that lands meanwhile writes nothing and, through the
-        // catch, asks nothing of the service worker. A retry the user taps stays unguarded.
-        await enqueueRotationFundingClaim(accountPublicKey, [...current.batch], {
-          delegate: isDelegateProofEnabled(),
-          verificationBaseFee: fee,
-          canSign: isWalletReadyNow
-        });
+        // Asked by the queue right before each claim row: a lock that lands meanwhile writes nothing and, through the
+        // catch, asks nothing of the service worker. A retry the user taps stays unguarded. At most
+        // MAX_NOTES_PER_UNATTENDED_CLAIM notes to a claim, like every unattended claimer (#1644): a larger one can prove
+        // past the extension's write deadline on every attempt, and this claim is the gate's only way out.
+        for (const batch of chunkAutoConsumeBatch(current.batch, fee)) {
+          await enqueueRotationFundingClaim(accountPublicKey, batch, {
+            delegate: isDelegateProofEnabled(),
+            verificationBaseFee: fee,
+            canSign: isWalletReadyNow
+          });
+        }
         if (isExtension()) requestSWTransactionProcessing();
       } catch (e) {
         console.warn('[HotKeyRotationGate] funding claim enqueue failed:', e);
