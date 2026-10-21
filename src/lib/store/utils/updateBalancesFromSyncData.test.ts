@@ -8,6 +8,10 @@ import { __resetFaucetAssetsMetadataForTest, faucetMetadataOf, useWalletStore } 
 
 import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
 
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
+
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
