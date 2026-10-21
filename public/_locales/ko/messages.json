@@ -4045,6 +4045,14 @@
     "message": "이 외부 서비스는 현재 이용이 불가능합니다. 잠시 후 다시 시도해 주십시오.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
   "swapUnavailableTitle": {
     "message": "이 네트워크에서는 스왑 기능을 사용할 수 없습니다.",
     "englishSource": "Swap is not available on this network"
@@ -7049,5 +7057,29 @@
   "webViewStartFailedAction": {
     "message": "다시 시도해 보세요",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "이용 가능 여부 확인 중",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "해당 지역에서 지갑을 이용할 수 있는지 확인하는 동안 잠시 기다려 주세요.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "해당 지역에서는 지갑을 이용할 수 없습니다",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "현재 위치에서는 지갑을 이용할 수 없습니다.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "이용 가능 여부를 확인하지 못했습니다",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "연결을 확인하고 다시 시도해 주세요.",
+    "englishSource": "Check your connection and try again."
   }
 }

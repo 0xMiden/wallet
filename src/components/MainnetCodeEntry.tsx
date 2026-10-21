@@ -7,10 +7,17 @@ import { CodeInput } from 'components/ui/CodeInput';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { TextAction } from 'components/ui/TextAction';
 import { isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH, type MainnetAccessOutcome } from 'lib/mainnet-access';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 /** Why the last try did not unlock mainnet: the code was refused, or the check did not complete. */
 export type MainnetCodeFailure = 'rejected' | 'unchecked' | 'clipboard';
+
+const FAILURE_IDS: Record<MainnetCodeFailure, UserErrorId> = {
+  rejected: 'mainnetAccessCodeRejected',
+  unchecked: 'mainnetAccessCheckFailed',
+  clipboard: 'mainnetAccessPasteFailed'
+};
 
 export interface MainnetCodeEntryOptions {
   /** Asks a node whether a complete code can register an account. */
@@ -167,7 +174,9 @@ export const MainnetCodeEntryFields: React.FC<MainnetCodeEntryFieldsProps> = ({ 
         data-testid={`${testIdPrefix}-code`}
       />
       <span className="px-1 text-caption text-muted">{t('mainnetAccessHint')}</span>
-      <ErrorLine data-testid={`${testIdPrefix}-error`}>{failureMessage()}</ErrorLine>
+      <ErrorLine errorId={failure === null ? null : FAILURE_IDS[failure]} data-testid={`${testIdPrefix}-error`}>
+        {failureMessage()}
+      </ErrorLine>
     </div>
   );
 };

@@ -6,6 +6,7 @@ import { IconName } from 'app/icons/v2';
 import { EmptyState } from 'components/ui/EmptyState';
 import { Spinner } from 'components/ui/Spinner';
 import { createQrDetector, detectAddressFromFrame } from 'lib/qr/webcam-scanner';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useIsMounted from 'lib/ui/useIsMounted';
 
@@ -53,6 +54,16 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
 
   const [scanState, setScanState] = useState<ScanState>('requesting');
   const [invalidScan, setInvalidScan] = useState(false);
+  const displayedErrorId = !open
+    ? null
+    : scanState === 'permission-denied'
+      ? 'cameraPermissionDenied'
+      : scanState === 'no-camera'
+        ? 'noCameraFound'
+        : scanState === 'scanning' && invalidScan
+          ? 'invalidMidenAddress'
+          : null;
+  useUserVisibleError(displayedErrorId, 'inline');
 
   // Full camera teardown: cancel the pending frame callback and stop every
   // track. Idempotent — safe to call from success, close, and unmount.

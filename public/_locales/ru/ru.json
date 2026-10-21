@@ -913,6 +913,8 @@
   "unavailable": "Недоступно",
   "bridgeFeatureUnavailableTitle": "Временно недоступно",
   "bridgeFeatureUnavailableBody": "Этот внешний сервис в настоящее время недоступен. Пожалуйста, попробуйте позже.",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "Функция обмена (Swap) в этой сети недоступна",
   "swapUnavailableBody": "Для этой сети пока не настроены токены для свопа.",
   "agglayerCheckingToken": "Проверка, поддерживает ли этот токен маршрут Slow…",
@@ -1558,5 +1560,11 @@
   "webViewUpdateChromeBody": "Для работы Bread требуется более новая версия Chrome, которая отображает веб-страницы в приложениях на этой версии Android. Обновите браузер через Google Play, а затем снова запустите Bread.",
   "webViewStartFailedTitle": "Bread не смог запуститься",
   "webViewStartFailedBody": "Что-то помешало загрузке Bread. Попробуйте ещё раз или закройте Bread и откройте его снова.",
-  "webViewStartFailedAction": "Попробуйте ещё раз"
+  "webViewStartFailedAction": "Попробуйте ещё раз",
+  "walletAccessCheckingTitle": "Проверка доступности",
+  "walletAccessCheckingBody": "Подождите, пока мы проверяем, доступен ли кошелёк в вашем регионе.",
+  "walletAccessRestrictedTitle": "Кошелёк недоступен в вашем регионе",
+  "walletAccessRestrictedBody": "Кошелёк недоступен в вашем текущем местоположении.",
+  "walletAccessUnavailableTitle": "Не удалось проверить доступность",
+  "walletAccessUnavailableBody": "Проверьте подключение и попробуйте ещё раз."
 }

@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK } from 'screens/shared';
 
 import { WalletType } from '../types';
@@ -35,6 +36,9 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  * that single branch has no reachable caller. Every line and every other branch
  * is exercised.
  */
+
+let mockRealTelemetrySurfaces = false;
+let mockAlertTranslations: Record<string, string> = {};
 
 // ---------------------------------------------------------------------------
 // Mutable control state (read lazily inside mock-factory closures).
@@ -72,7 +76,7 @@ let mockEffectiveNetwork = 'testnet';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { importedCount?: string }) =>
-      opts?.importedCount !== undefined ? `${key}:${opts.importedCount}` : key
+      opts?.importedCount !== undefined ? `${key}:${opts.importedCount}` : (mockAlertTranslations[key] ?? key)
   })
 }));
 
@@ -125,32 +129,49 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
-jest.mock('components/ui/TextField', () => {
-  const ReactLib = require('react');
-  return {
-    __esModule: true,
-    TextField: ReactLib.forwardRef(
-      (
-        {
-          label,
-          hint,
-          error,
-          autoComplete
-        }: { label?: React.ReactNode; hint?: React.ReactNode; error?: React.ReactNode; autoComplete?: string },
-        _ref: unknown
-      ) =>
-        ReactLib.createElement(
-          'div',
-          // `autoComplete` is forwarded so a caller's choice is visible here. Whether TextField
-          // honours it is TextField.test.tsx's job; this file's job is that the caller asks.
-          { 'data-testid': 'form-field', 'data-auto-complete': autoComplete },
-          ReactLib.createElement('span', { 'data-testid': 'ff-label' }, label),
-          hint ? ReactLib.createElement('span', { 'data-testid': 'ff-hint' }, hint) : null,
-          error ? ReactLib.createElement('div', { 'data-testid': 'ff-error' }, error) : null
+jest.mock('components/ui/TextField', () =>
+  (() => {
+    const legacy = (() => {
+      const ReactLib = require('react');
+      return {
+        __esModule: true,
+        TextField: ReactLib.forwardRef(
+          (
+            {
+              label,
+              hint,
+              error,
+              autoComplete
+            }: { label?: React.ReactNode; hint?: React.ReactNode; error?: React.ReactNode; autoComplete?: string },
+            _ref: unknown
+          ) =>
+            ReactLib.createElement(
+              'div',
+              // `autoComplete` is forwarded so a caller's choice is visible here. Whether TextField
+              // honours it is TextField.test.tsx's job; this file's job is that the caller asks.
+              { 'data-testid': 'form-field', 'data-auto-complete': autoComplete },
+              ReactLib.createElement('span', { 'data-testid': 'ff-label' }, label),
+              hint ? ReactLib.createElement('span', { 'data-testid': 'ff-hint' }, hint) : null,
+              error ? ReactLib.createElement('div', { 'data-testid': 'ff-error' }, error) : null
+            )
         )
-    )
-  };
-});
+      };
+    })();
+    return {
+      ...legacy,
+      TextField: React.forwardRef<
+        import('components/ui/TextField').TextFieldElement,
+        React.ComponentProps<typeof import('components/ui/TextField').TextField>
+      >((props, ref) => {
+        if (mockRealTelemetrySurfaces) {
+          const { TextField } = jest.requireActual<typeof import('components/ui/TextField')>('components/ui/TextField');
+          return <TextField {...props} ref={ref} />;
+        }
+        return <legacy.TextField {...props} />;
+      })
+    };
+  })()
+);
 
 jest.mock('components/Button', () => {
   const ReactLib = require('react');
@@ -319,6 +340,24 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Initial (no file) render + the drop-zone chrome.
 // ---------------------------------------------------------------------------
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
 describe('initial render / drop zone', () => {
   it('renders the localized heading, upload icon, choose-from-device trigger and hidden input', () => {
     const { container } = renderScreen();
@@ -1175,5 +1214,119 @@ describe('design-system layout', () => {
     expect(screen.getByRole('button', { name: 'chooseFromDevice' })).toHaveClass('text-accent-tint-ink');
     expect(screen.getByTestId('submit-button').closest('[data-slot="footer"]')).not.toBeNull();
     expect(screen.getByTestId('submit-button')).toHaveAttribute('type', 'submit');
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockRealTelemetrySurfaces = true;
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+    mockRealTelemetrySurfaces = false;
+  });
+
+  it.each([
+    'incorrectPassword',
+    'encryptedWalletFileMalformed',
+    'encryptedWalletFileUnsupportedVersion',
+    'encryptedWalletFileWrongNetwork',
+    'encryptedWalletFileRestoreFailed'
+  ])('reports %s from the real password field', async id => {
+    if (id === 'incorrectPassword') mockDecrypt.mockResolvedValueOnce('wrong');
+    if (id === 'encryptedWalletFileMalformed') mockDecryptJson.mockRejectedValueOnce(new Error(privateErrorFixture));
+    if (id === 'encryptedWalletFileUnsupportedVersion')
+      mockDecryptJson.mockResolvedValueOnce({ ...VERSION_TWO_PAYLOAD, formatVersion: 3 });
+    if (id === 'encryptedWalletFileWrongNetwork') mockGenesisHeader.mockResolvedValueOnce(new Uint8Array([9, 9, 9, 9]));
+    if (id === 'encryptedWalletFileRestoreFailed')
+      mockImportStore.mockRejectedValueOnce(new Error(privateErrorFixture));
+    const { container } = renderScreen({ onSubmit: jest.fn() });
+    uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
+    await submit(container);
+    expect(screen.getByRole('alert')).toHaveTextContent(id);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport(id, 'field');
+  });
+  it('does not report the decryption helper or required-password sentinel', () => {
+    mockFormState = {
+      errors: { password: { message: 'PASSWORD_ERROR_CAPTION' } },
+      isSubmitting: false,
+      isValid: false
+    };
+    const { container } = renderScreen();
+    uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
+    expect(screen.getByText('enterDecryptionPassword')).toBeInTheDocument();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+describe('imperative import-file error alerts', () => {
+  beforeEach(() => {
+    mockRealTelemetrySurfaces = true;
+    mockAlertTranslations = {
+      encryptedWalletFileJsonOnly: 'Choose a .JSON wallet file.',
+      encryptedWalletFileTooLarge:
+        'That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet.',
+      encryptedWalletFileMalformed: 'This wallet file is invalid or damaged.',
+      encryptedWalletFileReadFailed: 'The wallet file could not be read. Choose it again.',
+      encryptedWalletFileSelectOne: 'Choose a wallet file to continue.'
+    };
+  });
+  afterEach(() => {
+    mockRealTelemetrySurfaces = false;
+    mockAlertTranslations = {};
+  });
+
+  it.each([
+    ['encryptedWalletFileJsonOnly', 'Choose a .JSON wallet file.'],
+    [
+      'encryptedWalletFileTooLarge',
+      'That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet.'
+    ],
+    ['encryptedWalletFileMalformed', 'This wallet file is invalid or damaged.'],
+    ['encryptedWalletFileReadFailed', 'The wallet file could not be read. Choose it again.'],
+    ['encryptedWalletFileSelectOne', 'Choose a wallet file to continue.']
+  ])('reports %s from its real browser alert producer', (id, text) => {
+    const { container } = renderScreen();
+    alertSpy.mockImplementation(() => {
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+    });
+    if (id === 'encryptedWalletFileJsonOnly') uploadViaInput(container, 'wallet.txt');
+    if (id === 'encryptedWalletFileTooLarge') uploadViaInput(container, 'wallet.json', undefined, 64 * 1024 * 1024 + 1);
+    if (id === 'encryptedWalletFileMalformed')
+      uploadViaInput(container, 'wallet.json', { mode: 'load', content: privateErrorFixture });
+    if (id === 'encryptedWalletFileReadFailed') uploadViaInput(container, 'wallet.json', { mode: 'error' });
+    if (id === 'encryptedWalletFileSelectOne') {
+      Object.defineProperty(getFileInput(container), 'files', { value: [], configurable: true });
+      fireEvent.change(getFileInput(container));
+    }
+    expect(alertSpy.mock.calls).toEqual([[text]]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'browser_alert']]);
+  });
+
+  it('keeps successful file selection and clearing quiet', () => {
+    const { container } = renderScreen();
+    uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
+    expect(screen.getByText('wallet.json')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    expect(getFileInput(container)).toBeInTheDocument();
+    expect(alertSpy.mock.calls).toEqual([]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+  });
+
+  it('keeps a superseded read failure quiet', async () => {
+    const { container } = renderScreen();
+    uploadViaInput(container, 'retired.json', { mode: 'error', deferred: true });
+    uploadViaInput(container, 'current.json', { mode: 'load', content: VALID_WALLET_JSON });
+    await act(async () => pendingReads.forEach(settle => settle()));
+    expect(screen.getByText('current.json')).toBeInTheDocument();
+    expect(alertSpy.mock.calls).toEqual([]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
   });
 });

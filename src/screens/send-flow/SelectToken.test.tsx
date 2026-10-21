@@ -11,6 +11,7 @@ import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/sw
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { SelectTokenDrawer } from './SelectToken';
@@ -19,6 +20,8 @@ import { UIToken } from './types';
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('lib/usdcx/withdrawal', () => ({ isUsdcxWithdrawalAvailable: jest.fn(() => false) }));
 
@@ -524,4 +527,22 @@ describe('SelectTokenDrawer Testnet Epoch USDC sunset', () => {
     renderDrawer();
     expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
   });
+});
+
+it('does not report the pending token availability warning as a user-visible error', async () => {
+  jest.useFakeTimers();
+  try {
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = MIDEN.tokenId;
+    setBalances([{ ...BTC, tokenId: TEST_TOKEN_IETH.faucetId }]);
+    renderDrawer();
+    expect(screen.getByTestId('send-picker-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+    expect(screen.getByTestId('send-picker-held-notice')).toHaveAttribute('data-tone', 'warning');
+
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
 });

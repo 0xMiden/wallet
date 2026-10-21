@@ -175,7 +175,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
           </p>
         )}
         {nativeReown.error && (
-          <Notice tone="negative" role="alert" className="mt-4">
+          <Notice tone="negative" role="alert" className="mt-4" errorId="raw_bridge_connect_failed">
             {nativeReown.error}
           </Notice>
         )}

@@ -30,6 +30,7 @@ import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { CHART_DOT_RING, CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 
@@ -68,6 +69,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
@@ -130,6 +132,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     }
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
+      setSubmitErrorId('earnNoEvmAddress');
       return;
     }
     setIsSubmitting(true);
@@ -178,6 +181,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       }
       settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
       setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
+      setSubmitErrorId(e instanceof Error ? 'raw_earn_deposit_submit_failed' : 'earnFailedToOpenPosition');
     } finally {
       setIsSubmitting(false);
     }
@@ -188,10 +192,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     if (isSubmitting) return;
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
+      setSubmitErrorId('earnNoEvmAddress');
       return;
     }
     if (amountBaseUnits === undefined || !collateralMatches) {
       setSubmitError(t('earnFailedToOpenPosition'));
+      setSubmitErrorId('earnFailedToOpenPosition');
       return;
     }
     setIsSubmitting(true);
@@ -226,6 +232,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         return;
       }
       setSubmitError(error instanceof Error ? error.message : t('earnFailedToOpenPosition'));
+      setSubmitErrorId(error instanceof Error ? 'raw_earn_deposit_submit_failed' : 'earnFailedToOpenPosition');
       setIsSubmitting(false);
     }
   };
@@ -266,7 +273,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             <>
               <EarnCollateralNotice reason={collateralReason} />
               {submitError && (
-                <Notice tone="negative" role="alert" data-testid="earn-deposit-review-error">
+                <Notice errorId={submitErrorId} tone="negative" role="alert" data-testid="earn-deposit-review-error">
                   {submitError}
                 </Notice>
               )}
@@ -284,10 +291,17 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         }
       >
         {loadFailed && !found ? (
-          <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
+          <EarnLoadError
+            onRetry={refetch}
+            message={t('earnVaultLoadError')}
+            errorId="earnVaultLoadError"
+            className="mt-10"
+          />
         ) : pending ? null : (
           <>
-            {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
+            {loadFailed && (
+              <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
+            )}
             <EarnHero
               layout="label-first"
               // As far under the divider as the vault page's caption and the Earn tab's.
