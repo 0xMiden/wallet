@@ -9,7 +9,12 @@ import {
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isRotationPendingAccount } from '../back/rotation-pending';
-import { type IConsumeSwapSettleExtraInputs, type ITransaction, ITransactionStatus } from '../db/types';
+import {
+  type IConsumeSwapSettleExtraInputs,
+  isOpenSettlementClaim,
+  type ITransaction,
+  ITransactionStatus
+} from '../db/types';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess, type SyncFuseKey } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
@@ -248,16 +253,16 @@ export async function classifySwapSettlementSnapshot(
  */
 async function repairSettlementStamp(order: SwapOrder): Promise<void> {
   if (isRecoveredSwapOrder(order)) return;
-  const consumes = await Repo.transactions
-    .filter(
-      tx =>
-        tx.type === 'consume' &&
-        tx.status === ITransactionStatus.Completed &&
-        tx.extraInputs?.swapOrderTxId === order.id
-    )
+  const linked = await Repo.transactions
+    .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapOrderTxId === order.id)
     .toArray();
+  const consumes = linked.filter(tx => tx.status === ITransactionStatus.Completed);
   const settle = consumes.find(tx => tx.extraInputs?.swapSettleKind !== 'reclaim') ?? consumes[0];
   if (!settle) return;
+  // A sibling claim of the same kind still in flight holds the stamp, as it does at completion: a submitted chunk's
+  // notes leave the consumable list before its verdict, so "nothing left to claim" is not yet "settled" (#1644).
+  const kind = settle.extraInputs?.swapSettleKind === 'reclaim' ? 'reclaim' : 'settle';
+  if (linked.some(tx => isOpenSettlementClaim(tx, { swapOrderTxId: order.id, swapSettleKind: kind }))) return;
   const stampedAt = settle.completedAt ?? Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id: order.id }).modify(tx => {
     // `false`, not a bare return - dexie re-puts the deep clone for any other value, and this
@@ -416,7 +421,9 @@ export async function reconcileSwapOrderNotes(
     // several rows, each tagged to the order, and the settlement stamp waits for the
     // last of them (`completeConsumeTransaction`). The chunks are stable across ticks,
     // so a chunk already queued is deduplicated whole on the next lap.
-    for (const batch of [...chunkNotesForClaim(paybackNotes), ...chunkNotesForClaim(reclaimNotes)]) {
+    const paybackChunks = chunkNotesForClaim(paybackNotes);
+    const reclaimChunks = chunkNotesForClaim(reclaimNotes);
+    for (const batch of [...paybackChunks, ...reclaimChunks]) {
       if (batch.length === 0) continue;
       // No `verificationBaseFee`, so no claim floor — unlike the three native
       // auto-consumers. Deliberate, and the reason is the RISK, not the plumbing.
@@ -439,9 +446,12 @@ export async function reconcileSwapOrderNotes(
       // `completeConsumeTransaction` can stamp the settlement on the swap row.
       // The queue writes the link in the insert that creates the row, so a
       // processor already running never completes an unlinked chunk (#1644).
+      // A kind split over several rows marks each partial: none of them alone
+      // may stamp the order (`completeConsumeTransaction`).
       const settlementLink: IConsumeSwapSettleExtraInputs = {
         swapOrderTxId: order.id,
-        swapSettleKind: hasPayback ? 'settle' : 'reclaim'
+        swapSettleKind: hasPayback ? 'settle' : 'reclaim',
+        ...((hasPayback ? paybackChunks : reclaimChunks).length > 1 ? { swapSettlePartial: true } : {})
       };
       let txId: string;
       try {

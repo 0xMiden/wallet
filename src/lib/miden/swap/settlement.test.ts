@@ -654,6 +654,11 @@ describe('swap order note settlement', () => {
 
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback0, payback1], false, ...SETTLE);
+    // One row covers the whole kind, so its completion may stamp the order.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls[0][8]).toEqual({
+      swapOrderTxId: 'swap-1',
+      swapSettleKind: 'settle'
+    });
   });
 
   it('claims the paybacks of one order at most MAX_NOTES_PER_UNATTENDED_CLAIM to a row, in a stable order (#1644)', async () => {
@@ -673,7 +678,11 @@ describe('swap order note settlement', () => {
       ['account-1', paybacks.slice(0, 8), false, ...SETTLE],
       ['account-1', paybacks.slice(8), false, ...SETTLE]
     ]);
-    // Every chunk is linked to the order, so history suppresses each and the last to complete stamps the order.
+    // Every chunk is linked to the order in its insert and marked partial, so history suppresses each and none of
+    // them alone stamps the order.
+    for (const call of (initiateConsumeNotesTransaction as jest.Mock).mock.calls) {
+      expect(call[8]).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true });
+    }
     expect(Repo.transactions.where).toHaveBeenNthCalledWith(1, { id: 'consume-a' });
     expect(Repo.transactions.where).toHaveBeenNthCalledWith(2, { id: 'consume-b' });
     expect(modify).toHaveBeenCalledTimes(2);
@@ -824,6 +833,40 @@ describe('swap order note settlement', () => {
 
     expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
     expect(Repo.transactions.where).toHaveBeenCalledWith({ id: 'swap-1' });
+    const stampWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
+    const swapRow = { ...order };
+    stampWriter(swapRow);
+    expect(swapRow.extraInputs).toEqual(expect.objectContaining({ settledAt: 500 }));
+  });
+
+  it('repairs no stamp while a same-kind claim of the order still waits for its verdict (#1644)', async () => {
+    const order = tx();
+    const completedChunk = {
+      id: 'consume-done',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 500,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true }
+    };
+    // A submitted chunk's notes leave the consumable list before the node answers.
+    const submittedChunk = {
+      ...completedChunk,
+      id: 'consume-submitted',
+      status: ITransactionStatus.Unconfirmed,
+      completedAt: undefined
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedChunk, submittedChunk]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(modify).not.toHaveBeenCalled();
+
+    toArray
+      .mockResolvedValueOnce([order])
+      .mockResolvedValueOnce([completedChunk, { ...submittedChunk, status: ITransactionStatus.Completed }]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
     const stampWriter = modify.mock.calls[0]![0] as unknown as (tx: Record<string, unknown>) => void;
     const swapRow = { ...order };
     stampWriter(swapRow);

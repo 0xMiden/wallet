@@ -62,7 +62,7 @@ import {
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
   INoteDeliveryState,
-  isLiveTransaction,
+  isOpenSettlementClaim,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -266,22 +266,15 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 };
 
 /**
- * Whether another claim of the same settlement kind for the same swap order is still open: queued, generating, or
- * waiting for the node's verdict. A settlement over the claim cap is several consume rows (#1644), and the stamp
- * that reads the order as Confirmed or Reclaimed belongs to the last of them; a failed sibling leaves the order
- * unstamped, so the next settlement tick queues its notes again and the stamp repair stays off until they are gone.
+ * Whether another claim of the same settlement kind for the same swap order is still open (`isOpenSettlementClaim`).
+ * A whole settlement is one row, but notes that arrive later, or the retry of a failed chunk, can put a second row
+ * beside one still in flight (#1644); the stamp waits for it.
  */
 const otherSettlementClaimOpen = async (id: string, settle: IConsumeSwapSettleExtraInputs): Promise<boolean> => {
   const open = await Repo.transactions
     .where('extraInputs.swapOrderTxId')
     .equals(settle.swapOrderTxId)
-    .filter(
-      tx =>
-        tx.id !== id &&
-        tx.type === 'consume' &&
-        tx.extraInputs?.swapSettleKind === settle.swapSettleKind &&
-        (isLiveTransaction(tx) || tx.status === ITransactionStatus.Unconfirmed)
-    )
+    .filter(tx => tx.id !== id && isOpenSettlementClaim(tx, settle))
     .count();
   return open > 0;
 };
@@ -373,7 +366,10 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   try {
     const settle: IConsumeSwapSettleExtraInputs | undefined =
       dbTransaction?.extraInputs?.swapOrderTxId != null ? dbTransaction.extraInputs : undefined;
-    if (settle && !(await otherSettlementClaimOpen(id, settle))) {
+    // One chunk of a split settlement covers only part of the order (#1644): a chunk the fee gate refused has no row
+    // and a failed one is no longer open, so no sibling check can tell that notes are left. The settlement tick's
+    // repair stamps such an order once none of its notes is left to claim.
+    if (settle && !settle.swapSettlePartial && !(await otherSettlementClaimOpen(id, settle))) {
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
         // `false`, not a bare return - dexie re-puts the deep clone for any other value.

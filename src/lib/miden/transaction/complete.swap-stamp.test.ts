@@ -120,6 +120,22 @@ it('a sibling claim awaiting its verdict holds the stamp, one of the other kind 
   expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toEqual(expect.any(Number));
 });
 
+// One chunk of a split settlement covers only part of the order's notes, and a refused or failed chunk leaves no
+// open sibling to wait for, so its completion never stamps; the settlement tick's repair stamps the order once no
+// note of it is left to claim (#1644).
+it('never stamps the order from one chunk of a split settlement', async () => {
+  await Repo.transactions.add(swapOrder());
+  await Repo.transactions.update('reclaim', {
+    extraInputs: { swapOrderTxId: 'swap', swapSettleKind: 'reclaim', swapSettlePartial: true }
+  });
+  await Repo.transactions.add(settlementClaim('reclaim-failed', 'reclaim', ITransactionStatus.Failed));
+
+  await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
+
+  expect((await Repo.transactions.get('reclaim'))?.status).toBe(ITransactionStatus.Completed);
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toBeUndefined();
+});
+
 // A Guardian-recovered order is closed by its lineage on the node once the walk reads finished, which then takes the
 // stamp from this consume; stamped here, a cancel of a remainder would close an order a later fill may still own (#1487).
 it('leaves the close of a Guardian-recovered order to its lineage when its reclaim completes', async () => {
