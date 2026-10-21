@@ -170,15 +170,19 @@ describe('the mobile legs of the dApp E2E workflow', () => {
   });
 
   // The failure-only log step runs before the records are uploaded and judged, so a wedged adb must not hold it.
-  it.each(['e2e-dapp.yml', 'e2e-android.yml', 'e2e-dapp-browser.yml'])(
+  it.each<[string, number]>([
+    ['e2e-dapp.yml', 8],
+    ['e2e-android.yml', 5],
+    ['e2e-dapp-browser.yml', 3]
+  ])(
     'bounds every adb call and the emulator log step in %s',
-    file => {
+    (file, calls) => {
       const text = readFileSync(resolve(__dirname, `../../../.github/workflows/${file}`), 'utf8');
       const step = text.match(/ {6}- name: Collect emulator logs.*\n(?:(?! {6}- ).*\n)*/)?.[0];
       expect(step).toBeDefined();
       expect(step).toMatch(/\n {8}timeout-minutes: \d+\n/);
       const adb = (step ?? '').split('\n').filter(line => /(^|\s)adb\s/.test(line));
-      expect(adb.length).toBeGreaterThan(0);
+      expect(adb).toHaveLength(calls);
       expect(adb.filter(line => !/timeout 15s adb\s/.test(line))).toEqual([]);
     }
   );
