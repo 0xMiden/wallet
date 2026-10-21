@@ -4,8 +4,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import ExportAccountFile from './ExportAccountFile';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 const messages = {
   exportAccountFileWarningTitle: 'This file controls your funds',
@@ -42,26 +45,43 @@ jest.mock('components/Button', () => ({
 // `error ?? subtitle` as its hint, so a stub that drops `error` hides a duplicated failure.
 // (It still submits on every click; the one-submit-per-code latch is covered against the REAL
 // component in ExportAccountFile.passcode.test.tsx.)
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    disabled,
-    error,
-    subtitle
-  }: {
-    onSubmit: (code: string) => void;
-    disabled?: boolean;
-    error?: string | null;
-    subtitle?: string;
-  }) => (
-    <div>
-      <button type="button" disabled={disabled} onClick={() => onSubmit('123456')}>
-        Enter passcode
-      </button>
-      <span>{error ?? subtitle}</span>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      disabled,
+      error,
+      subtitle
+    }: {
+      onSubmit: (code: string) => void;
+      disabled?: boolean;
+      error?: string | null;
+      subtitle?: string;
+    }) => (
+      <div>
+        <button type="button" disabled={disabled} onClick={() => onSubmit('123456')}>
+          Enter passcode
+        </button>
+        <span>{error ?? subtitle}</span>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 const mockExportAccountFile = jest.fn();
 let mockAccountPublicKey = 'mtst1account_suffix';
@@ -87,7 +107,11 @@ jest.mock('lib/miden/back/vault', () => ({
 }));
 
 const mockHapticMedium = jest.fn();
-jest.mock('lib/mobile/haptics', () => ({ hapticMedium: () => mockHapticMedium(), hapticLight: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({
+  hapticError: jest.fn(),
+  hapticMedium: () => mockHapticMedium(),
+  hapticLight: jest.fn()
+}));
 
 let mockMobile = false;
 jest.mock('lib/platform', () => ({ isMobile: () => mockMobile }));
@@ -114,6 +138,7 @@ let clickedAnchor: HTMLAnchorElement | null;
 let clickSpy: jest.SpyInstance;
 
 beforeEach(() => {
+  mockRenderActualPasscode = false;
   jest.clearAllMocks();
   mockMobile = false;
   mockHasHardwareProtector.mockResolvedValue(false);
@@ -221,6 +246,7 @@ it('uses the mobile passcode, writes raw bytes as base64, and opens the share sh
 });
 
 it('deletes the sensitive mobile cache file when sharing fails', async () => {
+  mockRenderActualPasscode = true;
   mockMobile = true;
   mockShare.mockRejectedValueOnce(new Error('Share failed'));
   await renderReady();
@@ -228,7 +254,11 @@ it('deletes the sensitive mobile cache file when sharing fails', async () => {
   acknowledge();
   fireEvent.click(screen.getByRole('button', { name: 'Enter passcode' }));
 
-  expect(await screen.findByText('Share failed')).toBeInTheDocument();
+  expect((await screen.findAllByText('Share failed')).length).toBeGreaterThan(0);
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_account_export_failed', 'passcode');
   expect(mockDeleteFile).toHaveBeenCalledWith({ path: 'mtst1account.mac', directory: 'CACHE' });
   expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
   expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
@@ -522,6 +552,10 @@ it('reports export failures and does not claim the file was saved', async () => 
   fireEvent.click(screen.getByRole('button', { name: messages.saveAccountFile }));
 
   expect(await screen.findByText('Export failed')).toBeInTheDocument();
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1050));
+  });
+  expect(reportUserVisibleError).toHaveBeenCalledWith('raw_account_export_failed', 'notice');
   expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
   expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
   expect(global.URL.createObjectURL).not.toHaveBeenCalled();

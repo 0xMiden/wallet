@@ -26,6 +26,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { HOST_MODAL_LAYER, useImperativeModalFocus } from 'lib/ui/host-modal';
 import { truncateAddress } from 'utils/string';
 
@@ -79,10 +80,22 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   // Kept with the request whose prompt failed and shown only while that request is on screen, so a
   // rejection that lands after a replacement never reads as the new request's failure.
-  const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
+  const [approvalError, setApprovalError] = useState<{
+    requestId: string;
+    message: string;
+    errorId: UserErrorId;
+  } | null>(null);
   const previousAttemptError =
     request.previousAttemptError === undefined ? undefined : request.previousAttemptError || t('smthWentWrong');
   const shownError = approvalError?.requestId === request.id ? approvalError.message : previousAttemptError;
+  const shownErrorId: UserErrorId | undefined =
+    approvalError?.requestId === request.id
+      ? approvalError.errorId
+      : previousAttemptError !== undefined
+        ? request.previousAttemptError
+          ? 'raw_dapp_approval_failed'
+          : 'smthWentWrong'
+        : undefined;
   const resolvedRef = useRef(false);
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
@@ -189,6 +202,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           pendingApprovalRef.current = false;
           setApprovalError({
             requestId,
+            errorId: error instanceof Error && error.message ? 'raw_dapp_approval_failed' : 'smthWentWrong',
             message: error instanceof Error && error.message ? error.message : t('smthWentWrong')
           });
         }
@@ -330,7 +344,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 )}
 
                 {shownError !== undefined && (
-                  <ErrorLine data-testid="dapp-approval-error" className="mt-3">
+                  <ErrorLine errorId={shownErrorId} data-testid="dapp-approval-error" className="mt-3">
                     {shownError}
                   </ErrorLine>
                 )}

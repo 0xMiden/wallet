@@ -22,6 +22,7 @@ import { useDappBrowser, useHideForegroundDappWhileOpen } from 'app/providers/Da
 import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { CapsuleBar } from './CapsuleBar';
 import { DappActionsSheet } from './DappActionsSheet';
@@ -74,6 +75,7 @@ export const DappActive: FC = () => {
   const policyLifetime = sessionState?.policyLifetime;
   const sessionId = session?.id;
   const error = sessionState?.error ?? null;
+  useUserVisibleError(error && !hiddenHost ? 'dappLoadFailed' : null, 'inline');
   const cachedSnapshot = session ? getSnapshot(session.id) : undefined;
 
   // Hardware back from `<DappActive>`: park (not close) so the session
