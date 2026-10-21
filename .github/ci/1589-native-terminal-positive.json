@@ -1,0 +1,719 @@
+{
+  "source": "90f135706f73399008a11bbc9a670ec5086693c9",
+  "tree": "b2c337bd18cef20956661eb75deb1ed9f1b9439a",
+  "parent": "bcd140eb776405df83462129a776bda7dfc42c91",
+  "workflow": ".github/workflows/ci-1589-native-terminal-positive.yml",
+  "helper": ".github/ci/1589-native-terminal-positive.py",
+  "contract_path": ".github/ci/1589-native-terminal-positive.json",
+  "source_files": [
+    {
+      "path": ".babelrc",
+      "sha256": "a102ca6ae2d8c526b730a6107fafe1f50706671eb3b40af51d01af74a9254a3b",
+      "bytes": 72,
+      "mode": 420,
+      "oid": "f03baa9fbd53283d74ebaa80db63fc29a4ceeb52"
+    },
+    {
+      "path": ".eslintrc",
+      "sha256": "2b70aa065506346da75d71f19f3a138f71b5b5be0889e4074cc04a26fddca629",
+      "bytes": 13286,
+      "mode": 420,
+      "oid": "13857ec7c1613ef096ca1e3fa21469f7f7728796"
+    },
+    {
+      "path": ".prettierrc",
+      "sha256": "7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf",
+      "bytes": 361,
+      "mode": 420,
+      "oid": "2fdaf943c0c26787ef61d6240834dffac0cecc7a"
+    },
+    {
+      "path": "jest.config.ts",
+      "sha256": "73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6",
+      "bytes": 10839,
+      "mode": 420,
+      "oid": "f4ca64f9b388d86da39def01c886bbfbba9f65d0"
+    },
+    {
+      "path": "jest.setup.js",
+      "sha256": "247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0",
+      "bytes": 1959,
+      "mode": 420,
+      "oid": "7f77082c2e8d6fc30afb430325be3ce305c43ef5"
+    },
+    {
+      "path": "package.json",
+      "sha256": "9af7cd256a41b9ad42604d8ab62a0859a3218b9b53cd74f8291fcc9075681d1d",
+      "bytes": 23234,
+      "mode": 420,
+      "oid": "332d885a84ec8e98281342a594c8460cee635697"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/MidenSdkBreadConnectCapacitor.podspec",
+      "sha256": "aa27d26b6032dc783d5dc4bc0a38533c1c58426dd4467f7ce851ad5ea96e6af0",
+      "bytes": 502,
+      "mode": 420,
+      "oid": "a45a9ef6092f3660dbe850889b48678fa7f0039f"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/Package.swift",
+      "sha256": "20991124367fe029f6ee620cf4b28ccdb5d0b75a75060bda878980b933c48db3",
+      "bytes": 731,
+      "mode": 420,
+      "oid": "2beeeb7c7d84a3190ff9fa83739f63d056de3d01"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/android/build.gradle",
+      "sha256": "03234c1e547348921393783a62e2450c72eb3ac12761099ee3f8166d18d0cc9b",
+      "bytes": 1440,
+      "mode": 420,
+      "oid": "48098668527694cdf8f6fa9bd8a17c2a0ce4b375"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/android/src/main/AndroidManifest.xml",
+      "sha256": "6d53cc967eda1809549275aa410a749de994da518736f71ab342551bd0ad676b",
+      "bytes": 258,
+      "mode": 420,
+      "oid": "ecef9a10cf7fb48c86a1c2ba6605d28985aa1ef6"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/BreadConnectPlugin.java",
+      "sha256": "5f1d5ad8c7b38899ccefc512e69742019b482d6af8ab7cc3efa5d7626b1ae586",
+      "bytes": 6965,
+      "mode": 420,
+      "oid": "bd9c6f3b7eccedb4f4ca30096d13c19740e2befa"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/NativeOpenAttempt.java",
+      "sha256": "f9d82a33c928aa57fe2f900f6edddd5f922096abb9c93a877820d6296ea78ac2",
+      "bytes": 4654,
+      "mode": 420,
+      "oid": "1f7203a935eeb766c88762d9c8d7f25bf4572495"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/android/src/test/java/com/miden/breadconnect/NativeOpenAttemptTest.java",
+      "sha256": "3338ec08cbfdb8ba38c9b9b1f0382c08943f08d837a3bb9223ae81a03ca66991",
+      "bytes": 12881,
+      "mode": 420,
+      "oid": "2993804cfbe7e080b0ae5cf60333c272fd607324"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/BreadConnectPlugin.swift",
+      "sha256": "1f471505097a34be3af3214b50dc57f4adeb4be09ca0f052aadac77cd6fbc65e",
+      "bytes": 2805,
+      "mode": 420,
+      "oid": "dee2c6a1558cc4ced4b60f78a63928fd9d259a96"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift",
+      "sha256": "f3176eb6068686d91bd6f23fe2853a568301587d32ee80b6c89faa15bef97e29",
+      "bytes": 4926,
+      "mode": 420,
+      "oid": "225c1e1e34acbf915807f727d8971712fb4483d6"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/ios/Tests/NativeOpenAttemptTests.swift",
+      "sha256": "84f2d690e180fccc4e12ae3c605d9dcee4b745fe311135acce0f1987d2a359f1",
+      "bytes": 13863,
+      "mode": 420,
+      "oid": "4ed2031f3bf720fceba76b3f80a1d569508041ac"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/package.json",
+      "sha256": "8d259ebc7f1298296cfdd20156dcd2e026397ff8be9ff38b793f9223f1734275",
+      "bytes": 1144,
+      "mode": 420,
+      "oid": "3ea1ce3c5d073a4fa4075a894212ac15f70a923a"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/index.test.ts",
+      "sha256": "7b58c56158edcd20c694a120b4d711e948dd2c67ae9690ecfcb736c27aea9cbe",
+      "bytes": 14824,
+      "mode": 420,
+      "oid": "31ff9812b928b8dd3825589dcc4052a2db2cc7d8"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/index.ts",
+      "sha256": "f5188577a016beace58f7fa602d39a63029b4ef5b25d02cb8f26633e99bdfcc1",
+      "bytes": 3036,
+      "mode": 420,
+      "oid": "634c5922a6eefe2252cfefe68c4d9d4099fd9ed2"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "sha256": "ef52b3a9b6128b5bb92b901e415901dc863e48af6a0dca4336f6dc99df88e8c1",
+      "bytes": 4037,
+      "mode": 420,
+      "oid": "0653e73d5190c970741be20bbf4799852c528bcc"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/native-opener.ts",
+      "sha256": "cfb2053e61ddfbb1de3efe3bdcc97dda563986ea3f0cab452b35381bf6380fe3",
+      "bytes": 1240,
+      "mode": 420,
+      "oid": "2f8bb8b7d052921a03d1060e4df5024f57082f74"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/plugin.ts",
+      "sha256": "67793bfeb5cccf723cd65c2128e04a7d11a7473ee22b681d88e55e4508ec7108",
+      "bytes": 1133,
+      "mode": 420,
+      "oid": "d95ecd5018514cc825935ff829d3d69a915431ac"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/storage.ts",
+      "sha256": "fb2b5ee7f0db61ea0946144a43380eff8487999bc26ddcbeccc42ad1b7a4504f",
+      "bytes": 601,
+      "mode": 420,
+      "oid": "f74fea908163939b6ffb420c7428f0bb515bec04"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/transport.test.ts",
+      "sha256": "4d930f7a4423bea5081d0674d27262657604ddc0fd629751dc36427433c0f988",
+      "bytes": 33243,
+      "mode": 420,
+      "oid": "8f890a0d71ff091d0d227a5fb6ad09e9591209e5"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/transport.ts",
+      "sha256": "4af58558829df41996a57eb5cd4bbd45f7b7858f601ab7ed1f532cd4dccaa38f",
+      "bytes": 13276,
+      "mode": 420,
+      "oid": "8cef8f261d0a361ae5454affe4d70ffea8231aec"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "sha256": "dc6357f0a17a2683bfc5dec4933fce71048488066c67a7800f0bacce5e1a1153",
+      "bytes": 19255,
+      "mode": 420,
+      "oid": "9b13dd08017e2b8d744f43a873f3a6eb922b984a"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/wallet.ts",
+      "sha256": "c11fa1a3bdbcfb7e3ee715b348e24f1cd7a6b895e6e3001727d6304e57e7bdd6",
+      "bytes": 10332,
+      "mode": 420,
+      "oid": "85ae5f49d78fccd9a3363ca6dbab9f9d262f777d"
+    },
+    {
+      "path": "packages/bread-connect-capacitor/tsconfig.json",
+      "sha256": "9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9",
+      "bytes": 564,
+      "mode": 420,
+      "oid": "f650e26ade0ad6324211fc63b8ecb785b6f2fd93"
+    },
+    {
+      "path": "packages/bread-connect/PROTOCOL.md",
+      "sha256": "25496bf84dadb04d57d7a1c1818342ef791c397923d1cc7ec16475437e33d6f3",
+      "bytes": 12600,
+      "mode": 420,
+      "oid": "3cda4bf19b10276144ed6aa02c208dddf71adac6"
+    },
+    {
+      "path": "packages/bread-connect/package.json",
+      "sha256": "1506ae7bebf3ca4828d3fec0708bc3c6064a7c63554e94578afe07f581dccb7e",
+      "bytes": 791,
+      "mode": 420,
+      "oid": "57535a44481d962123ac46a5379914bda45b9bb5"
+    },
+    {
+      "path": "packages/bread-connect/src/base64url.ts",
+      "sha256": "06bcf68b2a6c21c30fa754d74a8fffc8d7b9bfdf0cb18b838a78d01a363a8077",
+      "bytes": 1190,
+      "mode": 420,
+      "oid": "ee2477f4bdfa9d5b106d93b17f33ea9b697a4773"
+    },
+    {
+      "path": "packages/bread-connect/src/constants.ts",
+      "sha256": "6a4ef16ce881b43a76f1808ffeb2564aadf57a6117623c256d8c8b3837aeda3c",
+      "bytes": 2158,
+      "mode": 420,
+      "oid": "35435bd629b2627f7cd21975651f57f7b5a5b4f4"
+    },
+    {
+      "path": "packages/bread-connect/src/crypto.ts",
+      "sha256": "678b0a95d8dde89373a6262da7320b83b21d7449e61469ccea67c54cb198975a",
+      "bytes": 3335,
+      "mode": 420,
+      "oid": "6e47ce63d00e902317eb47e51244b5a4a6b4e2a4"
+    },
+    {
+      "path": "packages/bread-connect/src/envelope.ts",
+      "sha256": "e3a62405d48466f2d9a9fa32efd514b0191e2c354872a10ff40bfe8a67374877",
+      "bytes": 7832,
+      "mode": 420,
+      "oid": "781a70edd276f92f22f15520191ae8a6992458ae"
+    },
+    {
+      "path": "packages/bread-connect/src/index.ts",
+      "sha256": "f59a23497654d4a20031e5773ebe80fbbfedfbc5a0786294405db805f1529639",
+      "bytes": 984,
+      "mode": 420,
+      "oid": "02af651ca0a32c619512d88e16dd3c5b8e3cf354"
+    },
+    {
+      "path": "packages/bread-connect/src/messages.ts",
+      "sha256": "b2b31433835847715dc47b675b50e6f83bdbbe99d8a6eca8d970d03646016440",
+      "bytes": 10857,
+      "mode": 420,
+      "oid": "4abb5016da1232027565ddb90c21e5f226678b54"
+    },
+    {
+      "path": "packages/bread-connect/src/protocol.test.ts",
+      "sha256": "c98d78a92d38e05eca550ca3ba8e4597e6d31e24327a5d1abd9a6246a4dabab5",
+      "bytes": 24669,
+      "mode": 420,
+      "oid": "5afb3254dd529ac9bf58ad8a9d8fc42a986f560b"
+    },
+    {
+      "path": "packages/bread-connect/tsconfig.json",
+      "sha256": "9252403dd9a4e657740b2b298a79add1ad98a752380747c5570b48b0419011d9",
+      "bytes": 564,
+      "mode": 420,
+      "oid": "f650e26ade0ad6324211fc63b8ecb785b6f2fd93"
+    },
+    {
+      "path": "packages/bread-connect/vectors/generate.mjs",
+      "sha256": "a0ecaedfe7d7e13077a9a945b8b7de6e437d16e9d561c512986ec4a348293e82",
+      "bytes": 12027,
+      "mode": 420,
+      "oid": "aab0fa6d09fc7d1a40952338204666761c94ea8c"
+    },
+    {
+      "path": "packages/bread-connect/vectors/v1.json",
+      "sha256": "aa3432f95b13f0c8b1a9d5fdcf4ef3e768706f815c785e0f985090104189b187",
+      "bytes": 24880,
+      "mode": 420,
+      "oid": "0b1dbed2cc801f2958c59255ced48268130820e4"
+    },
+    {
+      "path": "yarn.lock",
+      "sha256": "8606e15d58682739313e004734d42f34a2ad715148e00f28c2de63596349941d",
+      "bytes": 785252,
+      "mode": 420,
+      "oid": "7ef858c017ee1a46cf824603651785e0626fd2bb"
+    }
+  ],
+  "suites": [
+    {
+      "path": "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "count": 17
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/index.test.ts",
+      "count": 15
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/transport.test.ts",
+      "count": 33
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "count": 7
+    }
+  ],
+  "inventory": [
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet connects with the request Bread's own provider sends, and takes the account from the answer"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet reconnects without switching to Bread when the stored session answered the same request"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet asks Bread again once Bread has refused a request in the stored session, as after an account switch"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet refuses a permission answer of the wrong type or shape"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet forgets the session in the app on disconnect"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet sends transactions as Bread's own provider does"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet asks for notes, assets, guardian details and a note import"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet signs bytes as Bread's own provider does"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet refuses answers of the wrong shape"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet refuses every request before it is connected"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet waits for a transaction with the outcome Bread reported with its answer"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet reads the answer that relaunched the app before it decides to connect again"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet opens nothing for a connect the app disconnects while it reads the link that launched it"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet keeps no account for a connect the app disconnects once Bread has answered"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet connects again after a disconnect"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet reads the answer that relaunched the app before it looks up a transaction outcome"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/wallet.test.ts",
+      "BreadConnectWallet does not create accounts"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect makes Bread the app's window.midenWallet and listens for Bread's answers through Capacitor"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect uses the storage, links and opener the app passes"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect uses managed steps for the built-in opener undefined"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect uses managed steps for the built-in opener [Function openWithPlugin]"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect keeps a successfully opened wallet waiting for its answer without opening a store"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect uses distinct Android market and HTTPS steps and keeps a store result separate from Bread"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect preserves an active bridge failure even when native cleanup also rejects"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect defaultOpenerDoesNotSendStoreAfterCallerCancellation"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect defaultOpenerDoesNotSendInitialStepWhenCancelledDuringPreparation"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect androidDefaultOpenerDoesNotSendWebStoreAfterCancellation"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "installBreadConnect refuses a callback that is not a canonical https link"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "capacitorLinks reads the launch link and the links the app is opened with, until unsubscribed"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "openWithPlugin opens Bread's link with the native plugin and reports whether Bread opened"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "the native package an app installs names its Swift package and its library as the Capacitor CLI does"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/index.test.ts",
+      "the native package an app installs ships its podspec under the name the Capacitor CLI gives the pod"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport connects through Bread and keeps the session with the request it answered"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport restores no session opened for another callback, so connect asks Bread again"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport sends a request in the session and keeps the outcome Bread reported with a transaction"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport rejects with Bread's error code, and keeps no session for a refused connection"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport marks the session for a recheck once Bread refuses a request in it with NOT_GRANTED"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport settles a refusal it cannot mark on the session"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport rejects when Bread is not installed or cannot be opened"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport refuses a request without a session"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport opens nothing for a connect or request cancelled while it reads the link that launched the app"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport replaces the waiting request with a newer one, and cancels on request"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport connects again after a cancel"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport gives up when Bread does not answer in time"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport still takes an answer after the ten minutes Bread accepts the request for"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport drops links that are not Bread's answer to the waiting request"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport takes no unsealed error with a code Bread seals as the answer to the waiting request"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport drops an answer whose seal does not open, and one for a session the app no longer holds"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport rejects on Bread's unsealed error for the waiting request, and forgets a session Bread does not know"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport when the store fails while it takes an answer ends a connect whose session cannot be kept with INTERNAL_ERROR at once"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport when the store fails while it takes an answer still answers a transaction whose outcome cannot be kept"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport when the store fails while it takes an answer drops a link it cannot authenticate while its session cannot be read, and takes the answer once it can"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport when the store fails while it takes an answer settles an answer when the pending record cannot be cleared"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport when the store fails while it takes an answer takes no late answer to a connect it cancelled while its pending record could not be removed"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport when the store fails while it takes an answer settles Bread's unsealed SESSION_NOT_FOUND when the session cannot be forgotten"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport completes a connection and records an outcome from the link that relaunches the app"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport completes a connection from a relaunch that comes after the ten minutes Bread accepts the request for"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport ignores a stored request older than the app waits for, and a launch link it cannot read"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport listens once, stops listening on stop, and reads malformed storage as nothing"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "AppSwitchTransport keeps the last twenty outcomes, one per transaction"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "managed native request ownership defaultOpenerDoesNotSendStoreAfterSupersession"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "managed native request ownership sends no late store command after managed stop settlement"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "managed native request ownership sends no late store command after managed answer settlement"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "managed native request ownership sends no late store command after managed timeout settlement"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/transport.test.ts",
+      "managed native request ownership keeps successful settlement when a later native completion and cleanup both reject"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "finishes a successful wallet step and releases its native handle once"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "stops after the native primary store result without treating the store as Bread"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "uses a native secondary store only when the primary store returns that next step"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "leaves a closed native attempt neutral instead of inventing a not-installed result"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "preserves preparation failure without trying to revoke an unknown handle"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "carries an abort close request while an admitted successful operation completes"
+    ],
+    [
+      "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "keeps the active open error when cleanup rejects"
+    ]
+  ],
+  "red_failures": [
+    {
+      "path": "packages/bread-connect-capacitor/src/index.test.ts",
+      "fullName": "installBreadConnect uses managed steps for the built-in opener undefined",
+      "prior_passing_assertions": 3,
+      "failureDetails": [
+        {
+          "matcherResult": {
+            "message": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: {\"attemptId\": \"attempt-1\"}",
+            "pass": true
+          }
+        }
+      ],
+      "frame_line": 99,
+      "frame_column": 32
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/index.test.ts",
+      "fullName": "installBreadConnect uses managed steps for the built-in opener [Function openWithPlugin]",
+      "prior_passing_assertions": 3,
+      "failureDetails": [
+        {
+          "matcherResult": {
+            "message": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: {\"attemptId\": \"attempt-1\"}",
+            "pass": true
+          }
+        }
+      ],
+      "frame_line": 99,
+      "frame_column": 32
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/index.test.ts",
+      "fullName": "installBreadConnect keeps a successfully opened wallet waiting for its answer without opening a store",
+      "prior_passing_assertions": 1,
+      "failureDetails": [
+        {
+          "matcherResult": {
+            "message": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: {\"attemptId\": \"attempt-1\"}",
+            "pass": true
+          }
+        }
+      ],
+      "frame_line": 112,
+      "frame_column": 34
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/index.test.ts",
+      "fullName": "installBreadConnect uses distinct Android market and HTTPS steps and keeps a store result separate from Bread",
+      "prior_passing_assertions": 2,
+      "failureDetails": [
+        {
+          "matcherResult": {
+            "message": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: {\"attemptId\": \"attempt-1\"}",
+            "pass": true
+          }
+        }
+      ],
+      "frame_line": 132,
+      "frame_column": 32
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "fullName": "finishes a successful wallet step and releases its native handle once",
+      "prior_passing_assertions": 3,
+      "failureDetails": [
+        {
+          "matcherResult": {
+            "message": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: {\"attemptId\": \"native-1\"}",
+            "pass": true
+          }
+        }
+      ],
+      "frame_line": 30,
+      "frame_column": 26
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "fullName": "stops after the native primary store result without treating the store as Bread",
+      "prior_passing_assertions": 2,
+      "failureDetails": [
+        {
+          "matcherResult": {
+            "message": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: {\"attemptId\": \"native-1\"}",
+            "pass": true
+          }
+        }
+      ],
+      "frame_line": 42,
+      "frame_column": 26
+    },
+    {
+      "path": "packages/bread-connect-capacitor/src/native-opener.test.ts",
+      "fullName": "uses a native secondary store only when the primary store returns that next step",
+      "prior_passing_assertions": 2,
+      "failureDetails": [
+        {
+          "matcherResult": {
+            "message": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: {\"attemptId\": \"native-1\"}",
+            "pass": true
+          }
+        }
+      ],
+      "frame_line": 52,
+      "frame_column": 26
+    }
+  ],
+  "native_path": "packages/bread-connect-capacitor/src/native-opener.ts",
+  "omission_needle": "      if (!result.cancelled && (result.opened || (step !== 'wallet' && result.next === undefined))) retired = true;\n",
+  "normal_native_sha256": "cfb2053e61ddfbb1de3efe3bdcc97dda563986ea3f0cab452b35381bf6380fe3",
+  "omission_native_sha256": "47866c7d029776ef87ad835113fb00133fc84f80e54bae342f8ff4b6f9edddff",
+  "omission_native_bytes": 1124,
+  "authoritative_red_run": "39533417381",
+  "runtime": "UNRUN"
+}
