@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, type Address, type Chain, type Hex } from 'viem';
+import { createPublicClient, createWalletClient, http, isHex, type Address, type Chain, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { ERC20_ABI } from './arc-usdcx';
@@ -9,6 +9,67 @@ import { XRESERVE_ABI } from '../../../src/lib/usdcx/protocol';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
+
+type SmtProof = readonly [
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex,
+  Hex
+];
+
+function hexValue(value: string, label: string): Hex {
+  if (!isHex(value)) throw new Error(`${label} is not hex`);
+  return value;
+}
+
+function zeroBytes32(): Hex {
+  const word = `0x${'00'.repeat(32)}`;
+  if (!isHex(word)) throw new Error('zero word is not hex');
+  return word;
+}
+
+function isSmtProof(words: readonly Hex[]): words is SmtProof {
+  return words.length === 32;
+}
+
+function padSmtProof(leaves: string[]): SmtProof {
+  const empty = zeroBytes32();
+  const words: Hex[] = [];
+  for (let index = 0; index < 32; index += 1) {
+    const leaf = leaves[index];
+    words.push(leaf === undefined ? empty : hexValue(leaf, `smt proof leaf ${index}`));
+  }
+  if (!isSmtProof(words)) throw new Error('smt proof is not 32 words');
+  return words;
+}
 
 function clientFor(chain: Chain, rpcUrl: string, key: Hex) {
   const account = privateKeyToAccount(key);
@@ -95,27 +156,28 @@ export async function claimAgglayerOnEthereum(args: {
     const body = (await response.json()) as { proof: AgglayerMerkleProof };
     return body.proof;
   });
-  const pad = (leaves: string[]) => [...leaves, ...Array(32).fill(`0x${'00'.repeat(32)}`)].slice(0, 32);
   if (args.deposit.global_index === undefined) {
     throw new Error('AggLayer deposit has no global index, so the claim was not sent');
   }
+  const metadata =
+    args.deposit.metadata && args.deposit.metadata !== '0x' ? hexValue(args.deposit.metadata, 'metadata') : '0x';
   const { publicClient, wallet } = clientFor(args.chain, args.rpcUrl, args.key);
   const hash = await wallet.writeContract({
     address: args.bridge,
     abi: AGGLAYER_BRIDGE_ABI,
     functionName: 'claimAsset',
     args: [
-      pad(proof.merkle_proof),
-      pad(proof.rollup_merkle_proof),
+      padSmtProof(proof.merkle_proof),
+      padSmtProof(proof.rollup_merkle_proof),
       BigInt(args.deposit.global_index),
-      proof.main_exit_root,
-      proof.rollup_exit_root,
+      hexValue(proof.main_exit_root, 'main exit root'),
+      hexValue(proof.rollup_exit_root, 'rollup exit root'),
       args.deposit.orig_net,
-      args.deposit.orig_addr,
+      hexValue(args.deposit.orig_addr, 'origin address'),
       args.deposit.dest_net,
-      args.deposit.dest_addr,
+      hexValue(args.deposit.dest_addr, 'destination address'),
       BigInt(args.deposit.amount),
-      args.deposit.metadata && args.deposit.metadata !== '0x' ? args.deposit.metadata : '0x'
+      metadata
     ]
   });
   await publicClient.waitForTransactionReceipt({ hash });

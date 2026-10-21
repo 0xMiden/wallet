@@ -24,11 +24,15 @@ export function readInviteCodes(text: string): { plain: string; guardian: string
     .split(/\r?\n/)
     .map(line => line.trim())
     .filter(line => line.length > 0);
-  if (lines.length !== 2) throw new Error(`expected 2 invite codes, found ${lines.length}`);
-  if (!INVITE_CODE_RE.test(lines[0]) || !INVITE_CODE_RE.test(lines[1])) {
+  const plain = lines[0];
+  const guardian = lines[1];
+  if (lines.length !== 2 || plain === undefined || guardian === undefined) {
+    throw new Error(`expected 2 invite codes, found ${lines.length}`);
+  }
+  if (!INVITE_CODE_RE.test(plain) || !INVITE_CODE_RE.test(guardian)) {
     throw new Error('an invite code has the wrong shape');
   }
-  return { plain: lines[0], guardian: lines[1] };
+  return { plain, guardian };
 }
 
 /** Mode 0600. Refuses a payload that still carries invitation material. */

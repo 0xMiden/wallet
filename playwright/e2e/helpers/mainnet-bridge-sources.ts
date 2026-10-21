@@ -1,10 +1,10 @@
 import { getAddress, type Address, type Chain } from 'viem';
 
-import type { UsdcxLoop, LOOP_USDC, type MainnetBridgeChain } from './mainnet-bridge-plan';
+import { LOOP_USDC, type MainnetBridgeChain, type UsdcxLoop } from './mainnet-bridge-plan';
 import type { L2BridgeInSource, PayoutChain } from './usdcx-constants';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 import type { UsdcxExecutorSource, UsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
-import { getChain } from '../../../src/lib/walletconnect/config';
+import { EVM_CHAIN_DEFINITIONS } from '../../../src/lib/walletconnect/config';
 
 export const MAINNET_RPCS: Record<number, string> = {
   1: 'https://ethereum.publicnode.com',
@@ -41,16 +41,22 @@ export interface MainnetUsdcxDocument {
   >;
 }
 
-function chainOf(chainId: number): Chain {
-  const chain = getChain(chainId);
+export function mainnetRpc(chainId: number): string {
+  const rpc = MAINNET_RPCS[chainId];
+  if (!rpc) throw new Error(`chain ${chainId} has no mainnet rpc`);
+  return rpc;
+}
+
+export function mainnetChain(chainId: number): Chain {
+  const chain = EVM_CHAIN_DEFINITIONS.find(item => item.id === chainId);
   if (!chain) throw new Error(`chain ${chainId} is not in the wallet`);
   return chain;
 }
 
 function payout(chainId: number, usdc: Address, domain: number): PayoutChain {
-  const chain = chainOf(chainId);
+  const chain = mainnetChain(chainId);
   const slug = evmChainSlug(chainId);
-  const rpc = MAINNET_RPCS[chainId];
+  const rpc = mainnetRpc(chainId);
   if (!slug || !rpc) throw new Error(`chain ${chainId} has no mainnet payout endpoint`);
   return {
     chainId,
@@ -79,7 +85,7 @@ export function xreserveSource(doc: MainnetUsdcxDocument, loop: UsdcxLoop): Usdc
   }
   return {
     route: 'xreserve',
-    chain: chainOf(loop.chainId),
+    chain: mainnetChain(loop.chainId),
     usdc: getAddress(route.tokens.USDC.contractAddress),
     domain: route.domain,
     midenDomain: doc['bridge-providers'].usdcx.midenDomain,
@@ -106,7 +112,7 @@ export function executorSource(doc: MainnetUsdcxDocument, loop: UsdcxLoop): L2Br
   const usdc = getAddress(route.tokens.USDC.contractAddress);
   const source: UsdcxExecutorSource = {
     route: 'cctp-executor',
-    chain: chainOf(loop.chainId),
+    chain: mainnetChain(loop.chainId),
     usdc,
     domain: route.domain,
     midenDomain: doc['bridge-providers'].usdcx.midenDomain,
@@ -114,7 +120,7 @@ export function executorSource(doc: MainnetUsdcxDocument, loop: UsdcxLoop): L2Br
     irisApi: doc['bridge-providers'].usdcx.irisUrl,
     target: {
       midenDomain: doc['bridge-providers'].usdcx.midenDomain,
-      chain: chainOf(5042),
+      chain: mainnetChain(5042),
       domain: arc.domain,
       executor: getAddress(arc.executor.address),
       handler: getAddress(arc.executor.handler),

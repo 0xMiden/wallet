@@ -3,7 +3,6 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 import type { AgglayerDeposit } from '../../../../src/lib/agglayer/status';
 import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
-import { getChain } from '../../../../src/lib/walletconnect/config';
 import { expect, test, type GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { ERC20_ABI } from '../../helpers/arc-usdcx';
 import {
@@ -28,7 +27,8 @@ import {
   AGGLAYER_LOOP_WEI,
   CEDAR_ROLLUP_ID,
   executorSource,
-  MAINNET_RPCS,
+  mainnetChain,
+  mainnetRpc,
   xreserveSource,
   type MainnetUsdcxDocument
 } from '../../helpers/mainnet-bridge-sources';
@@ -96,9 +96,8 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
 });
 
 async function readEth(address: `0x${string}`): Promise<{ wei: bigint; maxFeePerGas: bigint }> {
-  const chain = getChain(1);
-  if (!chain) throw new Error('Ethereum is not configured');
-  const client = createPublicClient({ chain, transport: http(MAINNET_RPCS[1]) });
+  const chain = mainnetChain(1);
+  const client = createPublicClient({ chain, transport: http(mainnetRpc(1)) });
   const fees = await client.estimateFeesPerGas();
   return { wei: await client.getBalance({ address }), maxFeePerGas: fees.maxFeePerGas };
 }
@@ -111,7 +110,7 @@ async function usdcxProblem(
 ): Promise<string | undefined> {
   if (loop.route === 'xreserve') {
     const source = xreserveSource(doc, loop);
-    const client = createPublicClient({ chain: source.chain, transport: http(MAINNET_RPCS[loop.chainId]) });
+    const client = createPublicClient({ chain: source.chain, transport: http(mainnetRpc(loop.chainId)) });
     const usdc = await client.readContract({
       address: source.usdc,
       abi: ERC20_ABI,
@@ -161,7 +160,7 @@ async function runUsdcx(
     await depositXReserve({
       key: signer,
       chain: source.chain,
-      rpcUrl: MAINNET_RPCS[loop.chainId],
+      rpcUrl: mainnetRpc(loop.chainId),
       usdc: source.usdc,
       xReserve: source.xReserve,
       units: LOOP_USDC,
@@ -174,7 +173,7 @@ async function runUsdcx(
       l2: executorSource(doc, loop),
       units: LOOP_USDC,
       recipientHex: accountId,
-      arc: { endpoints: [MAINNET_RPCS[5042]] }
+      arc: { endpoints: [mainnetRpc(5042)] }
     });
   }
   await wallet.triggerSync(true);
@@ -184,13 +183,12 @@ async function runUsdcx(
     .toBeGreaterThanOrEqual(LOOP_USDC);
   const tokenId = await tokenIdBySymbol(wallet.page, 'USDCx');
   if (!tokenId) throw new Error(`${loop.name} minted no USDCx row to burn`);
-  const chain = getChain(loop.chainId);
   await burnUsdcxToAddress(wallet, {
     tokenId,
     amount: fromBaseUnits(LOOP_USDC, 6),
     destination: evmAddress,
     networkId: loop.name === 'arc' ? 'arc' : loop.name,
-    networkName: chain?.name ?? loop.name
+    networkName: mainnetChain(loop.chainId).name
   });
 }
 
@@ -200,12 +198,11 @@ async function runAgglayer(
   evmAddress: `0x${string}`,
   wallet: GuardianAwareWalletPage
 ): Promise<void> {
-  const chain = getChain(1);
-  if (!chain) throw new Error('Ethereum is not configured');
+  const chain = mainnetChain(1);
   await bridgeEthToMiden({
     key: signer,
     chain,
-    rpcUrl: MAINNET_RPCS[1],
+    rpcUrl: mainnetRpc(1),
     bridge: AGGLAYER_BRIDGE,
     rollupId: CEDAR_ROLLUP_ID,
     midenAddress,
@@ -223,7 +220,7 @@ async function runAgglayer(
   await claimAgglayerOnEthereum({
     key: signer,
     chain,
-    rpcUrl: MAINNET_RPCS[1],
+    rpcUrl: mainnetRpc(1),
     bridge: AGGLAYER_BRIDGE,
     indexerUrl: INDEXER,
     deposit
