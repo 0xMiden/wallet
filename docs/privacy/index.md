@@ -173,10 +173,10 @@ None of them is a known leak. No part of the App puts a recovery phrase or a pas
 
 Crash reports are sent either way; usage data only if the setting is on:
 
-| Data | Processor | Where |
-|---|---|---|
-| Usage data | Aptabase | European Union (Germany) |
-| Crash reports | Sentry | European Union |
+| Data                      | Processor              | Where                                                                             |
+| ------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| Usage data                | Aptabase               | European Union (Germany)                                                          |
+| Crash reports             | Sentry                 | European Union                                                                    |
 | Feature eligibility check | Cloudflare and MaxMind | Connection address for the lookup; short-lived service records as described below |
 
 Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
@@ -279,13 +279,13 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 
 ## Why we process data, and on what legal basis
 
-| Purpose | Data | Legal basis (GDPR Article 6) |
-|---|---|---|
-| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
-| Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
-| Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
-| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country and region check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
-| Restricting new Earn deposits by region | IP country or region check as part of the wallet eligibility request | Our legitimate interest in not offering new Earn deposits where we have chosen not to, and compliance with the laws of those places |
+| Purpose                                                                                      | Data                                                                          | Legal basis (GDPR Article 6)                                                                                                        |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Running the App and submitting your transactions                                             | Transaction data sent to the network, Guardian data                           | Performance of our contract with you (the Terms of Service)                                                                         |
+| Fixing crashes                                                                               | Crash reports                                                                 | Our legitimate interest in keeping the App working                                                                                  |
+| Understanding where people get stuck                                                         | Usage data                                                                    | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place                        |
+| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country and region check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network                                        |
+| Restricting new Earn deposits by region                                                      | IP country or region check as part of the wallet eligibility request          | Our legitimate interest in not offering new Earn deposits where we have chosen not to, and compliance with the laws of those places |
 
 ## How long we keep data
 
