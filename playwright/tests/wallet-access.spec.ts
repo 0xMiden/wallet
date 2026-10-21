@@ -1,5 +1,5 @@
-import { writeFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 import sharp from 'sharp';
 
 import { setEligibilityFixtureState, type EligibilityFixtureState } from '../e2e/helpers/feature-eligibility';
