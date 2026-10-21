@@ -912,6 +912,8 @@
   "unavailable": "Niedostępne",
   "bridgeFeatureUnavailableTitle": "Tymczasowo niedostępne",
   "bridgeFeatureUnavailableBody": "Ta usługa zewnętrzna jest obecnie niedostępna. Spróbuj ponownie później.",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "Funkcja swap nie jest dostępna w tej sieci",
   "swapUnavailableBody": "W tej sieci nie skonfigurowano jeszcze żadnych tokenów typu swap.",
   "agglayerCheckingToken": "Sprawdzanie, czy ten token obsługuje trasę Slow…",
@@ -1557,5 +1559,11 @@
   "webViewUpdateChromeBody": "Aplikacja Bread wymaga nowszej wersji przeglądarki Chrome, która wyświetla strony internetowe w aplikacjach w tej wersji systemu Android. Zaktualizuj ją w Google Play, a następnie ponownie uruchom aplikację Bread.",
   "webViewStartFailedTitle": "Bread nie mógł rozpocząć działalności",
   "webViewStartFailedBody": "Coś uniemożliwiło załadowanie aplikacji Bread. Spróbuj ponownie lub zamknij aplikację Bread i uruchom ją ponownie.",
-  "webViewStartFailedAction": "Spróbuj ponownie"
+  "webViewStartFailedAction": "Spróbuj ponownie",
+  "walletAccessCheckingTitle": "Sprawdzanie dostępności",
+  "walletAccessCheckingBody": "Poczekaj, aż sprawdzimy, czy portfel jest dostępny w Twoim regionie.",
+  "walletAccessRestrictedTitle": "Portfel niedostępny w Twoim regionie",
+  "walletAccessRestrictedBody": "Portfel nie jest dostępny w Twojej obecnej lokalizacji.",
+  "walletAccessUnavailableTitle": "Nie udało się sprawdzić dostępności",
+  "walletAccessUnavailableBody": "Sprawdź połączenie i spróbuj ponownie."
 }

@@ -280,6 +280,9 @@ jobs:
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build iOS app
         # Self-heal the recurring GitHub macOS-runner SwiftPM cache corruption:
         # on a failed build, wipe the SwiftPM cache + derived data and retry once.
@@ -457,6 +460,9 @@ jobs:
           ensure_bootable "$UDID_A"
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
 
       - name: Build iOS app
         # Self-heal the recurring GitHub macOS-runner SwiftPM cache corruption:

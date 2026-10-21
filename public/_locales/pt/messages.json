@@ -4041,6 +4041,14 @@
     "message": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
   "swapUnavailableTitle": {
     "message": "A troca não está disponível nesta rede",
     "englishSource": "Swap is not available on this network"
@@ -7045,5 +7053,29 @@
   "webViewStartFailedAction": {
     "message": "Tente novamente",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "A verificar a disponibilidade",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Aguarde enquanto verificamos se a carteira está disponível na sua região.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Carteira indisponível na sua região",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "A carteira não está disponível na sua localização atual.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Não foi possível verificar a disponibilidade",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Verifique a sua ligação e tente novamente.",
+    "englishSource": "Check your connection and try again."
   }
 }

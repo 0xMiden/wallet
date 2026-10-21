@@ -18,6 +18,7 @@
 
 - [FEATURE][mobile] Bread Connect answers `LOGIN_KEY_REQUEST` and `LOGIN_SIGN_REQUEST`, the same login key and login signature Bread's in-app browser gives a site. A device with no root key for the account answers `LOGIN_KEY_UNAVAILABLE`. The Capacitor adapter and the Swift and Kotlin clients expose `requestLoginKey` and `signLoginBytes`.
 - [FEATURE][all] Choose an Earn withdrawal amount or Max, review the native payout and minimum received, and before submitting the selected amount check that the quote is current and the available balance still covers that amount, which accrual may have raised or a withdrawal elsewhere lowered (#1491).
+- [FEATURE][all] At startup, geographic rules in `0xMiden/wallet-config` block wallet access, including withdrawals, in Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. New Earn deposits are additionally blocked in New York and the UK. A Cloudflare Worker keeps MaxMind credentials on the server and returns only access decisions; a missing or failed check keeps the wallet closed.
 
 ### Fixes
 

@@ -912,6 +912,8 @@
   "unavailable": "No disponible",
   "bridgeFeatureUnavailableTitle": "Temporalmente no disponible",
   "bridgeFeatureUnavailableBody": "Este servicio externo no está disponible en este momento. Inténtalo de nuevo más tarde.",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "El intercambio no está disponible en esta red",
   "swapUnavailableBody": "Aún no se han configurado tokens de intercambio para esta red.",
   "agglayerCheckingToken": "Comprobando si este token es compatible con la ruta Slow…",
@@ -1557,5 +1559,11 @@
   "webViewUpdateChromeBody": "Bread necesita una versión más reciente de Chrome, que muestra las páginas web en aplicaciones en esta versión de Android. Actualízalo desde Google Play y, a continuación, vuelve a abrir Bread.",
   "webViewStartFailedTitle": "Bread no pudo ponerse en marcha",
   "webViewStartFailedBody": "Algo ha impedido que Bread se cargue. Inténtalo de nuevo o cierra Bread y vuelve a abrirlo.",
-  "webViewStartFailedAction": "Inténtalo de nuevo"
+  "webViewStartFailedAction": "Inténtalo de nuevo",
+  "walletAccessCheckingTitle": "Comprobando disponibilidad",
+  "walletAccessCheckingBody": "Espera mientras comprobamos si el monedero está disponible en tu región.",
+  "walletAccessRestrictedTitle": "Monedero no disponible en tu región",
+  "walletAccessRestrictedBody": "El monedero no está disponible desde tu ubicación actual.",
+  "walletAccessUnavailableTitle": "No se pudo comprobar la disponibilidad",
+  "walletAccessUnavailableBody": "Comprueba tu conexión e inténtalo de nuevo."
 }
