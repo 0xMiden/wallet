@@ -6652,5 +6652,87 @@
   "breadPresentationError": {
     "message": "Bu uygulamanın yüklenmesi tamamlanmadı. Tekrar deneyin veya Bread’e dönün.",
     "englishSource": "This app did not finish loading. Try again or return to Bread."
+  },
+  "arcadeGameCoins": {
+    "message": "Oyun Paraları",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Bakiye mevcut değil",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "Her hafta 10 GC",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "Partner Mainnet'te Pazartesi 00:00 UTC'de sıfırlanır. Harcanmamış GC'ler bir sonraki döneme devredilir; kaçırılan haftalar birikmez. Ağ ücretlerini siz ödersiniz.",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "Haftalık harçlığı kontrol ediyorum…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "Bu hafta talep edildi. Bir sonraki talep: $date$ UTC.",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "tarih mevcut değil",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "Bakiyeniz ne olursa olsun, haftalık 10 GC'niz hazır.",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "Onay ve makbuz bekleniyor. Tekrar denemeden önce durumu kontrol edin.",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "Talebin başarısız olduğu onaylandı. Tekrar deneyebilirsiniz.",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "Haftalık talepler ve GC bakiyesi henüz bu ağ için yapılandırılmamıştır. Yine de ücretsiz olarak oynayabilirsiniz.",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "10 GC talep et",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "Bu hafta iddia edildi",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "Alınmayı bekliyor",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "Talebi yeniden dene",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "Durumu kontrol edin",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "Oynama, tekrar oynama ve sosyal paylaşım, GC bakiyeniz ne olursa olsun ücretsizdir. Bu oyunun liderlik tablosuna katılmak için 1 GC artı ağ ücretlerini ödemeniz gerekir; bu ücretler tarafınızdan karşılanır.",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }
