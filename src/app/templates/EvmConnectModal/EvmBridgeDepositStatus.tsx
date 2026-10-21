@@ -32,6 +32,8 @@ import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 
 interface EvmBridgeDepositStatusProps {
   txId: string;
+  /** The new row returned by this mounted deposit flow, absent when viewing history. */
+  newSubmissionTxId?: string;
   onDone: () => void;
   /**
    * The deposit has taken one wallet confirmation and is about to ask for the next. The Slow (AggLayer)
@@ -124,6 +126,7 @@ function routeLabelOf(provider: IBridgeProvider, t: (key: string) => string): st
 /** Bridge-specific post-review progress/failure/success screen. */
 export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   txId,
+  newSubmissionTxId,
   onDone,
   awaitingNextConfirmation = false
 }) => {
@@ -140,15 +143,13 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   if (matchingRow && firstLoadedRow.current.failed === undefined) {
     firstLoadedRow.current.failed = inputs.phase === 'failed';
   }
+  const failureIsFresh = newSubmissionTxId === txId || firstLoadedRow.current.failed === false;
   const failureId = !inputs?.error
     ? 'transactionErrorDescription'
     : isUserErrorId(inputs.errorId)
       ? inputs.errorId
       : 'raw_bridge_deposit_failed';
-  useUserVisibleError(
-    matchingRow && inputs.phase === 'failed' && firstLoadedRow.current.failed === false ? failureId : null,
-    'status_screen'
-  );
+  useUserVisibleError(matchingRow && inputs.phase === 'failed' && failureIsFresh ? failureId : null, 'status_screen');
 
   if (!loaded || !row || row.id !== txId || inputs === undefined)
     return (

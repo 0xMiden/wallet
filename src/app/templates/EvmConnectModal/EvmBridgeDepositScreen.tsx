@@ -1672,6 +1672,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return bridgeTxId ? (
             <EvmBridgeDepositStatus
               txId={bridgeTxId}
+              newSubmissionTxId={bridgeTxId}
               onDone={onClose}
               awaitingNextConfirmation={awaitingNextConfirmation}
             />
