@@ -60,26 +60,30 @@ export function hidesFaucetActivity(network: MIDEN_NETWORK_NAME): boolean {
 
 /**
  * Whether a claimable note is a faucet claim. Its consume row copies the note's faucet and sender
- * (`ConsumeTransaction`), so this is `isFaucetRequest` on those two values.
+ * (`ConsumeTransaction`), so this is `isFaucetRequest` on those two values: a note of the native
+ * asset sent by the native faucet. A caller that renders passes the id it re-renders on
+ * (`useNativeFeeFaucetId`); the default reads the cache.
  */
-export function isFaucetClaimNote(note: { faucetId: string; senderAddress: string }): boolean {
-  const row: Parameters<typeof isFaucetRequest>[0] = {
-    transactionIcon: 'RECEIVE',
-    faucetId: note.faucetId,
-    secondaryAddress: note.senderAddress
-  };
-  return isFaucetRequest(row);
+export function isFaucetClaimNote(
+  note: { faucetId: string; senderAddress: string },
+  nativeFaucetId: string | null = getNativeAssetIdSync()
+): boolean {
+  return !!nativeFaucetId && note.faucetId === nativeFaucetId && note.senderAddress === nativeFaucetId;
 }
 
 /**
  * Whether a history entry is a faucet claim, whatever its state. `isFaucetRequest` reads the
  * RECEIVE icon, which a failed claim loses, so the Mainnet guard tests the row itself: a claim of
  * the native asset whose sender is the native faucet. A failed or pending faucet claim is hidden too.
+ * The caller passes the native faucet id it re-renders on, so a filter run while the id was unknown
+ * runs again once it is known.
  */
-export function isFaucetActivityEntry(entry: Pick<IHistoryEntry, 'txType' | 'faucetId' | 'secondaryAddress'>): boolean {
-  const midenFaucetId = getNativeAssetIdSync();
-  if (!midenFaucetId) return false;
-  return entry.txType === 'consume' && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
+export function isFaucetActivityEntry(
+  entry: Pick<IHistoryEntry, 'txType' | 'faucetId' | 'secondaryAddress'>,
+  nativeFaucetId: string | null
+): boolean {
+  if (!nativeFaucetId) return false;
+  return entry.txType === 'consume' && entry.faucetId === nativeFaucetId && entry.secondaryAddress === nativeFaucetId;
 }
 
 /**

@@ -153,11 +153,19 @@ jest.mock('./transactionUtils', () => ({
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
 
-// The chain's native asset, which the Mainnet faucet guard reads to recognise a faucet claim.
+// The chain's native asset, which the Mainnet faucet guard reads to recognise a faucet claim. A case
+// can start with it unknown and resolve its lookup later.
+let mockNativeAssetId: string | null = 'NATIVE';
+let mockNativeAssetLookup: Promise<string> | undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
-  getNativeAssetIdSync: () => 'NATIVE'
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetId: () => mockNativeAssetLookup ?? Promise.resolve('NATIVE')
 }));
+afterEach(() => {
+  mockNativeAssetId = 'NATIVE';
+  mockNativeAssetLookup = undefined;
+});
 
 // The effective network: Testnet unless a case puts the wallet on another.
 let mockWalletNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
@@ -1069,6 +1077,28 @@ describe('History', () => {
       expect(views.search).toEqual([]);
       // The other rows stay.
       expect(views.all).toEqual(expect.arrayContaining(['completed-P', 'completed-SD', 'pending-PQ']));
+    });
+
+    it('hides the faucet rows once the native faucet id resolves on Mainnet', async () => {
+      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      mockNativeAssetId = null;
+      let resolveLookup!: (id: string) => void;
+      mockNativeAssetLookup = new Promise(resolve => {
+        resolveLookup = resolve;
+      });
+      await renderHistory();
+      // With the id unknown nothing recognises a faucet claim yet.
+      expect(entryKeys()).toEqual(expect.arrayContaining(['completed-FC', 'completed-FF', 'pending-PF']));
+
+      mockNativeAssetId = 'NATIVE';
+      await act(async () => {
+        resolveLookup('NATIVE');
+      });
+
+      await waitFor(() => expect(entryKeys()).not.toContain('completed-FC'));
+      expect(entryKeys()).not.toContain('completed-FF');
+      expect(entryKeys()).not.toContain('pending-PF');
+      expect(entryKeys()).toEqual(expect.arrayContaining(['completed-P', 'completed-SD', 'pending-PQ']));
     });
 
     it('gives the Groups view no faucet row and so no faucet group on Mainnet', async () => {

@@ -1,6 +1,7 @@
 import React, { memo, RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
@@ -301,6 +302,8 @@ const History = memo<HistoryProps>(
     const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     // Read on each render: a Developer Settings save can change the network without a reload.
     const hideFaucet = hidesFaucetActivity(getEffectiveNetworkName());
+    // Re-renders once the id hydrates or is discovered, so rows filtered while it was unknown are filtered again.
+    const nativeFaucetId = useNativeFeeFaucetId();
     // Don't sort the pending transactions, earliest should come first as they are processed first.
     // On Mainnet the faucet rows go here, before the search, the filter, the group predicate and the
     // hidden notes, so no view and no search shows them. The test reads the row, not its icon, so a
@@ -309,8 +312,8 @@ const History = memo<HistoryProps>(
       const labelled = pendingTransactions
         .concat(mergeAndSort(latestTransactions ?? [], restEntries))
         .map(entry => labelHistoryEntry(bridgeConfig, entry));
-      return hideFaucet ? labelled.filter(entry => !isFaucetActivityEntry(entry)) : labelled;
-    }, [bridgeConfig, latestTransactions, restEntries, pendingTransactions, hideFaucet]);
+      return hideFaucet ? labelled.filter(entry => !isFaucetActivityEntry(entry, nativeFaucetId)) : labelled;
+    }, [bridgeConfig, latestTransactions, restEntries, pendingTransactions, hideFaucet, nativeFaucetId]);
 
     const loadMore = async (page: number) => {
       // already loading, don't make duplicate calls

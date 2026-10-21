@@ -339,16 +339,26 @@ describe('isFaucetClaimNote', () => {
     expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: 'mtst1alice' })).toBe(false);
     expect(isFaucetClaimNote({ faucetId: 'other-faucet', senderAddress: 'other-faucet' })).toBe(false);
   });
+
+  it('reads the id it is given, and recognises nothing while that id is unknown', () => {
+    expect(isFaucetClaimNote({ faucetId: 'other-faucet', senderAddress: 'other-faucet' }, 'other-faucet')).toBe(true);
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET }, null)).toBe(false);
+  });
 });
 
 describe('isFaucetActivityEntry', () => {
   it('is a consume of the native asset that the native faucet sent, whatever its icon', () => {
     const faucetClaim: Partial<IHistoryEntry> = { txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET };
-    expect(isFaucetActivityEntry(entry(faucetClaim))).toBe(true);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, transactionIcon: 'FAILED' }))).toBe(true);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, secondaryAddress: 'mtst1alice' }))).toBe(false);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, faucetId: 'other-faucet' }))).toBe(false);
-    expect(isFaucetActivityEntry(entry({ ...faucetClaim, txType: 'send' }))).toBe(false);
+    expect(isFaucetActivityEntry(entry(faucetClaim), FAUCET)).toBe(true);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, transactionIcon: 'FAILED' }), FAUCET)).toBe(true);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, secondaryAddress: 'mtst1alice' }), FAUCET)).toBe(false);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, faucetId: 'other-faucet' }), FAUCET)).toBe(false);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, txType: 'send' }), FAUCET)).toBe(false);
+  });
+
+  it('recognises nothing while the native faucet id is unknown', () => {
+    const faucetClaim: Partial<IHistoryEntry> = { txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET };
+    expect(isFaucetActivityEntry(entry(faucetClaim), null)).toBe(false);
   });
 });
 

@@ -65,10 +65,18 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   );
   return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
 });
-let mockNativeAssetId: string | undefined;
+// A case can start with the native asset unknown (null) and resolve its lookup later.
+let mockNativeAssetId: string | null | undefined;
+let mockNativeAssetLookup: Promise<string> | undefined;
 jest.mock('lib/miden-chain/native-asset', () => {
   const actual = jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset');
-  return { ...actual, getNativeAssetIdSync: () => mockNativeAssetId ?? actual.getNativeAssetIdSync() };
+  return {
+    ...actual,
+    getNativeAssetIdSync: () => (mockNativeAssetId === undefined ? actual.getNativeAssetIdSync() : mockNativeAssetId),
+    getNativeAssetId: () =>
+      mockNativeAssetLookup ??
+      (typeof mockNativeAssetId === 'string' ? Promise.resolve(mockNativeAssetId) : actual.getNativeAssetId())
+  };
 });
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const mockHideNavbar = jest.fn();
@@ -209,6 +217,7 @@ beforeEach(() => {
   mockConfirm.mockResolvedValue(true);
   mockWalletNetwork = undefined;
   mockNativeAssetId = undefined;
+  mockNativeAssetLookup = undefined;
 });
 
 function expandCard(noteId: string): HTMLElement {
@@ -453,6 +462,26 @@ describe('a faucet claim card by network', () => {
       'second',
       'third'
     ]);
+  });
+
+  it('hides the card on Mainnet once the native faucet id resolves', async () => {
+    mockWalletNetwork = 'mainnet';
+    mockNativeAssetId = null;
+    let resolveLookup!: (id: string) => void;
+    mockNativeAssetLookup = new Promise(resolve => {
+      resolveLookup = resolve;
+    });
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    // With the id unknown nothing recognises a faucet claim yet.
+    expect(faucetCard()).not.toBeNull();
+
+    mockNativeAssetId = NATIVE;
+    await act(async () => {
+      resolveLookup(NATIVE);
+    });
+
+    await waitFor(() => expect(faucetCard()).toBeNull());
+    expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).not.toBeNull();
   });
 
   it('does not count a declined faucet claim for Restore on Mainnet', () => {
@@ -716,9 +745,11 @@ it('does not offer Restore when every declined transfer is gone or already claim
 
 it('hands the timeline the same pending items and renderer when a render changes no pending item', () => {
   const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  // The mount can render more than once (the native faucet id hook settles in an effect).
+  const mounted = mockHistoryRenders.length;
   rerender(<ActivityPendingHistory search="" filter="all" />);
-  expect(mockHistoryRenders).toHaveLength(2);
-  const [first, second] = mockHistoryRenders;
+  expect(mockHistoryRenders).toHaveLength(mounted + 1);
+  const [first, second] = mockHistoryRenders.slice(-2);
   expect(second?.pendingItems).toBe(first?.pendingItems);
   expect(second?.renderPendingItem).toBe(first?.renderPendingItem);
 });
