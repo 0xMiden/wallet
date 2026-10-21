@@ -1,0 +1,36 @@
+name: Bread Connect external consumer red
+on:
+  push:
+    branches: [ci/1589-external-consumer-red]
+permissions:
+  contents: read
+jobs:
+  external-consumer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+      BREAD_CONNECT_SOURCE_SHA: d0b2fcbef1ca38e8bbff32d2dd519473da141442
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BREAD_CONNECT_SOURCE_SHA }}
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile external legacy consumer
+        shell: bash
+        run: bash packages/bread-connect-kotlin/compatibility-consumer/run-ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bread-connect-external-consumer-red-proof
+          path: ${{ runner.temp }}/bread-connect-external-consumer-red-proof
+          if-no-files-found: error
