@@ -201,14 +201,21 @@ describe('startup eligibility failure reporting', () => {
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['loading', 'restricted', 'allowed'])('keeps a %s startup result quiet', async status => {
+  it.each(['loading', 'restricted'])('keeps a %s startup result quiet', async status => {
     if (status === 'loading') mockInitEligibility.mockReturnValue(new Promise(() => {}));
     if (status === 'restricted')
       mockInitEligibility.mockResolvedValue({ ...allowed, allowed: { ...allowed.allowed, wallet: false } });
     render(<WalletAccessGate>Private wallet</WalletAccessGate>);
     await act(async () => {});
-    if (status === 'allowed') expect(screen.getByText('Private wallet')).toBeVisible();
-    else expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
+    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('keeps a allowed startup result quiet', async () => {
+    render(<WalletAccessGate>Private wallet</WalletAccessGate>);
+    await act(async () => {});
+    expect(screen.getByText('Private wallet')).toBeVisible();
     act(() => jest.advanceTimersByTime(5000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
