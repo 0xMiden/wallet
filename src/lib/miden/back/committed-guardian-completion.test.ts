@@ -743,6 +743,21 @@ describe('GEO022 ordinary hot-key mutation authority', () => {
     expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(true);
   });
 
+  it('GEO022 exact target confirmation refuses unfinished rotation metadata without mutation', async () => {
+    await writeStoredAccount({ hotPublicKey: 'new-hot', requiresHotKeyRotation: true });
+    mockStorage.set.mockClear();
+    await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'new-hot')).rejects.toMatchObject({
+      code: 'HOT_KEY_CHANGED'
+    });
+    expect((await storedAccount()).requiresHotKeyRotation).toBe(true);
+    expect((await storedAccount()).hotPublicKey).toBe('new-hot');
+    expect(mockStorage.set).not.toHaveBeenCalled();
+    expect(mockStorage.remove).not.toHaveBeenCalled();
+    expect(secureKeys.deleteHotKey).not.toHaveBeenCalled();
+    expect(await isStored('vault_accauthsecretkey_new-hot')).toBe(true);
+    expect(await isStored('vault_accauthsecretkey_old-hot')).toBe(true);
+  });
+
   it('GEO022 exact target confirmation refuses a pointer still on the old key', async () => {
     await expect(vault.swapHotKey(STORED_ACCOUNT, 'new-hot', 'new-hot')).rejects.toMatchObject({
       code: 'HOT_KEY_CHANGED'

@@ -51,6 +51,17 @@ import {
   syncFuseUntilMs
 } from './sync-fuse';
 
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return {
+    ...actual,
+    getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName),
+    getEffectiveRpcUrl: jest.fn(actual.getEffectiveRpcUrl)
+  };
+});
+
 const storeState: {
   accounts: Array<{
     publicKey: string;
@@ -2341,14 +2352,17 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       it.each(['pending', 'persistent401'])(
         'GEO022 carries original operator epoch and network scope through the %s heal',
         async phase => {
-          const endpoints = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+          const endpoints = jest.requireMock<typeof import('lib/miden-chain/effective-endpoints')>(
+            'lib/miden-chain/effective-endpoints'
+          );
+          const actualEndpoints = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
             'lib/miden-chain/effective-endpoints'
           );
           const { MIDEN_NETWORK_NAME } = jest.requireActual<typeof import('lib/miden-chain/networks-config')>(
             'lib/miden-chain/networks-config'
           );
-          const network = jest.spyOn(endpoints, 'getEffectiveNetworkName').mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
-          const rpc = jest.spyOn(endpoints, 'getEffectiveRpcUrl').mockReturnValue('https://original-rpc.test');
+          const network = jest.mocked(endpoints.getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+          const rpc = jest.mocked(endpoints.getEffectiveRpcUrl).mockReturnValue('https://original-rpc.test');
           const account = {
             ...arrangePending(),
             guardianEpoch: 7,
@@ -2392,8 +2406,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
           } finally {
             barrier.release();
             await pass;
-            network.mockRestore();
-            rpc.mockRestore();
+            network.mockImplementation(actualEndpoints.getEffectiveNetworkName);
+            rpc.mockImplementation(actualEndpoints.getEffectiveRpcUrl);
           }
         }
       );
