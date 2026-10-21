@@ -27,8 +27,9 @@ it('finishes a successful wallet step and releases its native handle once', asyn
   await expect(openManagedWallet(LINK, controller.signal)).resolves.toBe(true);
   expect(mockPrepare).toHaveBeenCalledWith({ url: LINK });
   expect(mockStep.mock.calls).toEqual([[{ attemptId: 'native-1', step: 'wallet' }]]);
+  expect(mockRevoke).not.toHaveBeenCalled();
   controller.abort();
-  expect(mockRevoke.mock.calls).toEqual([[{ attemptId: 'native-1' }]]);
+  expect(mockRevoke).not.toHaveBeenCalled();
 });
 
 it('stops after the native primary store result without treating the store as Bread', async () => {
@@ -38,6 +39,7 @@ it('stops after the native primary store result without treating the store as Br
     [{ attemptId: 'native-1', step: 'wallet' }],
     [{ attemptId: 'native-1', step: 'primaryStore' }]
   ]);
+  expect(mockRevoke).not.toHaveBeenCalled();
 });
 
 it('uses a native secondary store only when the primary store returns that next step', async () => {
@@ -47,6 +49,7 @@ it('uses a native secondary store only when the primary store returns that next 
     .mockResolvedValueOnce({ opened: false });
   await expect(openManagedWallet(LINK, new AbortController().signal)).resolves.toBe(false);
   expect(mockStep.mock.calls.map(call => call[0].step)).toEqual(['wallet', 'primaryStore', 'secondaryStore']);
+  expect(mockRevoke).not.toHaveBeenCalled();
 });
 
 it('leaves a closed native attempt neutral instead of inventing a not-installed result', async () => {

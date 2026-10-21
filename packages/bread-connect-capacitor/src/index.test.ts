@@ -96,7 +96,7 @@ describe('installBreadConnect', () => {
       [{ attemptId: 'attempt-1', step: 'wallet' }],
       [{ attemptId: 'attempt-1', step: 'primaryStore' }]
     ]);
-    expect(mockRevokeOpen).toHaveBeenCalledTimes(1);
+    expect(mockRevokeOpen).not.toHaveBeenCalled();
     expect(mockOpenWallet).not.toHaveBeenCalled();
   });
 
@@ -106,10 +106,13 @@ describe('installBreadConnect', () => {
     const wallet = installBreadConnect({ callback: CALLBACK, appName: 'Game', links });
     const answer = wallet.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
     const outcome = answer.catch(error => error);
-    await flush();
-    expect(mockOpenStep.mock.calls).toEqual([[{ attemptId: 'attempt-1', step: 'wallet' }]]);
-    expect(mockRevokeOpen).toHaveBeenCalledWith({ attemptId: 'attempt-1' });
-    await wallet.disconnect();
+    try {
+      await flush();
+      expect(mockOpenStep.mock.calls).toEqual([[{ attemptId: 'attempt-1', step: 'wallet' }]]);
+      expect(mockRevokeOpen).not.toHaveBeenCalled();
+    } finally {
+      await wallet.disconnect();
+    }
     expect(await outcome).toMatchObject({ code: 'CANCELLED' });
   });
 
@@ -126,7 +129,7 @@ describe('installBreadConnect', () => {
       }
     );
     expect(mockOpenStep.mock.calls.map(call => call[0].step)).toEqual(['wallet', 'primaryStore', 'secondaryStore']);
-    expect(mockRevokeOpen).toHaveBeenCalledTimes(1);
+    expect(mockRevokeOpen).not.toHaveBeenCalled();
   });
 
   it('preserves an active bridge failure even when native cleanup also rejects', async () => {
