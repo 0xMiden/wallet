@@ -14,7 +14,6 @@
 
 import { IconName } from 'app/icons/v2';
 import {
-  EXPLORE_CATEGORIES,
   type ExploreCatalog,
   type ExploreCatalogItem,
   type ExploreCatalogSectionKind,
@@ -24,7 +23,7 @@ import {
 import { isSwapEnabled } from 'lib/feature-flags';
 
 /** A chip: every category, or one of them. */
-export type ExploreFilter = 'all' | ExploreCategory;
+export type ExploreFilter = 'all' | ExploreCategory | 'finance' | 'arcade' | 'others';
 
 /** A catalog item with its name and tagline in the reader's language. */
 export type ExploreItem = Omit<ExploreCatalogItem, 'name' | 'tagline'> & { name: string; tagline: string };
@@ -61,19 +60,18 @@ export interface ExploreFilterDescriptor {
   icon: IconName;
 }
 
-// Keyed by category, so every category a document may name has its chip.
-const CATEGORY_CHIPS: Record<ExploreCategory, Omit<ExploreFilterDescriptor, 'id'>> = {
-  tools: { labelKey: 'categoryTools', icon: IconName.Hammer },
-  defi: { labelKey: 'categoryDefi', icon: IconName.Coins },
-  games: { labelKey: 'categoryGames', icon: IconName.Rocket },
-  nft: { labelKey: 'categoryNfts', icon: IconName.Image },
-  learn: { labelKey: 'categoryLearn', icon: IconName.File }
-};
+/** Presentation mapping preserves the currently published wallet-explore contract. */
+export function exploreCategoryGroup(category: ExploreCategory): 'finance' | 'arcade' | 'others' {
+  if (category === 'defi' || category === 'tools') return 'finance';
+  if (category === 'games') return 'arcade';
+  return 'others';
+}
 
-/** The chips, in order. */
 export const EXPLORE_FILTERS: ExploreFilterDescriptor[] = [
   { id: 'all', labelKey: 'all', icon: IconName.Apps },
-  ...EXPLORE_CATEGORIES.map(id => ({ id, ...CATEGORY_CHIPS[id] }))
+  { id: 'finance', labelKey: 'categoryFinance', icon: IconName.Coins },
+  { id: 'arcade', labelKey: 'categoryArcade', icon: IconName.Rocket },
+  { id: 'others', labelKey: 'categoryOthers', icon: IconName.Apps }
 ];
 
 /**
@@ -138,7 +136,7 @@ export function resolveExploreSections(view: ExploreView, filter: ExploreFilter)
         const item = byId.get(id);
         return item ? [item] : [];
       })
-      .filter(item => filter === 'all' || item.category === filter);
+      .filter(item => filter === 'all' || item.category === filter || exploreCategoryGroup(item.category) === filter);
     if (items.length > 0) resolved.push({ section, items });
   }
 

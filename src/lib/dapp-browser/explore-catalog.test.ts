@@ -1,4 +1,4 @@
-import { EXPLORE_CATEGORIES, type ExploreCatalog, RESERVED_SECTION_IDS } from 'lib/explore-config/schema';
+import { type ExploreCatalog, RESERVED_SECTION_IDS } from 'lib/explore-config/schema';
 
 import {
   EXPLORE_FILTERS,
@@ -56,8 +56,17 @@ beforeEach(() => {
 
 describe('EXPLORE_FILTERS', () => {
   it('offers All first, then a chip for every category a document may name', () => {
-    expect(EXPLORE_FILTERS.map(f => f.id)).toEqual(['all', 'tools', 'defi', 'games', 'nft', 'learn']);
-    expect(EXPLORE_FILTERS.slice(1).map(f => f.id)).toEqual([...EXPLORE_CATEGORIES]);
+    expect(EXPLORE_FILTERS.map(f => f.id)).toEqual(['all', 'finance', 'arcade', 'others']);
+    expect(
+      resolveExploreSections(view(), 'finance')
+        .flatMap(s => s.items)
+        .map(i => i.id)
+    ).toEqual(['faucet', 'faucet', 'dex', 'dex']);
+    expect(
+      resolveExploreSections(view(), 'arcade')
+        .flatMap(s => s.items)
+        .map(i => i.id)
+    ).toEqual(['quest']);
   });
 });
 

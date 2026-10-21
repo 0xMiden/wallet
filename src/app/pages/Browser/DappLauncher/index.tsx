@@ -4,8 +4,7 @@
  * Stack (top → bottom):
  *   <TabRootHeader/>    the shared tab-root band: "Explore" title with a search icon top right that
  *                       swaps the title for a field (it searches the catalog and opens a typed or
- *                       pasted URL), and under it the category row — All, Tools, DeFi, Games, NFTs,
- *                       Learn — drawn by the same control, at the same height, as Activity's filters
+ *                       pasted URL), and under it the category row — All, Finance, Arcade, Others — drawn by the same control, at the same height, as Activity's filters
  *   <ExploreSections/>  the sections of the effective network's catalog (`lib/explore-config`, drawn
  *                       through `lib/dapp-browser/explore-catalog`) for the chosen chip, then recents
  *
@@ -39,6 +38,7 @@ import { useExploreCatalog } from 'lib/explore-config/use-explore-catalog';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
+import { ArcadeLanding } from './ArcadeLanding';
 import { type ExploreEmptyState, ExploreSections } from './ExploreSections';
 import { hasRevealed, markRevealed } from './reveal-once';
 import { urlForQuery } from './search-url';
@@ -195,16 +195,34 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
         style={{ overscrollBehavior: 'contain' }}
         data-testid="explore-launcher"
       >
-        {!pending && (
-          <ExploreSections
-            sections={sections}
-            recents={recents}
-            empty={empty}
+        {filter === 'arcade' ? (
+          <ArcadeLanding
+            games={
+              searching
+                ? results
+                : Array.from(
+                    new Map(
+                      resolveExploreSections(catalog, 'arcade')
+                        .flatMap(section => section.items)
+                        .map(game => [game.id, game])
+                    ).values()
+                  )
+            }
+            pending={pending}
             onOpen={onOpen}
-            reveal={reveal}
-            firstRevealIndex={FIRST_SECTION_REVEAL}
-            staggered={reveal && !settled}
           />
+        ) : (
+          !pending && (
+            <ExploreSections
+              sections={sections}
+              recents={recents}
+              empty={empty}
+              onOpen={onOpen}
+              reveal={reveal}
+              firstRevealIndex={FIRST_SECTION_REVEAL}
+              staggered={reveal && !settled}
+            />
+          )
         )}
       </motion.main>
     </>

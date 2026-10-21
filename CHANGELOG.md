@@ -18,6 +18,8 @@
 
 ### Features
 
+- [FEATURE][all] Explore adds a native Arcade with catalog games and a weekly 10 GC allowance card. Production claims stay disabled until the authoritative claim and balance integration is configured (#1452, #1515, #1691).
+
 - [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. The schedule stays off until the accounts are funded (#1629).
 - [FEATURE][all] Verified tokens can show USD prices from Binance, using a USDT market first and a USDC market second, with the quote currency converted to USD. If neither market exists, the wallet uses a direct USD market on Kraken, including PYUSD. Totals and token order use the current verified price assets. The wallet checks the saved token list once when it opens and keeps the saved list if the check fails.
 - [FEATURE][all] Every error message the wallet shows is reported to the team as a crash report naming only which message it was and where, never its text (#1616).
