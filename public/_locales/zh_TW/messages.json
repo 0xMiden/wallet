@@ -6913,6 +6913,14 @@
     "message": "Bridge in",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "無法載入橋接器的代幣清單，因此可能有部分代幣遺漏。請稍後重試。",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "該橋接服務並未將此代幣上架至此網路。",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "連接您的錢包",
     "englishSource": "Connect your wallet"

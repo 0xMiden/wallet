@@ -1526,6 +1526,8 @@
   "breadPresentationHint": "Dotknij Bread, aby wrócić",
   "breadPresentationError": "Ta aplikacja nie została w pełni załadowana. Spróbuj ponownie lub wróć do Bread.",
   "bridgeInTitle": "Bridge in",
+  "bridgeDepositTokensUnavailable": "Nie udało się załadować listy tokenów mostu, więc niektóre tokeny mogą brakować. Spróbuj ponownie później.",
+  "bridgeDepositTokenNotListed": "Most nie notuje tego tokenu w tej sieci.",
   "bridgeConnectWalletTitle": "Podłącz swój portfel",
   "bridgeConnectWalletBody": "Podłącz portfel zawierający tokeny, które chcesz przenieść do Miden.",
   "bridgeConnectWalletAction": "Połącz portfel",

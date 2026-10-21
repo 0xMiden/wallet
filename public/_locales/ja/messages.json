@@ -6913,6 +6913,14 @@
     "message": "ブリッジイン",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "ブリッジのトークンリストを読み込めなかったため、一部のトークンが表示されていない可能性があります。後ほど再度お試しください。",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "このブリッジは、このネットワーク上でこのトークンを上場していません。",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "ウォレットを接続してください",
     "englishSource": "Connect your wallet"

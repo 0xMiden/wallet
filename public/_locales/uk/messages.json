@@ -6913,6 +6913,14 @@
     "message": "Міст у",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "Не вдалося завантажити список токенів мосту, тому деякі токени можуть бути відсутні. Спробуйте ще раз пізніше.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "Брідж не включає цей токен до списку в цій мережі.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "Підключіть свій гаманець",
     "englishSource": "Connect your wallet"

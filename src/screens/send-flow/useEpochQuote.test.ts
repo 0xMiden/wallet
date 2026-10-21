@@ -49,7 +49,13 @@ const configFor = ({
     derivedAt: 0,
     chains: {
       [chainId]: {
-        agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED },
+        agglayer: {
+          rollupId: SKIPPED,
+          tokens: SKIPPED,
+          evmNetworkId: SKIPPED,
+          l1BridgeCode: SKIPPED,
+          depositTokens: SKIPPED
+        },
         epoch: { evmUsdc: evmUsdcRead }
       }
     },

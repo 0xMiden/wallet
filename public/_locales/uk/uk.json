@@ -1526,6 +1526,8 @@
   "breadPresentationHint": "Натисніть Bread, щоб повернутися",
   "breadPresentationError": "Цей застосунок не завантажився повністю. Спробуйте ще раз або поверніться до Bread.",
   "bridgeInTitle": "Міст у",
+  "bridgeDepositTokensUnavailable": "Не вдалося завантажити список токенів мосту, тому деякі токени можуть бути відсутні. Спробуйте ще раз пізніше.",
+  "bridgeDepositTokenNotListed": "Брідж не включає цей токен до списку в цій мережі.",
   "bridgeConnectWalletTitle": "Підключіть свій гаманець",
   "bridgeConnectWalletBody": "Підключіть гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
   "bridgeConnectWalletAction": "Підключити гаманець",

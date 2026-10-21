@@ -6913,6 +6913,14 @@
     "message": "브리지 인",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "브리지의 토큰 목록을 불러올 수 없어 일부 토큰이 누락되었을 수 있습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "이 브리지는 해당 네트워크에 이 토큰을 상장하지 않습니다.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "지갑 연결하기",
     "englishSource": "Connect your wallet"
