@@ -1,0 +1,67 @@
+{
+  "expected_case_titles": [
+    "bridge-empty-failure / light",
+    "amount-helper-without-error / light",
+    "amount-visible-error / light",
+    "earn-no-collateral / light",
+    "earn-selected-unknown-metadata / light",
+    "earn-feature-unavailable / light",
+    "bridge-empty-failure / dark",
+    "amount-helper-without-error / dark",
+    "amount-visible-error / dark",
+    "earn-no-collateral / dark",
+    "earn-selected-unknown-metadata / dark",
+    "earn-feature-unavailable / dark"
+  ],
+  "fixture_files": [
+    {
+      "bytes": 10740,
+      "path": "capture.py",
+      "sha256": "166ed1298756aa76b30223de7fe6f842dd3abea0d190667b4089c796d8abb91d"
+    },
+    {
+      "bytes": 5532,
+      "path": "harness/data.tsx",
+      "sha256": "9247255ec9ac818d38aa08978d984430daafa034dacb14da60f2b62227e37911"
+    },
+    {
+      "bytes": 332,
+      "path": "harness/index.html",
+      "sha256": "8f9206d62ebcdb169ba38c9058d1fab4268f6fcc6b673a52633ca4ba54991691"
+    },
+    {
+      "bytes": 3509,
+      "path": "harness/main.tsx",
+      "sha256": "22e0e01b3e3bb09bf29d198686bfe282f3f6f191847f7448c1e6e321dbecbb1c"
+    },
+    {
+      "bytes": 800,
+      "path": "harness/playwright.config.ts",
+      "sha256": "6c9beac931954650ed2957b4bc9461c851505003b3cf31f29bca67f5ec3c4d74"
+    },
+    {
+      "bytes": 7117,
+      "path": "harness/visual.spec.ts",
+      "sha256": "dcc5a5dadf6024583de098dea7a182ff94ed01a1dce34840547f950f3bd88a62"
+    },
+    {
+      "bytes": 4717,
+      "path": "harness/vite.config.mts",
+      "sha256": "63efc03d039e2fe6812fd4b6fcbf3ba8341efae438bc3c64bf45eac56b3cdc0e"
+    }
+  ],
+  "required_component_modules": [
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx",
+    "src/components/AmountInput.tsx",
+    "src/screens/send-flow/SelectAmount.tsx",
+    "src/screens/earn-flow/EarnDepositAmount.tsx",
+    "src/lib/settings/theme.ts",
+    "src/main.css",
+    "src/i18n.ts",
+    "src/components/FeatureUnavailable.tsx",
+    "src/components/ui/Notice.tsx"
+  ],
+  "runtime_scope": "twelve component display checks; visual readback mandatory",
+  "source": "1a3fd503010d7c4b8bf0379a7b75bc9aab3785fa",
+  "tree": "1037bcddb63a26e7afe0c3981edfb5369569a52c"
+}
