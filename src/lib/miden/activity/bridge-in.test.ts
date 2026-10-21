@@ -451,6 +451,23 @@ describe('takeAgglayerBridgeInInfo', () => {
     expect(mockReadBridgeRegistry).toHaveBeenCalledWith('0xbridge', 'https://rpc.miden.test');
   });
 
+  // The same address registered from another network is not the row's faucet: such a read counts as one without it.
+  it('reads the bridge again soon when the kept read holds the token only from another network', async () => {
+    const originToken = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+    const elsewhere: BridgeToken = { midenFaucetId: '0xelsewhere', originToken, originNetwork: 3, scale: 8 };
+    const own: BridgeToken = { midenFaucetId: '0xusdcfaucet', originToken, originNetwork: 0, scale: 8 };
+    mockTransactions.push(firstDeposit(originToken));
+    const take = () =>
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n });
+
+    mockReadBridgeRegistry.mockResolvedValueOnce({ rollupId: 86, tokens: [elsewhere] });
+    await expect(take()).resolves.toBeUndefined();
+    mockReadBridgeRegistry.mockResolvedValue({ rollupId: 86, tokens: [elsewhere, own] });
+    nowSpy.mockReturnValue(10_000 + 10_001);
+    await expect(take()).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
+    expect(mockReadBridgeRegistry).toHaveBeenCalledTimes(2);
+  });
+
   // A failed read is read again on the next note; a read that lacked the token, once ten seconds have passed.
   it('keeps neither a failed registry read nor one without the token', async () => {
     const usdcToken: BridgeToken = {

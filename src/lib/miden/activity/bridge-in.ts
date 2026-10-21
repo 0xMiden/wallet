@@ -346,13 +346,13 @@ async function readLiveRegistries(
   snapshot: BridgeConfigSnapshot,
   rows: readonly ITransaction[]
 ): Promise<Map<string, BridgeToken[]>> {
-  const wanted = new Map<string, Set<string>>();
+  const wanted = new Map<string, { originToken: string; network: number }[]>();
   for (const tx of rows) {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     const route = inputs?.agglayerRoute;
     if (!inputs?.agglayerDelivery || !route || deliveryOf(snapshot, inputs) !== undefined) continue;
-    const tokens = wanted.get(route.midenBridgeId) ?? new Set<string>();
-    tokens.add(inputs.agglayerDelivery.originToken);
+    const tokens = wanted.get(route.midenBridgeId) ?? [];
+    tokens.push({ originToken: inputs.agglayerDelivery.originToken, network: route.evmNetworkId });
     wanted.set(route.midenBridgeId, tokens);
   }
   const live = new Map<string, BridgeToken[]>();
@@ -365,7 +365,8 @@ async function readLiveRegistries(
   for (const [bridge, tokens] of wanted) {
     const key = `${rpcUrl} ${bridge}`;
     const kept = liveRegistryReads.get(key);
-    const holdsAll = (read: BridgeToken[]) => [...tokens].every(token => read.some(t => t.originToken === token));
+    const holdsAll = (read: BridgeToken[]) =>
+      tokens.every(({ originToken, network }) => registeredToken(read, originToken, network) !== null);
     const fresh =
       kept !== undefined &&
       Date.now() - kept.at < (holdsAll(kept.tokens) ? LIVE_REGISTRY_TTL_MS : LIVE_REGISTRY_MISS_TTL_MS);
