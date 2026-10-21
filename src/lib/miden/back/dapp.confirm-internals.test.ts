@@ -991,7 +991,7 @@ describe('the state a request no confirmation handler answered is refused with (
     await listener(payloadRequest, { id: 'p' });
     const error = refusal();
     expect(error.message).toBe('Not Found');
-    expect(error.code).toBe('confirmation_open');
+    expect(error.code).toMatch(/^confirmation_open:/);
     expect(Object.keys(error)).toEqual(['code']);
     jest.advanceTimersByTime(121_000);
   });
@@ -1004,25 +1004,23 @@ describe('the state a request no confirmation handler answered is refused with (
     await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
     for (const removed of _g.__dappConfInternals.onRemovedListeners) removed(888);
 
-    expect(refusal().code).toBe('confirmation_answered');
+    expect(refusal().code).toMatch(/^confirmation_answered:/);
     // A second answer from the same window sends the id as a string.
-    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: ID }).code).toBe(
-      'confirmation_answered'
-    );
+    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: ID }).code).toMatch(/^confirmation_answered:/);
   });
 
   it('names a confirmation its timer expired', async () => {
     const { answer } = await openSign();
     jest.advanceTimersByTime(121_000);
     await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
-    expect(refusal().code).toBe('confirmation_expired');
+    expect(refusal().code).toMatch(/^confirmation_expired:/);
   });
 
   it('names a confirmation whose window was closed', async () => {
     const { answer } = await openSign();
     _g.__dappConfInternals.onRemovedListeners.at(-1)(888);
     await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
-    expect(refusal().code).toBe('confirmation_window_closed');
+    expect(refusal().code).toMatch(/^confirmation_window_closed:/);
   });
 
   it('names a confirmation whose payload failed to build', async () => {
@@ -1045,7 +1043,7 @@ describe('the state a request no confirmation handler answered is refused with (
 
       await expect(listener(payloadRequest, { id: 'p' })).rejects.toThrow();
       await expect(answer).rejects.toThrow();
-      expect(refusal().code).toBe('confirmation_payload_failed');
+      expect(refusal().code).toMatch(/^confirmation_payload_failed:/);
     } finally {
       mockHasSpendingLimits.mockImplementation(() => Promise.resolve(false));
       mockAssessOutgoingSpendingLimitDetails.mockImplementation(() => Promise.resolve(undefined));
@@ -1053,11 +1051,9 @@ describe('the state a request no confirmation handler answered is refused with (
   });
 
   it('names an id this worker never saw as unknown', () => {
-    expect(refusal('never-opened').code).toBe('confirmation_unknown');
-    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: 7 }).code).toBe(
-      'confirmation_unknown'
-    );
-    expect(dapp.confirmationNotFound({}).code).toBe('confirmation_unknown');
+    expect(refusal('never-opened').code).toMatch(/^confirmation_unknown:/);
+    expect(dapp.confirmationNotFound({ type: MidenMessageType.DAppSignConfirmationRequest, id: 7 }).code).toMatch(/^confirmation_unknown:/);
+    expect(dapp.confirmationNotFound({}).code).toMatch(/^confirmation_unknown:/);
   });
 
   it('keeps the states of the newest 64 confirmations only', async () => {
@@ -1071,8 +1067,64 @@ describe('the state a request no confirmation handler answered is refused with (
       await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
     }
     expect(new Set(ids).size).toBe(65);
-    expect(refusal(ids[0]).code).toBe('confirmation_unknown');
-    expect(refusal(ids[1]).code).toBe('confirmation_expired');
-    expect(refusal(ids[64]).code).toBe('confirmation_expired');
+    expect(refusal(ids[0]).code).toMatch(/^confirmation_unknown:/);
+    expect(refusal(ids[1]).code).toMatch(/^confirmation_expired:/);
+    expect(refusal(ids[64]).code).toMatch(/^confirmation_expired:/);
+    expect(refusal(ids[0]).code).toMatch(/^confirmation_unknown:array_with_string:pruned:/);
+  });
+
+  it('names the shape of the id the request carried', () => {
+    const shapeOf = (req: unknown) => dapp.confirmationNotFound(req).code.split(':')[1];
+    expect(shapeOf({ type: MidenMessageType.DAppSignConfirmationRequest, id: ID })).toBe('string');
+    expect(shapeOf(payloadRequest)).toBe('array_with_string');
+    expect(shapeOf({ type: MidenMessageType.DAppGetPayloadRequest, id: [7] })).toBe('array_without_string');
+    expect(shapeOf({ type: MidenMessageType.DAppGetPayloadRequest, id: [] })).toBe('array_without_string');
+    expect(shapeOf({ type: MidenMessageType.DAppGetPayloadRequest })).toBe('missing');
+    expect(shapeOf(undefined)).toBe('missing');
+    expect(shapeOf({ type: MidenMessageType.DAppSignConfirmationRequest, id: 7 })).toBe('other');
+  });
+
+  it('names how long this worker has run', () => {
+    const now = jest.spyOn(performance, 'now');
+    try {
+      now.mockReturnValue(9_999);
+      expect(refusal().code).toMatch(/:under_10s$/);
+      now.mockReturnValue(12_000);
+      expect(refusal().code).toMatch(/:10_to_60s$/);
+      now.mockReturnValue(300_000);
+      expect(refusal().code).toMatch(/:over_300s$/);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('names an empty registry in a worker that has recorded no approval, then one holding it', async () => {
+    let fresh: typeof dapp | undefined;
+    jest.isolateModules(() => {
+      fresh = require('./dapp');
+    });
+    if (fresh === undefined) throw new Error('dapp did not load');
+    const now = jest.spyOn(performance, 'now').mockReturnValue(1_000);
+    try {
+      expect(fresh.confirmationNotFound(payloadRequest).code).toBe(
+        'confirmation_unknown:array_with_string:empty:under_10s'
+      );
+      const answer = fresh.requestSign('https://test.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'a1',
+        sourceAccountId: 'a1',
+        payload: 'aA==',
+        kind: 'word'
+      } as never);
+      answer.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(0);
+      jest.advanceTimersByTime(121_000);
+      await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      expect(fresh.confirmationNotFound(payloadRequest).code).toBe(
+        'confirmation_expired:array_with_string:holding:under_10s'
+      );
+    } finally {
+      now.mockRestore();
+    }
   });
 });
