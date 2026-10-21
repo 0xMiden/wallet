@@ -1006,6 +1006,13 @@ export interface ITransaction {
   neverCommittedAt?: number;
   /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
   attemptId?: string;
+  /**
+   * The candidate a Guardian attempt's proposal left on its Guardian, written once the proposal exists (#1666): its
+   * Guardian as the service spells it, its nonce, the wall-clock stamp taken before the proposal and the attempt it
+   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process; only the
+   * startup sweep reads this, for an attempt a dead process left before its submit.
+   */
+  guardianCandidate?: { endpoint: string; nonce: number; proposedAt: number; attemptId: string };
 }
 
 /**

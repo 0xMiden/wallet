@@ -3096,6 +3096,51 @@ const recordLeftCandidate = (
   });
 
 /**
+ * Keep the candidate this attempt's proposal leaves on its Guardian on the row too (#1666), for the startup sweep:
+ * the record that would abandon it after a failure lives in this process, and a process killed before its submit left
+ * the account held for the Guardian's whole hold. Best-effort like a stage stamp: a lost write only waits that out.
+ */
+const persistGuardianCandidate = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  if (attemptId === undefined) return;
+  const candidate = {
+    endpoint: service.guardianEndpoint,
+    nonce: proposal.nonce,
+    proposedAt: proposalStamps.proposedAt,
+    attemptId
+  };
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      tx.guardianCandidate = candidate;
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not keep candidate ${proposal.nonce} on transaction ${transaction.id}:`, error);
+  }
+};
+
+/**
+ * Drop the candidate this attempt kept on its row before its abandon goes out (#1666): once the Guardian takes it, a
+ * later process's startup sweep must not send it again, since that nonce may by then be another write's. A death
+ * between the two only waits the hold out.
+ */
+const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      const kept = tx.guardianCandidate;
+      if (kept !== undefined && kept.attemptId === attemptId && kept.nonce === nonce) delete tx.guardianCandidate;
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not drop candidate ${nonce} from transaction ${transaction.id}:`, error);
+  }
+};
+
+/**
  * Remember a candidate whose transaction never landed and whose best-effort abandon failed, so the account's next
  * proposal retries the abandon (#1317) instead of meeting that candidate until its Guardian's hold expires. Stamped
  * with the caller's `proposalStamps`, not the failure's time: the hold began at the proposal.
@@ -3747,6 +3792,7 @@ const generateGuardianTransaction = async (
 
   // Sign and execute the proposal. The proposal already exists if this write fails.
   await withProposalStep('signing_stage_write', () => setTransactionStage(transaction.id, 'signing-proposal'));
+  await persistGuardianCandidate(transaction, service, proposalResult, proposalStamps);
 
   // switch_guardian is on-chain threshold-2 (set at create time via
   // procedureThresholds). Hot's signAndCreateTransactionRequest below
@@ -3828,6 +3874,7 @@ const generateGuardianTransaction = async (
       // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
       // A cleanup step must not be able to cost more than the thing it cleans up.
       try {
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the pending delta on the outgoing guardian'
@@ -4095,6 +4142,7 @@ const generateGuardianTransaction = async (
         // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
         // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
         // the same loop) down with it, so the row is not even reaped.
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the guardian candidate after a failed submission'

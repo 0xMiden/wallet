@@ -75,7 +75,9 @@ import {
   initiateUpdateProcedureThresholdTransaction,
   LANDED_CONFIRM_BOUND_MS,
   LANDED_CONFIRM_POLL_MS,
-  markBridgedSendFailed
+  failInterruptedTransactions,
+  markBridgedSendFailed,
+  SESSION_STARTED_AT
 } from './index';
 import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
 import { OperationAbortedError } from '../back/offscreen-codec';
@@ -6902,6 +6904,161 @@ describe('generateTransaction — Guardian routing', () => {
         });
       });
     });
+
+    describe('a candidate a dead process left (#1666)', () => {
+      it("writes the attempt's candidate on its row once the proposal exists", async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = busyService();
+        service.priorCandidateState.mockResolvedValue('settled');
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const row = queueRow('persists-candidate', SEND);
+        // Read while the attempt executes: the window a process death leaves for the next startup sweep.
+        const keptWhileExecuting: unknown[] = [];
+        const client = makeClientApi(makeResult());
+        client.transactions.executeRequest.mockImplementationOnce(async () => {
+          keptWhileExecuting.push(stored(row.id).guardianCandidate);
+          throw new Error('failed to execute transaction: kernel');
+        });
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+
+        await run(row);
+
+        expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+        expect(keptWhileExecuting).toEqual([
+          { endpoint: GUARDIAN, nonce: 8, proposedAt: expect.any(Number), attemptId: expect.any(String) }
+        ]);
+        const { proposedAt } = keptWhileExecuting[0] as { proposedAt: number };
+        expect(proposedAt).toBeGreaterThanOrEqual(testStartedAt);
+        expect(proposedAt).toBeLessThanOrEqual(Date.now());
+      });
+
+      // A row a process died with mid-attempt, as the next process's startup sweep finds it: that process's record
+      // of the candidate died with it.
+      const deadRow = (id: string, overrides: Record<string, unknown> = {}) =>
+        queueRow(id, {
+          type: 'consume',
+          noteId: `note-${id}`,
+          status: ITransactionStatus.GeneratingTransaction,
+          stage: 'proving',
+          attemptId: 'att-dead',
+          processingStartedAt: SESSION_STARTED_AT - 5,
+          guardianCandidate: { endpoint: GUARDIAN, nonce: 8, proposedAt: Date.now() - 60_000, attemptId: 'att-dead' },
+          ...overrides
+        });
+      const settledService = () => {
+        const service = busyService();
+        service.priorCandidateState.mockResolvedValue('settled');
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        arrangeClient();
+        return service;
+      };
+
+      it('the next proposal abandons the candidate of a row a dead process left before its submit', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const service = settledService();
+        deadRow('dead-before-submit');
+
+        await failInterruptedTransactions();
+
+        expect(stored('dead-before-submit').status).toBe(ITransactionStatus.Failed);
+        const { proposedAt } = stored('dead-before-submit').guardianCandidate as { proposedAt: number };
+        expect(getGuardianCandidate('guardian-acc')).toEqual({
+          endpoint: GUARDIAN,
+          nonce: 8,
+          proposedAt,
+          proposedAtMono: expect.any(Number),
+          abandon: true
+        });
+        await run(queueRow('next-send', SEND));
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(service.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+          service.createSendProposal.mock.invocationCallOrder[0]!
+        );
+      });
+
+      it.each<[string, Record<string, unknown>]>([
+        ['recorded a submit crossing', { mayHaveSubmitted: true }],
+        ["is at 'sending', which can enclose a submit", { stage: 'sending' }],
+        ['recorded no stage', { stage: undefined }],
+        [
+          "names an earlier attempt's candidate",
+          { guardianCandidate: { endpoint: GUARDIAN, nonce: 8, proposedAt: Date.now() - 60_000, attemptId: 'att-old' } }
+        ],
+        [
+          'has a proposal stamp later than the clock',
+          {
+            guardianCandidate: { endpoint: GUARDIAN, nonce: 8, proposedAt: Date.now() + 60_000, attemptId: 'att-dead' }
+          }
+        ]
+      ])('leaves the candidate to the Guardian when the dead row %s', async (_case, overrides) => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const service = settledService();
+        deadRow('dead-kept', overrides);
+
+        await failInterruptedTransactions();
+
+        expect(stored('dead-kept').status).toBe(ITransactionStatus.Failed);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+        await run(queueRow('next-send', SEND));
+        expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+        expect(service.abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it('does not hand back a candidate whose abandon the attempt already took', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = settledService();
+        const client = makeClientApi(makeResult());
+        client.transactions.executeRequest.mockRejectedValueOnce(new Error('failed to execute transaction: kernel'));
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('abandoned-then-died', SEND);
+        // A death once the Guardian took the abandon must find nothing left to send again.
+        const keptWhileAbandoning: unknown[] = [];
+        service.abandonCandidate.mockImplementation(async () => {
+          keptWhileAbandoning.push(stored(row.id).guardianCandidate);
+        });
+        await run(row);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(keptWhileAbandoning).toEqual([undefined]);
+        const left = stored(row.id).guardianCandidate as Record<string, unknown> | undefined;
+        // What an earlier process that died after that abandon, before failing the row, leaves for this one's sweep.
+        deadRow('abandoned-then-died-earlier', {
+          type: 'send',
+          guardianCandidate: left === undefined ? undefined : { ...left, attemptId: 'att-dead' }
+        });
+        clearGuardianAccountLocks();
+        arrangeClient();
+
+        await failInterruptedTransactions();
+        await run(queueRow('after-restart', SEND));
+
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(left).toBeUndefined();
+      });
+
+      it("keeps a later write's record over a dead row's candidate", async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        settledService();
+        const later = { endpoint: GUARDIAN, nonce: 9, ...proposedNow() };
+        recordGuardianCandidate('guardian-acc', later);
+        deadRow('dead-behind-later');
+
+        await failInterruptedTransactions();
+
+        expect(stored('dead-behind-later').status).toBe(ITransactionStatus.Failed);
+        expect(getGuardianCandidate('guardian-acc')).toEqual(later);
+      });
+    });
   });
 
   it('Guardian send: an unreachable guardian at signing-proposal requeues (#779)', async () => {
@@ -8814,9 +8971,12 @@ describe('generateTransaction — Guardian routing', () => {
         newEndpoint: 'https://new.guardian'
       })),
       signAndCreateTransactionRequest: jest.fn(),
-      abandonCandidate: jest.fn(async () => {}),
+      abandonCandidate: jest.fn(async () => {
+        keptWhileAbandoning.push(txStore.find(r => r.id === txId)!.guardianCandidate);
+      }),
       sync: jest.fn(async () => {})
     };
+    const keptWhileAbandoning: unknown[] = [];
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
     mockBuildColdMultisigService.mockRejectedValue(new Error('NetworkError when attempting to fetch resource'));
     mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
@@ -8857,6 +9017,9 @@ describe('generateTransaction — Guardian routing', () => {
     // set, so a delta left pending on a recovered operator cancels the NEXT
     // coordinated switch outright — leaving it is not harmless.
     expect(multisigService.abandonCandidate).toHaveBeenCalledWith(31);
+    // The row holds no candidate by the time the abandon goes out, so a later startup sweep cannot send it again (#1666).
+    expect(keptWhileAbandoning).toEqual([undefined]);
+    expect(txStore.find(r => r.id === txId)!.guardianCandidate).toBeUndefined();
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
       ...provider,

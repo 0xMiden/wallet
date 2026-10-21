@@ -13,6 +13,7 @@ import {
 } from './claim-fee';
 import {
   guardianHoldRetryMessage,
+  PRE_SUBMIT_STAGES,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
   TRANSACTION_LANDING_PENDING_RETRY_ERROR,
   TRANSACTION_RETRY_UNSAFE_ERROR,
@@ -216,65 +217,6 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * their own balance, so see `RetryOptions.acknowledged`.
  */
 const REBUILT_REQUEST_TYPES: ITransactionType[] = ['send', 'swap'];
-
-/**
- * Stages a Failed row can hold that PROVE nothing was broadcast, so its cached
- * request may be safely rebuilt (see the `requestBytes` clear below).
- *
- * A Failed row keeps the stage it died in - `updateTransactionStatus` preserves
- * it precisely because it records WHERE the failure happened - so this reads as
- * "how far did the last attempt get".
- *
- * Deliberately excludes 'sending', which is NOT pre-submit despite sitting
- * before the submit stamps in the stage list. It is stamped at pickup
- * (`generateTransaction`) and again just before the guardian leaf runs. The
- * inline leaf narrows it as it goes; the offscreen leaf takes `stageStampFor` too,
- * but its stamps are replayed late and are unreliable (`reliable: false`, #1081),
- * so a realm torn down mid-op can leave the row at 'sending' after a submit. Offscreen
- * routing is the DEFAULT (`MIDEN_USE_OFFSCREEN_CLIENT` defaults to 'true') and
- * `send` is offscreen-routable, so on the shipping path a submit that landed
- * before the realm was torn down leaves exactly this stage. The sibling requeue
- * gate reached the same conclusion independently - "a 429 at or after 'sending'
- * must NOT requeue".
- *
- * The cut is therefore `provenTx.submit()` OR any stage that could span it:
- * 'submitting' is stamped immediately before that call, and 'sending' may
- * enclose it.
- *
- * A missing stage is deliberately NOT in this set, because for a row that has
- * cached bytes it proves the opposite of what it looks like. Pickup stamps
- * 'syncing' then 'sending' before any request is built, so a row can only hold
- * bytes if it got past those - a missing stage on such a row therefore means
- * the stage was RESET by a requeue, not that nothing ever ran, and the history
- * it was reset from is exactly what is unknown. (A row that genuinely never
- * reached the loop has no bytes, so excluding it costs nothing: the clear it
- * misses is a no-op.) This matters for rows written by an older build, which
- * carry no `mayHaveSubmitted` at all: `cancelTransaction` fails a row without
- * writing a stage, so `cancelStaleQueuedTransactions` reaping a requeued row
- * leaves Failed + no stage + bytes, and reading that as pre-submit would
- * rebuild the note id of a transfer that may already have landed.
- *
- * None of the above makes the stage TRUSTWORTHY on its own, which is why
- * `mayHaveSubmitted` - not this set - is the primary guard. A Failed row's stage
- * says where the pipeline was when the row went terminal, and for an
- * out-of-band cancel that is not where the pipeline ENDED: nothing aborts the
- * leaf, `setTransactionStage` refuses to advance a terminal row, and the submit
- * still happens. The stage would then read 'proving' forever on a transfer
- * that landed. The leaves therefore stamp `mayHaveSubmitted` themselves at the
- * submit crossing (`markMayHaveSubmitted`, which the terminal guard does not
- * apply to), and this set only decides the case where no leaf ever got that far.
- */
-const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionStage>([
-  'syncing',
-  'creating-proposal',
-  'signing-proposal',
-  // The direct switch's local hot+cold signing, which happens while the request
-  // is still being BUILT - strictly earlier than `signing-proposal`, so it
-  // belongs here for the same reason.
-  'signing-locally',
-  'executing',
-  'proving'
-]);
 
 /** How long Retry waits for a reconciler pass that holds the row's verdict lock (#1081). */
 export const RETRY_VERDICT_WAIT_MS = 10_000;
