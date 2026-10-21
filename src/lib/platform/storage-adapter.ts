@@ -9,8 +9,8 @@ import { isDesktop, isExtension, isMobile } from './index';
  */
 export interface StorageProvider {
   get(keys: string[]): Promise<Record<string, any>>;
-  set(items: Record<string, any>): Promise<void>;
-  remove(keys: string[]): Promise<void>;
+  set(items: Record<string, unknown>, assertCurrent?: () => void): Promise<void>;
+  remove(keys: string[], assertCurrent?: () => void): Promise<void>;
 }
 
 // DesktopStorage's key namespace in localStorage; storage resets need it to keep kept keys.
@@ -39,15 +39,17 @@ export class DesktopStorage implements StorageProvider {
     return result;
   }
 
-  async set(items: Record<string, any>): Promise<void> {
+  async set(items: Record<string, unknown>, assertCurrent?: () => void): Promise<void> {
     for (const [key, value] of Object.entries(items)) {
       const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      assertCurrent?.();
       localStorage.setItem(this.prefix + key, serialized);
     }
   }
 
-  async remove(keys: string[]): Promise<void> {
+  async remove(keys: string[], assertCurrent?: () => void): Promise<void> {
     for (const key of keys) {
+      assertCurrent?.();
       localStorage.removeItem(this.prefix + key);
     }
   }
@@ -62,13 +64,15 @@ export class ExtensionStorage implements StorageProvider {
     return browser.storage.local.get(keys);
   }
 
-  async set(items: Record<string, any>): Promise<void> {
+  async set(items: Record<string, unknown>, assertCurrent?: () => void): Promise<void> {
     const browser = await import('webextension-polyfill').then(m => m.default);
+    assertCurrent?.();
     await browser.storage.local.set(items);
   }
 
-  async remove(keys: string[]): Promise<void> {
+  async remove(keys: string[], assertCurrent?: () => void): Promise<void> {
     const browser = await import('webextension-polyfill').then(m => m.default);
+    assertCurrent?.();
     await browser.storage.local.remove(keys);
   }
 }
@@ -102,17 +106,19 @@ export class CapacitorStorage implements StorageProvider {
     return result;
   }
 
-  async set(items: Record<string, any>): Promise<void> {
+  async set(items: Record<string, unknown>, assertCurrent?: () => void): Promise<void> {
     const Preferences = getPreferences();
     for (const [key, value] of Object.entries(items)) {
       const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      assertCurrent?.();
       await Preferences.set({ key, value: serialized });
     }
   }
 
-  async remove(keys: string[]): Promise<void> {
+  async remove(keys: string[], assertCurrent?: () => void): Promise<void> {
     const Preferences = getPreferences();
     for (const key of keys) {
+      assertCurrent?.();
       await Preferences.remove({ key });
     }
   }

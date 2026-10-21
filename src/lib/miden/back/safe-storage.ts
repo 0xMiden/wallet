@@ -39,13 +39,17 @@ export async function encryptAndSaveMany(items: [string, any][], key: CryptoKey,
   );
 
   assertCurrent?.();
-  await saveEncrypted(encItems);
+  await saveEncrypted(encItems, assertCurrent);
 }
 
 export async function removeMany(keys: string[], assertCurrent?: () => void) {
   const wrapped = await Promise.all(keys.map(wrapStorageKey));
   assertCurrent?.();
-  await getStorage().remove(wrapped);
+  if (assertCurrent) {
+    await getStorage().remove(wrapped, assertCurrent);
+  } else {
+    await getStorage().remove(wrapped);
+  }
 }
 
 export async function getPlain<T>(key: string): Promise<T | undefined> {
@@ -72,11 +76,15 @@ async function fetchEncryptedOne<T>(key: string) {
   }
 }
 
-async function saveEncrypted<T>(items: { [k: string]: T } | [string, T][]) {
+async function saveEncrypted<T>(items: { [k: string]: T } | [string, T][], assertCurrent?: () => void) {
   if (Array.isArray(items)) {
     items = iterToObj(items);
   }
-  await getStorage().set(items);
+  if (assertCurrent) {
+    await getStorage().set(items, assertCurrent);
+  } else {
+    await getStorage().set(items);
+  }
 }
 
 function iterToObj(iter: [string, any][]) {
