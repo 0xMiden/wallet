@@ -726,7 +726,7 @@
   "guardianSwitchSuccessInfo3": "New transactions need your new Guardian to be reachable before they can complete.",
   "guardianSwitchSuccessInfo4": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so.",
   "guardianSwitchSuccessInfo1Title": "Your new Guardian co-signs",
-  "guardianSwitchUnconfirmedInfo1Title": "Co-signs once confirmed",
+  "guardianSwitchUnconfirmedInfo1Title": "New Guardian co-signs once confirmed",
   "guardianSwitchSuccessInfo2Title": "Nothing moved",
   "guardianSwitchSuccessInfo3Title": "Keep it reachable",
   "guardianSwitchSuccessInfo4Title": "Switch again anytime",

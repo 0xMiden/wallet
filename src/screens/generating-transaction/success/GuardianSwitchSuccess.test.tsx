@@ -41,7 +41,7 @@ jest.mock('react-i18next', () => ({
         done: 'Done',
         unknown: 'Unknown',
         guardianSwitchSuccessInfo1Title: 'Your new Guardian co-signs',
-        guardianSwitchUnconfirmedInfo1Title: 'Co-signs once confirmed',
+        guardianSwitchUnconfirmedInfo1Title: 'New Guardian co-signs once confirmed',
         guardianSwitchSuccessInfo2Title: 'Nothing moved',
         guardianSwitchSuccessInfo3Title: 'Keep it reachable',
         guardianSwitchSuccessInfo4Title: 'Switch again anytime'
@@ -282,7 +282,7 @@ describe('GuardianSwitchSuccess', () => {
 
       const rows = rowsOf();
       expect(rows).toHaveLength(4);
-      expect(rows[0]).toHaveTextContent('Co-signs once confirmed');
+      expect(rows[0]).toHaveTextContent('New Guardian co-signs once confirmed');
       expect(rows[0]).toHaveTextContent('guardianSwitchUnconfirmedInfo1');
       expect(rows[0]).not.toHaveTextContent('Your new Guardian co-signs');
       expect(rows[2]).toHaveTextContent('Keep it reachable');
@@ -747,5 +747,12 @@ describe('Guardian-switch receipt bodies in each locale (#1233)', () => {
       expect(messages[key]?.englishSource).toBe(en[key]);
       expect(bundle[key]).toBe(message);
     }
+  });
+
+  // Negative-only: a short title need not contain the locale's switch term, and the locale may not have it yet.
+  it.each(SWITCH_TERMS)('%s does not render the Switch again title as hardware or a toggle', locale => {
+    const messages: Record<string, LocaleEntry | undefined> = readLocaleFile(`${locale}/messages.json`);
+
+    expect(messages['guardianSwitchSuccessInfo4Title']?.message ?? '').not.toMatch(HARDWARE_SENSE);
   });
 });
