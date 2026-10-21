@@ -39,7 +39,12 @@ jest.mock('react-i18next', () => ({
         guardianSwitchUnconfirmedHeading: 'Guardian switch submitted',
         viewInActivities: 'View in Activities',
         done: 'Done',
-        unknown: 'Unknown'
+        unknown: 'Unknown',
+        guardianSwitchSuccessInfo1Title: 'Your new Guardian co-signs',
+        guardianSwitchUnconfirmedInfo1Title: 'Co-signs once confirmed',
+        guardianSwitchSuccessInfo2Title: 'Nothing moved',
+        guardianSwitchSuccessInfo3Title: 'Keep it reachable',
+        guardianSwitchSuccessInfo4Title: 'Switch again anytime'
       };
       return map[key] ?? key;
     }
@@ -50,7 +55,7 @@ jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="transition-icon">{name}</span>,
-  IconName: { ArrowRight: 'ArrowRight' }
+  IconName: { ArrowRight: 'ArrowRight', ShieldCheck: 'ShieldCheck', Coins: 'Coins', Globe: 'Globe', Refresh: 'Refresh' }
 }));
 
 jest.mock('app/icons/guardian-switch-success.svg', () => ({
@@ -229,6 +234,76 @@ describe('GuardianSwitchSuccess', () => {
     expect(bullets).toHaveLength(4);
     ['1', '2', '3', '4'].forEach((n, index) => {
       expect(bullets[index]).toHaveTextContent(`guardianSwitchSuccessInfo${n}`);
+    });
+  });
+
+  describe('"what changes now" as titled rows', () => {
+    const rowsOf = () => Array.from(body().querySelectorAll('li'));
+    const unconfirmedTx = () =>
+      switchGuardianTx({
+        extraInputs: {
+          previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+          newGuardianEndpoint: KODA_ENDPOINT,
+          commitUnconfirmed: true
+        }
+      });
+
+    it('lists four rows under an h2, each a title over its sentence', () => {
+      render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
+
+      const heading = screen.getByRole('heading', { level: 2 });
+      expect(heading).toHaveTextContent('guardianSwitchSuccessInfoTitle');
+      const rows = rowsOf();
+      expect(rows[0].closest('ul')).not.toBeNull();
+      expect(rows).toHaveLength(4);
+      const expected = [
+        ['Your new Guardian co-signs', 'guardianSwitchSuccessInfo1'],
+        ['Nothing moved', 'guardianSwitchSuccessInfo2'],
+        ['Keep it reachable', 'guardianSwitchSuccessInfo3'],
+        ['Switch again anytime', 'guardianSwitchSuccessInfo4']
+      ];
+      expected.forEach(([title, description], index) => {
+        expect(rows[index]).toHaveTextContent(title);
+        expect(rows[index]).toHaveTextContent(description);
+      });
+      expect(rows.map(row => row.querySelector('[data-testid="transition-icon"]')?.textContent)).toEqual([
+        'ShieldCheck',
+        'Coins',
+        'Globe',
+        'Refresh'
+      ]);
+    });
+
+    it('swaps the titles of rows 1 and 3 with their sentences when the commit is unconfirmed', () => {
+      render(<GuardianSwitchSuccess transaction={unconfirmedTx()} onDoneClick={() => {}} />);
+
+      const rows = rowsOf();
+      expect(rows).toHaveLength(4);
+      expect(rows[0]).toHaveTextContent('Co-signs once confirmed');
+      expect(rows[0]).toHaveTextContent('guardianSwitchUnconfirmedInfo1');
+      expect(rows[0]).not.toHaveTextContent('Your new Guardian co-signs');
+      expect(rows[2]).toHaveTextContent('Keep it reachable');
+      expect(rows[2]).toHaveTextContent('guardianSwitchUnconfirmedInfo3');
+    });
+
+    it('drops the fourth row when the local state is unrecoverable', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      const rows = rowsOf();
+      expect(rows).toHaveLength(3);
+      expect(rows[2]).toHaveTextContent('Keep it reachable');
+      expect(body()).not.toHaveTextContent('Switch again anytime');
     });
   });
 
