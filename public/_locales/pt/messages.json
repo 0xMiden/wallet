@@ -3326,6 +3326,18 @@
     "message": "Ocorreu um erro ao alternar sua chave de uso diário. Seus fundos estão seguros, e você pode tentar novamente agora.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
   },
+  "hotKeyRotationStartOver": {
+    "message": "Recomeçar",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "Devo excluir essa carteira e começar do zero?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "Isso remove a carteira deste dispositivo para que você possa restaurá-la novamente, por exemplo, com uma URL de “guardian” diferente. Seus fundos permanecem na rede. Você precisará da sua frase de recuperação para restaurar a carteira.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "A rotação diária da chave não foi confirmada",
     "englishSource": "Everyday key rotation not confirmed"
@@ -3825,6 +3837,15 @@
   "guardianNotDetected": {
     "message": "Não foi possível detectar automaticamente o seu guardian. Escolha o que você usou ou insira a URL dele.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianStateBehindChain": {
+    "message": "$name$ conhece esta conta, mas não mantém seu estado mais recente. Se você transferiu a conta para outro guardian, insira a URL desse guardian.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianProbePartialFailure": {
     "message": "$count$ Não foi possível acessar guardian(s), portanto a detecção pode estar incompleta.",

@@ -3326,6 +3326,18 @@
     "message": "일상용 키를 교체하는 과정에서 문제가 발생했습니다. 자금은 안전하며, 지금 다시 시도할 수 있습니다.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
   },
+  "hotKeyRotationStartOver": {
+    "message": "다시 시작",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "이 지갑을 삭제하고 다시 시작해야 할까요?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "이 작업은 해당 기기에서 지갑을 제거하므로, 예를 들어 다른 가디언(guardian) URL을 사용하여 지갑을 다시 복원할 수 있습니다. 귀하의 자금은 네트워크에 그대로 남아 있습니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "매일 키 교체는 확인되지 않음",
     "englishSource": "Everyday key rotation not confirmed"
@@ -3825,6 +3837,15 @@
   "guardianNotDetected": {
     "message": "사용하신 guardian를 자동으로 감지할 수 없습니다. 사용하신 도메인을 선택하거나 URL을 직접 입력해 주세요.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianStateBehindChain": {
+    "message": "$name$는 이 계정을 인식하지만, 계정의 최신 상태를 보유하고 있지는 않습니다. 계정을 다른 guardian로 이전한 경우, 해당 guardian의 URL을 입력하십시오.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianProbePartialFailure": {
     "message": "$count$ guardian(s)에 접속할 수 없어, 탐지가 불완전할 수 있습니다.",

@@ -3326,6 +3326,18 @@
     "message": "Une erreur s’est produite lors de la rotation de votre clé quotidienne. Vos fonds sont en sécurité, et vous pouvez réessayer dès maintenant.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
   },
+  "hotKeyRotationStartOver": {
+    "message": "Recommencer",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "Faut-il supprimer ce portefeuille et repartir de zéro ?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "Cette opération supprime le portefeuille de cet appareil afin que vous puissiez le restaurer ultérieurement, par exemple avec une URL « guardian » différente. Vos fonds restent sur le réseau. Vous aurez besoin de votre phrase de récupération pour restaurer le portefeuille.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Rotation quotidienne des clés non confirmée",
     "englishSource": "Everyday key rotation not confirmed"
@@ -3825,6 +3837,15 @@
   "guardianNotDetected": {
     "message": "Nous n’avons pas pu détecter automatiquement votre guardian. Sélectionnez celle que vous avez utilisée ou saisissez son URL.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
+  },
+  "guardianStateBehindChain": {
+    "message": "$name$ connaît ce compte, mais ne dispose pas de son état le plus récent. Si vous avez transféré le compte vers un autre guardian, saisissez l’URL de ce dernier.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianProbePartialFailure": {
     "message": "$count$ Les guardian n’ont pas pu être consultés, la détection est donc peut-être incomplète.",
