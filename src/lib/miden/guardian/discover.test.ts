@@ -453,6 +453,7 @@ describe('discoverGuardianForSeed', () => {
 
     const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
 
+    expect(mockChainReads).toEqual(['acct-1']);
     expect(result.best?.endpoint).toBe(LAMBDA);
     expect(result.best?.holdsCurrentState).toBeUndefined();
   });
@@ -463,6 +464,7 @@ describe('discoverGuardianForSeed', () => {
 
     const result = await discoverGuardianForSeed(fakeDeriveSeed, testnet);
 
+    expect(mockChainReads).toEqual(['acct-1']);
     expect(result.best?.endpoint).toBe(LAMBDA);
     expect(result.best?.holdsCurrentState).toBeUndefined();
   });
@@ -675,15 +677,15 @@ describe('decodeStates', () => {
   });
 
   it('reads each account state commitment next to the maximum nonce', () => {
-    mockBackend.set(OZ, { nonces: { a: 2n, b: 11n }, stateCommitments: { a: 'A', b: 'B' } });
+    mockBackend.set(OZ, { nonces: { a: 2n, b: 11n }, stateCommitments: { a: 'A1', b: 'B2' } });
     scriptNonces();
 
     const decoded = decodeStates([state('a'), state('b')]);
 
     expect(decoded.nonce).toBe(11n);
     expect(Array.from(decoded.commitments)).toEqual([
-      ['a', 'a'],
-      ['b', 'b']
+      ['a', 'a1'],
+      ['b', 'b2']
     ]);
   });
 
