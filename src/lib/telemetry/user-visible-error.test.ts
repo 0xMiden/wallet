@@ -90,6 +90,53 @@ describe('user-visible error reports', () => {
     expect(captureCrash).toHaveBeenCalledTimes(31);
   });
 
+  it.each([
+    ['backward', -86_400_000],
+    ['forward', 86_400_000]
+  ])('keeps the pair cooldown tied to elapsed time after a %s wall-clock correction', (_direction, correction) => {
+    const wallStart = 1_000_000_000;
+    jest.setSystemTime(wallStart);
+    const elapsedStart = performance.now();
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    expect(captureCrash).toHaveBeenCalledTimes(1);
+
+    jest.setSystemTime(wallStart + Number(correction));
+    expect(performance.now()).toBe(elapsedStart);
+    jest.advanceTimersByTime(59_999);
+    expect(performance.now() - elapsedStart).toBe(59_999);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    expect(captureCrash).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(1);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    expect(captureCrash).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['backward', -86_400_000],
+    ['forward', 86_400_000]
+  ])('keeps the realm window tied to elapsed time after a %s wall-clock correction', (_direction, correction) => {
+    const wallStart = 1_000_000_000;
+    jest.setSystemTime(wallStart);
+    const elapsedStart = performance.now();
+    const pairs = USER_ERROR_IDS.flatMap(id => USER_ERROR_SURFACES.map(surface => ({ id, surface }))).slice(0, 31);
+    expect(new Set(pairs.map(({ id, surface }) => `${id}:${surface}`)).size).toBe(31);
+    for (const { id, surface } of pairs.slice(0, 30)) reportUserVisibleError(id, surface);
+    expect(captureCrash).toHaveBeenCalledTimes(30);
+    const nextPair = pairs[30]!;
+
+    jest.setSystemTime(wallStart + Number(correction));
+    expect(performance.now()).toBe(elapsedStart);
+    jest.advanceTimersByTime(599_999);
+    expect(performance.now() - elapsedStart).toBe(599_999);
+    reportUserVisibleError(nextPair.id, nextPair.surface);
+    expect(captureCrash).toHaveBeenCalledTimes(30);
+
+    jest.advanceTimersByTime(1);
+    reportUserVisibleError(nextPair.id, nextPair.surface);
+    expect(captureCrash).toHaveBeenCalledTimes(31);
+  });
+
   it('does not charge an invalid or throttled call against the realm cap', () => {
     for (let attempt = 0; attempt < 31; attempt++) {
       report('Unable to read 0x12ab', 'review');
