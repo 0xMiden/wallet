@@ -647,7 +647,13 @@ describe('managed native request ownership', () => {
 
   function managedHarness() {
     const h = harness();
-    const transport = new AppSwitchTransport({ ...h.options, managedOpener: openManagedWallet });
+    const transport = new AppSwitchTransport({
+      callback: h.options.callback,
+      storage: h.storage,
+      links: h.links,
+      now: h.options.now,
+      managedOpener: openManagedWallet
+    });
     return { ...h, transport };
   }
 

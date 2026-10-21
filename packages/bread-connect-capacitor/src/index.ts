@@ -54,14 +54,17 @@ export function installBreadConnect(options: BreadConnectOptions): BreadConnectW
   if (callbackOrigin(options.callback) === null) {
     throw new Error('The callback must be a canonical https link on a domain the app owns, with no query or fragment');
   }
-  const transport = new AppSwitchTransport({
+  const transportOptions = {
     callback: options.callback,
     storage: options.storage ?? window.localStorage,
-    links: options.links ?? capacitorLinks(),
-    openWallet: options.openWallet ?? openWithPlugin,
-    managedOpener:
-      options.openWallet === undefined || options.openWallet === openWithPlugin ? openManagedWallet : undefined
-  });
+    links: options.links ?? capacitorLinks()
+  };
+  const openWallet = options.openWallet;
+  const transport = new AppSwitchTransport(
+    openWallet === undefined || openWallet === openWithPlugin
+      ? { ...transportOptions, managedOpener: openManagedWallet }
+      : { ...transportOptions, openWallet }
+  );
   void transport.start();
   const wallet = new BreadConnectWallet(transport, options.appName);
   Object.defineProperty(window, 'midenWallet', { value: wallet, configurable: true, writable: true });

@@ -4,8 +4,9 @@ import { BreadConnectNative, NativeOpenStep } from './plugin.js';
 export async function openManagedWallet(link: string, signal: AbortSignal): Promise<boolean> {
   let attemptId: string | undefined;
   let revoked = false;
+  let retired = false;
   const revoke = () => {
-    if (attemptId === undefined || revoked) return;
+    if (attemptId === undefined || revoked || retired) return;
     revoked = true;
     void BreadConnectNative.revokeOpen({ attemptId }).catch(() => undefined);
   };
@@ -17,6 +18,7 @@ export async function openManagedWallet(link: string, signal: AbortSignal): Prom
     while (step !== undefined) {
       if (signal.aborted) return true;
       const result = await BreadConnectNative.openStep({ attemptId, step });
+      if (!result.cancelled && (result.opened || (step !== 'wallet' && result.next === undefined))) retired = true;
       if (signal.aborted || result.cancelled || result.opened) return true;
       step = result.next;
     }

@@ -36,9 +36,12 @@ export interface TransportOptions {
   links: LinkSource;
   /** Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead. */
   openWallet: (link: string) => Promise<boolean>;
-  /** Built-in request-owned native sequence; custom one-argument openers remain unchanged. */
-  managedOpener?: (link: string, signal: AbortSignal) => Promise<boolean>;
   now?: () => number;
+}
+
+interface ManagedTransportOptions extends Omit<TransportOptions, 'openWallet'> {
+  openWallet?: never;
+  managedOpener: (link: string, signal: AbortSignal) => Promise<boolean>;
 }
 
 /** A connected session, with the permission request it answered and Bread's answer. */
@@ -87,8 +90,16 @@ export class AppSwitchTransport {
   private unsubscribe: (() => void) | null = null;
   /** Every cancel so far: one that comes while a connect or request awaits `start` finds no waiter to settle. */
   private cancellations = 0;
+  private readonly openWallet: (link: string, signal: AbortSignal) => Promise<boolean>;
 
-  constructor(private readonly options: TransportOptions) {}
+  constructor(private readonly options: TransportOptions | ManagedTransportOptions) {
+    if ('managedOpener' in options) {
+      this.openWallet = options.managedOpener;
+    } else {
+      const openWallet = options.openWallet;
+      this.openWallet = link => openWallet.call(options, link);
+    }
+  }
 
   /** Listens for Bread's answers and reads the link the app was launched with. */
   start(): Promise<void> {
@@ -254,9 +265,7 @@ export class AppSwitchTransport {
       this.waiter = { pending, resolve, reject, timer, controller };
     });
     const waiter = this.waiter;
-    const opening = this.options.managedOpener
-      ? this.options.managedOpener(link, controller.signal)
-      : this.options.openWallet(link);
+    const opening = this.openWallet(link, controller.signal);
     opening.then(
       opened => {
         if (!opened && this.waiter === waiter) {
