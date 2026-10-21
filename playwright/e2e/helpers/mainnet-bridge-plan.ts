@@ -14,6 +14,10 @@ export const AGGLAYER_TX_GAS = 600_000n;
 
 export const ETHEREUM_PAYOUT_ALLOWANCE = 1_500_000n;
 export const DIRECT_PAYOUT_ALLOWANCE = 100_000n;
+/** The wallet's own cap: a transaction costs at most 30 base fees. Observed ones land near 17. */
+export const TX_FEE_MULTIPLE = 30n;
+/** A measured mainnet USDCx burn was 36 base fees. The wallet adds 25% headroom. */
+export const BURN_FEE_MULTIPLE = 45n;
 
 const CHAIN_NAMES: Record<number, string> = { 5042: 'arc', 1: 'ethereum', 8453: 'base', 42161: 'arbitrum' };
 const CHAIN_ORDER = [5042, 8453, 42161, 1];
@@ -55,6 +59,11 @@ export function usdcReserve(quotedForwardFee: bigint, payoutAllowance: bigint): 
   const deposit = LOOP_USDC + FORWARD_FEE_MULTIPLE * quotedForwardFee;
   const consumed = quotedForwardFee + payoutAllowance;
   return deposit + consumed;
+}
+
+/** Native base units for two nights. Burns cost more than an ordinary transaction. */
+export function midenFeeReserve(baseFee: bigint, burns: bigint, otherTxs: bigint): bigint {
+  return NIGHTS * (burns * BURN_FEE_MULTIPLE + otherTxs * TX_FEE_MULTIPLE) * baseFee;
 }
 
 export function payoutAllowance(domain: number): bigint {

@@ -2,8 +2,11 @@ import {
   agglayerGasReserve,
   agglayerShortfall,
   bridgeLoops,
+  BURN_FEE_MULTIPLE,
   depositGasReserve,
   LOOP_USDC,
+  midenFeeReserve,
+  TX_FEE_MULTIPLE,
   usdcReserve,
   usdcxShortfall,
   type MainnetBridgeChain
@@ -74,6 +77,13 @@ describe('mainnet bridge loops', () => {
         maxFeePerGas: 1n
       })
     ).toBeUndefined();
+  });
+
+  it('prices fees in base-fee units, so a base fee of 7 is a fraction of one USDCx', () => {
+    expect(TX_FEE_MULTIPLE * 7n).toBe(210n);
+    expect(BURN_FEE_MULTIPLE * 7n).toBe(315n);
+    // Four burns and six other transactions, for two nights, at testnet's base fee.
+    expect(midenFeeReserve(7n, 4n, 6n)).toBe(5_040n);
   });
 
   it('reserves two nights of AggLayer gas before it bridges', () => {

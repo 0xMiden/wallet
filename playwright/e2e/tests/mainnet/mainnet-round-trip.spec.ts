@@ -18,10 +18,11 @@ import {
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from '../../helpers/balance-truth';
+import { NIGHTS, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
 
 const SEND_BASE_UNITS = 1n;
-/** Leftover claim, the send, and the incoming claim. Each is budgeted as one verification base fee. */
-const FEE_TXS_PER_NIGHT = 3n;
+/** Leftover claim, the send, and the incoming claim. */
+const ROUND_TRIP_TXS = 3n;
 
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial' });
@@ -153,8 +154,8 @@ test.describe('nightly round trip', () => {
     await walletA.triggerSync(true);
     await walletB.triggerSync(true);
     const fee = await discoveredFee(walletA.page);
-    const perTx = FEE_TXS_PER_NIGHT * BigInt(fee);
-    const required = 2n * (SEND_BASE_UNITS + perTx);
+    const oneTx = TX_FEE_MULTIPLE * BigInt(fee);
+    const required = NIGHTS * (SEND_BASE_UNITS + ROUND_TRIP_TXS * oneTx);
     const plainHolding = await nativeHolding(walletA.page);
     const guardianHolding = await nativeHolding(walletB.page);
     expect(guardianHolding.faucetId).toBe(plainHolding.faucetId);
@@ -175,8 +176,8 @@ test.describe('nightly round trip', () => {
       plain: await vaultBalanceByFaucetId(walletA.page, plainHolding.faucetId),
       guardian: await vaultBalanceByFaucetId(walletB.page, plainHolding.faucetId)
     };
-    await exchange(walletA, walletB, plainHolding, perTx);
-    await exchange(walletB, walletA, plainHolding, perTx);
+    await exchange(walletA, walletB, plainHolding, oneTx);
+    await exchange(walletB, walletA, plainHolding, oneTx);
     const after = {
       plain: await vaultBalanceByFaucetId(walletA.page, plainHolding.faucetId),
       guardian: await vaultBalanceByFaucetId(walletB.page, plainHolding.faucetId)

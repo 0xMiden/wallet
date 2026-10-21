@@ -6,13 +6,20 @@ import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/re
 import { getChain } from '../../../../src/lib/walletconnect/config';
 import { expect, test, type GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { ERC20_ABI } from '../../helpers/arc-usdcx';
-import { fromBaseUnits, vaultBalance } from '../../helpers/balance-truth';
+import {
+  fromBaseUnits,
+  vaultBalance,
+  vaultBalanceByFaucetId,
+  walletDiscoveredBaseFee,
+  walletDiscoveredNativeFaucetId
+} from '../../helpers/balance-truth';
 import { bridgeOutSlow } from '../../helpers/bridge';
 import { bridgeEthToMiden, claimAgglayerOnEthereum, depositXReserve } from '../../helpers/mainnet-bridge-evm';
 import {
   agglayerShortfall,
   bridgeLoops,
   LOOP_USDC,
+  midenFeeReserve,
   usdcxShortfall,
   type UsdcxLoop
 } from '../../helpers/mainnet-bridge-plan';
@@ -52,6 +59,21 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
   const imported = await walletA.importOnChainWallet(seed.trim().split(/\s+/));
   const accountId = await accountHex(imported.address);
   const problems: string[] = [];
+  await walletA.triggerSync(true);
+  const baseFee = await walletDiscoveredBaseFee(walletA.page);
+  const nativeId = await walletDiscoveredNativeFaucetId(walletA.page);
+  if (baseFee === null || baseFee < 1 || !nativeId) {
+    problems.push('the Miden account has not discovered its fee');
+  } else {
+    // Four USDCx burns, plus four claims and the AggLayer claim and return.
+    const need = midenFeeReserve(BigInt(baseFee), 4n, 6n);
+    const held = await vaultBalanceByFaucetId(walletA.page, nativeId);
+    if (held < need) {
+      problems.push(
+        `${imported.address} holds ${held} native base units, short of ${need} for two nights of bridge fees`
+      );
+    }
+  }
 
   for (const loop of loops) {
     if (loop.kind === 'agglayer') {
