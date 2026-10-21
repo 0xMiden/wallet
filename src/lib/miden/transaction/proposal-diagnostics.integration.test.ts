@@ -721,7 +721,9 @@ describe('a claim that fails while recording its result after the guardian sync'
     ['no_fungible_assets', () => (mockState.noAssets = true)]
   ])('reports the %s check as a refusal while reading the result', async (guard, arm) => {
     arm();
-    expectSubmittedOnce(await run());
+    const stored = await run();
+    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     await failureEventWith({ completionStep: 'result_read', completionGuard: guard }, consumeAfterSync);
   });
 
@@ -769,6 +771,7 @@ describe('a claim that fails while recording its result after the guardian sync'
     Repo.transactions.hook('updating', rejectComplete);
     try {
       expectSubmittedOnce(await run());
+      expect(thrown).toBe(true);
       await failureEventWith({ completionStep: 'status_write', completionGuard: undefined }, consumeAfterSync);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(rejectComplete);

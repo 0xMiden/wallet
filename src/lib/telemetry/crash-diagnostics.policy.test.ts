@@ -10,6 +10,8 @@ import {
 } from 'lib/walletconnect/native-request-failure';
 
 import {
+  COMPLETION_GUARDS,
+  COMPLETION_STEPS,
   CONFIRMATION_HANDLER_STATES,
   PAGE_VISIBILITY,
   PROPOSAL_GUARDS,
@@ -57,6 +59,8 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['reconnected to the background', ['true', 'false']],
   ['the preparation step that failed', PROPOSAL_STEPS],
   ['which check refused it', PROPOSAL_GUARDS],
+  ['the finishing step that failed', COMPLETION_STEPS],
+  ['which finishing check refused it', COMPLETION_GUARDS],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],
