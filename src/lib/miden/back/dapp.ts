@@ -117,7 +117,12 @@ import { commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
-import type { ConfirmationHandlerState } from 'lib/telemetry/crash-diagnostics';
+import {
+  backgroundAgeOf,
+  type ConfirmationHandlerState,
+  type ConfirmationRegistryState,
+  type ConfirmationRequestShape
+} from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
@@ -3081,6 +3086,7 @@ const isConfirmationOf = (req: MidenRequest, id: string): boolean =>
 type ConfirmationState = Exclude<ConfirmationHandlerState, 'unknown'>;
 const CONFIRMATION_STATES_KEPT = 64;
 const confirmationStates = new Map<string, ConfirmationState>();
+let confirmationStatesPruned = false;
 
 function recordConfirmationState(id: string, state: ConfirmationState): void {
   confirmationStates.delete(id);
@@ -3088,16 +3094,34 @@ function recordConfirmationState(id: string, state: ConfirmationState): void {
   for (const oldest of confirmationStates.keys()) {
     if (confirmationStates.size <= CONFIRMATION_STATES_KEPT) return;
     confirmationStates.delete(oldest);
+    confirmationStatesPruned = true;
   }
 }
 
-/** The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached. */
+function requestShapeOf(req: unknown): ConfirmationRequestShape {
+  if (typeof req !== 'object' || req === null || !('id' in req)) return 'missing';
+  const sent: unknown = req.id;
+  if (typeof sent === 'string') return 'string';
+  if (Array.isArray(sent)) return typeof sent[0] === 'string' ? 'array_with_string' : 'array_without_string';
+  return 'other';
+}
+
+function registryState(): ConfirmationRegistryState {
+  if (confirmationStatesPruned) return 'pruned';
+  return confirmationStates.size === 0 ? 'empty' : 'holding';
+}
+
+/**
+ * The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached, the
+ * shape of the id the request carried, what this worker remembers of recent approvals and how long it has run.
+ */
 export function confirmationNotFound(req: unknown): Error & { code: string } {
   const sent: unknown = typeof req === 'object' && req !== null && 'id' in req ? req.id : undefined;
   // The payload request sends the popup's SWR key, an array holding the id.
   const id: unknown = Array.isArray(sent) ? sent[0] : sent;
   const state = typeof id === 'string' ? confirmationStates.get(id) : undefined;
-  return Object.assign(new Error('Not Found'), { code: `confirmation_${state ?? 'unknown'}` });
+  const labels = [requestShapeOf(req), registryState(), backgroundAgeOf(performance.now())];
+  return Object.assign(new Error('Not Found'), { code: [`confirmation_${state ?? 'unknown'}`, ...labels].join(':') });
 }
 
 async function requestConfirm({

@@ -116,6 +116,35 @@ describe('initiateConsumeNotesTransaction — batching', () => {
   });
 });
 
+describe('queueConsumeNotes — swap settlement link', () => {
+  // A link written after the insert left a window where a running processor could complete a sibling chunk and
+  // stamp the order while this row was still unlinked (#1644).
+  it('writes the link in the insert that creates the row', async () => {
+    const inserted: Array<ITransaction['extraInputs']> = [];
+    const onCreating = (_key: unknown, row: ITransaction) => {
+      inserted.push(row.extraInputs ? { ...row.extraInputs } : undefined);
+    };
+    Repo.transactions.hook('creating', onCreating);
+    try {
+      await queueConsumeNotes(
+        ACCOUNT,
+        [note('payback-1'), note('payback-2')],
+        false,
+        undefined,
+        undefined,
+        undefined,
+        'swap_settlement',
+        undefined,
+        { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' }
+      );
+    } finally {
+      Repo.transactions.hook('creating').unsubscribe(onCreating);
+    }
+
+    expect(inserted).toEqual([{ swapOrderTxId: 'swap-row', swapSettleKind: 'settle' }]);
+  });
+});
+
 describe('initiatePswapReclaimTransaction', () => {
   it('inserts the prepared request and settlement link atomically on the consume row', async () => {
     const requestBytes = new Uint8Array([7, 4, 7, 6]);

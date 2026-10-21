@@ -191,6 +191,8 @@ export interface IHistoryEntry {
   bridgeInSourceConfig?: UsdcxSourceChain;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
+  /** agglayer: the deposited ERC-20's address, lowercase; absent on ETH and older rows. */
+  bridgeInSourceToken?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
   /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */

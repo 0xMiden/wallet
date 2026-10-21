@@ -230,9 +230,17 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * (design §4), the same risk profile as today's eviction, now time-bounded.
  *
  * Overridable by the build ONLY so the E2E stack can retune it (#718). Every
- * shipping bundle leaves it at 90s: raising the shipping default on the strength
- * of a CI timing would trade a visible CI failure for an invisible production
- * hang, which is the one thing this knob exists to prevent.
+ * shipping bundle leaves it at 180s. It was 90s, sized when a local prove could
+ * not finish at all (below), and that was shorter than the slowest write the
+ * wallet itself allows: a delegated prove may take `DELEGATED_PROVE_TIMEOUT_MS`
+ * (120s) and then still has to submit and apply. Once local proving ran in the
+ * prove worker (#945), a legitimate on-device proof of a multi-note claim ran
+ * past 90s too, and each cut-off kept a Guardian proposal that blocked the
+ * account (#1644). 180s covers the delegated timeout with margin, and the claim
+ * cap (`MAX_NOTES_PER_UNATTENDED_CLAIM`) bounds what one local prove is asked to
+ * do. The cost is 90s more realm time per genuine wedge. Raising it further on
+ * the strength of a CI timing would trade a visible CI failure for an invisible
+ * production hang, which is the one thing this knob exists to prevent.
  *
  * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
  *
@@ -260,7 +268,7 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * the healthy case untouched either way — delegated consumes that completed on the
  * same 2-core runner took 12.1s and 9.9s end to end.
  */
-const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
+const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '180000');
 
 /**
  * Dispatch-time BACKSTOP deadline (ms) for a whole-op offscreen WRITE (issue #260
@@ -277,11 +285,11 @@ const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000')
  * CANNOT false-kill a write merely queued behind slow ops — the exact bug arm-on-start
  * fixed — yet is bounded so a dropped-start op is eventually reclaimed instead of
  * hanging forever. The worst-case contiguous mutex-hold by other ops is a full
- * `syncState` (~45s) plus a write (~90s) ≈ 135s; the commit-wait, though its own
+ * `syncState` (~45s) plus a write (~180s) ≈ 225s; the commit-wait, though its own
  * ceiling is now 150s, YIELDS the mutex during its inter-poll sleeps (follow-up #1),
  * so a queued write runs DURING those sleeps rather than waiting the whole poll — it
- * does not dominate queue-wait. 5min keeps ample headroom above 135s.
- * Normal path: dispatch → backstop(5min) → start → real(~90s). Dropped start:
+ * does not dominate queue-wait. 5min keeps headroom above 225s.
+ * Normal path: dispatch → backstop(5min) → start → real(~180s). Dropped start:
  * dispatch → backstop(5min) fires → op killed (bounded, not hung).
  */
 const CRITICAL_DISPATCH_BACKSTOP_MS = 300_000;
@@ -861,7 +869,7 @@ type OffscreenSwapDto = {
  * `sendTransaction`/`swapTransaction`/`newTransaction` (slice 5b) — so each runs
  * on the SAME proven machinery: an op-scoped reverse-IPC sign callback (§2.7),
  * the op-keyed locked-reason tag (§2.6, issue #313), `criticalOpCount`
- * bracketing (§3), and the sign-paused 90s `WRITE_DEADLINE_MS` kill (§3.4). The
+ * bracketing (§3), and the sign-paused 180s `WRITE_DEADLINE_MS` kill (§3.4). The
  * ONLY per-method variation is the `method` name and the DTO/bytes `args`.
  *
  * The SW WASM lock is deliberately NOT held: the write serializes inside the
@@ -929,7 +937,7 @@ async function dispatchOffscreenWrite(
  * — the identical op-shape as every non-guardian write — so this delegates to the
  * SAME `dispatchOffscreenWrite` machinery: the op-scoped reverse-IPC sign callback
  * (the executeRequest keystore sign, over the EXISTING OFFSCREEN_SIGN_REQUEST
- * channel), `criticalOp` bracketing, the sign-paused 90s `WRITE_DEADLINE_MS` kill,
+ * channel), `criticalOp` bracketing, the sign-paused 180s `WRITE_DEADLINE_MS` kill,
  * and `finishOp`'s `errorCode` re-attach (so a round-tripped
  * `ApplyTransactionAfterSubmitFailed` reaches the SW GUARDIAN classifier intact).
  * `trBytes` is `tr.serialize()`; it crosses as raw bytes (`encodeArg`), never JSON.
@@ -1753,7 +1761,7 @@ export const __test = {
   /**
    * Dispatch a CRITICAL op with a caller-chosen deadline — a test hook that
    * exercises the real `dispatchOp` + `onDeadline` critical path (own-deadline
-   * kill, sign-pause) without waiting the production 90s `WRITE_DEADLINE_MS`.
+   * kill, sign-pause) without waiting the production 180s `WRITE_DEADLINE_MS`.
    * Mirrors the `criticalOp` bracketing `dispatchOffscreenConsume` performs.
    */
   dispatchCritical: (method: string, args: unknown[], deadlineMs: number | null) => {
