@@ -265,7 +265,13 @@ export function markNativeSessionPrecheck(error: object, fact: NativeSessionPrec
 export function readNativeSessionPrecheck(cause: unknown): NativeSessionPrecheck | undefined {
   const seen = new Set<object>();
   let current = cause;
-  while (typeof current === 'object' && current !== null && seen.size < MAX_LINKS && !seen.has(current)) {
+  // A thrown function is a markable object. `typeof` reports it as `function`, not `object`.
+  while (
+    current !== null &&
+    (typeof current === 'object' || typeof current === 'function') &&
+    seen.size < MAX_LINKS &&
+    !seen.has(current)
+  ) {
     seen.add(current);
     const fact = SESSION_PRECHECKS.get(current);
     if (fact !== undefined) return fact;
