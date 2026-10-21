@@ -1,4 +1,10 @@
 {
+  "bridgeRouteEpoch": "Fast · Epoch",
+  "bridgeRouteAgglayer": "Slow · Agglayer",
+  "bridgeRouteUnavailableBody": "此轉帳無法使用此路徑。您可以選擇其他可用的路徑繼續操作。此畫面尚未提交任何交易。",
+  "bridgeRouteNoneAvailableBody": "此轉帳無法使用此路徑，且目前亦無其他可用路徑。此畫面尚未提交任何交易。",
+  "bridgeContinueAgglayer": "透過 Agglayer 繼續",
+  "bridgeContinueEpoch": "透過 Epoch 繼續",
   "usdcxBurnTitle": "銷毀 USDCx",
   "usdcxBurnSubmitted": "已提交銷毀請求",
   "usdcxMidenFees": "$symbol$ 手續費",

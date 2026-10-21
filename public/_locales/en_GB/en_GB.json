@@ -1,4 +1,10 @@
 {
+  "bridgeRouteEpoch": "Fast · Epoch",
+  "bridgeRouteAgglayer": "Slow · Agglayer",
+  "bridgeRouteUnavailableBody": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen.",
+  "bridgeRouteNoneAvailableBody": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen.",
+  "bridgeContinueAgglayer": "Continue via Agglayer",
+  "bridgeContinueEpoch": "Continue via Epoch",
   "usdcxBurnTitle": "Burn USDCx",
   "usdcxBurnSubmitted": "Burn submitted",
   "usdcxMidenFees": "$symbol$ fees",

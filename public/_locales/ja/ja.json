@@ -1,4 +1,10 @@
 {
+  "bridgeRouteEpoch": "Fast · Epoch",
+  "bridgeRouteAgglayer": "Slow · Agglayer",
+  "bridgeRouteUnavailableBody": "この送金には、この経路は利用できません。利用可能な別の経路で続行してください。この画面からは取引が送信されていません。",
+  "bridgeRouteNoneAvailableBody": "この送金にはこの経路は利用できません。また、現時点では他の利用可能な経路もありません。この画面からは取引が送信されていません。",
+  "bridgeContinueAgglayer": "Agglayerで続ける",
+  "bridgeContinueEpoch": "Epochで続ける",
   "usdcxBurnTitle": "USDCxのバーン",
   "usdcxBurnSubmitted": "バーンが送信されました",
   "usdcxMidenFees": "$symbol$の手数料",

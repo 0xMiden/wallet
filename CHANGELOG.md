@@ -2,6 +2,10 @@
 
 ## 1.17.6 (TBD)
 
+### Fixes
+
+- [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
+
 ### Changes
 
 - [FIX][all] The send amount step says Continue before review, so it no longer suggests the payment will be sent immediately, and Continue buttons in Japanese read 続ける instead of 続きを読む (read more).
