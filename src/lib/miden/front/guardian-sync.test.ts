@@ -2484,43 +2484,71 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     describe('GEO027 post-send transient finish accounting', () => {
       it.each([
-        { refusal: 'current-scope CAS mismatch', preflight: false, code: 'HOT_KEY_CHANGED', firstSends: 3, finalSends: 3 },
-        { refusal: 'preflight before ordinary storage failure', preflight: true, code: '', firstSends: 0, finalSends: 3 },
-        { refusal: 'permanent missing local key', preflight: false, code: 'HOT_KEY_NOT_STORED', firstSends: 1, finalSends: 1 }
-      ])('GEO027 preserves configure accounting for $refusal', async ({ refusal, preflight, code, firstSends, finalSends }) => {
-        const clocks = useFakeClocks(1_000);
-        const accountId = 'acct-geo027-refund';
-        arrangeOwnRotation(accountId);
-        const configure = jest.fn();
-        mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
-          onPushStart?.(['0xbeef', '0xc01d']);
-          configure();
-        });
-        storeState.swapHotKey.mockImplementation(async () => {
-          throw Object.assign(new Error(refusal), { code });
-        });
-        if (preflight) {
-          const { GuardianReRegisterRefusedError } = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
-          mockPreRegisterHold.mockRejectedValue(new GuardianReRegisterRefusedError(accountId, new Error('chain comparison unavailable')));
+        {
+          refusal: 'current-scope CAS mismatch',
+          preflight: false,
+          code: 'HOT_KEY_CHANGED',
+          firstSends: 3,
+          finalSends: 3
+        },
+        {
+          refusal: 'preflight before ordinary storage failure',
+          preflight: true,
+          code: '',
+          firstSends: 0,
+          finalSends: 3
+        },
+        {
+          refusal: 'permanent missing local key',
+          preflight: false,
+          code: 'HOT_KEY_NOT_STORED',
+          firstSends: 1,
+          finalSends: 1
         }
-        const runDueLaps = async (): Promise<void> => {
-          for (let i = 0; i < 6; i++) {
-            await syncGuardianAccounts();
-            clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+      ])(
+        'GEO027 preserves configure accounting for $refusal',
+        async ({ refusal, preflight, code, firstSends, finalSends }) => {
+          const clocks = useFakeClocks(1_000);
+          const accountId = 'acct-geo027-refund';
+          arrangeOwnRotation(accountId);
+          const configure = jest.fn();
+          mockReRegister.mockImplementation(
+            async (_options: unknown, onPushStart?: (signers: readonly string[]) => void) => {
+              onPushStart?.(['0xbeef', '0xc01d']);
+              configure();
+            }
+          );
+          storeState.swapHotKey.mockImplementation(async () => {
+            throw Object.assign(new Error(refusal), { code });
+          });
+          if (preflight) {
+            const { GuardianReRegisterRefusedError } =
+              jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+            mockPreRegisterHold.mockRejectedValue(
+              new GuardianReRegisterRefusedError(accountId, new Error('chain comparison unavailable'))
+            );
           }
-        };
-        try {
-          for (let i = 1; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
-          await runDueLaps();
-          expect(configure).toHaveBeenCalledTimes(firstSends);
-          expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
-          mockPreRegisterHold.mockResolvedValue(undefined);
-          await runDueLaps();
-          expect(configure).toHaveBeenCalledTimes(finalSends);
-          expect(mockReRegister).toHaveBeenCalledTimes(finalSends);
-          expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
-        } finally { clocks.restore(); }
-      });
+          const runDueLaps = async (): Promise<void> => {
+            for (let i = 0; i < 6; i++) {
+              await syncGuardianAccounts();
+              clocks.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+            }
+          };
+          try {
+            for (let i = 1; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+            await runDueLaps();
+            expect(configure).toHaveBeenCalledTimes(firstSends);
+            expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+            mockPreRegisterHold.mockResolvedValue(undefined);
+            await runDueLaps();
+            expect(configure).toHaveBeenCalledTimes(finalSends);
+            expect(mockReRegister).toHaveBeenCalledTimes(finalSends);
+            expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+          } finally {
+            clocks.restore();
+          }
+        }
+      );
     });
 
     describe('GEO023 admitted configure charge', () => {
@@ -2955,7 +2983,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
   // The user's own rotation completed while the push ran: the heal swaps only from the record it read
   // at the start of its lap, so the vault refuses and the newer key stays (#1233).
-  it("does not overwrite a moved hot pointer and keeps all issued configures charged (#1233)", async () => {
+  it('does not overwrite a moved hot pointer and keeps all issued configures charged (#1233)', async () => {
     arrangeOwnRotation('acct-own-moved');
     swapAsTheVault();
     let pushes = 0;

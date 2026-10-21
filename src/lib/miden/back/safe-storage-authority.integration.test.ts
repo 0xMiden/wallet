@@ -17,9 +17,7 @@ jest.mock('lib/platform/index', () => ({
 }));
 
 jest.mock('lib/platform/storage-adapter', () => {
-  const actual = jest.requireActual<typeof import('lib/platform/storage-adapter')>(
-    'lib/platform/storage-adapter'
-  );
+  const actual = jest.requireActual<typeof import('lib/platform/storage-adapter')>('lib/platform/storage-adapter');
   return { ...actual, getStorageProvider: () => new actual.ExtensionStorage() };
 });
 
@@ -75,7 +73,10 @@ afterEach(() => {
 });
 
 function observe(pending: Promise<void>): Promise<unknown> {
-  return pending.then(() => undefined, error => error);
+  return pending.then(
+    () => undefined,
+    error => error
+  );
 }
 
 function retireAfterAdmission(): () => void {
