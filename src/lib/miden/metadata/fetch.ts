@@ -1,10 +1,12 @@
-import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
+import { readFaucetProofMetadata } from './faucet-proof';
 import { getNativeDisplayMetadataSync } from './native';
 import { ensureTokensMetadataSchema, TOKENS_BASE_METADATA_STORAGE_KEY, updateTokensBaseMetadata } from './storage';
 import { AssetMetadata } from './types';
@@ -57,10 +59,10 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     await ensureSdkWasmReady();
     const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
-    const account = await rpcClient.getAccountDetails(Address.fromBech32(assetId).accountId());
-    const underlyingAccount = account.account();
-    if (!underlyingAccount) {
-      if (account.isPublic()) {
+    const accountId = accountRefToSdk(assetId);
+    const proof = await rpcClient.getAccountProof(accountId);
+    if (!proof.accountHeader()) {
+      if (accountId.isPublic()) {
         // if the account was public and we couldn't fetch metadata it should not happen in first place
         // but in case it does we return unknown metadata without caching it so a later fetch can retry
         console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
@@ -71,30 +73,10 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     }
     let metadata: AssetMetadata;
     try {
-      const faucet = BasicFungibleFaucetComponent.fromAccountStorage(underlyingAccount.storage());
-      const symbol = faucet.symbol().toString();
-      const description = faucet.description();
-      metadata = {
-        symbol,
-        // A faucet can leave its name empty. Then the symbol is the name.
-        name: faucet.tokenName() || symbol,
-        decimals: faucet.decimals(),
-        // Stated explicitly because the faucet reported these decimals. Without
-        // it, a faucet named "Unknown" with the symbol "Unknown" and 6 decimals
-        // is byte-for-byte the placeholder, and the shape test that recognises
-        // pre-marker cached placeholders would refuse to quantify a token that
-        // told us exactly what it was.
-        scaleIsUnknown: false,
-        ...(description ? { description } : {})
-      };
+      metadata = readFaucetProofMetadata(proof);
     } catch (err) {
-      // The account exists on-chain but its interface isn't a standard basic
-      // fungible faucet (e.g. a custom or bridged-asset faucet whose interface
-      // lacks the BasicFungibleFaucet procedures). There's nothing to read, and
-      // this is a deterministic failure for this faucet — surface it as Unknown
-      // (and cache that) rather than throwing into the inconsistent caller
-      // fallbacks.
-      console.warn('Account is not a basic fungible faucet for', assetId, '— using default metadata', err);
+      // A present public header with incompatible standard storage is deterministic.
+      console.warn('Invalid standard faucet metadata for', assetId, '- using default metadata', err);
       return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
     }
 

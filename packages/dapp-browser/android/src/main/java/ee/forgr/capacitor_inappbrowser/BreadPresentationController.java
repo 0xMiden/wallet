@@ -30,6 +30,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.ScriptHandler;
 import androidx.webkit.Navigation;
 import androidx.webkit.NavigationListener;
+import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.caverock.androidsvg.SVG;
@@ -222,7 +223,10 @@ final class BreadPresentationController {
                     WebViewCompat.addNavigationListener(webView, Runnable::run, navigationListener);
                 }
                 WebViewCompat.addWebMessageListener(webView, "breadPresentation", Collections.singleton("*"),
-                    (view, message, origin, mainFrame, reply) -> receive(message.getData(), mainFrame));
+                    (view, message, origin, mainFrame, reply) -> {
+                        // getData() throws for an ArrayBuffer, which any frame may post.
+                        if (message.getType() == WebMessageCompat.TYPE_STRING) receive(message.getData(), mainFrame);
+                    });
                 script = WebViewCompat.addDocumentStartJavaScript(webView, options.script, Collections.singleton("*"));
                 if (navigationListener == null) { state.browserFallback(); render(); }
                 return;

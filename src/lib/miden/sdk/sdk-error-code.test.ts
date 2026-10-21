@@ -18,6 +18,7 @@ import {
   isStaleInitialCommitmentError,
   isTransactionDiscardedError,
   markErrorBeforeSubmit,
+  pipelineKillIn,
   someInCauseChain
 } from './sdk-error-code';
 
@@ -580,6 +581,62 @@ describe('isKilledPipeline and isPoisonedPipeline (#1313)', () => {
     expect(isKilledPipeline(new Error("Offscreen call 'x' failed: WebClient terminated"))).toBe(false);
     expect(isKilledPipeline(new Error('WebClient terminated unexpectedly'))).toBe(false);
   });
+});
+
+describe('pipelineKillIn', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('returns the same lock-recovery eviction', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(pipelineKillIn(poison)).toBe(poison);
+  });
+
+  it('returns the same offscreen abort', () => {
+    const abort = new OperationAbortedError('op-1', 'deadline');
+    expect(pipelineKillIn(abort)).toBe(abort);
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])('returns the same terminated client (%p)', message => {
+    const terminated = new Error(message);
+    expect(pipelineKillIn(terminated)).toBe(terminated);
+  });
+
+  it('returns the inner kill rather than its wrapper', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(pipelineKillIn(new Error('wrapper', { cause: poison }))).toBe(poison);
+  });
+
+  it('returns the first kill when the chain holds more than one', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    const terminated = new Error('Client terminated', { cause: poison });
+    expect(pipelineKillIn(new Error('wrapper', { cause: terminated }))).toBe(terminated);
+  });
+
+  it('skips an unreadable link and still returns the kill in its cause', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    const wrapper = Object.defineProperty(new Error('wrapper', { cause: poison }), 'name', {
+      get() {
+        throw new Error('unreadable');
+      }
+    });
+    expect(pipelineKillIn(wrapper)).toBe(poison);
+  });
+
+  it('returns undefined for an ordinary failure', () => {
+    expect(pipelineKillIn(new Error('boom'))).toBeUndefined();
+  });
+
+  it.each([undefined, null, 'Client terminated', 42])('returns undefined for a non-object (%p)', value => {
+    expect(pipelineKillIn(value)).toBeUndefined();
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])(
+    'keeps a terminated cause (%p) under a landed error landed',
+    message => {
+      expect(pipelineKillIn(new ApplyAfterSubmitError(new Error(message)))).toBeUndefined();
+    }
+  );
 });
 
 describe('isClientTerminatedError and isPipelineKillLink', () => {

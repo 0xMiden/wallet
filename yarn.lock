@@ -2543,17 +2543,22 @@
     semver "^7.5.4"
     uuid "^9.0.1"
 
-"@miden-sdk/miden-sdk@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.17.3.tgz#c7eecf9c6784567b898376d76aeed0c532113034"
-  integrity sha512-37FIyywn/HAiFj/VM81J/FcAq+ZcaTXvHVnOizPfMZz/XEwgeVVYqawwFFSsemRT/bY910oV3b7Zi0iGGiPT7w==
+"@miden-sdk/bread-connect@link:./packages/bread-connect":
+  version "0.0.0"
+  uid ""
+
+"@miden-sdk/miden-sdk@0.17.3", "@miden-sdk/miden-sdk@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/miden-sdk/-/miden-sdk-0.17.5.tgz#ddaffcc5bd81ef749792a2ffa94e639358dee8f0"
+  integrity sha512-q/ifVFPwTZnsduWSkOd4+YHaw39kVITxidiaF0tsfkDVi2wZwc5+X6AlbF3O61PgXCfEB7CJGIQ54zHcqgbVQw==
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
   optionalDependencies:
-    "@miden-sdk/node-darwin-arm64" "0.17.3"
-    "@miden-sdk/node-darwin-x64" "0.17.3"
-    "@miden-sdk/node-linux-x64-gnu" "0.17.3"
+    "@miden-sdk/node-darwin-arm64" "0.17.5"
+    "@miden-sdk/node-darwin-x64" "0.17.5"
+    "@miden-sdk/node-linux-x64-gnu" "0.17.5"
+    "@miden-sdk/node-linux-x64-musl" "0.17.5"
 
 "@miden-sdk/miden-wallet-adapter-base@0.17.0":
   version "0.17.0"
@@ -2577,25 +2582,30 @@
     "@miden-sdk/miden-wallet-adapter-base" "0.17.0"
     "@miden-sdk/miden-wallet-adapter-miden" "0.17.0"
 
-"@miden-sdk/node-darwin-arm64@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.3.tgz#676d9ff83a2ccc3dbcd1fb97be0dc833af9a415e"
-  integrity sha512-9jvvccYqyUUSr0svSsIf/ZVd9ZzOGT9dmw/8pM2/n0IB+EzIZTFPmHTZH4Pivu7hjBy0W7UFLCESZdYg0RVOdQ==
+"@miden-sdk/node-darwin-arm64@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.17.5.tgz#b1043adb4db4f9b3aef5999edeac2d09fb31a3da"
+  integrity sha512-I0L9yOsOdL42pP5wjK3bkWUhKKFKdFYQnkrhAO5OIz23fICOSLBksQgq1oxYcGTQpUDSQMjgwHNXDLaEDJlRhg==
 
-"@miden-sdk/node-darwin-x64@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.3.tgz#2e88587e4c45eac3c85b3230f35dcb4828d94b03"
-  integrity sha512-Rk0hlwEZFISc4BOTL0Unb+bFW++sb0ZUzXJKiVYvva6rKCga4lcgmTKtXhIPWnWyqAsykp7ljFq+ys2BFAeViw==
+"@miden-sdk/node-darwin-x64@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.17.5.tgz#b6929f7293b26b120b3b8a270a0f00183151720e"
+  integrity sha512-JBswoRyBaWowPEymZPTKrzjKCHM02fcZkcrytpSRLlLlKAkgqY/4B2ja0xMpQQdptl2sEJz29K4W5jVqte+Tuw==
 
-"@miden-sdk/node-linux-x64-gnu@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.3.tgz#79c063f00535a9957ecc1f9fc0128d65b2a3ec8c"
-  integrity sha512-S4R49wHo8nyBC2dfBhZYPpFSzqbDneU0N0fzd1OuL1D7VRpc4hL6dXs5hiaifVZHJL8SNH9mksCwr6eUeYdjTA==
+"@miden-sdk/node-linux-x64-gnu@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.5.tgz#8f9c8bc9118bd85bad8137a58a5b58dec19f2bf5"
+  integrity sha512-i1gp3qQAPjdf1AzYZAi/WX4XUZHYPlkhMXtkiYg5FZvuUzxekGiER+sopGv569Fg2LHT3tfkw2LmVMxy0Egv9Q==
 
-"@miden-sdk/react@0.17.3":
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.17.3.tgz#20a44a3047f99bea68305435fbcfb2fbd0b95f48"
-  integrity sha512-oLY0rrcXUvIcx3mpeIu7S/G0sVmgs+ZpitZWcYU2uxYKq5yM9+Bd6mMY13nbXIYqRWLN3od9B2bMdrDHWC87YA==
+"@miden-sdk/node-linux-x64-musl@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/node-linux-x64-musl/-/node-linux-x64-musl-0.17.5.tgz#4498262149fe6f8b4b400f9edf58ca28c2ba8e6b"
+  integrity sha512-cXD71rWD6lX1wl1g/XOJK/fpa7D4k325vHqb9P0YLA88rILsRBVIS7cUy+PvybjVqcJUxMwvNUEHi6vVqvVChw==
+
+"@miden-sdk/react@0.17.5":
+  version "0.17.5"
+  resolved "https://registry.npmjs.org/@miden-sdk/react/-/react-0.17.5.tgz#67ec7dcf2b3bef6eecd8c89bb6042e9ebbc4ecd6"
+  integrity sha512-lbOUdq/6tFGoGOMjQdqp7r4YufYrMfyXzL9lZMfLEYLBCMiY7WBl0YImAuMfi+H2hkKY7tW95o/fUTcb+LFNMg==
   dependencies:
     zustand "^5.0.0"
 

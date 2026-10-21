@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Lets the plugin read Bread's signing certificate before it hands Bread a request. -->
+    <queries>
+        <package android:name="com.miden.wallet" />
+    </queries>
+</manifest>

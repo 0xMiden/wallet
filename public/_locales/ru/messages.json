@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "Сумма ниже минимальной суммы сжигания, установленной «faucet».",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Скрипт сжигания кошелька не соответствует скрипту сжигания USDCx faucet.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "Отправьте не менее $amount$ USDCx.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "Не удалось прочитать политику сжигания токенов USDCx faucet. Возобновите проверку, чтобы повторить попытку.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "faucet USDCx пока неизвестен. Возобновите рассмотрение, чтобы попробовать ещё раз.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "Отправьте более $amount$ USDCx в сеть $network$: комиссия Circle удерживается из выплаты.",
@@ -3954,6 +3955,24 @@
     "message": "Просит вас поставить подпись",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "Войдите на сайт $domain$",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Bread подписывает это сообщение о входе в систему ключом, созданным исключительно для $domain$. Он не может перемещать средства или вносить изменения в ваш аккаунт.",
+    "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "Запросить ресурсы",
     "englishSource": "Request Assets"
@@ -4021,6 +4040,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "Этот внешний сервис в настоящее время недоступен. Пожалуйста, попробуйте позже.",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "Функция обмена (Swap) в этой сети недоступна",
@@ -4412,6 +4439,53 @@
     "message": "{count} открытых dApps",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "Открыть $host$?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Этот сайт не указан в разделе «Explore», и любой может разместить ссылку на него. Открывайте его только в том случае, если доверяете этому сайту.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Открыть",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "Завершение транзакции",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Не закрывайте Bread: когда транзакция завершится, вы вернётесь в $host$.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "Не удалось открыть $host$",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread ответил, но приложение, отправившее запрос, не открылось. Откройте его сами, чтобы продолжить.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "Транзакция всё равно отправлена. Проверьте её результат в Bread, прежде чем повторять попытку в приложении.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Утвердить",
     "englishSource": "Approve"
@@ -4439,6 +4513,15 @@
   "dappSignRequest": {
     "message": "Это приложение требует, чтобы вы подписывали данные с помощью своего кошелька",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "Этот сайт предлагает вам войти на $domain$ с помощью Bread",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "Это приложение хочет импортировать частный файл note в ваш кошелек",
@@ -5810,8 +5893,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Укажите, какими частями Wallet вы пользуетесь, где возникают затруднения, общие категории ошибок, версию приложения и вашу платформу, чтобы мы могли исправить неисправности. Если приложение вылетает, оно также отправляет отчет о сбое с указанием ошибки и места её возникновения в коде; перед отправкой из отчета удаляются конфиденциальные данные. Никогда не передавайте свои ключи, фразу восстановления, пароль, адреса, остатки, суммы или содержание транзакций. Мы не отслеживаем ваши действия в других приложениях или на сайтах, не используем данные в рекламных целях и не продаем их, а также не передаем брокерам данных. Вы можете изменить эти настройки в любое время.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "Сообщайте, какими частями Wallet вы пользуетесь, где возникают затруднения, общие категории ошибок, версию приложения и вашу платформу, чтобы мы могли исправить неисправности. Ни в коем случае не сообщайте свои ключи, фразу восстановления, пароль, адреса, остатки, суммы или содержание транзакций. Мы не отслеживаем ваши действия в других приложениях или на сайтах, не используем данные в рекламных целях и не продаем их, а также не передаем брокерам данных. Отчеты о сбоях отправляются в любом случае: информация об ошибке и месте её возникновения в коде очищается от конфиденциальных данных и не содержит идентификаторов ни вас, ни вашего устройства. Вы можете изменить эти настройки в любое время.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Поделитесь данными об использовании",
@@ -5830,8 +5913,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "Какие части Wallet вы используете, где у вас возникают затруднения, общие категории ошибок, версия приложения и ваша платформа.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5848,6 +5931,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "Отчеты о сбоях отправляются в любом случае, чтобы мы могли устранять сбои: информация об ошибке и месте её возникновения в коде, очищенная от конфиденциальных данных, без идентификаторов вас или вашего устройства.",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",
@@ -6836,5 +6923,159 @@
   "bridgeEstimatedCost": {
     "message": "Приблизительная стоимость",
     "englishSource": "Est. cost"
+  },
+  "earnWithdrawPositive": {
+    "message": "Enter an amount greater than zero.",
+    "englishSource": "Enter an amount greater than zero."
+  },
+  "earnWithdrawPrecision": {
+    "message": "Use no more than $decimals$ decimal places.",
+    "englishSource": "Use no more than $decimals$ decimal places.",
+    "placeholders": {
+      "decimals": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawAboveAvailable": {
+    "message": "Enter an amount within the available balance.",
+    "englishSource": "Enter an amount within the available balance."
+  },
+  "earnWithdrawAvailable": {
+    "message": "Available: $amount$ $asset$",
+    "englishSource": "Available: $amount$ $asset$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnWithdrawQuoteUnavailable": {
+    "message": "A withdrawal quote is unavailable for this amount. Try a larger amount or refresh.",
+    "englishSource": "A withdrawal quote is unavailable for this amount. Try a larger amount or refresh."
+  },
+  "earnWithdrawRefresh": {
+    "message": "The balance or quote changed. Refresh and review again.",
+    "englishSource": "The balance or quote changed. Refresh and review again."
+  },
+  "earnSelectedAmountGasless": {
+    "message": "Selected amount (gasless)",
+    "englishSource": "Selected amount (gasless)"
+  },
+  "earnWithdrawFeesIncluded": {
+    "message": "Route costs are reflected in the quoted receipt. Gas is sponsored.",
+    "englishSource": "Route costs are reflected in the quoted receipt. Gas is sponsored."
+  },
+  "earnWithdrawExpectedReceipt": {
+    "message": "Expected to receive",
+    "englishSource": "Expected to receive"
+  },
+  "earnWithdrawMinimumReceipt": {
+    "message": "Minimum received",
+    "englishSource": "Minimum received"
+  },
+  "earnWithdrawRouteFees": {
+    "message": "Route fees",
+    "englishSource": "Route fees"
+  },
+  "earnWithdrawRefreshQuote": {
+    "message": "Refresh quote",
+    "englishSource": "Refresh quote"
+  },
+  "earnWithdrawFullBalanceSelected": {
+    "message": "Full balance selected",
+    "englishSource": "Full balance selected"
+  },
+  "earnWithdrawApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawDeliverySummary": {
+    "message": "To Miden · About 1 min · Gas sponsored",
+    "englishSource": "To Miden · About 1 min · Gas sponsored"
+  },
+  "earnWithdrawYouWithdraw": {
+    "message": "You withdraw",
+    "englishSource": "You withdraw"
+  },
+  "earnWithdrawStaysInvested": {
+    "message": "Stays invested",
+    "englishSource": "Stays invested"
+  },
+  "earnWithdrawAll": {
+    "message": "Full balance",
+    "englishSource": "Full balance"
+  },
+  "earnWithdrawExactAmount": {
+    "message": "Exact withdrawal amount",
+    "englishSource": "Exact withdrawal amount"
+  },
+  "earnWithdrawInProgress": {
+    "message": "Еще один вывод средств с этого счёта всё ещё находится в процессе. Подождите, пока он завершится.",
+    "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
+  },
+  "webViewUpdateTitle": {
+    "message": "Обновление Android System WebView",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Приложению Bread требуется более новая версия Android System WebView, компонента Android, отвечающего за отображение веб-страниц в приложениях. Обновите его через Google Play, а затем запустите Bread заново.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Открыть Google Play",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Обновите Chrome",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Для работы Bread требуется более новая версия Chrome, которая отображает веб-страницы в приложениях на этой версии Android. Обновите браузер через Google Play, а затем снова запустите Bread.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread не смог запуститься",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Что-то помешало загрузке Bread. Попробуйте ещё раз или закройте Bread и откройте его снова.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Попробуйте ещё раз",
+    "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Проверка доступности",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Подождите, пока мы проверяем, доступен ли кошелёк в вашем регионе.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Кошелёк недоступен в вашем регионе",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Кошелёк недоступен в вашем текущем местоположении.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Не удалось проверить доступность",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Check your connection and try again."
   }
 }

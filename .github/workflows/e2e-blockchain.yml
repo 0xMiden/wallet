@@ -154,6 +154,9 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Run blockchain E2E (devnet)
         id: e2e
         # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
@@ -239,6 +242,9 @@ jobs:
         # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
 
       - name: Run blockchain E2E (testnet)
         run: xvfb-run -a yarn test:e2e:blockchain:testnet
@@ -386,6 +392,9 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build Chrome extension (devnet)
         run: yarn test:e2e:blockchain:build
 
@@ -480,6 +489,9 @@ jobs:
         # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
 
       - name: Build Chrome extension (testnet)
         run: yarn test:e2e:blockchain:build
@@ -667,6 +679,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
@@ -870,6 +885,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
@@ -1134,6 +1152,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
@@ -1335,6 +1356,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |

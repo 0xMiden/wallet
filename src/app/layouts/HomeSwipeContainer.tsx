@@ -279,6 +279,10 @@ const HomeSwipeContainer: FC = () => {
       // frame between the animation ending and `onfinish` running.
       fill: 'forwards'
     });
+    // Start on this frame's timeline. Left unset, the animation waits for the
+    // next frame and the track sits where the finger left for that gap.
+    const now = document.timeline?.currentTime;
+    if (typeof now === 'number') release.startTime = now;
     releaseRef.current = release;
     release.onfinish = () => {
       if (releaseRef.current !== release) return;

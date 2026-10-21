@@ -2,12 +2,16 @@
 import { isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
 import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { captureCrash, stopCrashReporting } from './crash';
 import { reportTransactionFailure } from './transaction-failure';
 
-jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(),
+  isTelemetryEnabledAsync: jest.fn()
+}));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isIOS: jest.fn(() => false) }));
 jest.mock('lib/secure-hot-key/hotKeyPlugin', () => ({ HotKey: { signWithHotKey: jest.fn() } }));
 jest.mock('lib/secure-hot-key/jsFallback', () => ({}));
@@ -19,7 +23,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
   captured.length = 0;
-  jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
+  jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
+  jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
   globalThis.fetch = jest.fn(async (_input, options) => {
     captured.push(String(options?.body));
     return new Response('', { status: 200 });
@@ -35,7 +40,7 @@ async function settle() {
   for (let pass = 0; pass < 10; pass++) await new Promise(resolve => setTimeout(resolve, 0));
 }
 
-it('sends a handled failure with no window, document, or frontend initialization', async () => {
+it('sends a handled failure without usage consent, window, document, or frontend initialization', async () => {
   expect(typeof window).toBe('undefined');
   expect(typeof document).toBe('undefined');
   reportTransactionFailure({ type: 'execute', stage: 'executing', error: 'advice stack read failed' });
@@ -45,6 +50,7 @@ it('sends a handled failure with no window, document, or frontend initialization
   expect(captured[0]).toContain('advice_stack_read_failed');
   expect(captured[0]).not.toContain('/Users/');
   expect(captured[0]).toContain('"frames":[]');
+  expect(isTelemetryEnabledAsync).not.toHaveBeenCalled();
 });
 
 it('sends why a claim failed without the failure text, an account id or a URL', async () => {
@@ -120,10 +126,13 @@ it('sends an unknown submit outcome as a warning and only a final failure as an 
   await settle();
   expect(captured).toHaveLength(2);
   const [unconfirmed, failed] = captured;
-  expect(unconfirmed).toContain('submit_outcome_unknown; grpc unknown; app hidden during submit yes');
+  expect(unconfirmed).toContain(
+    'submit_outcome_unknown; grpc unknown; app hidden during submit yes; submit leg unavailable. '
+  );
   expect(unconfirmed).toContain('"level":"warning"');
   expect(unconfirmed).not.toContain('"level":"error"');
   expect(failed).toContain('point node_verdict; never_committed; rule superseded');
+  expect(failed).not.toContain('submit leg');
   expect(failed).toContain('"level":"error"');
   expect(failed).not.toContain('"level":"warning"');
   for (const leak of [transactionId, 'Load failed', 'never went through'])
@@ -159,19 +168,21 @@ it('sends why an execution or a sync was stopped without an id, a note commitmen
   }
 });
 
-it('drops a report if consent is withdrawn while the event is being prepared', async () => {
-  jest.mocked(isTelemetryEnabledAsync).mockResolvedValueOnce(true).mockResolvedValue(false);
+it('drops a report if browser permission is revoked while the event is being prepared', async () => {
+  jest.mocked(isCrashReportingEnabledAsync).mockResolvedValueOnce(true).mockResolvedValue(false);
   reportTransactionFailure({ type: 'send', stage: 'submitting', error: 'RPC rejected submission' });
   await settle();
   expect(captured).toHaveLength(0);
 });
 
-it('drops an old pending failure after reporting is stopped and consent is re-enabled', async () => {
-  let resolveConsent!: (enabled: boolean) => void;
-  jest.mocked(isTelemetryEnabledAsync).mockImplementationOnce(() => new Promise(resolve => (resolveConsent = resolve)));
+it('drops an old pending failure after reporting is stopped and initialized again', async () => {
+  let resolvePermission!: (enabled: boolean) => void;
+  jest
+    .mocked(isCrashReportingEnabledAsync)
+    .mockImplementationOnce(() => new Promise(resolve => (resolvePermission = resolve)));
   reportTransactionFailure({ type: 'execute', stage: 'executing' });
   stopCrashReporting();
-  resolveConsent(true);
+  resolvePermission(true);
   await settle();
   expect(captured).toHaveLength(0);
 
@@ -180,26 +191,29 @@ it('drops an old pending failure after reporting is stopped and consent is re-en
   expect(captured).toHaveLength(1);
 });
 
-it('does not initialize or send when consent is off or unreadable', async () => {
-  jest.mocked(isTelemetryEnabledAsync).mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('storage'));
+it('does not initialize or send when browser permission is denied or unreadable', async () => {
+  jest
+    .mocked(isCrashReportingEnabledAsync)
+    .mockResolvedValueOnce(false)
+    .mockRejectedValueOnce(new Error('permissions'));
   reportTransactionFailure({ type: 'send' });
   reportTransactionFailure({ type: 'consume' });
   await settle();
   expect(captured).toHaveLength(0);
-  expect(isTelemetryEnabledAsync).toHaveBeenCalledTimes(2);
+  expect(isCrashReportingEnabledAsync).toHaveBeenCalledTimes(2);
 });
 
-it('drops an envelope waiting on transport consent when its client is stopped', async () => {
-  let resolveConsent!: (enabled: boolean) => void;
+it('drops an envelope waiting on transport permission when its client is stopped', async () => {
+  let resolvePermission!: (enabled: boolean) => void;
   jest
-    .mocked(isTelemetryEnabledAsync)
+    .mocked(isCrashReportingEnabledAsync)
     .mockResolvedValueOnce(true)
-    .mockImplementationOnce(() => new Promise(resolve => (resolveConsent = resolve)));
+    .mockImplementationOnce(() => new Promise(resolve => (resolvePermission = resolve)));
   reportTransactionFailure({ type: 'execute', stage: 'executing' });
   await settle();
-  expect(resolveConsent).toBeDefined();
+  expect(resolvePermission).toBeDefined();
   stopCrashReporting();
-  resolveConsent(true);
+  resolvePermission(true);
   await settle();
   expect(captured).toHaveLength(0);
 

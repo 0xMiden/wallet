@@ -41,6 +41,8 @@ jest.mock('lib/adapter/client', () => ({
   requestPrivateNotes: jest.fn(),
   waitForTransaction: jest.fn(),
   signBytes: jest.fn(),
+  requestLoginKey: jest.fn(),
+  signLoginBytes: jest.fn(),
   importPrivateNote: jest.fn(),
   requestAssets: jest.fn(),
   requestConsumableNotes: jest.fn(),
@@ -180,6 +182,37 @@ describe('MidenWindowObject', () => {
       const [, hexArg, b64Arg] = mockClient.signBytes.mock.calls[0]!;
       expect(hexArg).toBe('0102ff');
       expect(b64ToU8(b64Arg as string)).toEqual(data);
+    });
+  });
+
+  describe('login key', () => {
+    it('requests the login key for the connected account', async () => {
+      const loginKey = Uint8Array.from({ length: 32 }, (_, i) => i);
+      mockClient.requestLoginKey.mockResolvedValue(u8ToB64(loginKey));
+      const obj = makeConnected();
+
+      const result = await obj.requestLoginKey();
+
+      expect(mockClient.requestLoginKey).toHaveBeenCalledWith(ADDRESS);
+      expect(result.loginKey).toBeInstanceOf(Uint8Array);
+      expect(result.loginKey).toHaveLength(32);
+      expect(Array.from(result.loginKey)).toEqual(Array.from(loginKey));
+    });
+
+    it('signs login bytes as base64 with the kind', async () => {
+      const data = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+      const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+      mockClient.signLoginBytes.mockResolvedValue(u8ToB64(signature));
+      const obj = makeConnected();
+
+      const result = await obj.signLoginBytes(data, 'word');
+
+      expect(mockClient.signLoginBytes).toHaveBeenCalledWith(ADDRESS, u8ToB64(data), 'word');
+      const [, b64Arg] = mockClient.signLoginBytes.mock.calls[0]!;
+      expect(b64ToU8(b64Arg)).toEqual(data);
+      expect(result.signature).toBeInstanceOf(Uint8Array);
+      expect(result.signature).toHaveLength(66);
+      expect(Array.from(result.signature)).toEqual(Array.from(signature));
     });
   });
 

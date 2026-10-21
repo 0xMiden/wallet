@@ -93,6 +93,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
+  tryWithWasmClientLock,
   withWasmClientLock,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
@@ -549,6 +550,14 @@ async function stepBeforeSubmit<T>(step: () => Promise<T>): Promise<T> {
 }
 
 const DISPATCH: Record<string, DispatchFn> = {
+  tryGetAccount: async (context, client, accountId: string) => {
+    const account = await client.getAccount(accountId);
+    assertWasmHoldCurrent(context.hold, 'in offscreen tryGetAccount before serializing the account');
+    return new TextEncoder().encode(
+      JSON.stringify({ ran: true, accountB64: account ? bytesToB64(account.serialize()) : null })
+    );
+  },
+
   getAccount: async (context, client, accountId: string) => {
     const account = await client.getAccount(accountId);
     // The Account is a borrow of the shared client's RefCell, not a snapshot — if
@@ -698,14 +707,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(records.map(reducePswapLineage)));
   },
 
-  // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying
-  // just the note's `noteType`. Returns null (→ resultB64 null) for a not-found note,
-  // distinct from a found record whose `noteType` is undefined (the JSON `{}`).
+  // Note type and fee assets cross as JSON; null means not found, while a found
+  // note whose assets cannot be read carries assets:null so the fee gate admits it.
   getInputNoteSummary: async (context, client, noteId: string) => {
     const record = await client.getInputNote(noteId);
-    // Same shape as the lineage read above: the record's `metadata()`
-    // reach-through is a borrow of the shared client, refused once the hold is
-    // stale (#788).
+    // A displaced hold cannot authorize metadata or asset reads on this record (#788).
     assertWasmHoldCurrent(context.hold, 'in offscreen getInputNoteSummary before reducing the record');
     const dto = reduceInputNoteSummary(record);
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
@@ -1467,7 +1473,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // writes are legitimately long (they sign and prove) and have their own deadlines.
     const lockOptions =
       msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
-    const resultBytes = await withWasmClientLock(async hold => {
+    const execute = async (hold: WasmLockHold) => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
       // the ops most likely to be queued are the ones waiting behind the holder
@@ -1530,7 +1536,17 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         if (currentOpId === msg.op_id) currentOpId = null;
         recordProveTiming(`call '${msg.method}' dispatch settled; releasing WASM mutex`);
       }
-    }, lockOptions);
+    };
+    let resultBytes: Uint8Array | null;
+    if (msg.method === 'tryGetAccount') {
+      const read = await tryWithWasmClientLock(execute, {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'claim-fee'
+      });
+      resultBytes = read.ran ? read.value : new TextEncoder().encode(JSON.stringify({ ran: false }));
+    } else {
+      resultBytes = await withWasmClientLock(execute, lockOptions);
+    }
     sendResponse({
       ok: true,
       op_id: msg.op_id,

@@ -10,7 +10,7 @@ import { formatUnits, type Address, type Chain, type Hex } from 'viem';
 import { getUsdcxExecutorSource, getUsdcxXReserveSource, minimumUsdcxPayout, USDCX_DESTINATIONS } from './usdcx-config';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 import type { UsdcxExecutorSource } from '../../../src/lib/usdcx/constant';
-import { USDCX_DECIMALS } from '../../../src/lib/usdcx/protocol';
+import { USDCX_DECIMALS, USDCX_MIN_BURN } from '../../../src/lib/usdcx/protocol';
 import { ARC_TESTNET, getChain } from '../../../src/lib/walletconnect/config';
 export { USDCX_DESTINATIONS, USDCX_REMOTE_DOMAIN } from './usdcx-config';
 
@@ -24,8 +24,8 @@ export {
 
 export { CLAIM_COST_FEE_MULTIPLE, FEE_RESERVE_MULTIPLE, isWorthClaiming } from '../../../src/lib/miden/fees/spendable';
 
-/** The UI burn: 1 USDCx, the USDCx faucet's on-chain min_burn_amount; the review refuses anything less. */
-export const BURN_UNITS = 1_000_000n;
+/** The live UI burn follows the wallet's minimum floor. */
+export const BURN_UNITS = USDCX_MIN_BURN;
 /**
  * The deposit back: 0.001 USDC. The wallet claims a mint unattended only above base fee x 30 (210 at testnet's 7), and
  * a Guardian claim costs 133, so this is about 5x the one and 7.5x the other.
@@ -38,7 +38,7 @@ export const DEPOSIT_UNITS = 1_000n;
 export const GAS_RESERVE_UNITS = 20_000n;
 /** What the grant must leave above the burn for the burn's own fees. */
 export const GRANT_MARGIN_UNITS = 1_000_000n;
-/** One public faucet grant from the 10 USDCx tier: a 1 USDCx grant leaves 999_867, short of the 1_000_252 a burn takes. */
+/** One public faucet grant from the 10 USDCx tier, covering the burn and its fee margin. */
 export const GRANT_UNITS = 10_000_000n;
 /** D3: red this long after the burn's consume without a destination mint. */
 export const PAYOUT_TIMEOUT_MS = 600_000;
@@ -135,7 +135,7 @@ export interface PayoutChain {
   /** The wallet's own RPC for the chain, and the name a message gives it: never the URL, which carries a project id. */
   walletRpcUrl: string;
   walletRpcName: string;
-  /** What the harness burns to this chain: BURN_UNITS unless the chain's payout fee allowance takes it whole. */
+  /** What the harness burns to this chain: BURN_UNITS by default. */
   burnUnits: bigint;
   /** The most a send from the harness key tips per gas here (sendSigned in arc-usdcx.ts); none caps the estimate. */
   maxPriorityFeeCap?: bigint;
@@ -219,16 +219,14 @@ export const ARBITRUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(421614, {
   logChunk: () => L2_LOG_CHUNK
 });
 /**
- * Ethereum's 1.5 USDC payout fee allowance takes the faucet's 1 USDCx minimum whole, so this burns 2 USDCx. Sepolia's
- * signers tipped from 22 wei to 1.5 gwei (2026-10-16) and its tip oracle follows them, while the key holds about 0.002
- * ETH there: an uncapped 1.5 gwei tip would cost about 0.0013 ETH a run. 0.01 gwei is above every oracle answer read
- * (1 wei to about 0.001 gwei, 2026-10-16 and 17).
+ * Sepolia's signers tipped from 22 wei to 1.5 gwei (2026-10-16) and its tip oracle follows them, while the key
+ * holds about 0.002 ETH there. An uncapped 1.5 gwei tip would cost about 0.0013 ETH a run. 0.01 gwei is above
+ * every oracle answer read (1 wei to about 0.001 gwei, 2026-10-16 and 17).
  */
 export const ETHEREUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(11155111, {
   rpcUrls: DEFAULT_ETHEREUM_SEPOLIA_RPCS,
   logChunk: () => L2_LOG_CHUNK,
   label: 'Ethereum Sepolia',
-  burnUnits: 2_000_000n,
   maxPriorityFeeCap: 10_000_000n
 });
 

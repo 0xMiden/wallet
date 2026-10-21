@@ -151,6 +151,8 @@ export function callDapp<K extends DappCommandName>(
 
 const failedOutcome = (value: unknown): value is { ok: false; error: DappError } =>
   typeof value === 'object' && value !== null && Reflect.get(value, 'ok') === false;
+const acceptedOutcome = (value: unknown): boolean =>
+  typeof value === 'object' && value !== null && Reflect.get(value, 'ok') === true;
 
 /** The value of an accepted request; a refusal is recorded as the cell's `dappError` and fails the cell. */
 export function unwrap<T>(outcome: Outcome<T>, what: string, ctx: CellContext): T {
@@ -206,7 +208,9 @@ export async function answerPrompt<T>(
   if ('result' in first) {
     ctx.evidence.popupOpened = false;
     if (failedOutcome(first.result)) ctx.evidence.dappError = first.result.error;
-    throw new Error(`expected a ${plan.kind} popup, but the request settled first: ${JSON.stringify(first.result)}`);
+    // An accepted Outcome can carry a signature and the word it signed, so it alone is not printed.
+    const settled = acceptedOutcome(first.result) ? 'an accepted answer' : JSON.stringify(first.result);
+    throw new Error(`expected a ${plan.kind} popup, but the request settled first: ${settled}`);
   }
   const popup = first.popup;
   ctx.evidence.popupOpened = true;

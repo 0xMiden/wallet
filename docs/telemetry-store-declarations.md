@@ -1,7 +1,7 @@
 # Telemetry — store data-collection declarations
 
-Bread ships an optional, off-by-default **Share usage data** setting. Four
-storefronts each want that declared in their own vocabulary, and none of them
+Bread sends scrubbed crash reports from every user and asks each user whether
+to **Share usage data** (product events). Four storefronts each want that declared in their own vocabulary, and none of them
 uses the same words for it. This file holds the answers for all four so they
 stay consistent with each other and with the code.
 
@@ -118,27 +118,27 @@ Developer Dashboard → the item → **Privacy practices**.
 | Financial and payment information | **No** | No addresses, balances, amounts, or transaction contents are sent. Field names carrying them are scrubbed from crash reports. |
 | Authentication information | **No** | Note for whoever fills this in: `errorKind` has a value called `auth`. It is a category label meaning "an authentication step failed" — not a credential, not a password, not a PIN. |
 | Personal communications | **No** | — |
-| Location | **No** | See the note below; this one deserves a considered answer rather than a reflex. |
+| Location | **Yes** | The eligibility service on Cloudflare sends the connection's IP address to MaxMind when needed. The App receives feature decisions only. No GPS and no location permission. |
 | Web history | **No** | No URL, no page, no referrer. The Sentry integrations that would have captured them (`HttpContext`, `Breadcrumbs`) are excluded — see `CRASH_INTEGRATION_ALLOWLIST` in `src/lib/telemetry/crash.ts`. |
 | **User activity** | **Yes** | This is the one to check. Flow name, outcome, and duration are in-product interaction records. |
 | Website content | **No** | The extension sends nothing from any page it runs on. |
 
-**On Location.** Chrome's category reads "region, IP address, GPS coordinates",
-and the ingest endpoints do see the request's IP address, as any server does for
-any request. We declare **No**, because the extension neither reads nor
-transmits location data — no location permission, no location API, no IP field
-in either payload — and the processors are configured not to store the IP. If
-that reasoning is ever revisited, revisit it here rather than silently flipping
-the box, and keep the public policy's IP paragraph in step with the answer.
+**On Location.** The eligibility service runs on Cloudflare and sends the
+connection's IP address to MaxMind when a place rule needs it. The App receives
+only wallet, Earn and Swap decisions, network and policy version. There is still no
+location permission and no GPS. Declare **Yes**. The App stores neither the
+address nor the place. The service stores rotating keyed hashes, request counters
+and decisions that expire after five minutes; it stores no raw address or place.
 
 **Certifications — all three can be signed:**
 
 - *I do not sell or transfer user data to third parties, outside of the approved
-  use cases.* Aptabase and Sentry are processors acting on our instructions
-  under a DPA, which is the approved service-provider case. Nothing goes to a
-  data broker or an ad network.
+  use cases.* Aptabase, Sentry, Cloudflare and MaxMind are processors acting on our instructions,
+  which is the approved service-provider case. Nothing goes to a data broker or
+  an ad network.
 - *I do not use or transfer user data for purposes unrelated to my item's single
-  purpose.* The only purpose is finding where the wallet breaks.
+  purpose.* Usage data and crash reports find where the wallet breaks. The place
+  check keeps a feature off where it is not offered.
 - *I do not use or transfer user data to determine creditworthiness or for
   lending purposes.*
 
@@ -154,23 +154,25 @@ ships) and `public/manifest.json`:
 
 ```json
 "data_collection_permissions": {
-  "required": ["none"],
+  "required": ["locationInfo"],
   "optional": ["technicalAndInteraction"]
 }
 ```
 
-This is an exact fit for the design, which is why it is a two-line declaration:
+This matches the design:
 
-- `required: ["none"]` — nothing is collected for the extension to function. A
-  user who never opts in transmits nothing, which is the default state.
+- `required: ["locationInfo"]` - while an enabled place rule is configured, the extension
+  asks a Cloudflare service for eligibility; that service sends the connection's
+  IP address to MaxMind. The extension receives no country or region.
+  The user cannot turn that check off. Mozilla's `none` cannot sit beside another
+  required category.
 - `optional: ["technicalAndInteraction"]` — Mozilla's category for technical and
   interaction telemetry, covering both our product events and our crash
   reports. Mozilla only permits this category as optional, never required, which
   matches an off-by-default setting exactly.
 
 Nothing else is declared: no `personallyIdentifyingInfo`, no
-`financialAndPaymentInfo`, no `locationInfo`, no `browsingActivity`, no
-`websiteContent`.
+`financialAndPaymentInfo`, no `browsingActivity`, no `websiteContent`.
 
 **Two things to know when submitting.**
 
@@ -217,9 +219,9 @@ Declare nothing else. In particular: no Identifiers (no user id, device id, or
 advertising identifier exists), no Financial Info, no Contact Info, no Location,
 no Sensitive Info, no Advertising Data.
 
-Answer **yes** to "collected but optional" where the form offers it. Apple's
-questionnaire asks what the app *can* collect, so both rows must be declared
-even though collection is off by default and requires opt-in.
+Crash Data is collected from every user. Product Interaction is collected only
+from users who chose **Share usage data**; Apple's questionnaire asks what the
+app *can* collect, so both rows are declared.
 
 **No App Tracking Transparency prompt.** `NSUserTrackingUsageDescription` is
 absent, and a test asserts it stays absent — nothing is tracked, so there is
@@ -247,15 +249,13 @@ allowed and dishonest ones are not.
 
 ## Google Play
 
-The paste-ready Data Safety answers live in
-[`STORE_LISTING.md`](../STORE_LISTING.md) under "Data Safety (Google Play)",
-which is the existing mechanism — they are not duplicated here, so there is one
-place to change them.
+The Data Safety form's answers, kept here with the other three storefronts:
 
-For orientation, the telemetry-relevant answers there are: **App activity → App
-interactions** and **App info and performance → Crash logs / Diagnostics**, each
-collected optionally, not shared, encrypted in transit, purpose Analytics and
-App functionality; **Device or other IDs: not collected**.
+The telemetry-relevant answers are: **App info and performance → Crash logs /
+Diagnostics**, collected from every user (required, users cannot turn it off),
+purpose App functionality; **App activity → App interactions**, collected
+optionally (the **Share usage data** choice), purpose Analytics; both not shared
+and encrypted in transit; **Device or other IDs: not collected**.
 
 **The data-deletion question.** Play asks whether users can request deletion of
 their data. Answered honestly and consistently with the no-identifier design:
@@ -273,15 +273,9 @@ does not compromise privacy, which is the distinction the sentence draws — but
 that should be somebody's decision, not a sentence that survived because nobody
 re-read it.
 
-## One inconsistency worth fixing, in the consent copy
+## The consent copy
 
-`helpImproveWalletDescription` in `public/_locales/en/en.json` describes the
-product events well ("which parts of Wallet you use, where you get stuck, broad
-error categories, the app version, and your platform") but never says **crash
-reports**, which the same single setting also turns on. Nothing it says is
-false, and "where you get stuck" is in the neighbourhood, but a user reading only
-that string would not know they were consenting to stack traces being sent.
-
-Not fixed here: changing that string means re-translating it across every locale
-in `public/_locales/`, and the wording is Product's call. Raised so it is a
-decision. The public policy is explicit about crash reports either way.
+The onboarding screen and the Settings footnote say that crash reports are sent
+either way (`helpImproveWalletCrashReports`, `helpImproveWalletDescription` in
+`public/_locales/en/en.json`), and the **Share usage data** choice covers the
+product events only, matching the public policy.

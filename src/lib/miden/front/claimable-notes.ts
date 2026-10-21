@@ -7,7 +7,7 @@ import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
-import { isExtension, isIOS } from 'lib/platform';
+import { hasExtensionRuntime, isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { faucetMetadataOf, getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -95,7 +95,7 @@ function parseNotes(
       recallableAtMs: note.recallableAtMs,
       standardPayment: note.standardPayment,
       // The claim fee gate cannot see the other assets, one of which may pay the fee.
-      carriesMoreAssets: note.assets.length > 1 || undefined
+      carriesMoreAssets: note.assets.length > 1
     });
   }
 
@@ -463,6 +463,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
     if (!g.chrome?.storage?.local) return;
+    // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+    if (!hasExtensionRuntime()) return;
 
     // A read that lands after this effect ended belongs to a visit that is over.
     let active = true;
@@ -503,7 +505,13 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     poll();
 
     // Then poll every 3s (aligned with useSyncTrigger's SyncRequest interval)
-    const timer = setInterval(poll, 3_000);
+    const timer = setInterval(() => {
+      if (!hasExtensionRuntime()) {
+        clearInterval(timer);
+        return;
+      }
+      poll();
+    }, 3_000);
     return () => {
       active = false;
       clearInterval(timer);

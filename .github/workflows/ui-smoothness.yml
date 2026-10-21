@@ -1,0 +1,114 @@
+# Untrusted half of the UI smoothness bot.
+#
+# This workflow builds and runs code the PR author controls, so it holds no
+# credentials that can write to the pull request. It emits feel samples for six
+# passes from Overview to Swap, six tap durations, and three settings-list scrolls.
+# ui-smoothness-comment.yml, which never checks
+# out pull request code, renders and posts the comment.
+#
+# !! ui-smoothness-comment.yml matches this workflow by the `name:` field
+# !! below, not by filename. Renaming it silently disables the PR comment.
+name: UI Smoothness
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    # A denylist, same as the proving bench: a missed path wastes a run, an
+    # allowlist that misses a path ships an unmeasured change. Only trees that
+    # cannot reach the mobile UI bundle are listed. The comment renderer is
+    # listed because workflow_run executes the default branch's copy, so this
+    # pull request's renderer never runs.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "ios/**"
+      - "android/**"
+      - "src-tauri/**"
+      - "playwright/**"
+      - ".github/workflows/ui-smoothness-comment.yml"
+      - ".github/scripts/render-ui-smoothness-comment.mjs"
+      - ".github/scripts/render-ui-smoothness-comment.test.mjs"
+      - ".github/scripts/ui-smoothness-profile.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-smoothness-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: Measure feel
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
+
+      - name: Install Playwright Chrome
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chrome
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
+      - name: Measure head and base
+        timeout-minutes: 25
+        env:
+          BENCH_BROWSER: chrome
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          git fetch origin "$BASE_REF"
+          base_sha="$(git merge-base HEAD "origin/$BASE_REF")"
+          mkdir -p "$RUNNER_TEMP/harness"
+          cp scripts/home-swipe-bench.mjs scripts/home-swipe-score.mjs scripts/ui-smoothness-artifact.mjs "$RUNNER_TEMP/harness/"
+
+          measure() {
+            local label="$1"
+            BENCH_PROFILE="$label" node scripts/home-swipe-bench.mjs \
+              --label "$label" --reps 6 --throttle 4 --rebuild \
+              --summary "$RUNNER_TEMP/$label.json"
+          }
+
+          measure head
+
+          git checkout "$base_sha" -- .
+          # Base cannot finish creating a mock wallet until it has the genesis
+          # sync tolerance. Overlay that one file from head when base lacks it,
+          # so the carousel under test stays base's. Once main has the line,
+          # this overlay stops.
+          if ! git grep -q 'mock sync failed' "$base_sha" -- src/lib/miden/back/vault.ts; then
+            git checkout "$head_sha" -- src/lib/miden/back/vault.ts
+          fi
+          mkdir -p scripts
+          cp "$RUNNER_TEMP/harness/home-swipe-bench.mjs" "$RUNNER_TEMP/harness/home-swipe-score.mjs" scripts/
+          if ! git diff --quiet "$head_sha" "$base_sha" -- yarn.lock; then
+            yarn install --frozen-lockfile
+          fi
+          measure base
+
+          node "$RUNNER_TEMP/harness/ui-smoothness-artifact.mjs" \
+            "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/results.json"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoothness-report
+          path: ${{ runner.temp }}/results.json
+          if-no-files-found: ignore

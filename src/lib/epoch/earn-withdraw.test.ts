@@ -1,4 +1,4 @@
-import type { ExecuteActionOptions } from '@epoch-protocol/epoch-intents-sdk';
+import type { ExecuteActionOptions, PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 
 import type { initiateEarnWithdrawTransaction, updateEarnWithdrawPhase } from 'lib/miden/activity';
 import type { PendingBridgeInIntent } from 'lib/miden/activity/bridge-in';
@@ -10,6 +10,7 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { captureNativeAssetSnapshot } from 'lib/miden-chain/native-asset';
 import {
   type EvmUsdc,
   findEpochUsdcAddress,
@@ -32,12 +33,21 @@ import {
   earnWithdrawExecutionIdentity,
   selectEarnWithdrawPreparedExecution
 } from './earn-withdraw-policy';
+import { assertWithdrawalReviewCurrent, quoteEarnWithdrawal } from './earn-withdraw-quote';
+import type { EarnWithdrawalQuote } from './earn-withdraw-quote';
 import { matchesEarnWithdrawIntent } from './intent-key';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
+import { fetchEarnPositions } from './positions';
 import { TEST_EVM_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
-import { preparedExecution, PREPARED_FAUCET, PREPARED_RECIPIENT } from './testing/earn-prepared';
+import {
+  preparedAllocation,
+  preparedExecution,
+  PREPARED_FAUCET,
+  PREPARED_RECIPIENT,
+  PREPARED_TOKEN
+} from './testing/earn-prepared';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   ...jest.requireActual('@epoch-protocol/epoch-intents-sdk'),
@@ -90,10 +100,22 @@ jest.mock('./earn', () => {
     }
   };
 });
-jest.mock('./evm-account', () => ({ buildVaultEvmWalletClient: jest.fn(() => ({})) }));
+// The review guards that run before every signature are the real ones; only the network reads are stubbed.
+jest.mock('./earn-withdraw-quote', () => ({
+  ...jest.requireActual<typeof import('./earn-withdraw-quote')>('./earn-withdraw-quote'),
+  assertWithdrawalReviewCurrent: jest.fn().mockResolvedValue(undefined),
+  quoteEarnWithdrawal: jest.fn()
+}));
+jest.mock('./positions', () => ({ fetchEarnPositions: jest.fn() }));
+jest.mock('./evm-account', () => ({
+  buildVaultEvmWalletClient: jest.fn(() => ({})),
+  assertVaultEvmAccountCurrent: (...args: unknown[]) => mockAssertActiveAccount(...args)
+}));
+const mockAssertActiveAccount = jest.fn();
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn(), ensureEpochSmartAccount: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetId: jest.fn().mockResolvedValue('0xabcdef1234567890abcdef12345678')
+  getNativeAssetId: jest.fn().mockResolvedValue('0xabcdef1234567890abcdef12345678'),
+  captureNativeAssetSnapshot: jest.fn(() => ({ scope: 'testnet', revision: 1 }))
 }));
 jest.mock('lib/miden/activity', () => ({
   initiateEarnWithdrawTransaction: jest.fn(),
@@ -129,18 +151,61 @@ const validArgs = () => ({
   underlyingDecimals: 6
 });
 
-function fakeSdk(executeActions: jest.Mock) {
+const reviewed = (): EarnWithdrawalQuote => ({
+  position: {
+    owner: EVM_OWNER,
+    marketUid: MARKET_UID,
+    underlyingAddress: UNDERLYING,
+    decimals: 6,
+    withdrawable: '20'
+  },
+  accountId: PREPARED_RECIPIENT,
+  amount: '10',
+  amountAtomic: '10000000',
+  availableAtomic: '20000000',
+  scope: 'testnet',
+  nativeRevision: 1,
+  allocatorUrl: getEpochAllocatorUrl(),
+  destinationFaucetId: PREPARED_FAUCET,
+  destinationSymbol: 'USDCX',
+  destinationDecimals: 6,
+  expectedAtomic: '10',
+  minimumAtomic: '1',
+  expiresAt: Date.now() + 60000
+});
+
+const REVIEW_CHANGED = 'The balance or quote changed - start a new withdrawal to review it again.';
+const WITHDRAWAL_IN_PROGRESS = 'Another withdrawal from this position is still in progress - wait for it to finish.';
+
+function fakeSdk(executeActions: jest.Mock, prepared: PreparedExecution = preparedExecution()) {
   return {
     getWalletGaslessStatus: jest.fn().mockResolvedValue({ is7702Capable: true, needsSetup: false }),
     convertToSmartAccount: jest.fn().mockResolvedValue({ ok: true }),
     helpers: {
       executeActions: async (options: ExecuteActionOptions) => {
-        await options.onBeforeExecute?.(preparedExecution());
+        await options.onBeforeExecute?.(prepared);
         return executeActions(options);
       }
     }
   };
 }
+
+/** The fixture execution with one allocation's request text rewritten. */
+function rewrittenExecution(index: number, from: string, to: string): PreparedExecution {
+  const execution = preparedExecution();
+  const allocations = execution.allocations.map((allocation, position) =>
+    position === index ? { ...allocation, requestJson: allocation.requestJson.replace(from, to) } : allocation
+  );
+  if (JSON.stringify(allocations) === JSON.stringify(execution.allocations)) throw new Error(`${from} is not in it`);
+  return { ...execution, allocations };
+}
+
+// A row a previous test left behind must not read as a withdrawal still in flight.
+beforeEach(() => {
+  jest
+    .mocked(Repo.transactions.filter)
+    .mockImplementation(jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }));
+});
 
 function wireWithdrawal(row: ITransaction | undefined) {
   const modify = jest.fn(async (mutate: (tx: ITransaction) => void) => {
@@ -179,7 +244,10 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('gaslessEarnWithdrawalToMiden', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
 
   it('creates a redeeming row, submits the intent, and returns its txId + nonce', async () => {
     const executeActions = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
@@ -388,7 +456,10 @@ describe('gaslessEarnWithdrawalToMiden', () => {
 });
 
 describe('resumeEarnWithdrawal', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
 
   it('re-registers the bridge-in and restarts polling for a submitted redeeming row', async () => {
     jest.mocked(Repo.transactions.where).mockImplementation(
@@ -483,7 +554,10 @@ describe('resumeEarnWithdrawal', () => {
 });
 
 describe('reconcileEarnWithdrawals', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+  });
 
   it('fails rows older than the TTL without resuming them', async () => {
     const old = liveWithdrawal('OLD');
@@ -753,7 +827,12 @@ describe('pollEarnWithdrawDelivery', () => {
 });
 
 describe('resubmitEarnWithdrawal', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+    jest.mocked(fetchEarnPositions).mockReset();
+    jest.mocked(quoteEarnWithdrawal).mockReset();
+  });
 
   const failedRow = (extraInputs: Partial<IEarnWithdrawExtraInputs> = {}) =>
     liveWithdrawal('TX1', {
@@ -821,15 +900,108 @@ describe('resubmitEarnWithdrawal', () => {
     expect(deps.startDeliveryPoll).toHaveBeenCalledWith(expect.objectContaining({ txId: 'TX1', nonce: '22' }));
   });
 
-  it('resubmits a row that never reached Epoch (no nonce recorded)', async () => {
-    const row = failedRow({ withdrawIntentNonce: undefined });
+  const retryPosition = {
+    owner: EVM_OWNER,
+    marketUid: MARKET_UID,
+    underlyingAddress: UNDERLYING,
+    decimals: 6,
+    withdrawable: '20',
+    lenderKey: 'DUMMY_LENDING',
+    lenderName: 'Dummy',
+    chainId: '11155111',
+    deposits: '20',
+    depositsUSD: 20,
+    depositApr: 2,
+    symbol: 'USDC',
+    priceUsd: 1
+  };
+  const servePosition = () =>
+    jest.mocked(fetchEarnPositions).mockResolvedValue({
+      positions: [retryPosition],
+      owners: [EVM_OWNER],
+      vaults: [],
+      totalDepositsUSD: 20,
+      errors: []
+    });
+
+  it.each([false, true])(
+    'revalidates a partial source retry and refuses a worse reviewed minimum (%p)',
+    async worse => {
+      const row = failedRow({ sourceAmount: '1', reviewedMinimumReceivedAtomic: '5', sourceDecimals: 6 });
+      mockRow(row);
+      servePosition();
+      jest.mocked(quoteEarnWithdrawal).mockResolvedValue({
+        position: retryPosition,
+        accountId: row.accountId,
+        amount: '1',
+        amountAtomic: '1000000',
+        availableAtomic: '20000000',
+        scope: 'testnet',
+        nativeRevision: 1,
+        allocatorUrl: getEpochAllocatorUrl(),
+        destinationFaucetId: PREPARED_FAUCET,
+        destinationSymbol: 'USDCX',
+        destinationDecimals: 6,
+        expectedAtomic: '10',
+        minimumAtomic: worse ? '4' : '6',
+        expiresAt: Date.now() + 60000
+      });
+      // The legs the allocator returns for this review: both spend the reviewed 1 USDC at the reviewed floor of 6.
+      const fixture = preparedExecution();
+      const reviewedLegs = {
+        ...fixture,
+        allocations: fixture.allocations.map(allocation => ({
+          ...allocation,
+          requestJson: allocation.requestJson
+            .replaceAll('"10000000"', '"1000000"')
+            .replaceAll('"minTokenOut":"1"', '"minTokenOut":"6"')
+        }))
+      };
+      const execute = jest.fn();
+      const deps = baseDeps({ sdk: fakeSdk(execute, reviewedLegs) });
+      const result = await resubmitEarnWithdrawal('TX1', deps).then(
+        () => 'submitted',
+        (error: Error) => error.message
+      );
+      expect(result).toBe(worse ? REVIEW_CHANGED : 'submitted');
+      expect(deps.ensureSmartAccount).toHaveBeenCalledTimes(worse ? 0 : 1);
+      expect(execute).toHaveBeenCalledTimes(worse ? 0 : 1);
+      expect(quoteEarnWithdrawal).toHaveBeenCalledWith(expect.objectContaining({ amount: '1' }));
+      expect(row.extraInputs.reviewedMinimumReceivedAtomic).toBe(worse ? '5' : '6');
+    }
+  );
+
+  // The Activity retry shows the thrown message as written, so a quote refusal reaches it as a sentence.
+  it.each([
+    ['earnWithdrawQuoteUnavailable', 'A withdrawal quote is unavailable for this amount - try again later.'],
+    ['earnWithdrawAboveAvailable', 'The withdrawal amount is above the available balance - start a new withdrawal.'],
+    ['earnWithdrawPositive', 'The withdrawal amount must be greater than zero.'],
+    ['earnWithdrawPrecision', 'The withdrawal amount has more decimal places than the token supports.']
+  ])('surfaces a reviewed source retry refused with %s as a sentence', async (key, sentence) => {
+    const row = failedRow({ sourceAmount: '1', reviewedMinimumReceivedAtomic: '5', sourceDecimals: 6 });
+    mockRow(row);
+    servePosition();
+    jest.mocked(quoteEarnWithdrawal).mockRejectedValue(new Error(key));
+    const execute = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(execute) });
+
+    await expect(resubmitEarnWithdrawal('TX1', deps)).rejects.toThrow(new Error(sentence, { cause: new Error(key) }));
+    expect(execute).not.toHaveBeenCalled();
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(row.extraInputs.phase).toBe('failed');
+  });
+
+  it('retries the amount the old parser read from a legacy row, cut to the source decimals', async () => {
+    const row = failedRow({ sourceAmount: '1.23456789', sourceDecimals: 6 });
     mockRow(row);
     const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
     const deps = baseDeps({ sdk: fakeSdk(executeActions) });
 
     await resubmitEarnWithdrawal('TX1', deps);
 
-    expect(executeActions).toHaveBeenCalled();
+    expect(executeActions).toHaveBeenCalledTimes(1);
+    expect(executeActions).toHaveBeenCalledWith(expect.objectContaining({ amount: '1234567' }));
+    expect(row.extraInputs).toMatchObject({ phase: 'redeeming', submissionState: 'accepted' });
   });
 
   it('is a no-op on a non-failed row', async () => {
@@ -1040,7 +1212,9 @@ function memoryWithdrawals() {
   );
   const initiateRow = jest.fn(async (...args: Parameters<typeof initiateEarnWithdrawTransaction>) => {
     const [accountId, amount, owner, market, faucet, sourceAmount, symbol, attemptId, startedAt] = args;
-    const row = liveWithdrawal('TX1', {
+    let id = 'TX1';
+    for (let next = 2; rows.has(id); next += 1) id = `TX${next}`;
+    const row = liveWithdrawal(id, {
       evmOwner: owner,
       marketUid: market,
       destinationFaucetId: faucet,
@@ -1395,6 +1569,88 @@ describe('withdrawal ownership across independent document factories', () => {
     expect(executeActions).not.toHaveBeenCalled();
   });
 
+  it('admits one reviewed withdrawal per position across documents and refuses the next while it is in flight', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const parked = deferred<{ nonce: string }>();
+    const first = jest.fn().mockReturnValue(parked.promise);
+    const second = jest.fn().mockResolvedValue({ nonce: 'SECOND' });
+    const submission = gaslessEarnWithdrawalToMiden(
+      { ...validArgs(), review: reviewed() },
+      baseDeps({ ...h, sdk: fakeSdk(first), withSubmissionLock: d.submissionA.withEarnSubmissionLock })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(first).toHaveBeenCalledTimes(1);
+    const next = gaslessEarnWithdrawalToMiden(
+      { ...validArgs(), review: reviewed() },
+      baseDeps({ ...h, sdk: fakeSdk(second), withSubmissionLock: d.submissionB.withEarnSubmissionLock })
+    );
+    void next.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(second).not.toHaveBeenCalled();
+
+    parked.resolve({ nonce: 'FIRST' });
+    await expect(submission).resolves.toMatchObject({ txId: 'TX1' });
+    await expect(next).rejects.toThrow(new Error('earnWithdrawInProgress'));
+    expect(second).not.toHaveBeenCalled();
+    expect([...h.rows.keys()]).toEqual(['TX1']);
+  });
+
+  it('refuses a source retry while a new withdrawal from the same position is in flight', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    h.rows.set('TX1', liveWithdrawal('TX1', { phase: 'failed', submissionState: 'preparing', error: 'failed' }));
+    const parked = deferred<{ nonce: string }>();
+    const fresh = jest.fn().mockReturnValue(parked.promise);
+    const retried = jest.fn().mockResolvedValue({ nonce: 'RETRY' });
+    const submission = gaslessEarnWithdrawalToMiden(
+      { ...validArgs(), review: reviewed() },
+      baseDeps({ ...h, sdk: fakeSdk(fresh), withSubmissionLock: d.submissionA.withEarnSubmissionLock })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fresh).toHaveBeenCalledTimes(1);
+    const retry = resubmitEarnWithdrawal(
+      'TX1',
+      baseDeps({ ...h, sdk: fakeSdk(retried), withSubmissionLock: d.submissionB.withEarnSubmissionLock })
+    );
+    void retry.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(retried).not.toHaveBeenCalled();
+
+    parked.resolve({ nonce: 'FRESH' });
+    await expect(submission).resolves.toMatchObject({ txId: 'TX2' });
+    await expect(retry).rejects.toThrow(
+      new Error(WITHDRAWAL_IN_PROGRESS, { cause: new Error('earnWithdrawInProgress') })
+    );
+    expect(retried).not.toHaveBeenCalled();
+    expect(h.rows.get('TX1')?.extraInputs).toMatchObject({ phase: 'failed', error: 'failed' });
+  });
+
+  it('does not hold back a withdrawal from another position', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const parked = deferred<{ nonce: string }>();
+    const first = jest.fn().mockReturnValue(parked.promise);
+    const other = jest.fn().mockResolvedValue({ nonce: 'OTHER' });
+    const submission = gaslessEarnWithdrawalToMiden(
+      { ...validArgs(), review: reviewed() },
+      baseDeps({ ...h, sdk: fakeSdk(first), withSubmissionLock: d.submissionA.withEarnSubmissionLock })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(first).toHaveBeenCalledTimes(1);
+
+    await expect(
+      gaslessEarnWithdrawalToMiden(
+        { ...validArgs(), marketUid: `OTHER_LENDING:11155111:${UNDERLYING}` },
+        baseDeps({ ...h, sdk: fakeSdk(other), withSubmissionLock: d.submissionB.withEarnSubmissionLock })
+      )
+    ).resolves.toMatchObject({ txId: 'TX2' });
+    expect(other).toHaveBeenCalledTimes(1);
+
+    parked.resolve({ nonce: 'FIRST' });
+    await expect(submission).resolves.toMatchObject({ txId: 'TX1' });
+  });
+
   it('resolves an old response note after an attempt replacement without changing the new primary', async () => {
     const h = memoryWithdrawals();
     const d = documents();
@@ -1617,4 +1873,189 @@ describe('withdrawal ownership across independent document factories', () => {
     expect(registerBridgeIn).toHaveBeenCalledTimes(2);
     expect(getIntentStatus).toHaveBeenCalledTimes(3);
   });
+});
+
+describe('reviewed withdrawals', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAssertActiveAccount.mockReset();
+    jest.mocked(assertWithdrawalReviewCurrent).mockReset().mockResolvedValue(undefined);
+  });
+  it('refuses an account switch during the initial position check before creating a row', async () => {
+    jest.mocked(assertWithdrawalReviewCurrent).mockImplementationOnce(async () => {
+      mockAssertActiveAccount.mockImplementation(() => {
+        throw new Error('earnWithdrawRefresh');
+      });
+    });
+    const deps = baseDeps();
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+  });
+  it('refuses an account switch while saving prepared execution before permitting the SDK', async () => {
+    const execute = jest.fn();
+    const deps = baseDeps({
+      sdk: fakeSdk(execute),
+      prepareExecution: jest.fn(
+        async (...args: Parameters<typeof import('lib/miden/transaction/complete').prepareEarnWithdrawExecution>) => {
+          const saved = await jest
+            .requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
+            .prepareEarnWithdrawExecution(...args);
+          mockAssertActiveAccount.mockImplementation(() => {
+            throw new Error('earnWithdrawRefresh');
+          });
+          return saved;
+        }
+      )
+    });
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('rejects a reviewed amount with more fraction digits than the token before creating a row or signing', async () => {
+    const deps = baseDeps();
+    const review = { ...reviewed(), amount: '1.0000001', amountAtomic: '1000000' };
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), amount: '1.0000001', review }, deps)).rejects.toThrow(
+      new Error('Withdraw amount is invalid or exceeds token precision.')
+    );
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+  });
+  it('refuses a selected amount that differs from its review', async () => {
+    const deps = baseDeps();
+    await expect(
+      gaslessEarnWithdrawalToMiden({ ...validArgs(), amount: '1', review: reviewed() }, deps)
+    ).rejects.toThrow('earnWithdrawRefresh');
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+  it('refuses stale availability before any row or smart-account signing', async () => {
+    jest.mocked(assertWithdrawalReviewCurrent).mockRejectedValueOnce(new Error('earnWithdrawRefresh'));
+    const deps = baseDeps();
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+  it('rechecks availability after preparation and refuses execution if it changed', async () => {
+    jest
+      .mocked(assertWithdrawalReviewCurrent)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('earnWithdrawRefresh'));
+    const execute = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(execute) });
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(assertWithdrawalReviewCurrent).toHaveBeenCalledTimes(2);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('submits a reviewed withdrawal through the real signing guards', async () => {
+    const execute = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
+    const deps = baseDeps({ sdk: fakeSdk(execute) });
+
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).resolves.toMatchObject({
+      txId: 'TX1',
+      nonce: '22'
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(captureNativeAssetSnapshot).toHaveBeenCalled();
+    const row = await Repo.transactions.where({ id: 'TX1' }).first();
+    expect(row?.extraInputs).toMatchObject({ submissionState: 'accepted', reviewedMinimumReceivedAtomic: '1' });
+  });
+
+  const mismatchedExecutions: Array<[string, PreparedExecution]> = [
+    [
+      'a withdraw leg for another amount',
+      rewrittenExecution(0, '"tokenInAmount":"10000000"', '"tokenInAmount":"9000000"')
+    ],
+    [
+      'a withdraw leg for another token',
+      rewrittenExecution(0, `"tokenIn":"${PREPARED_TOKEN}"`, '"tokenIn":"0x3333333333333333333333333333333333333333"')
+    ],
+    [
+      'an extra allocation',
+      {
+        chainId: 11155111,
+        allocations: [preparedAllocation('11', false), preparedAllocation('33', false), preparedAllocation('22', true)]
+      }
+    ]
+  ];
+  it.each(mismatchedExecutions)('refuses %s before saving or permitting the execution', async (_case, prepared) => {
+    const execute = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(execute, prepared) });
+
+    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+      new Error('earnWithdrawRefresh')
+    );
+    expect(deps.prepareExecution).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a delivery floor below the reviewed minimum before saving or permitting the execution', async () => {
+    const execute = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(execute) });
+
+    await expect(
+      gaslessEarnWithdrawalToMiden({ ...validArgs(), review: { ...reviewed(), minimumAtomic: '2' } }, deps)
+    ).rejects.toThrow(new Error('earnWithdrawRefresh'));
+    expect(deps.prepareExecution).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a review that expires once its row exists, before any smart-account setup', async () => {
+    const review = reviewed();
+    const execute = jest.fn();
+    const deps = baseDeps({ sdk: fakeSdk(execute) });
+    const now = jest.spyOn(Date, 'now');
+    try {
+      await expect(
+        gaslessEarnWithdrawalToMiden(
+          { ...validArgs(), review, onRowCreated: () => now.mockReturnValue(review.expiresAt) },
+          deps
+        )
+      ).rejects.toThrow(new Error('earnWithdrawRefresh'));
+    } finally {
+      now.mockRestore();
+    }
+    expect(deps.initiateRow).toHaveBeenCalledTimes(1);
+    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  // The status page, the Activity failure card and the History row show the saved error as written.
+  it.each(['availability', 'expiry'])(
+    'saves a sentence, not the review key, when the %s check refuses after the row exists',
+    async check => {
+      const review = reviewed();
+      let reads = 0;
+      jest.mocked(assertWithdrawalReviewCurrent).mockImplementation(async () => {
+        reads += 1;
+        if (check === 'availability' && reads > 1) throw new Error('earnWithdrawRefresh');
+      });
+      const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
+      const now = jest.spyOn(Date, 'now');
+      const expire = () => {
+        if (check === 'expiry') now.mockReturnValue(review.expiresAt);
+      };
+      try {
+        await expect(
+          gaslessEarnWithdrawalToMiden({ ...validArgs(), review, onRowCreated: expire }, deps)
+        ).rejects.toThrow(new Error('earnWithdrawRefresh'));
+      } finally {
+        now.mockRestore();
+      }
+      expect(deps.markNotSent).toHaveBeenCalledTimes(1);
+      expect(deps.markNotSent.mock.calls[0]?.[1]).toBe(REVIEW_CHANGED);
+      const row = await Repo.transactions.where({ id: 'TX1' }).first();
+      expect(row?.extraInputs).toMatchObject({ phase: 'failed', error: REVIEW_CHANGED });
+      expect(row?.error).toBe(REVIEW_CHANGED);
+    }
+  );
 });

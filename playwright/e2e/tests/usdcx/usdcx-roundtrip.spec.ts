@@ -577,7 +577,7 @@ test.describe('USDCx bridge-in from a funded Arc key', () => {
             `the ${role} key ${key.address} holds ${balance} USDC base units, needs ` +
               `${DEPOSIT_UNITS + GAS_RESERVE_UNITS}; ` +
               (role === 'harness'
-                ? "refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or export " +
+                ? 'refill it with yarn e2e:real --suite usdcx (after its burn pays out), or export ' +
                   'E2E_ARC_PRIVATE_KEY with a funded key'
                 : 'fund it, or unset E2E_ARC_PRIVATE_KEY to deposit from the harness key')
           );

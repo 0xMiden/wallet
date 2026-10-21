@@ -5,12 +5,23 @@ import { act } from 'react-dom/test-utils';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
 
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key) })
 }));
 
 jest.mock('lib/platform', () => ({
@@ -28,15 +39,24 @@ jest.mock('components/Button', () => ({
     onClick,
     variant,
     accent,
+    disabled,
     className
   }: {
     children?: React.ReactNode;
     onClick?: () => void;
     variant?: string;
     accent?: string;
+    disabled?: boolean;
     className?: string;
   }) => (
-    <button type="button" data-variant={variant} data-accent={accent} className={className} onClick={onClick}>
+    <button
+      type="button"
+      data-variant={variant}
+      data-accent={accent}
+      className={className}
+      disabled={disabled}
+      onClick={onClick}
+    >
       {children}
     </button>
   ),
@@ -391,6 +411,39 @@ describe('GeneratingTransactionPage container effects', () => {
 
     expect(container.textContent).toContain('transactionFailed');
     act(() => root.unmount());
+  });
+
+  it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+      'lib/miden/transaction/initiate'
+    );
+    mockFeeCopy = 'worker-fee-copy';
+    const refusal = new ClaimFeeRefusedError();
+    mockFeeCopy = 'localized-fee-copy';
+    mockRowState = { row: makeTx({ status: 3, type: 'consume', displayIcon: 'RECEIVE' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(refusal);
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    try {
+      const retryButton = Array.from(container.querySelectorAll('button')).find(
+        button => button.textContent === 'retry'
+      );
+      expect(retryButton).toBeTruthy();
+      await act(async () => {
+        retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('localized-fee-copy');
+      expect(container.textContent).not.toContain(refusal.message);
+      expect(navigateMock).not.toHaveBeenCalled();
+      expect(requestSWTransactionProcessingMock).not.toHaveBeenCalled();
+      expect(retryButton).not.toBeDisabled();
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      mockFeeCopy = 'worker-fee-copy';
+      log.mockRestore();
+    }
   });
 
   it('shows Retry on a failed requeueable tx and requeues + kicks processing on click (#483)', async () => {
@@ -1384,4 +1437,179 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(container.textContent).toContain('doNotCloseWindowAutoClose');
     act(() => root.unmount());
   });
+});
+
+describe('user-visible transaction errors', () => {
+  let root: ReturnType<typeof createRoot>;
+  let container: HTMLDivElement;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+    jest.mocked(reportUserVisibleError).mockClear();
+    safeGenerateTransactionsLoopMock.mockReturnValue(true);
+    requeueFailedTransactionMock.mockReset();
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockAcknowledgementOf.mockReturnValue(null);
+    mockRowState = { row: makeTx({ status: ITransactionStatus.Queued }), loaded: true };
+    container = document.createElement('div');
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+  });
+  const renderPage = async () => {
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+  };
+  const failRow = () => {
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        error: 'private row reason 123 https://private.invalid',
+        rawError: 'private raw detail'
+      }),
+      loaded: true
+    };
+  };
+  const expectDwell = (id: string, surface: string) => {
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, surface]]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  it('reports a mounted Queued to Failed transition once for its visible and announced presentations', async () => {
+    await renderPage();
+    failRow();
+    await renderPage();
+    expect(container.textContent).toContain('transactionFailed');
+    expect(container.textContent).toContain('private row reason 123 https://private.invalid');
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toContain('private row reason');
+    expectDwell('raw_transaction_failed', 'status_screen');
+    mockRowState.row = { ...mockRowState.row, error: 'changed private reason' };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_transaction_failed', 'status_screen']]);
+  });
+
+  it.each(['initial', 'asynchronous', 'reopen'])('does not report a persisted failed row: %s', async mode => {
+    if (mode === 'asynchronous') {
+      mockRowState = { row: undefined, loaded: false };
+      await renderPage();
+      act(() => jest.advanceTimersByTime(2000));
+    }
+    failRow();
+    await renderPage();
+    if (mode === 'reopen') {
+      act(() => root.unmount());
+      root = createRoot(container);
+      await renderPage();
+    }
+    expect(container.textContent).toContain('transactionFailed');
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('reports when the first asynchronously loaded nonfailed row subsequently fails', async () => {
+    mockRowState = { row: undefined, loaded: false };
+    await renderPage();
+    mockRowState = { row: makeTx({ status: ITransactionStatus.Queued }), loaded: true };
+    await renderPage();
+    failRow();
+    await renderPage();
+    expect(container.textContent).toContain('transactionFailed');
+    expectDwell('raw_transaction_failed', 'status_screen');
+  });
+
+  it.each(['clear', 'unmount'])('does not report a watched failure removed before dwell: %s', async mode => {
+    await renderPage();
+    failRow();
+    await renderPage();
+    expect(container.textContent).toContain('transactionFailed');
+    act(() => jest.advanceTimersByTime(999));
+    if (mode === 'clear') {
+      mockRowState = { row: makeTx({ status: ITransactionStatus.Queued }), loaded: true };
+      await renderPage();
+    } else {
+      act(() => root.unmount());
+      root = createRoot(container);
+    }
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each(['loading', 'missing', 'queued', 'unconfirmed', 'completed'])('keeps %s state silent', async mode => {
+    const statuses: Record<string, ITransactionStatus> = {
+      queued: ITransactionStatus.Queued,
+      unconfirmed: ITransactionStatus.Unconfirmed,
+      completed: ITransactionStatus.Completed
+    };
+    mockRowState =
+      mode === 'loading' || mode === 'missing'
+        ? { row: undefined, loaded: mode === 'missing' }
+        : { row: makeTx({ status: statuses[mode] }), loaded: true };
+    await renderPage();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels a retry failure report when a second retry starts before dwell', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('private retry'));
+    failRow();
+    await renderPage();
+    const retry = () => Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+    await act(async () => {
+      retry()!.click();
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('private retry');
+    act(() => jest.advanceTimersByTime(999));
+    requeueFailedTransactionMock.mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      retry()!.click();
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each(['raw', 'fee', 'fallback'])(
+    'reports a user-triggered %s retry failure on a persisted failed row',
+    async kind => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      mockFeeCopy = 'private translated fee refusal';
+      const failure =
+        kind === 'fee'
+          ? new ClaimFeeRefusedError()
+          : kind === 'raw'
+            ? new Error('private retry https://private.invalid 123')
+            : 'private untyped refusal';
+      requeueFailedTransactionMock.mockRejectedValueOnce(failure);
+      failRow();
+      await renderPage();
+      act(() => jest.advanceTimersByTime(2000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      const retry = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+      expect(retry).toBeDefined();
+      await act(async () => {
+        retry!.click();
+      });
+      const text =
+        kind === 'fee' ? mockFeeCopy : kind === 'raw' ? 'private retry https://private.invalid 123' : 'smthWentWrong';
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(text);
+      expectDwell(
+        kind === 'fee' ? 'insufficientFeeAsset' : kind === 'raw' ? 'raw_transaction_retry_failed' : 'smthWentWrong',
+        'inline'
+      );
+    }
+  );
 });

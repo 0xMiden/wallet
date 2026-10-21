@@ -38,7 +38,7 @@ export interface ConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
-  /** The note holds fungible assets beyond the one `faucetId` and `amount` describe; absent reads as not. */
+  /** Assets beyond the listed one; the queue treats absence as unknown full asset knowledge. */
   carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
@@ -143,6 +143,13 @@ export interface MidenDAppSignPayload extends MidenDAppPayloadBase {
   kind: SignKind;
 }
 
+// A sign-in with `accountId`'s login key for `domain`, the registrable domain read from `origin`.
+export interface MidenDAppLoginSignPayload extends MidenDAppPayloadBase {
+  type: 'loginSign';
+  domain: string;
+  accountId: string;
+}
+
 export interface MidenDAppAssetsPayload extends MidenDAppPayloadBase {
   type: 'assets';
   sourcePublicKey: string;
@@ -175,6 +182,7 @@ export type MidenDAppPayload =
   | MidenDAppConsumePayload
   | MidenDAppPrivateNotesPayload
   | MidenDAppSignPayload
+  | MidenDAppLoginSignPayload
   | MidenDAppAssetsPayload
   | MidenDAppImportPrivateNotePayload
   | MidenDAppConsumableNotesPayload

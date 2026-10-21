@@ -26,10 +26,13 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate, Redirect } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -63,7 +66,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const { signTransaction } = useMidenContext();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<{ text: string; id: UserErrorId } | null>(null);
   const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
@@ -108,6 +111,21 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
+  // Loading is not a nonfailed row: the first database result may already be a persisted failure.
+  const firstLoadedRow = useRef<{ txId: string; failed: boolean }>();
+  if (loaded && active?.id === txId && firstLoadedRow.current?.txId !== txId) {
+    firstLoadedRow.current = { txId, failed: status === ITransactionStatus.Failed };
+  }
+  useUserVisibleError(
+    loaded &&
+      active?.id === txId &&
+      status === ITransactionStatus.Failed &&
+      firstLoadedRow.current?.txId === txId &&
+      !firstLoadedRow.current.failed
+      ? 'raw_transaction_failed'
+      : null,
+    'status_screen'
+  );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
   // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
   useEffect(() => {
@@ -163,8 +181,16 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         await requeueFailedTransaction(active.id, acknowledged === undefined ? {} : { acknowledged });
         requestSWTransactionProcessing();
       } catch (error) {
-        console.error('[GeneratingTransaction] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        if (error instanceof ClaimFeeRefusedError) {
+          setRetryError({ text: t('insufficientFeeAsset'), id: 'insufficientFeeAsset' });
+        } else {
+          console.error('[GeneratingTransaction] Failed to retry transaction:', error);
+          setRetryError(
+            error instanceof Error
+              ? { text: error.message, id: 'raw_transaction_retry_failed' }
+              : { text: t('smthWentWrong'), id: 'smthWentWrong' }
+          );
+        }
         // Not a dead end: the wallet cannot tell whether this send landed, but the
         // user can see it in their balance. Offer that as an explicit second step
         // rather than leaving a Retry button that throws the same error forever.
@@ -272,7 +298,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
           canRetry={canRetry}
           isRetrying={isRetrying}
-          retryError={retryError}
+          retryError={retryError?.text}
+          retryErrorId={retryError?.id}
         />
       </div>
     </div>
@@ -295,9 +322,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   onRetryAnyway,
   canRetry = false,
   isRetrying = false,
-  retryError
+  retryError,
+  retryErrorId
 }) => {
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
+  useUserVisibleError(!showSuccessReceipt && retryError ? retryErrorId : null, 'inline');
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);

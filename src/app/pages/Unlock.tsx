@@ -14,6 +14,7 @@ import { readLocalStorage, useLocalStorage, useMidenContext, writeLocalStorage }
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 const BrandIcon = () => {
@@ -472,6 +473,22 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     };
   }, [setTimeLock, adoptLockout]);
 
+  const unlockErrorVisible = hardwareUnlockChecked || isExtension();
+  useUserVisibleError(
+    unlockErrorVisible && isHardwareOnlyWallet && biometricError ? 'biometricFailed' : null,
+    'inline'
+  );
+  useUserVisibleError(
+    unlockErrorVisible && !isHardwareOnlyWallet && !isMobile()
+      ? isDisabled
+        ? 'unlockPasswordErrorDelay'
+        : isError
+          ? 'incorrectPassword'
+          : null
+      : null,
+    'passcode'
+  );
+
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {
     return (
@@ -607,6 +624,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       title={t('enterYourPasscode')}
       message={subtitle}
       announcement={announcement}
+      errorId={isDisabled ? 'unlockPasswordErrorDelay' : isError ? 'incorrectPasscode' : 'biometricFailed'}
       isError={isDisabled || isError || biometricError}
       filled={code.length}
       length={PASSCODE_LENGTH}

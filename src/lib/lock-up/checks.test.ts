@@ -42,6 +42,14 @@ jest.mock('lib/miden/front', () => ({
   }
 }));
 
+// False once an extension reload or update has orphaned the page.
+const mockHasExtensionRuntime = { value: true };
+const mockReloadInPlace = jest.fn();
+jest.mock('lib/platform', () => ({
+  hasExtensionRuntime: () => mockHasExtensionRuntime.value,
+  reloadInPlace: () => mockReloadInPlace()
+}));
+
 import { runLockUpChecks } from './checks';
 
 const CLOSURE_STORAGE_KEY = 'last-page-closure-timestamp';
@@ -60,6 +68,8 @@ beforeEach(() => {
   mockGet.mockReset().mockResolvedValue({});
   mockSet.mockReset().mockResolvedValue(undefined);
   mockRequest.mockReset().mockResolvedValue({ type: WalletMessageType.LockResponse });
+  mockHasExtensionRuntime.value = true;
+  mockReloadInPlace.mockReset();
 
   mockOnDisconnectAddListener = jest.fn();
   mockChromeConnect = jest.fn(() => ({ onDisconnect: { addListener: mockOnDisconnectAddListener } }));
@@ -206,6 +216,84 @@ describe('runLockUpChecks', () => {
     expect(mockSet).toHaveBeenCalledTimes(3);
     expect(mockSendMessage).toHaveBeenCalledTimes(2);
     expect(mockSendMessage).toHaveBeenCalledWith('wakeup');
+  });
+
+  it('stops its timer once an extension reload or update orphans the page', async () => {
+    await runLockUpChecks();
+    mockSet.mockClear();
+    mockGetViews.mockImplementation(() => {
+      throw new Error('Extension context invalidated.');
+    });
+    await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST);
+    const reads = mockGetViews.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST * 3);
+    expect(mockGetViews).toHaveBeenCalledTimes(reads);
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  describe('on a page an extension reload or update orphans', () => {
+    const invalidated = () => {
+      throw new Error('Extension context invalidated.');
+    };
+
+    it('reloads in place once the timer finds the runtime gone', async () => {
+      await runLockUpChecks();
+      mockHasExtensionRuntime.value = false;
+      mockGetViews.mockImplementation(invalidated);
+
+      await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST * 3);
+
+      expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads in place as soon as its background port disconnects with the runtime gone', async () => {
+      await runLockUpChecks();
+      const onDisconnect = mockOnDisconnectAddListener.mock.calls[0][0];
+      mockHasExtensionRuntime.value = false;
+
+      onDisconnect();
+
+      expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads nothing when the port disconnects with the runtime live, as a service-worker restart does', async () => {
+      await runLockUpChecks();
+      const onDisconnect = mockOnDisconnectAddListener.mock.calls[0][0];
+
+      onDisconnect();
+      await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST);
+
+      expect(mockReloadInPlace).not.toHaveBeenCalled();
+    });
+
+    it('reloads once when the disconnect and a later tick both find the runtime gone', async () => {
+      await runLockUpChecks();
+      const onDisconnect = mockOnDisconnectAddListener.mock.calls[0][0];
+      mockHasExtensionRuntime.value = false;
+      mockGetViews.mockImplementation(invalidated);
+
+      onDisconnect();
+      await jest.advanceTimersByTimeAsync(CHECK_PAGES_EXIST * 3);
+
+      expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads instead of rejecting when the runtime is gone before the port exists', async () => {
+      mockHasExtensionRuntime.value = false;
+      mockChromeConnect.mockImplementation(invalidated);
+
+      await expect(runLockUpChecks()).resolves.toBeUndefined();
+
+      expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    });
+
+    it('still rejects a start-up failure while the runtime is live', async () => {
+      mockChromeConnect.mockImplementation(invalidated);
+
+      await expect(runLockUpChecks()).rejects.toThrow('Extension context invalidated.');
+
+      expect(mockReloadInPlace).not.toHaveBeenCalled();
+    });
   });
 
   it('still writes the closure time when the wake-up message fails', async () => {

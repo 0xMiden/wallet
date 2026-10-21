@@ -1,15 +1,19 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import type { IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import type { NativeAssetChainMetadata } from 'lib/miden-chain/native-asset';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
 import { EarnWithdrawStatus } from './EarnWithdrawStatus';
+
+const mockMutate = jest.fn().mockResolvedValue(undefined);
+jest.mock('swr', () => ({ useSWRConfig: () => ({ mutate: mockMutate }) }));
 
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
@@ -43,6 +47,8 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
+  HistoryAction: jest.requireActual<typeof import('lib/woozie/history')>('lib/woozie/history').HistoryAction,
+  useLocation: () => ({ trigger: null, state: null }),
   navigate: jest.fn()
 }));
 
@@ -354,4 +360,99 @@ describe('EarnWithdrawStatus', () => {
 
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
   });
+});
+
+it('invalidates only this account positions after the actual withdrawal receipt', () => {
+  jest.clearAllMocks();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'delivering' })), loaded: true };
+  const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).not.toHaveBeenCalled();
+  mockRowState = { row: makeRow(makeInputs({ phase: 'received' })), loaded: true };
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
+  const matches = mockMutate.mock.calls[0]?.[0];
+  expect(matches(['earn-positions', 'miden-account', 'owner'])).toBe(true);
+  expect(matches(['earn-positions', 'another-account', 'owner'])).toBe(false);
+  expect(matches(['balance', 'miden-account'])).toBe(false);
+  view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+  expect(mockMutate).toHaveBeenCalledTimes(1);
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible withdrawal failure reports', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it.each(['private solver reason 123.45', undefined])(
+    'reports a failure watched while mounted once without leaking %s',
+    error => {
+      mockRowState = { row: undefined, loaded: false };
+      const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+      mockRowState = { row: makeRow(makeInputs()), loaded: true };
+      view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+      expect(screen.getByText('withdrawalProcessing')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'failed', error })),
+        loaded: true
+      };
+      view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+      expect(screen.getByText(error ?? 'transactionErrorDescription')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_withdraw_failed', 'status_screen']]);
+      view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+      act(() => jest.advanceTimersByTime(2000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not report a first loaded persisted failure after spinner or after reopening', () => {
+    mockRowState = { row: undefined, loaded: false };
+    const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: 'persisted failure' })), loaded: true };
+    view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('persisted failure')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    view.unmount();
+
+    mockRowState = { row: undefined, loaded: false };
+    const reopened = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: 'persisted failure' })), loaded: true };
+    reopened.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('persisted failure')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report a persisted failure when opened or reopened', () => {
+    mockRowState = { row: makeRow(makeInputs({ phase: 'failed', error: 'old failure' })), loaded: true };
+    const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    act(() => jest.advanceTimersByTime(1000));
+    view.unmount();
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.getByText('old failure')).toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each<IEarnWithdrawExtraInputs['phase']>(['redeeming', 'delivering', 'received'])(
+    'does not report the %s progress state',
+    phase => {
+      mockRowState = { row: makeRow(makeInputs({ phase })), loaded: true };
+      render(<EarnWithdrawStatus txId="withdraw-1" />);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    }
+  );
 });

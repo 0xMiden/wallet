@@ -2,7 +2,11 @@ import React, { createRef, useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import TextFieldDefault, { SECRET_REVEAL_MS, TextField, type TextFieldProps } from './TextField';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
@@ -672,5 +676,43 @@ describe('TextField: clear action (#503)', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('textbox')).toHaveValue('alice');
     expect(clearButton()).not.toBeNull();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the field surface after the dwell', () => {
+    render(<TextField errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'field');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<TextField errorId={errorId} error="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<TextField errorId="usdcxFaucetUnavailable" hint="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<TextField errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<TextField errorId="usdcxFaucetUnavailable" hint="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

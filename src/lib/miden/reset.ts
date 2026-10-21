@@ -1,3 +1,5 @@
+import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
+import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
@@ -81,6 +83,12 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
   }
 }
 
+function removeSessionStorageExcept(keep: readonly string[]): void {
+  for (const key of Object.keys(sessionStorage)) {
+    if (!keep.includes(key)) sessionStorage.removeItem(key);
+  }
+}
+
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
@@ -145,6 +153,9 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
+  // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
+  // key-value clear empties localStorage, and the extension's service worker has none.
+  if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
   await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
   try {
     await Repo.db.delete();
@@ -160,11 +171,13 @@ export async function resetStorageDestructive({
 
 // The recovery page's own wipe. On desktop localStorage is also the key-value store, so it keeps
 // what a wallet-setup reset keeps, and re-reads the cache as every other wipe does; on the extension
-// and mobile those names are not in it, and the re-read finds nothing changed.
+// and mobile those names are not in it, and the re-read finds nothing changed. sessionStorage keeps
+// open-link's and Bread Connect's records, because the platform keeps reporting the launch link for the rest of the
+// app session.
 export async function clearClientStorage(): Promise<void> {
   try {
     removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
-    sessionStorage.clear();
+    removeSessionStorageExcept([...OPEN_LINK_SESSION_KEYS, ...BREAD_CONNECT_SESSION_KEYS]);
   } finally {
     await rereadStorageCache();
     // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).

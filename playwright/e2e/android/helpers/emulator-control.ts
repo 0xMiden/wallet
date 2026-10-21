@@ -309,6 +309,17 @@ export class EmulatorControl {
     _env: Record<string, string> = {},
     activityName: string = '.MainActivity'
   ): Promise<void> {
+    if (process.env.MIDEN_E2E_TEST === 'true') {
+      const ports = new Set<string>();
+      for (const value of [process.env.FEATURE_ELIGIBILITY_URL, process.env.MIDEN_REMOTE_CONFIG_URL]) {
+        if (!value) continue;
+        const url = new URL(value);
+        if (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) && url.port) {
+          ports.add(url.port);
+        }
+      }
+      for (const port of ports) await adb(['-s', serial, 'reverse', `tcp:${port}`, `tcp:${port}`]);
+    }
     const component = `${packageName}/${activityName}`;
     // `-W` waits for the activity's first draw. A process the system kills before it attaches never draws, so
     // the timeout is what ends that wait, and the liveness check below catches a process lost just after it.

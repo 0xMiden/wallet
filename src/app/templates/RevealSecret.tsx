@@ -22,6 +22,7 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { truncateAddress } from 'utils/string';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -67,6 +68,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   } = useForm<FormData>();
 
   const passwordValue = watch('password');
+  const [passwordErrorId, setPasswordErrorId] = useState<UserErrorId | null>(null);
   const [secret, setSecret] = useSecretState();
   useEffect(() => {
     if (revealUnavailable) setSecret(null);
@@ -164,6 +166,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
         if (generation !== secretGeneration.current) return;
+        setPasswordErrorId(err instanceof Error ? 'raw_secret_reveal_failed' : 'smthWentWrong');
         setError('password', {
           type: SUBMIT_ERROR_TYPE,
           message: err instanceof Error ? err.message : t('smthWentWrong')
@@ -260,7 +263,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         {hasHardwareProtector ? (
           <SubPageSection description={t('revealSecretUnlockDescription', { secretName: texts.name })}>
             {errors.password && (
-              <Notice tone="negative" role="alert" title={t('error')}>
+              <Notice tone="negative" role="alert" title={t('error')} errorId={passwordErrorId}>
                 {errors.password.message || ''}
               </Notice>
             )}
@@ -269,6 +272,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           <PasscodeEntry
             onSubmit={code => onSubmit({ password: code })}
             onChange={() => clearErrors()}
+            errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
             error={errors.password?.message ?? null}
             subtitle={t('revealSecretPasscodeInputDescription', { secretName: texts.name })}
             disabled={requiresAcknowledge && !privateKeyAcknowledged}
@@ -279,6 +283,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             {...register('password', { required: t('required') })}
             label={t('password')}
             hint={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
+            errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
             error={errors.password?.message}
             id="reveal-secret-password"
             type="password"
@@ -293,6 +298,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     );
   }, [
     errors,
+    passwordErrorId,
     isGuardReady,
     onSubmit,
     register,

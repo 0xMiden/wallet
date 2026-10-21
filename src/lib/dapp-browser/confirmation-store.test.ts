@@ -24,7 +24,10 @@ async function freshStore(): Promise<Store> {
   return mod.dappConfirmationStore;
 }
 
-function makeRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
+// Any kind but a login, whose request also names a site and an account: the login test builds its own.
+function makeRequest(
+  overrides: Partial<Exclude<DAppConfirmationRequest, { type: 'loginSign' }>> = {}
+): DAppConfirmationRequest {
   return {
     id: 'req-' + Math.random().toString(36).slice(2, 8),
     type: 'connect',
@@ -289,10 +292,11 @@ describe('instanceId', () => {
 // Both the mobile modal and the desktop overlay read these, so a kind that falls
 // through to the wrong arm mislabels a request the user is about to approve —
 // a note import or a private-data grant described as a transaction.
-describe('confirmationPromptKey / isDetailsConfirmation', () => {
+describe('confirmationPromptKey / confirmationPromptValues / isDetailsConfirmation', () => {
   it.each([
     ['connect', 'dappConnectionRequest'],
     ['sign', 'dappSignRequest'],
+    ['loginSign', 'dappLoginSignRequest'],
     ['importPrivateNote', 'dappImportNoteRequest'],
     ['privateData', 'dappPrivateDataRequest'],
     ['transaction', 'dappTransactionRequest'],
@@ -302,11 +306,27 @@ describe('confirmationPromptKey / isDetailsConfirmation', () => {
     expect(confirmationPromptKey(type)).toBe(expected);
   });
 
-  it('shows the detail list for every kind except connect', async () => {
+  it('shows the detail list for every kind except connect and loginSign', async () => {
     const { isDetailsConfirmation } = await import('./confirmation-store');
     expect(isDetailsConfirmation('connect')).toBe(false);
+    expect(isDetailsConfirmation('loginSign')).toBe(false);
     for (const type of ['sign', 'transaction', 'consume', 'importPrivateNote', 'privateData'] as const) {
       expect(isDetailsConfirmation(type)).toBe(true);
     }
+  });
+
+  it('titles an in-app login request with the domain', async () => {
+    const { confirmationPromptKey, confirmationPromptValues } = await import('./confirmation-store');
+    const login: DAppConfirmationRequest = {
+      ...makeRequest({ origin: 'https://www.example.org' }),
+      type: 'loginSign',
+      domain: 'example.org',
+      accountId: 'mtst1account_login'
+    };
+
+    expect(confirmationPromptKey(login.type)).toBe('dappLoginSignRequest');
+    expect(confirmationPromptValues(login)).toEqual({ domain: 'example.org' });
+    // Only a login's prompt names a site.
+    expect(confirmationPromptValues(makeRequest({ type: 'sign' }))).toBeUndefined();
   });
 });

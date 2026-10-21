@@ -7,7 +7,11 @@ import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time'
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
-import { reportTransactionFailure, type TransactionFailureReason } from 'lib/telemetry/transaction-failure';
+import {
+  reportTransactionFailure,
+  type ReapSnapshot,
+  type TransactionFailureReason
+} from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -148,8 +152,10 @@ export const cancelTransaction = async (
   onlyIfStatus?: ITransactionStatus,
   // Names the failure report's reason in place of the one read from `error`; the stored text and every gate below
   // still follow `error`.
-  reportedReason?: TransactionFailureReason
+  reportedReason?: TransactionFailureReason,
+  reap?: ReapSnapshot
 ) => {
+  const returnedAtMs = Date.now();
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
@@ -227,8 +233,13 @@ export const cancelTransaction = async (
       delegateTransaction: committed.delegateTransaction,
       diagnostics: committed.failureDiagnostics,
       entryPoint: committed.consumeEntryPoint,
+      lastDeferral: committed.lastDeferral,
+      feeAdmission: committed.feeAdmission,
       reason: reportedReason ?? reportedWalletReason(error),
-      error
+      reap,
+      error,
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
+      submitLegMs: submitLegMs(committed, returnedAtMs)
     });
   }
 
@@ -305,6 +316,11 @@ const hiddenDuringSubmit = (row: ITransaction, returnedAtMs: number): boolean | 
   return hiddenMsBetween(submittedAtMs, returnedAtMs) > 0;
 };
 
+const submitLegMs = (row: ITransaction, returnedAtMs: number): number | undefined => {
+  const submittedAtMs = row.stageTimestamps?.submitting;
+  return submittedAtMs === undefined ? undefined : returnedAtMs - submittedAtMs;
+};
+
 /**
  * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
  * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
@@ -360,9 +376,12 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       delegateTransaction: committed.delegateTransaction,
       diagnostics: committed.failureDiagnostics,
       entryPoint: committed.consumeEntryPoint,
+      lastDeferral: committed.lastDeferral,
+      feeAdmission: committed.feeAdmission,
       error,
       outcome: 'unconfirmed',
-      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs)
+      hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
+      submitLegMs: submitLegMs(committed, returnedAtMs)
     });
   }
   notifyBackgroundTransactionNotConfirmed();
@@ -406,7 +425,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
  * asymmetry is what still lets a genuine execute or prove failure rebuild its
  * request — the rebuild this guard exists to gate, not to prevent.
  */
-const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
+const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any, reap?: ReapSnapshot) => {
   // Before the cancel, while the row is still in flight: liveness reads this end, never the source (#1081).
   await recordOutOfBandEnd(tx.id);
   // Only a `send` reaches the retry path this protects. The in-flight half of the
@@ -418,7 +437,7 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
     // Before the cancel: if that throws, the row is still guarded.
     await markCancelledInFlight(tx.id);
   }
-  await cancelTransaction(tx, error);
+  await cancelTransaction(tx, error, undefined, undefined, undefined, reap);
 };
 
 /**
@@ -653,7 +672,13 @@ export const cancelStuckTransactions = async () => {
     // Marking costs little now that the marker expires and is scoped to rows with
     // something to protect: Retry waits out the window instead of being refused for
     // good. The attempt's out-of-band end is recorded before it (#1081).
-    .map(async tx => cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR));
+    .map(async tx => {
+      const reap: ReapSnapshot = {
+        age: tx.processingStartedAt ? 'past_limit' : 'missing_start',
+        attempt: startedInThisRealm.has(tx.id) ? 'started_here' : 'not_started_here'
+      };
+      await cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR, reap);
+    });
 
   await Promise.all(cancelTransactionUpdates);
 };

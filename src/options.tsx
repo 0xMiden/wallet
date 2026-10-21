@@ -5,7 +5,7 @@ import { Buffer } from 'buffer';
 
 import './main.css';
 
-import React, { FC, useCallback } from 'react';
+import React, { FC, Suspense, useCallback } from 'react';
 
 import classNames from 'clsx';
 import { createRoot } from 'react-dom/client';
@@ -14,21 +14,31 @@ import browser from 'webextension-polyfill';
 
 import 'lib/lock-up/run-checks';
 
+import AwaitI18N from 'app/a11y/AwaitI18N';
 import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
+import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
+import { WalletAccessGate } from 'app/WalletAccessGate';
+import './i18n';
 import Dialogs from 'app/layouts/Dialogs';
 import { getMessage } from 'lib/i18n';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { hasExtensionRuntime, reloadInPlace } from 'lib/platform';
 import { AlertFn, ConfirmFn, DialogsProvider, useAlert, useConfirm } from 'lib/ui/dialog';
 
 // Disable animations for extension
 // Animations enabled for extension
 
 const OptionsWrapper: FC = () => (
-  <DialogsProvider>
-    <Options />
-    <Dialogs />
-    <DisableOutlinesForClick />
-  </DialogsProvider>
+  <Suspense fallback={<RootSuspenseFallback />}>
+    <AwaitI18N />
+    <WalletAccessGate>
+      <DialogsProvider>
+        <Options />
+        <Dialogs />
+        <DisableOutlinesForClick />
+      </DialogsProvider>
+    </WalletAccessGate>
+  </Suspense>
 );
 
 const Options: FC = () => {
@@ -93,19 +103,26 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
     // that cannot start. The key-value clear comes first, so a partial wipe leaves no vault. The reload does
     // not depend on the page staying open at any point: the tab can close during the wipe or the report, and
     // nothing after that await runs then, so pagehide, armed before the wipe, reloads too, and whichever comes
-    // first is the one reload.
+    // first is the one reload. A page an extension reload or update left without a runtime cannot reload the
+    // extension, so it reloads in place.
     let reloaded = false;
+    const viaRuntime = hasExtensionRuntime();
     const reloadOnce = () => {
-      browser.runtime.reload();
+      if (viaRuntime) browser.runtime.reload();
+      else reloadInPlace();
       reloaded = true;
     };
-    window.addEventListener('pagehide', reloadOnce, { once: true });
+    if (viaRuntime) window.addEventListener('pagehide', reloadOnce, { once: true });
     try {
       try {
         await resetStorageDestructive();
       } catch (err) {
         console.warn('[options] Could not wipe the wallet storage', err);
-        await customAlert({ title: getMessage('error'), children: getMessage('resetDidNotFinish') });
+        await customAlert({
+          errorId: 'resetDidNotFinish',
+          title: getMessage('error'),
+          children: getMessage('resetDidNotFinish')
+        });
       }
       // A listener reload that threw left the flag down, so this one retries and reports.
       if (!reloaded) {
@@ -113,6 +130,7 @@ async function handleReset(customAlert: AlertFn, confirm: ConfirmFn) {
           reloadOnce();
         } catch (err) {
           await customAlert({
+            errorId: 'raw_options_reload_failed',
             title: getMessage('error'),
             children: err instanceof Error ? err.message : String(err)
           });

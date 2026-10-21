@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { useSWRConfig } from 'swr';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
 import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
@@ -14,8 +16,9 @@ import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { cn } from 'lib/ui/util';
-import { navigate } from 'lib/woozie';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -43,6 +46,35 @@ interface EarnWithdrawStatusProps {
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  const { trigger, state } = useLocation();
+  const mountedByReturn = usePageMountedByReturn();
+  const revealedByLayer = usePageRevealedByLayer();
+  const newSubmission =
+    trigger === HistoryAction.Push && state?.newSubmissionTxId === txId && !mountedByReturn && !revealedByLayer;
+  // The spinner is not a nonfailed row: the first database result may already be a persisted failure.
+  const firstLoadedFailed = useRef<boolean>();
+  if (loaded && row && firstLoadedFailed.current === undefined) {
+    firstLoadedFailed.current = row.extraInputs.phase === 'failed';
+  }
+  useUserVisibleError(
+    loaded && row?.extraInputs.phase === 'failed' && (firstLoadedFailed.current === false || newSubmission)
+      ? 'raw_earn_withdraw_failed'
+      : null,
+    'status_screen'
+  );
+  const { mutate } = useSWRConfig();
+  const refreshedReceipt = useRef<string>();
+  const receiptId = row?.extraInputs?.phase === 'received' ? row.id : undefined;
+  const receiptAccountId = row?.accountId;
+  useEffect(() => {
+    if (!receiptId || !receiptAccountId || refreshedReceipt.current === receiptId) return;
+    refreshedReceipt.current = receiptId;
+    // Drop the old position snapshot as the real credit arrives. Active readers refresh now;
+    // a covered Earn page reloads when it returns, even within its normal 30-second read interval.
+    void mutate(key => Array.isArray(key) && key[0] === 'earn-positions' && key[1] === receiptAccountId, undefined, {
+      revalidate: true
+    });
+  }, [receiptId, receiptAccountId, mutate]);
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
@@ -94,7 +126,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           lhs={amountLabel}
           rhs={destinationLabel}
           fillForArrow={EARN_ARROW_FILL}
-          className="mt-4"
+          className="mt-4 face-heading"
         />
         <ReceiptRows
           className="mt-4"
@@ -144,7 +176,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     >
       <section className="flex flex-1 flex-col items-center pt-5">
         <Hero
-          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} accent="earn" />}
           name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
         />
         <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />

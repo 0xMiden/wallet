@@ -1,4 +1,6 @@
-import { ITransactionStatus, Transaction } from '../db/types';
+import { captureCrash } from 'lib/telemetry/crash';
+
+import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
@@ -23,6 +25,7 @@ import {
   initiateConsumeTransactionFromId,
   initiateUpdateProcedureThresholdTransaction,
   cancelStuckTransactions,
+  markStartedInThisRealm,
   cancelStaleQueuedTransactions,
   failInterruptedTransactions,
   SESSION_STARTED_AT,
@@ -41,6 +44,8 @@ import {
   TRANSACTION_FORCE_CANCELLED_ERROR,
   INVALID_NOTE_ERROR
 } from './index';
+
+jest.mock('lib/telemetry/crash', () => ({ captureCrash: jest.fn() }));
 
 jest.mock('../spending-limits/queue', () => ({
   spendsOf: (transaction: { faucetId: string; amount: bigint }) => [
@@ -111,6 +116,7 @@ const mockGetMidenClient = jest.fn((): any => ({
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
+  getCurrentWasmLockHold: () => null,
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
@@ -804,19 +810,22 @@ describe('transactions utilities', () => {
 
     // The dedup reads two indexes per note: scalar `noteId` (legacy/single
     // rows) and multi-entry `noteIds` (batch rows). Tests feed legacy rows
-    // through the scalar query; batch rows can be supplied separately.
+    // through the scalar query; batch rows can be supplied separately. The writer reads them twice: in its
+    // read-only pre-pass (may any note be written, or can the fee read be skipped) and in its write transaction.
     const mockDedupQuery = (rows: any[], batchRows: any[] = []) => {
-      mockTransactionsWhere
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce(rows)
+      for (let pass = 0; pass < 2; pass++) {
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce(rows)
+            })
           })
-        })
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce(batchRows)
-          })
-        });
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce(batchRows)
+            })
+          });
+      }
     };
 
     it('creates consume transaction when none exists', async () => {
@@ -1227,20 +1236,25 @@ describe('transactions utilities', () => {
     noNoteHoldingRows();
     it('creates consume transaction from note id', async () => {
       mockGetInputNote.mockReturnValueOnce({
-        metadata: () => ({ noteType: () => 'public' })
+        metadata: () => ({ noteType: () => 'public' }),
+        details: () => {
+          throw new Error('note details unavailable');
+        }
       });
-      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows).
-      mockTransactionsWhere
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce([])
+      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows), read by the pre-pass and the write.
+      for (let pass = 0; pass < 2; pass++) {
+        mockTransactionsWhere
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce([])
+            })
           })
-        })
-        .mockReturnValueOnce({
-          equals: jest.fn().mockReturnValueOnce({
-            toArray: jest.fn().mockResolvedValueOnce([])
-          })
-        });
+          .mockReturnValueOnce({
+            equals: jest.fn().mockReturnValueOnce({
+              toArray: jest.fn().mockResolvedValueOnce([])
+            })
+          });
+      }
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransactionFromId('account-1', 'note-456');
@@ -1328,6 +1342,72 @@ describe('transactions utilities', () => {
       await cancelStuckTransactions();
 
       expect(appliedWrites(mockModify)).toBe(1);
+    });
+
+    it('reports missing_start and not_started_here when reaping a row without a start stamp', async () => {
+      const crashedTx: ITransaction = {
+        id: 'reaped-missing-start-not-started-here',
+        type: 'consume',
+        accountId: 'account-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        displayIcon: 'RECEIVE',
+        stage: 'signing-proposal'
+      };
+      const dbTx: ITransaction = { ...crashedTx };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([crashedTx]) });
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue(dbTx),
+        modify: jest.fn(async (fn: (tx: ITransaction) => unknown) => fn(dbTx))
+      });
+
+      await cancelStuckTransactions();
+
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(captureCrash).toHaveBeenCalledTimes(1);
+      expect(captureCrash).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'WalletTransactionFailure',
+          message: expect.stringContaining('; reap age missing_start; reaped attempt not_started_here')
+        }),
+        'manual',
+        expect.anything()
+      );
+    });
+
+    it('reports past_limit and started_here when reaping an aged row this realm started', async () => {
+      const nowInSeconds = Math.floor(Date.now() / 1000);
+      const stuckTx: ITransaction = {
+        id: 'reaped-past-limit-started-here',
+        type: 'consume',
+        accountId: 'account-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        processingStartedAt: nowInSeconds - MAX_WAIT_BEFORE_CANCEL - 10,
+        attemptId: 'reaped-started-here-attempt',
+        displayIcon: 'RECEIVE',
+        stage: 'signing-proposal'
+      };
+      markStartedInThisRealm(stuckTx.id);
+      const dbTx: ITransaction = { ...stuckTx };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([stuckTx]) });
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue(dbTx),
+        modify: jest.fn(async (fn: (tx: ITransaction) => unknown) => fn(dbTx))
+      });
+
+      await cancelStuckTransactions();
+
+      expect(dbTx.status).toBe(ITransactionStatus.Failed);
+      expect(captureCrash).toHaveBeenCalledTimes(1);
+      expect(captureCrash).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'WalletTransactionFailure',
+          message: expect.stringContaining('; reap age past_limit; reaped attempt started_here')
+        }),
+        'manual',
+        expect.anything()
+      );
     });
 
     /** Runs cancelStuckTransactions against one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */

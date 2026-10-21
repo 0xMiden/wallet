@@ -17,12 +17,12 @@ import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { DEFAULT_SWAP_SLIPPAGE_BPS, swapEtaBlocksSubmit, SwapQuote, SwapQuoteErrorCode } from 'lib/miden/swap/quote';
 import { getDefaultSwapPair, getSwapPartners, isSwapPair, SwapPair, SwapToken } from 'lib/miden/swap/tokens';
 import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
@@ -33,6 +33,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 import { isValidExpirySeconds } from './expiry';
@@ -46,7 +47,7 @@ import { useSwapQuote } from './useSwapQuote';
 const DEFAULT_EXPIRY_SECONDS = 120;
 
 /** The form's status line for a failed quote, by the service's stable code. */
-function quoteErrorMessageKey(code: SwapQuoteErrorCode | undefined): string {
+function quoteErrorMessageKey(code: SwapQuoteErrorCode | undefined): UserErrorId {
   switch (code) {
     case 'no_market':
       return 'swapVerdictNoMarket';
@@ -93,6 +94,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const submissionPhase = useRef<'idle' | 'checking' | 'challenge' | 'executing'>('idle');
@@ -285,13 +287,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   // the offer faucet through the same helper before matching — a raw-string
   // compare silently returns 0 and would block every swap. Fall back to the
   // raw id if the SDK isn't ready yet (matched below as a second key).
-  const offerBalanceKey = useMemo(() => {
-    try {
-      return getBech32AddressFromAccountId(accountIdStringToSdk(offerToken.faucetId));
-    } catch {
-      return offerToken.faucetId;
-    }
-  }, [offerToken.faucetId]);
+  const offerBalanceKey = useMemo(() => normalizedFaucetId(offerToken.faucetId), [offerToken.faucetId]);
   const offerBalance = useMemo(
     () =>
       balanceData.find(balance => balance.tokenId === offerBalanceKey || balance.tokenId === offerToken.faucetId)
@@ -433,6 +429,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       // user authorizes reaches here.
       if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
         setSubmitError(t('swapPairNotListed'));
+        setSubmitErrorId('swapPairNotListed');
         setSpendingLimitChallenge(undefined);
         setSubmitting(false);
         releaseSubmission();
@@ -494,6 +491,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         }
         settleSwap(flow => flow.fail(classifyError(error)));
         setSubmitError(error instanceof Error ? error.message : String(error));
+        setSubmitErrorId('raw_swap_submit_failed');
         setSubmitting(false);
         releaseSubmission();
       }
@@ -529,6 +527,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     // throw from `stringToBigInt('')`.
     if (sameToken || !hasOfferAmount || !hasRequestAmount || offerAmountExceedsBalance || !validExpiry) {
       setSubmitError(t('swapInvalidAmounts'));
+      setSubmitErrorId('swapInvalidAmounts');
       // Deliberately not settled: the user is still on the review screen and can
       // fix the amount, so this is one attempt failing inside a flow that is
       // still running, not the end of the flow.
@@ -537,6 +536,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     // Also in `canProceed`; a registry update can delist the pair after review opens.
     if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
       setSubmitError(t('swapPairNotListed'));
+      setSubmitErrorId('swapPairNotListed');
       return;
     }
     // Re-checked here as well as in `canProceed`, for the same reason the amounts are:
@@ -544,6 +544,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     // resolve or drain between opening review and tapping it.
     if (feeAssetMissing) {
       setSubmitError(t('insufficientFeeAsset'));
+      setSubmitErrorId('insufficientFeeAsset');
       return;
     }
     submissionPhase.current = 'checking';
@@ -564,6 +565,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         fresh = await quoteNow(requestAmountBaseUnits);
       } catch {
         setSubmitError(t('swapPriceUnavailable'));
+        setSubmitErrorId('swapPriceUnavailable');
         setSubmitting(false);
         releaseSubmission();
         return;
@@ -571,6 +573,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       setReviewQuote(fresh);
       if (swapEtaBlocksSubmit(fresh.eta)) {
         setSubmitError(t('swapPriceMoved'));
+        setSubmitErrorId('swapPriceMoved');
         // A wallet-built ask is rebuilt from the new price at once; the field follows once the
         // press has settled. A user-edited one is theirs to change.
         if (!requestEdited) quoteNow().catch(() => undefined);
@@ -610,6 +613,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         return;
       }
       setSubmitError(error instanceof Error ? error.message : String(error));
+      setSubmitErrorId('raw_swap_submit_failed');
       setSubmitting(false);
       releaseSubmission();
     }
@@ -664,10 +668,14 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [publicKey, spendingLimitChallenge, releaseSubmission]);
 
   const quoteErrorCode = swapQuote.errorCode;
-  const statusMessage = useMemo(() => {
-    if (sameToken) return { text: t('swapSameToken'), isError: true };
+  const statusMessage = useMemo<{ text: string; isError: boolean; errorId: UserErrorId } | undefined>(() => {
+    if (sameToken) return { text: t('swapSameToken'), isError: true, errorId: 'swapSameToken' };
     if (hasOfferAmount && quoteUnavailable) {
-      return { text: t(quoteErrorMessageKey(quoteErrorCode)), isError: true };
+      return {
+        text: t(quoteErrorMessageKey(quoteErrorCode)),
+        isError: true,
+        errorId: quoteErrorMessageKey(quoteErrorCode)
+      };
     }
     // The skeleton on the receive field conveys the "computing quote" state, so
     // there's no separate fetching-price line.
@@ -698,6 +706,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               canProceed={canProceed}
               statusMessage={statusMessage?.text}
               statusIsError={statusMessage?.isError}
+              statusErrorId={statusMessage?.errorId}
             />
           );
         case SwapFlowStep.ReviewSwap:
@@ -716,6 +725,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               onSlippageBpsChange={setSlippageBps}
               onAutoConsumeChange={setAutoConsume}
               submitError={submitError}
+              submitErrorId={submitErrorId}
               onGoBack={goBack}
               onSubmit={onSubmit}
               submitting={submitting}
@@ -738,6 +748,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       autoConsume,
       submitting,
       submitError,
+      submitErrorId,
       canProceed,
       requestCalculating,
       statusMessage,
@@ -784,22 +795,23 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 };
 
 /**
- * The pane while the network's document names no swap pair: a notice in the pane's own shell, so
- * the tab keeps its frame. Nothing while the document is still being read, like a bridge control.
+ * Keeps the tab frame when startup eligibility or the token registry disables Swap.
+ * Loading shows no notice while the initial decision or registry is being read.
  */
-const SwapUnavailable: React.FC<{ loading: boolean }> = ({ loading }) => {
+const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailability> }> = ({ availability }) => {
   const { t } = useTranslation();
+  const restricted = availability.state === 'unavailable' && availability.reason === 'restricted';
   return (
     <HomeGroupPaneRoot testId="swap-flow">
       <HomeGroupPaneBody title={t('swap')}>
-        {!loading && (
+        {availability.state !== 'loading' && (
           <Notice
             tone="warning"
             icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-            title={t('swapUnavailableTitle')}
+            title={t(restricted ? 'geoRestrictedTitle' : 'swapUnavailableTitle')}
             data-testid="swap-unavailable-notice"
           >
-            {t('swapUnavailableBody')}
+            {t(restricted ? 'geoRestrictedBody' : 'swapUnavailableBody')}
           </Notice>
         )}
       </HomeGroupPaneBody>
@@ -829,7 +841,7 @@ const SwapFlowGate: React.FC = () => {
     setActiveRegistry({ key: registryKey, defaultPair });
   }
   if (activeRegistry.defaultPair === null || (!busyRef.current && availability.state !== 'available')) {
-    return <SwapUnavailable loading={availability.state === 'loading'} />;
+    return <SwapUnavailable availability={availability} />;
   }
   return (
     <NavigatorProvider key={activeRegistry.key} routes={ROUTES} initialRouteName={SwapFlowStep.SwapAmounts}>

@@ -21,6 +21,7 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 
@@ -75,6 +76,7 @@ const RevealSeedPhrase: FC = () => {
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authErrorId, setAuthErrorId] = useState<UserErrorId | null>(null);
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -90,6 +92,7 @@ const RevealSeedPhrase: FC = () => {
   } = useForm<FormData>();
 
   const passwordValue = watch('password');
+  const [passwordErrorId, setPasswordErrorId] = useState<UserErrorId | null>(null);
 
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
@@ -124,6 +127,7 @@ const RevealSeedPhrase: FC = () => {
         // not navigate away from the view that replaced it.
         if (generation !== secretGeneration.current) return;
         setAuthError(err instanceof Error ? err.message : String(err));
+        setAuthErrorId('raw_seed_reveal_failed');
         setStep('reveal');
       })
       .finally(() => setIsSubmitting(false));
@@ -171,6 +175,7 @@ const RevealSeedPhrase: FC = () => {
         // Checked after the delay, as RevealSecret does: leave() bumps the generation, and
         // the user can leave while this await runs, so a guard above it protects nothing.
         if (generation !== secretGeneration.current) return;
+        setPasswordErrorId('raw_seed_reveal_failed');
         setError('password', { type: 'submit-error', message: err.message });
       } finally {
         setIsSubmitting(false);
@@ -212,6 +217,7 @@ const RevealSeedPhrase: FC = () => {
             <PasscodeEntry
               onSubmit={code => onPasswordSubmit({ password: code })}
               onChange={() => clearErrors()}
+              errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
               error={errors.password?.message ?? null}
               isSubmitting={isSubmitting}
             />
@@ -224,6 +230,7 @@ const RevealSeedPhrase: FC = () => {
               id="reveal-seed-password"
               type="password"
               placeholder="********"
+              errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
               error={errors.password?.message}
               errorTestId="error-caption"
               containerClassName="mb-4"
@@ -392,7 +399,7 @@ const RevealSeedPhrase: FC = () => {
           </>
         }
       >
-        <Notice tone="negative" role="alert" title={t('error')}>
+        <Notice errorId={authErrorId} tone="negative" role="alert" title={t('error')}>
           {authError}
         </Notice>
       </SubPageLayout>

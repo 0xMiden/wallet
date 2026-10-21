@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { StatusBadge } from 'components/ui/StatusBadge';
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
@@ -110,7 +111,16 @@ const mockAcknowledgementOf = jest.fn((..._a: unknown[]): { attemptId: string | 
 const mockCancelSwapOrder = jest.fn();
 const mockConfirm = jest.fn();
 
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
+let mockTelemetryCopy = false;
 const mockT = (key: string, opts?: Record<string, string | number | boolean | undefined>) => {
+  if (mockTelemetryCopy && key === 'smthWentWrong') return 'Visible generic action failure';
+  if (mockTelemetryCopy && key === 'historyDetailsLoadError') return 'Visible detail load failure';
+  if (key === 'insufficientFeeAsset') return mockFeeCopy;
   const values = opts ? Object.values(opts) : [];
   return values.length > 0 ? `${key}_${values.join('_')}` : key;
 };
@@ -484,6 +494,7 @@ const sectionByTitle = (title: string) =>
   );
 
 beforeEach(() => {
+  mockFeeCopy = 'worker-fee-copy';
   jest.clearAllMocks();
   mockEarnCollateral = null;
   mockHistoryPosition = 1;
@@ -3081,6 +3092,31 @@ describe('HistoryDetails', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
     });
 
+    it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      const refusal = new ClaimFeeRefusedError();
+      mockFeeCopy = 'localized-fee-copy';
+      setMockRow(failedSendTx({ type: 'consume', displayIcon: 'RECEIVE' }));
+      mockRequeueFailedTransaction.mockRejectedValueOnce(refusal);
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await renderAndLoad();
+        fireEvent.click(screen.getByTestId('history-retry-button'));
+        await flush();
+
+        expect(screen.getByText('localized-fee-copy')).toBeInTheDocument();
+        expect(screen.queryByText(refusal.message)).not.toBeInTheDocument();
+        expect(mockNavigate).not.toHaveBeenCalled();
+        expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+        expect(screen.getByTestId('history-retry-button')).not.toBeDisabled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it('does not offer it for an ordinary retry failure', async () => {
       setMockRow(failedSendTx());
       mockRequeueFailedTransaction.mockRejectedValue(new Error('row is gone'));
@@ -4664,4 +4700,165 @@ describe('HistoryDetails Guardian-recovered swap order', () => {
     expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_600_1000_ ETH');
     expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
   });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible history action errors', () => {
+  beforeEach(() => {
+    mockTelemetryCopy = true;
+  });
+  afterEach(() => {
+    mockTelemetryCopy = false;
+  });
+  it.each([
+    [new Error('private cancel amount 42'), 'private cancel amount 42', 'raw_history_cancel_failed'],
+    ['non-error refusal', 'Visible generic action failure', 'smthWentWrong']
+  ])('reports a live cancel failure with a closed producer identity, branch %#', async (failure, text, id) => {
+    setMockRow({ ...baseSendTx, status: 0, completedAt: undefined });
+    mockCancelTransactionById.mockRejectedValueOnce(failure);
+    await renderAndLoad();
+    fireEvent.click(screen.getByTestId('history-cancel-button'));
+    await flush();
+    expect(screen.getByText(text)).toBeInTheDocument();
+    await expectErrorAfterDwell(id, 'inline');
+  });
+
+  it.each([
+    [new Error('private retry amount 42'), 'private retry amount 42', 'raw_history_retry_failed'],
+    ['non-error refusal', 'Visible generic action failure', 'smthWentWrong']
+  ])('reports a live retry failure with a closed producer identity, branch %#', async (failure, text, id) => {
+    setMockRow({ ...baseSendTx, status: 3, error: 'Stored old failure', displayMessage: 'Failed' });
+    mockRequeueFailedTransaction.mockRejectedValueOnce(failure);
+    await renderAndLoad();
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+    expect(screen.getByTestId('history-retry-error')).toHaveTextContent(text);
+    await expectErrorAfterDwell(id, 'inline');
+  });
+
+  it('reports a live retry fee refusal with insufficientFeeAsset', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    setMockRow({ ...baseSendTx, status: 3, error: 'Stored old failure', displayMessage: 'Failed' });
+    mockRequeueFailedTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    mockFeeCopy = 'Visible retry fee refusal';
+    await renderAndLoad();
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+    expect(screen.getByTestId('history-retry-error')).toHaveTextContent('Visible retry fee refusal');
+    await expectErrorAfterDwell('insufficientFeeAsset', 'inline');
+  });
+
+  it.each([
+    [new Error('private derivation failed'), 'private derivation failed', 'raw_history_details_load_failed'],
+    ['non-error refusal', 'Visible detail load failure', 'historyDetailsLoadError']
+  ])('reports a live detail-load failure with a closed producer identity, branch %#', async (failure, text, id) => {
+    setMockRow({ ...baseSendTx });
+    mockGetTokenMetadata.mockRejectedValueOnce(failure);
+    await renderAndLoad();
+    expect(screen.getByText(text)).toBeInTheDocument();
+    await expectErrorAfterDwell(id, 'inline');
+  });
+
+  it('reports the loaded-empty detail refusal with historyDetailsLoadError', async () => {
+    await renderAndLoad();
+    expect(screen.getByText('Visible detail load failure')).toBeInTheDocument();
+    await expectErrorAfterDwell('historyDetailsLoadError', 'inline');
+  });
+
+  it.each(['retry', 'unmount'])('clears a live retry failure on %s before dwell', async control => {
+    setMockRow({ ...baseSendTx, status: 3, error: 'Stored old failure', displayMessage: 'Failed' });
+    mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('short retry failure'));
+    const view = await renderAndLoad();
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+    expect(screen.getByTestId('history-retry-error')).toHaveTextContent('short retry failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'retry') {
+      fireEvent.click(screen.getByTestId('history-retry-button'));
+      await flush();
+    } else view.unmount();
+    expect(screen.queryByTestId('history-retry-error')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps persisted failure card, ErrorDetails and StatusBadge silent across loading, reopen and account/transaction switch', async () => {
+    mockRowLoaded = false;
+    const view = render(<HistoryDetails transactionId="tx-1" />);
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    setMockRow({
+      ...baseSendTx,
+      status: 3,
+      error: 'Stored old failure',
+      rawError: 'Stored private details',
+      displayMessage: 'Failed'
+    });
+    mockRowLoaded = true;
+    view.rerender(<HistoryDetails transactionId="tx-1" />);
+    await flush();
+    expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('Stored old failure');
+    fireEvent.click(screen.getByText('showFullError'));
+    expect(screen.getByText('Stored private details')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    view.unmount();
+    const reopened = await renderAndLoad();
+    expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('Stored old failure');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    mockAccount = { publicKey: 'acct-B', name: 'Other' };
+    setMockRow({
+      ...baseSendTx,
+      id: 'tx-2',
+      accountId: 'acct-B',
+      status: 3,
+      error: 'Other stored failure',
+      displayMessage: 'Failed'
+    });
+    reopened.rerender(<HistoryDetails transactionId="tx-2" />);
+    await flush();
+    expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('Other stored failure');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+it('keeps the actual persisted Failed StatusBadge silent even with live-region semantics', async () => {
+  render(<StatusBadge status="failed" live />);
+  expect(screen.getByRole('status')).toHaveTextContent('failed');
+  await act(async () => {
+    jest.advanceTimersByTime(2000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
 });

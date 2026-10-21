@@ -1,14 +1,19 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 
-import {
+import * as spendable from './spendable';
+
+const {
   CLAIM_COST_FEE_MULTIPLE,
+  claimFeeDecisions,
   claimFeeShortfalls,
-  type ClaimFeeNote,
+  claimFeeShortfallsBaseUnits,
   hasNoFeeAsset,
   isWorthClaiming,
   maxSendableNative,
   totalClaimableAmount
-} from './spendable';
+} = spendable;
+
+type ClaimFeeNote = spendable.ClaimFeeNote;
 
 const NATIVE = 'mtst1native';
 
@@ -16,7 +21,7 @@ const NATIVE = 'mtst1native';
 // decimal-scaled `balance` these rows carry. The scale is not decoration here:
 // `hasNoFeeAsset` converts through it, and a row without it fails open.
 // `null` means "the row carries no decimals at all", which is a distinct case
-// from omitting the argument — passing `undefined` explicitly would just
+// from omitting the argument - passing `undefined` explicitly would just
 // re-trigger the default.
 const row = (tokenId: string, balance: number, decimals: number | null = 6): TokenBalanceData =>
   ({ tokenId, balance, metadata: decimals === null ? {} : { decimals } }) as TokenBalanceData;
@@ -59,7 +64,7 @@ describe('hasNoFeeAsset', () => {
 
   it('blocks a native balance too small to cover even one base fee', () => {
     // A non-zero balance is not the same as a payable one. At 6 decimals a base
-    // fee of 10000 is 0.01 MIDEN, so 0.001 provably cannot pay it — and a plain
+    // fee of 10000 is 0.01 MIDEN, so 0.001 provably cannot pay it - and a plain
     // `balance <= 0` test let this account through to fail after biometric
     // confirmation, which is exactly what this guard exists to prevent.
     const balances = [row('TKN', 50), row(NATIVE, 0.001)];
@@ -76,7 +81,7 @@ describe('hasNoFeeAsset', () => {
   });
 
   it('fails open when the native row carries no decimals', () => {
-    // Without a scale the comparison is arbitrary — 0.001 reads as either 1000
+    // Without a scale the comparison is arbitrary - 0.001 reads as either 1000
     // base units or 0.001 of them. Guessing could disable sending on a funded
     // account, so an unknown scale is treated like an unknown fee.
     const balances = [row('TKN', 50), row(NATIVE, 0.001, null)];
@@ -233,77 +238,242 @@ describe('claimFeeShortfalls', () => {
   // Its second asset may be the fee asset.
   const multi: ClaimFeeNote = { ...tokenNote, carriesMoreAssets: true };
   const empty = [row('TKN', 50), row(NATIVE, 0)];
+  const balances = [row(NATIVE, 0.006)];
+  const funded = [row(NATIVE, 0.01)];
+  const transactions = [[tokenNote], [otherNote]];
+  const placeholder = row(NATIVE, 0.001);
+  placeholder.metadata.scaleIsUnknown = true;
 
-  it('refuses a claim of another token when the vault holds no fee asset', () => {
-    // BREAD-WALLET-C: the consume was built, signed and failed on the fee every time.
-    expect(claimFeeShortfalls([[tokenNote]], [], empty, NATIVE, BASE)).toEqual([true]);
+  type ClaimFeeCase = [
+    transactions: readonly (readonly ClaimFeeNote[])[],
+    ahead: readonly ClaimFeeNote[],
+    balances: readonly TokenBalanceData[],
+    vaultFeeAsset: bigint | null,
+    nativeAssetId: string | undefined | null,
+    verificationBaseFee: number | null,
+    expected: boolean[]
+  ];
+
+  const cases: Array<{ name: string; checks: ClaimFeeCase[] }> = [
+    {
+      // BREAD-WALLET-C: the consume was built, signed and failed on the fee every time.
+      name: 'refuses a claim of another token when the vault holds no fee asset',
+      checks: [[[[tokenNote]], [], empty, 0n, NATIVE, BASE, [true]]]
+    },
+    {
+      // The kernel runs the note scripts before the auth procedure withdraws the fee, so the
+      // note's own USDCX is in the vault by then.
+      name: 'lets a new wallet claim its first fee asset out of the note itself',
+      checks: [[[[nativeNote(BASE)]], [], empty, 0n, NATIVE, BASE, [false]]]
+    },
+    {
+      name: 'refuses a fee-asset note below one base fee on an empty vault',
+      checks: [[[[nativeNote(BASE - 1)]], [], empty, 0n, NATIVE, BASE, [true]]]
+    },
+    {
+      // 0.006 held is 6000 units; with a 4000-unit note that is exactly one base fee.
+      name: 'adds what the vault holds to what the notes carry',
+      checks: [
+        [[[nativeNote(4000)]], [], balances, 6000n, NATIVE, BASE, [false]],
+        [[[nativeNote(3999)]], [], balances, 6000n, NATIVE, BASE, [true]],
+        [[[tokenNote]], [], funded, 10000n, NATIVE, BASE, [false]],
+        // Rounded holdings keep Activity's decimal conversion; the fee rounds up instead.
+        [[[tokenNote]], [], [row(NATIVE, 0.0099996)], 10000n, NATIVE, BASE, [false]],
+        [[[tokenNote]], [], funded, 10000n, NATIVE, 10000.5, [true]],
+        [[[nativeNote(10001)]], [], empty, 0n, NATIVE, 10000.5, [false]]
+      ]
+    },
+    {
+      name: 'admits a claim holding a note with assets the list does not show',
+      checks: [[[[tokenNote, multi]], [], empty, 0n, NATIVE, BASE, [false]]]
+    },
+    {
+      name: 'judges each claim alone, so a multi-asset note never disables the check for an earlier one',
+      checks: [
+        [[[tokenNote], [multi]], [], empty, 0n, NATIVE, BASE, [true, false]],
+        // A fee-asset claim funds others only after a caller queues it and adds it to `ahead`.
+        [[[tokenNote], [nativeNote(3 * BASE)], [otherNote]], [], empty, 0n, NATIVE, BASE, [true, false, true]]
+      ]
+    },
+    {
+      // The queue's order turns on rows the list cannot see, and the fees of what runs first are not
+      // charged, so even one unit of the fee asset ahead admits.
+      name: 'admits every claim when a note that may run first carries the fee asset, whatever the order',
+      checks: [
+        [transactions, [tokenNote, nativeNote(1)], empty, 0n, NATIVE, BASE, [false, false]],
+        [transactions, [nativeNote(1), tokenNote], empty, 0n, NATIVE, BASE, [false, false]],
+        [transactions, [multi], empty, 0n, NATIVE, BASE, [false, false]],
+        [transactions, [nativeNote(0)], empty, 0n, NATIVE, BASE, [false, false]]
+      ]
+    },
+    {
+      name: 'counts nothing ahead that carries no fee asset',
+      checks: [[[[tokenNote]], [tokenNote, otherNote], empty, 0n, NATIVE, BASE, [true]]]
+    },
+    {
+      name: 'fails open wherever hasNoFeeAsset does',
+      checks: [
+        [[[tokenNote]], [], empty, 0n, NATIVE, null, [false]],
+        [[[tokenNote]], [], empty, 0n, NATIVE, 0, [false]],
+        [[[tokenNote]], [], empty, 0n, NATIVE, Number.NaN, [false]],
+        [[[tokenNote]], [], empty, 0n, NATIVE, Number.POSITIVE_INFINITY, [false]],
+        [[[tokenNote]], [], empty, 0n, NATIVE, -1, [false]],
+        // Known holdings cannot substitute for an unknown native asset id.
+        [[[tokenNote]], [], empty, 0n, null, BASE, [false]],
+        [[[tokenNote]], [], empty, 0n, undefined, BASE, [false]],
+        [[[tokenNote]], [], empty, 0n, '', BASE, [false]],
+        [[[tokenNote]], [], [row('TKN', 50)], null, NATIVE, BASE, [false]],
+        [[[tokenNote]], [], [placeholder], null, NATIVE, BASE, [false]],
+        [[[tokenNote]], [], [row(NATIVE, 0.001, null)], null, NATIVE, BASE, [false]],
+        [[[tokenNote]], [], [row(NATIVE, Number.POSITIVE_INFINITY)], null, NATIVE, BASE, [false]],
+        [[[tokenNote]], [], [row(NATIVE, Number.NaN)], null, NATIVE, BASE, [false]]
+      ]
+    },
+    {
+      name: 'fails open on a fee-asset amount that does not parse, for that claim only',
+      checks: [
+        [[[{ faucetId: NATIVE, amount: 'not-a-number' }], [tokenNote]], [], empty, 0n, NATIVE, BASE, [false, true]]
+      ]
+    },
+    {
+      name: 'judges a zero balance without a scale, as hasNoFeeAsset does',
+      checks: [[[[tokenNote]], [], [row(NATIVE, 0, null)], 0n, NATIVE, BASE, [true]]]
+    }
+  ];
+
+  it.each(cases)('$name', ({ checks }) => {
+    for (const [transactions, ahead, balances, , nativeAssetId, verificationBaseFee, expected] of checks) {
+      expect(claimFeeShortfalls(transactions, ahead, balances, nativeAssetId, verificationBaseFee)).toEqual(expected);
+    }
   });
 
-  it('lets a new wallet claim its first fee asset out of the note itself', () => {
-    // The kernel runs the note scripts before the auth procedure withdraws the fee, so the
-    // note's own USDCX is in the vault by then.
-    expect(claimFeeShortfalls([[nativeNote(BASE)]], [], empty, NATIVE, BASE)).toEqual([false]);
+  it('base-unit core matches every Activity fee case', () => {
+    const core: unknown = Reflect.get(spendable, 'claimFeeShortfallsBaseUnits');
+    expect(typeof core).toBe('function');
+    if (typeof core !== 'function') return;
+
+    for (const { checks } of cases) {
+      for (const [transactions, ahead, , vaultFeeAsset, nativeAssetId, verificationBaseFee, expected] of checks) {
+        const shortfalls = core(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee);
+        const decisions = claimFeeDecisions(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee);
+        expect(shortfalls).toEqual(expected);
+        expect(decisions.map(decision => decision.shortfall)).toEqual(shortfalls);
+        // A refused row carries no admission reason; an admitted one always does.
+        expect(decisions.map(decision => typeof decision.admission)).toEqual(
+          decisions.map(decision => (decision.shortfall ? 'undefined' : 'string'))
+        );
+      }
+    }
+    expect(core([[tokenNote]], [], 0n, NATIVE, 10000)).toEqual([true]);
+    expect(core([[nativeNote(10000)]], [], 0n, NATIVE, 10000)).toEqual([false]);
+    expect(core([[nativeNote(4000)]], [], 6000n, NATIVE, 10000)).toEqual([false]);
+    expect(core([[nativeNote(3999)]], [], 6000n, NATIVE, 10000)).toEqual([true]);
+    expect(core([[tokenNote]], [], 10000n, NATIVE, 10000.5)).toEqual([true]);
   });
 
-  it('refuses a fee-asset note below one base fee on an empty vault', () => {
-    expect(claimFeeShortfalls([[nativeNote(BASE - 1)]], [], empty, NATIVE, BASE)).toEqual([true]);
+  it('unknown note assets may fund the fee', () => {
+    const unknown = { ...tokenNote, assetsUnknown: true };
+    expect(claimFeeShortfalls([[unknown]], [], empty, NATIVE, 10000)).toEqual([false]);
+    expect(claimFeeShortfalls([[tokenNote]], [unknown], empty, NATIVE, 10000)).toEqual([false]);
+    expect(claimFeeShortfalls([[tokenNote], [unknown]], [], empty, NATIVE, 10000)).toEqual([true, false]);
+
+    const core: unknown = Reflect.get(spendable, 'claimFeeShortfallsBaseUnits');
+    expect(typeof core).toBe('function');
+    if (typeof core !== 'function') return;
+
+    expect(core([[{ ...tokenNote, assetsUnknown: true }]], [], 0n, NATIVE, 10000)).toEqual([false]);
+    expect(core([[tokenNote]], [{ ...tokenNote, assetsUnknown: true }], 0n, NATIVE, 10000)).toEqual([false]);
+    expect(core([[{ faucetId: '', amount: '' }]], [], 0n, NATIVE, 10000)).toEqual([false]);
+
+    // BigInt accepts blank text as zero, which cannot establish a known fee-asset shortage.
+    const blankNotes = [
+      { faucetId: '', amount: '' },
+      { faucetId: '', amount: '1' },
+      { faucetId: ' ', amount: '1' },
+      { faucetId: NATIVE, amount: '' },
+      { faucetId: NATIVE, amount: ' ' },
+      { ...tokenNote, amount: '' }
+    ];
+    for (const note of blankNotes) {
+      expect(claimFeeShortfalls([[note], [tokenNote]], [], empty, NATIVE, 10000)).toEqual([false, true]);
+      expect(claimFeeShortfalls([[tokenNote]], [note], empty, NATIVE, 10000)).toEqual([false]);
+      expect(core([[note], [tokenNote]], [], 0n, NATIVE, 10000)).toEqual([false, true]);
+      expect(core([[tokenNote]], [note], 0n, NATIVE, 10000)).toEqual([false]);
+    }
   });
 
-  it('adds what the vault holds to what the notes carry', () => {
-    // 0.006 held is 6000 units; with a 4000-unit note that is exactly one base fee.
-    const balances = [row(NATIVE, 0.006)];
-    expect(claimFeeShortfalls([[nativeNote(4000)]], [], balances, NATIVE, BASE)).toEqual([false]);
-    expect(claimFeeShortfalls([[nativeNote(3999)]], [], balances, NATIVE, BASE)).toEqual([true]);
-  });
-
-  it('admits a claim holding a note with assets the list does not show', () => {
-    expect(claimFeeShortfalls([[tokenNote, multi]], [], empty, NATIVE, BASE)).toEqual([false]);
-  });
-
-  it('judges each claim alone, so a multi-asset note never disables the check for an earlier one', () => {
-    expect(claimFeeShortfalls([[tokenNote], [multi]], [], empty, NATIVE, BASE)).toEqual([true, false]);
-    // Nor does a fee-asset claim fund the others: a caller adds a claim to `ahead` once it is queued.
-    expect(claimFeeShortfalls([[tokenNote], [nativeNote(3 * BASE)], [otherNote]], [], empty, NATIVE, BASE)).toEqual([
-      true,
-      false,
-      true
+  it.each([null, undefined, ''])('records native_id_unknown before other unknown facts (%s)', nativeAssetId => {
+    expect(claimFeeDecisions([[tokenNote]], [multi], null, nativeAssetId, null)).toEqual([
+      { shortfall: false, admission: 'native_id_unknown' }
     ]);
   });
 
-  it('admits every claim when a note that may run first carries the fee asset, whatever the order', () => {
-    // The queue's order turns on rows the list cannot see, and the fees of what runs first are not
-    // charged, so even one unit of the fee asset ahead admits.
-    const transactions = [[tokenNote], [otherNote]];
-    expect(claimFeeShortfalls(transactions, [tokenNote, nativeNote(1)], empty, NATIVE, BASE)).toEqual([false, false]);
-    expect(claimFeeShortfalls(transactions, [nativeNote(1), tokenNote], empty, NATIVE, BASE)).toEqual([false, false]);
-    expect(claimFeeShortfalls(transactions, [multi], empty, NATIVE, BASE)).toEqual([false, false]);
+  it.each([null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'records fee_unknown before unknown holdings or ahead assets (%s)',
+    fee => {
+      expect(claimFeeDecisions([[tokenNote]], [multi], null, NATIVE, fee)).toEqual([
+        { shortfall: false, admission: 'fee_unknown' }
+      ]);
+    }
+  );
+
+  it('records balance_unknown before ahead or own-note funding', () => {
+    expect(claimFeeDecisions([[nativeNote(BASE)]], [multi, nativeNote(1)], null, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'balance_unknown' }
+    ]);
   });
 
-  it('counts nothing ahead that carries no fee asset', () => {
-    expect(claimFeeShortfalls([[tokenNote]], [tokenNote, otherNote], empty, NATIVE, BASE)).toEqual([true]);
+  it.each([
+    { order: 'native first', ahead: [nativeNote(1), multi] },
+    { order: 'unknown first', ahead: [multi, nativeNote(1)] }
+  ])('records ahead_assets_unknown before ahead_native ($order)', ({ ahead }) => {
+    expect(claimFeeDecisions([[tokenNote]], ahead, 0n, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'ahead_assets_unknown' }
+    ]);
   });
 
-  it('fails open wherever hasNoFeeAsset does', () => {
-    expect(claimFeeShortfalls([[tokenNote]], [], empty, NATIVE, null)).toEqual([false]);
-    expect(claimFeeShortfalls([[tokenNote]], [], empty, NATIVE, 0)).toEqual([false]);
-    expect(claimFeeShortfalls([[tokenNote]], [], empty, NATIVE, Number.NaN)).toEqual([false]);
-    expect(claimFeeShortfalls([[tokenNote]], [], empty, null, BASE)).toEqual([false]);
-    expect(claimFeeShortfalls([[tokenNote]], [], [row('TKN', 50)], NATIVE, BASE)).toEqual([false]);
-    const placeholder = {
-      tokenId: NATIVE,
-      balance: 0.001,
-      metadata: { decimals: 6, scaleIsUnknown: true }
-    } as TokenBalanceData;
-    expect(claimFeeShortfalls([[tokenNote]], [], [placeholder], NATIVE, BASE)).toEqual([false]);
+  it('records ahead_native before unknown own-note assets', () => {
+    expect(claimFeeDecisions([[multi], [tokenNote]], [nativeNote(0)], 0n, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'ahead_native' },
+      { shortfall: false, admission: 'ahead_native' }
+    ]);
   });
 
-  it('fails open on a fee-asset amount that does not parse, for that claim only', () => {
-    expect(
-      claimFeeShortfalls([[{ faucetId: NATIVE, amount: 'not-a-number' }], [tokenNote]], [], empty, NATIVE, BASE)
-    ).toEqual([false, true]);
+  it.each([
+    multi,
+    { ...tokenNote, assetsUnknown: true },
+    { faucetId: '', amount: '1' },
+    { faucetId: ' ', amount: '1' },
+    { faucetId: NATIVE, amount: '' },
+    { faucetId: NATIVE, amount: ' ' },
+    { ...tokenNote, amount: '' },
+    { faucetId: NATIVE, amount: 'not-a-number' }
+  ])('records note_assets_unknown before known vault funding (%j)', note => {
+    expect(claimFeeDecisions([[note]], [], 10000n, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'note_assets_unknown' }
+    ]);
   });
 
-  it('judges a zero balance without a scale, as hasNoFeeAsset does', () => {
-    expect(claimFeeShortfalls([[tokenNote]], [], [row(NATIVE, 0, null)], NATIVE, BASE)).toEqual([true]);
+  it.each([
+    { funding: 'vault', notes: [tokenNote], vault: 10000n },
+    { funding: 'note', notes: [nativeNote(BASE)], vault: 0n },
+    { funding: 'vault and note', notes: [nativeNote(4000)], vault: 6000n }
+  ])('records known_sufficient for $funding funding', ({ notes, vault }) => {
+    expect(claimFeeDecisions([notes], [], vault, NATIVE, BASE)).toEqual([
+      { shortfall: false, admission: 'known_sufficient' }
+    ]);
+  });
+
+  it('records each row independently and omits admission for a refused row', () => {
+    const transactions = [[tokenNote], [multi], [nativeNote(BASE)]];
+    const decisions = claimFeeDecisions(transactions, [], 0n, NATIVE, BASE);
+    expect(decisions).toEqual([
+      { shortfall: true },
+      { shortfall: false, admission: 'note_assets_unknown' },
+      { shortfall: false, admission: 'known_sufficient' }
+    ]);
+    expect(decisions.map(decision => decision.shortfall)).toEqual(
+      claimFeeShortfallsBaseUnits(transactions, [], 0n, NATIVE, BASE)
+    );
   });
 });

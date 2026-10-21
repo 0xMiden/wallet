@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "Der Betrag liegt unter dem Mindestbetrag für die Verbrennung gemäß dem „faucet“.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Das Burn-Skript der Wallet stimmt nicht mit dem USDCx-faucet überein.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "Senden Sie mindestens $amount$ USDCx.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "Die Verbrennungsrichtlinie des USDCx-faucets kann nicht gelesen werden. Überprüfen Sie den Antrag erneut, um es noch einmal zu versuchen.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "Der USDCx-faucet ist noch nicht bekannt. Überprüfen Sie den Antrag erneut, um es noch einmal zu versuchen.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "Senden Sie mehr als $amount$ USDCx an $network$: Die Gebühr von Circle wird von der Auszahlung abgezogen.",
@@ -3954,6 +3955,24 @@
     "message": "Bittet um Ihre Unterschrift",
     "englishSource": "Requests your signature"
   },
+  "confirmLoginSignature": {
+    "message": "Melden Sie sich bei $domain$ an",
+    "englishSource": "Sign in to $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureNote": {
+    "message": "Bread signiert diese Anmeldemeldung mit einem Schlüssel, der ausschließlich für $domain$ erstellt wurde. Damit können weder Gelder bewegt noch Änderungen an Ihrem Konto vorgenommen werden.",
+    "englishSource": "Bread signs this sign-in message with a key made only for $domain$. It can't move funds or change your account.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
+  },
   "requestAssets": {
     "message": "Assets anfordern",
     "englishSource": "Request Assets"
@@ -4021,6 +4040,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "Dieser externe Dienst ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "Swap ist in diesem Netzwerk nicht verfügbar",
@@ -4412,6 +4439,53 @@
     "message": "{count} offene dApps",
     "englishSource": "{count} open dApps"
   },
+  "openLinkTitle": {
+    "message": "$host$ öffnen?",
+    "englishSource": "Open $host$?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "openLinkDescription": {
+    "message": "Diese Website ist nicht in „Explore“ gelistet, und jeder kann einen Link zu ihr erstellen. Öffnen Sie sie nur, wenn Sie dieser Website vertrauen.",
+    "englishSource": "This site is not listed in Explore, and anyone can make a link to it. Only open it if you trust this site."
+  },
+  "openLinkAction": {
+    "message": "Öffnen",
+    "englishSource": "Open"
+  },
+  "breadConnectWaitingTitle": {
+    "message": "Transaktion wird abgeschlossen",
+    "englishSource": "Finishing the transaction"
+  },
+  "breadConnectWaitingDescription": {
+    "message": "Lassen Sie Bread geöffnet: Sobald die Transaktion abgeschlossen ist, gelangen Sie zurück zu $host$.",
+    "englishSource": "Keep Bread open: it takes you back to $host$ once the transaction is done.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedTitle": {
+    "message": "$host$ konnte nicht geöffnet werden",
+    "englishSource": "Couldn't open $host$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "breadConnectUnreturnedDescription": {
+    "message": "Bread hat geantwortet, aber die anfragende App wurde nicht geöffnet. Öffnen Sie sie selbst, um fortzufahren.",
+    "englishSource": "Bread answered, but the app that asked didn't open. Open it yourself to continue."
+  },
+  "breadConnectUnreturnedTransactionDescription": {
+    "message": "Die Transaktion wurde trotzdem gesendet. Prüfen Sie ihr Ergebnis in Bread, bevor Sie es in der App erneut versuchen.",
+    "englishSource": "The transaction was still sent. Check its result in Bread before you try again in the app."
+  },
   "approve": {
     "message": "Genehmigen",
     "englishSource": "Approve"
@@ -4439,6 +4513,15 @@
   "dappSignRequest": {
     "message": "Diese App möchte, dass Sie Daten mit Ihrer Wallet signieren",
     "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappLoginSignRequest": {
+    "message": "Diese Website möchte, dass Sie sich mit Bread bei $domain$ anmelden",
+    "englishSource": "This site wants you to sign in to $domain$ with Bread",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "dappImportNoteRequest": {
     "message": "Diese App möchte eine private „note“ in Ihre Wallet importieren",
@@ -5810,8 +5893,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Teilen Sie uns mit, welche Bereiche der Wallet Sie nutzen, wo Sie nicht weiterkommen, welche allgemeinen Fehlerkategorien auftreten, welche App-Version Sie verwenden und auf welcher Plattform Sie arbeiten, damit wir die Probleme beheben können. Wenn die App abstürzt, sendet sie außerdem einen Absturzbericht mit dem Fehler und der Stelle im Code, an der er aufgetreten ist – dieser wird vor dem Versand bereinigt, um sensible Daten zu entfernen. Auf keinen Fall Ihre Schlüssel, Ihre Wiederherstellungsphrase, Ihr Passwort, Ihre Adressen, Guthaben, Beträge oder Transaktionsinhalte. Es erfolgt keine Nachverfolgung über andere Apps oder Websites hinweg, nichts wird für Werbezwecke verwendet und nichts wird an Datenbroker verkauft oder weitergegeben. Sie können diese Einstellungen jederzeit ändern.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+    "message": "Teilen Sie uns mit, welche Teile der Wallet Sie nutzen, wo Sie nicht weiterkommen, allgemeine Fehlerkategorien, die App-Version und Ihre Plattform, damit wir die Probleme beheben können. Geben Sie niemals Ihre Schlüssel, Ihre Wiederherstellungsphrase, Ihr Passwort, Ihre Adressen, Guthaben, Beträge oder Transaktionsinhalte preis. Keine Nachverfolgung über andere Apps oder Websites hinweg, nichts wird für Werbezwecke verwendet und nichts wird an Datenbroker verkauft oder weitergegeben. Absturzberichte werden in jedem Fall gesendet: der Fehler und die Stelle im Code, an der er aufgetreten ist, bereinigt um sensible Daten, ohne Identifikationsmerkmale für Sie oder Ihr Gerät. Sie können dies jederzeit ändern.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Nutzungsdaten teilen",
@@ -5830,8 +5913,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+    "message": "Welche Teile der Wallet Sie nutzen, wo Sie nicht weiterkommen, allgemeine Fehlerkategorien, die App-Version und Ihre Plattform.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -5848,6 +5931,10 @@
   "helpImproveWalletNoTrackingDescription": {
     "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
     "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletCrashReports": {
+    "message": "Absturzberichte werden in jedem Fall gesendet, damit wir Abstürze beheben können: Der Fehler und die Stelle im Code, an der er aufgetreten ist, werden übermittelt, bereinigt um sensible Daten und ohne Identifikationsmerkmale für Sie oder Ihr Gerät.",
+    "englishSource": "Crash reports are sent either way, so we can fix crashes: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device."
   },
   "helpImproveWalletChangeAnyTime": {
     "message": "You can change this any time in Settings.",
@@ -6836,5 +6923,159 @@
   "bridgeEstimatedCost": {
     "message": "Geschätzte Kosten",
     "englishSource": "Est. cost"
+  },
+  "earnWithdrawPositive": {
+    "message": "Enter an amount greater than zero.",
+    "englishSource": "Enter an amount greater than zero."
+  },
+  "earnWithdrawPrecision": {
+    "message": "Use no more than $decimals$ decimal places.",
+    "englishSource": "Use no more than $decimals$ decimal places.",
+    "placeholders": {
+      "decimals": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawAboveAvailable": {
+    "message": "Enter an amount within the available balance.",
+    "englishSource": "Enter an amount within the available balance."
+  },
+  "earnWithdrawAvailable": {
+    "message": "Available: $amount$ $asset$",
+    "englishSource": "Available: $amount$ $asset$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      }
+    }
+  },
+  "earnWithdrawQuoteUnavailable": {
+    "message": "A withdrawal quote is unavailable for this amount. Try a larger amount or refresh.",
+    "englishSource": "A withdrawal quote is unavailable for this amount. Try a larger amount or refresh."
+  },
+  "earnWithdrawRefresh": {
+    "message": "The balance or quote changed. Refresh and review again.",
+    "englishSource": "The balance or quote changed. Refresh and review again."
+  },
+  "earnSelectedAmountGasless": {
+    "message": "Selected amount (gasless)",
+    "englishSource": "Selected amount (gasless)"
+  },
+  "earnWithdrawFeesIncluded": {
+    "message": "Route costs are reflected in the quoted receipt. Gas is sponsored.",
+    "englishSource": "Route costs are reflected in the quoted receipt. Gas is sponsored."
+  },
+  "earnWithdrawExpectedReceipt": {
+    "message": "Expected to receive",
+    "englishSource": "Expected to receive"
+  },
+  "earnWithdrawMinimumReceipt": {
+    "message": "Minimum received",
+    "englishSource": "Minimum received"
+  },
+  "earnWithdrawRouteFees": {
+    "message": "Route fees",
+    "englishSource": "Route fees"
+  },
+  "earnWithdrawRefreshQuote": {
+    "message": "Refresh quote",
+    "englishSource": "Refresh quote"
+  },
+  "earnWithdrawFullBalanceSelected": {
+    "message": "Full balance selected",
+    "englishSource": "Full balance selected"
+  },
+  "earnWithdrawApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawDeliverySummary": {
+    "message": "To Miden · About 1 min · Gas sponsored",
+    "englishSource": "To Miden · About 1 min · Gas sponsored"
+  },
+  "earnWithdrawYouWithdraw": {
+    "message": "You withdraw",
+    "englishSource": "You withdraw"
+  },
+  "earnWithdrawStaysInvested": {
+    "message": "Stays invested",
+    "englishSource": "Stays invested"
+  },
+  "earnWithdrawAll": {
+    "message": "Full balance",
+    "englishSource": "Full balance"
+  },
+  "earnWithdrawExactAmount": {
+    "message": "Exact withdrawal amount",
+    "englishSource": "Exact withdrawal amount"
+  },
+  "earnWithdrawInProgress": {
+    "message": "Ein weiterer Abzug aus dieser Position ist noch im Gange. Warten Sie, bis er abgeschlossen ist.",
+    "englishSource": "Another withdrawal from this position is still in progress. Wait for it to finish."
+  },
+  "webViewUpdateTitle": {
+    "message": "Android System WebView aktualisieren",
+    "englishSource": "Update Android System WebView"
+  },
+  "webViewUpdateBody": {
+    "message": "Bread benötigt eine neuere Version von Android System WebView, dem Teil von Android, der Webseiten in Apps anzeigt. Aktualisiere es über Google Play und öffne Bread anschließend erneut.",
+    "englishSource": "Bread needs a newer version of Android System WebView, the part of Android that shows web pages in apps. Update it from Google Play, then open Bread again."
+  },
+  "webViewUpdateAction": {
+    "message": "Google Play öffnen",
+    "englishSource": "Open Google Play"
+  },
+  "webViewUpdateChromeTitle": {
+    "message": "Chrome aktualisieren",
+    "englishSource": "Update Chrome"
+  },
+  "webViewUpdateChromeBody": {
+    "message": "Für Bread ist eine neuere Version von Chrome erforderlich, die Webseiten in Apps auf dieser Android-Version anzeigt. Aktualisieren Sie Chrome über Google Play und öffnen Sie Bread anschließend erneut.",
+    "englishSource": "Bread needs a newer version of Chrome, which shows web pages in apps on this version of Android. Update it from Google Play, then open Bread again."
+  },
+  "webViewStartFailedTitle": {
+    "message": "Bread konnte nicht starten",
+    "englishSource": "Bread couldn't start"
+  },
+  "webViewStartFailedBody": {
+    "message": "Ein Fehler hat das Laden von Bread verhindert. Versuchen Sie es erneut oder schließen Sie Bread und öffnen Sie es erneut.",
+    "englishSource": "Something stopped Bread from loading. Try again, or close Bread and open it again."
+  },
+  "webViewStartFailedAction": {
+    "message": "Versuchen Sie es erneut",
+    "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Verfügbarkeit wird geprüft",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Bitte warte, während wir prüfen, ob die Wallet in deiner Region verfügbar ist.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Wallet in deiner Region nicht verfügbar",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Die Wallet ist an deinem aktuellen Standort nicht verfügbar.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Verfügbarkeit konnte nicht geprüft werden",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Prüfe deine Verbindung und versuche es erneut.",
+    "englishSource": "Check your connection and try again."
   }
 }

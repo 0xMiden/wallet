@@ -31,9 +31,10 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { isExtension } from 'lib/platform';
+import { hasExtensionRuntime, isExtension, reloadInPlace } from 'lib/platform';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
 
@@ -123,7 +124,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   );
   const [form, setForm] = useState<EndpointOverride>(initial);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ text: string; id: UserErrorId } | null>(null);
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
   const noWalletYet = useWalletStore(selectIsIdle);
   const clearBalances = useWalletStore(s => s.clearBalances);
@@ -251,7 +252,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       navigate('/');
     } catch (err) {
       console.warn('[developer-settings] Could not save the endpoint override', err);
-      setError(t('devEndpointSaveFailed'));
+      setError({ text: t('devEndpointSaveFailed'), id: 'devEndpointSaveFailed' });
     } finally {
       setPending(false);
     }
@@ -282,9 +283,10 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // wipe, so nothing is wiped without its reload armed. Dynamic import: `webextension-polyfill` throws at
     // module-evaluation time when `chrome.runtime.id` is absent, so it must not be a top-level import - this
     // screen is statically imported by PageRouter and evaluates on every platform (desktop has no vite alias for
-    // it, unlike mobile). Mirrors src/lib/miden/reset.ts.
+    // it, unlike mobile). Mirrors src/lib/miden/reset.ts. A page an extension reload or update left without a runtime
+    // cannot reload the extension, so it reloads in place.
     let reloadOnce: (() => void) | undefined;
-    if (isExtension()) {
+    if (hasExtensionRuntime()) {
       try {
         const browser = (await import('webextension-polyfill')).default;
         reloadOnce = () => {
@@ -295,7 +297,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       } catch (importErr) {
         // Stopped before the wipe, so the wallet is untouched and the reset reports that it did not finish.
         console.warn('[developer-settings] Could not load the polyfill before the wipe', importErr);
-        setError(t('resetDidNotFinish'));
+        setError({ text: t('resetDidNotFinish'), id: 'resetDidNotFinish' });
         setPending(false);
         return;
       }
@@ -313,7 +315,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         // extension, where closing the page leaves the service worker running, a caller arms a `pagehide` reload before
         // the wipe and keeps it until its own reload has been attempted, and the extension reloads once either way.
         console.warn('[developer-settings] Could not wipe the wallet storage', err);
-        await customAlert({ title: t('error'), children: t('resetDidNotFinish') });
+        await customAlert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
       }
       try {
         // Follows resetStorageDestructive's caller contract (src/lib/miden/reset.ts), as the options page's
@@ -323,14 +325,15 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
           // it. A listener reload that threw left the flag down, so this one retries and reports.
           if (!reloaded) reloadOnce();
         } else {
-          // mobile/desktop: no background worker to resync with, just reload in place.
-          window.location.reload();
+          // mobile/desktop, or an extension page that lost its runtime: no background worker to resync with,
+          // just reload in place.
+          reloadInPlace();
         }
       } catch (err) {
         // No reload started, so the closed handles and the in-memory override outlive the wipe:
         // the reset did not finish.
         console.warn('[developer-settings] Could not reload after the reset', err);
-        setError(t('resetDidNotFinish'));
+        setError({ text: t('resetDidNotFinish'), id: 'resetDidNotFinish' });
       } finally {
         setPending(false);
       }
@@ -351,7 +354,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       footerLayout="stack"
       footer={
         <>
-          <ErrorLine data-testid="dev-endpoints-error">{error}</ErrorLine>
+          <ErrorLine data-testid="dev-endpoints-error" errorId={error?.id}>
+            {error?.text}
+          </ErrorLine>
           {offerMainnetSwitch && (
             <Button
               className={actionButton}

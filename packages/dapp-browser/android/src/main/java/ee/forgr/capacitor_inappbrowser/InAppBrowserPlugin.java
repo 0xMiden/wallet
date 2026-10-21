@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -75,6 +76,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     @Override
     public void load() {
         super.load();
+        IabLog.setDebuggable((getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         fileChooserLauncher = getActivity().registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             this::handleFileChooserResult
@@ -538,7 +540,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             );
         }
 
-        Log.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
+        IabLog.i("DelCookies", String.format("Script to run:\n%s", scriptToRun));
 
         this.getActivity().runOnUiThread(
             new Runnable() {
@@ -626,7 +628,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             try {
                 options.setProxyRequestsPattern(Pattern.compile(proxyRequestsStr));
             } catch (PatternSyntaxException e) {
-                Log.e("WebViewDialog", String.format("Pattern '%s' is not a valid pattern", proxyRequestsStr));
+                Log.e("WebViewDialog", "Invalid proxy request pattern: " + e.getClass().getSimpleName());
             }
         }
 
@@ -748,6 +750,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
         options.setCallbacks(
             new WebViewCallbacks() {
+                @Override
+                public void permissionDeniedToast() {
+                    notifyListeners("permissionDeniedToast", new JSObject());
+                }
+
                 @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime) {
                     JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("policyRevision", revision).put("visibilitySequence", sequence);
                     if (lifetime != null) event.put("managedHostCloseToken", lifetime);
@@ -813,7 +820,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void javascriptCallback(String message) {
                     // Handle the message received from JavaScript
-                    Log.d("WebViewDialog", "Received message from JavaScript: " + message);
+                    Log.d("WebViewDialog", "Received message from JavaScript");
                     // Process the message as needed
                     try {
                         // Parse the received message as a JSON object
@@ -838,7 +845,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         // Notify listeners with the parsed message
                         notifyListeners("messageFromWebview", jsObject);
                     } catch (JSONException e) {
-                        Log.e("WebViewDialog", "Error parsing JSON message: " + e.getMessage());
+                        // JSON exception messages can include the bridge payload.
+                        Log.e("WebViewDialog", "Error parsing JSON message");
 
                         // If JSON parsing fails, send the raw message as a string
                         JSObject jsObject = new JSObject();
@@ -863,7 +871,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading authorized app link at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
+            IabLog.d("InAppBrowserPlugin", "Parsed authorized app links: " + authorizedLinks);
             options.setAuthorizedAppLinks(authorizedLinks);
         } else {
             Log.d("InAppBrowserPlugin", "No authorized app links provided.");
@@ -882,7 +890,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     Log.w("InAppBrowserPlugin", "Error reading blocked host at index " + i, e);
                 }
             }
-            Log.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
+            IabLog.d("InAppBrowserPlugin", "Parsed blocked hosts: " + blockedHosts);
             options.setBlockedHosts(blockedHosts);
         } else {
             Log.d("InAppBrowserPlugin", "No blocked hosts provided.");
@@ -1022,13 +1030,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             return;
         }
         JSObject eventData = call.getObject("detail");
-        // Log event data
         if (eventData == null) {
             call.reject("No event data provided");
             return;
         }
 
-        Log.d("InAppBrowserPlugin", "Event data: " + eventData.toString());
+        Log.d("InAppBrowserPlugin", "Sending message to JavaScript");
         this.getActivity().runOnUiThread(
             new Runnable() {
                 @Override
@@ -1193,6 +1200,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnResume() {
+        BreadAuthController.hostResumed();
         presentationAppForeground = true;
         for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
             entry.getValue().presentationForeground(true);
@@ -1204,6 +1212,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnPause() {
+        BreadAuthController.hostPaused();
         presentationAppForeground = false;
         for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
             entry.getValue().presentationForeground(false);

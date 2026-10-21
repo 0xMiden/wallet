@@ -35,6 +35,9 @@ _g.__cnTest = {
 
 jest.mock('lib/platform', () => ({
   isExtension: () => (globalThis as any).__cnTest?.isExtension ?? false,
+  // False on an extension page an extension reload or update orphaned.
+  hasExtensionRuntime: () =>
+    ((globalThis as any).__cnTest?.isExtension ?? false) && ((globalThis as any).__cnTest?.hasExtensionRuntime ?? true),
   isIOS: () => (globalThis as any).__cnTest?.isIOS ?? false
 }));
 
@@ -221,6 +224,7 @@ beforeEach(() => {
   __resetClaimableNotesCacheForTests();
   _g.__cnTest.isExtension = false;
   _g.__cnTest.isIOS = false;
+  _g.__cnTest.hasExtensionRuntime = true;
   _g.__cnTest.storage = {};
   _g.__cnTest.consumableNotes = [];
   _g.__cnTest.uncompletedTxs = [];
@@ -745,6 +749,35 @@ describe('useClaimableNotes (extension mode)', () => {
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     expect(result.current.data?.[0]?.type).toBe('unknown');
+  });
+
+  describe('on a page an extension reload or update orphaned', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('stops reading extension storage once the runtime is gone', async () => {
+      renderHook(() => useClaimableNotes('A'));
+      const get = _g.chrome.storage.local.get as jest.Mock;
+      const reads = get.mock.calls.length;
+      expect(reads).toBeGreaterThan(0);
+
+      _g.__cnTest.hasExtensionRuntime = false;
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(9_000);
+      });
+      expect(get).toHaveBeenCalledTimes(reads);
+    });
+
+    it('never reads extension storage when it mounts after the runtime is gone', () => {
+      _g.__cnTest.hasExtensionRuntime = false;
+      const get = jest.fn(() => {
+        throw new Error('Extension context invalidated.');
+      });
+      _g.chrome.storage.local.get = get;
+
+      expect(() => renderHook(() => useClaimableNotes('A'))).not.toThrow();
+      expect(get).not.toHaveBeenCalled();
+    });
   });
 
   it('serves cached notes only for the matching account (account-scoped poll)', () => {
@@ -1393,7 +1426,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
   });
 
-  it('flags a note that carries more fungible assets than the one it shows', async () => {
+  it('live single-asset notes preserve explicit asset knowledge', async () => {
     // The claim fee gate fails open on such a note: one of the hidden assets may pay the fee.
     _g.__cnTest.consumableNotes = [
       {
@@ -1410,7 +1443,9 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     rerender();
 
     const flags = Object.fromEntries((result.current.data ?? []).map(note => [note.id, note.carriesMoreAssets]));
-    expect(flags).toEqual({ multi: true, single: undefined });
+    expect(flags).toEqual({ multi: true, single: false });
+    expect(result.current.data?.find(note => note.id === 'single')).toMatchObject({ carriesMoreAssets: false });
+    expect(result.current.data?.find(note => note.id === 'multi')).toMatchObject({ carriesMoreAssets: true });
   });
 
   it('replaces the cached list with the live result and rewrites the cache', async () => {

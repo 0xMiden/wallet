@@ -14,6 +14,7 @@ import { useSprings } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import {
   confirmationPromptKey,
+  confirmationPromptValues,
   isDetailsConfirmation,
   type DAppConfirmationRequest,
   type DAppConfirmationResult
@@ -25,6 +26,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { HOST_MODAL_LAYER, useImperativeModalFocus } from 'lib/ui/host-modal';
 import { truncateAddress } from 'utils/string';
 
@@ -41,16 +43,27 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const { t } = useTranslation();
   // PR-7: reduce-motion-aware springs.
   const springs = useSprings();
-  // Every non-connect request kind (transaction, consume, sign, importPrivateNote,
-  // privateData) renders the same detail-list body; only the prompt line differs.
+  // Every request kind but connect and loginSign (transaction, consume, sign,
+  // importPrivateNote, privateData) renders the same detail-list body; only the
+  // prompt line differs.
   const isTransaction = isDetailsConfirmation(request.type);
   const transactionMessages = request.transactionMessages ?? [];
+  // A login signs with the login key of the account its request names, which the panel shows and the
+  // approval reports.
+  const shownAccountId = request.type === 'loginSign' ? request.accountId : accountId;
   const transactionAccountMatches =
     request.type !== 'transaction' ||
     (accountId !== null &&
       request.sourcePublicKey !== undefined &&
       sameWalletAccountId(accountId, request.sourcePublicKey));
-  const canApprove = request.type === 'transaction' ? transactionAccountMatches : isTransaction || Boolean(accountId);
+  // Naming the site is the point of a login approval, so a login that names no site fails closed
+  // exactly like one that names no account.
+  const canApprove =
+    request.type === 'transaction'
+      ? transactionAccountMatches
+      : request.type === 'loginSign'
+        ? Boolean(request.domain && request.accountId)
+        : isTransaction || Boolean(accountId);
 
   // Private-data scope of a connect request. `Auto` + a non-empty
   // `allowedPrivateData` is STANDING access: the private-notes /
@@ -67,10 +80,22 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   // Kept with the request whose prompt failed and shown only while that request is on screen, so a
   // rejection that lands after a replacement never reads as the new request's failure.
-  const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
+  const [approvalError, setApprovalError] = useState<{
+    requestId: string;
+    message: string;
+    errorId: UserErrorId;
+  } | null>(null);
   const previousAttemptError =
     request.previousAttemptError === undefined ? undefined : request.previousAttemptError || t('smthWentWrong');
   const shownError = approvalError?.requestId === request.id ? approvalError.message : previousAttemptError;
+  const shownErrorId: UserErrorId | undefined =
+    approvalError?.requestId === request.id
+      ? approvalError.errorId
+      : previousAttemptError !== undefined
+        ? request.previousAttemptError
+          ? 'raw_dapp_approval_failed'
+          : 'smthWentWrong'
+        : undefined;
   const resolvedRef = useRef(false);
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
@@ -132,7 +157,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     onResolve(
       {
         confirmed: true,
-        accountPublicKey: accountId ?? undefined,
+        accountPublicKey: shownAccountId ?? undefined,
         // Standing access is granted only on an explicit affirmative gesture.
         // Approving without ticking the box downgrades to `UponRequest` (each
         // read prompts) instead of silently honouring what the dApp asked for.
@@ -177,6 +202,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           pendingApprovalRef.current = false;
           setApprovalError({
             requestId,
+            errorId: error instanceof Error && error.message ? 'raw_dapp_approval_failed' : 'smthWentWrong',
             message: error instanceof Error && error.message ? error.message : t('smthWentWrong')
           });
         }
@@ -246,7 +272,13 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
               {/* Body */}
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-                <p className="mb-4 text-sm text-text-muted">{t(confirmationPromptKey(request.type))}</p>
+                <p className="mb-4 text-sm text-text-muted">
+                  {t(confirmationPromptKey(request.type), confirmationPromptValues(request))}
+                </p>
+
+                {request.type === 'loginSign' && (
+                  <p className="mb-4 text-body-sm text-ink">{t('loginSignatureNote', { domain: request.domain })}</p>
+                )}
 
                 {isTransaction && transactionMessages.length > 0 && (
                   <div className="mb-4 rounded-xl bg-fill p-4">
@@ -266,7 +298,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   <div className="mb-4 rounded-xl bg-grey-50 p-4">
                     <p className="mb-1 text-xs text-grey-500">{t('account')}</p>
                     <p className="font-inter text-sm text-grey-900">
-                      {accountId ? truncateAddress(accountId) : t('noAccountSelected')}
+                      {shownAccountId ? truncateAddress(shownAccountId) : t('noAccountSelected')}
                     </p>
                   </div>
                 )}
@@ -313,7 +345,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 )}
 
                 {shownError !== undefined && (
-                  <ErrorLine data-testid="dapp-approval-error" className="mt-3">
+                  <ErrorLine errorId={shownErrorId} data-testid="dapp-approval-error" className="mt-3">
                     {shownError}
                   </ErrorLine>
                 )}

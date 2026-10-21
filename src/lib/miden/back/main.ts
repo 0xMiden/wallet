@@ -9,6 +9,7 @@ import {
   type ConnectivityCategory
 } from 'lib/miden/activity/connectivity-state';
 import * as Actions from 'lib/miden/back/actions';
+import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
@@ -33,7 +34,7 @@ import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
-import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
+import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
@@ -381,14 +382,7 @@ function registerOffscreenSignHandler(): void {
 const CONFIRMATION_REQUEST_TYPES: ReadonlySet<unknown> = new Set([
   MidenMessageType.DAppGetPayloadRequest,
   MidenMessageType.DAppSimulateTransactionRequest,
-  MidenMessageType.DAppUnlockConfirmationRequest,
-  MidenMessageType.DAppPermConfirmationRequest,
-  MidenMessageType.DAppTransactionConfirmationRequest,
-  MidenMessageType.DAppPrivateNotesConfirmationRequest,
-  MidenMessageType.DAppSignConfirmationRequest,
-  MidenMessageType.DAppAssetsConfirmationRequest,
-  MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
-  MidenMessageType.DAppConsumableNotesConfirmationRequest
+  ...APPROVAL_CONFIRMATION_TYPES
 ]);
 
 function confirmationRequestNotFound(req: unknown): Error | undefined {
@@ -491,15 +485,15 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         // Don't lose the note on a transient blip (resilience gap 1): queue the
         // bytes for the background import loop (wall-clock retry + dead-letter)
         // before surfacing the error, so a manual import isn't lost to one blip.
-        // Every kill shape counts, not just a network blip. A watchdog eviction, an
-        // offscreen deadline kill and a terminated client say the same thing this queue
+        // Every kill shape counts anywhere in the cause chain, not just a network blip.
+        // A watchdog eviction, an offscreen deadline kill and a terminated client say the same thing this queue
         // exists for, "we do not know whether this landed", and `isLikelyNetworkError`
         // cannot be relied on for any of them, since its tokens are transport text: the poison message
         // is closed wallet-authored text. So an eviction took the not-transient path
         // and dropped the bytes from the one mechanism built to preserve them, which
         // for a private note can be the only copy of the funds it carries. Matches
         // the queue's own classifier (`notes.ts`, `transient`).
-        if (isLikelyNetworkError(e) || isPipelineKillLink(e)) {
+        if (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined) {
           // Logged rather than swallowed: the throw below reports the IMPORT
           // failure, which says nothing about whether the background retry was
           // actually armed. Losing both silently is what made this look like a

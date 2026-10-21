@@ -1,5 +1,6 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { ClaimFeeAdmission } from 'lib/telemetry/transaction-failure';
 
 /**
  * Whether a transaction is certain to fail because the account cannot cover the
@@ -84,6 +85,21 @@ export interface ClaimFeeNote {
   amount: string;
   /** The note holds fungible assets beyond the listed one. */
   carriesMoreAssets?: boolean;
+  /** The note's full asset list is not known. */
+  assetsUnknown?: boolean;
+}
+
+/** Activity's decimal-scaled balances adapted to the shared base-unit claim fee rule. */
+export function claimFeeShortfalls(
+  transactions: ReadonlyArray<readonly ClaimFeeNote[]>,
+  ahead: readonly ClaimFeeNote[],
+  balances: readonly TokenBalanceData[],
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): boolean[] {
+  const held = feeAssetHeld(balances, nativeAssetId);
+  const vaultFeeAsset = held !== null && Number.isFinite(held) ? BigInt(Math.round(held)) : null;
+  return claimFeeShortfallsBaseUnits(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee);
 }
 
 /**
@@ -102,43 +118,62 @@ export interface ClaimFeeNote {
  * are not charged: a claim they leave unable to pay fails at signing, as it would without this check. Each transaction
  * is judged alone, so none of them funds another; a caller queueing them one by one adds each queued one to `ahead`.
  *
- * Fails OPEN, refusing nothing, wherever `hasNoFeeAsset` does or a note ahead holds assets the list does not show (any
- * of them may be the fee asset), and admits a transaction whose own notes hold such assets or whose fee-asset amount
- * does not parse.
+ * Fails OPEN, refusing nothing, when the fee, native asset or vault holding is unknown or a note ahead holds assets
+ * the list does not show (any of them may be the fee asset), and admits a transaction whose own notes hold such
+ * assets or whose fee-asset amount does not parse.
  */
-export function claimFeeShortfalls(
-  transactions: ReadonlyArray<readonly ClaimFeeNote[]>,
+export function claimFeeShortfallsBaseUnits(
+  transactions: readonly (readonly ClaimFeeNote[])[],
   ahead: readonly ClaimFeeNote[],
-  balances: readonly TokenBalanceData[],
+  vaultFeeAsset: bigint | null,
   nativeAssetId: string | undefined | null,
   verificationBaseFee: number | null
 ): boolean[] {
-  const refuseNone = transactions.map(() => false);
+  return claimFeeDecisions(transactions, ahead, vaultFeeAsset, nativeAssetId, verificationBaseFee).map(
+    decision => decision.shortfall
+  );
+}
+
+/** The fee check's first admission reason for each row; a refused row carries no admission. */
+export function claimFeeDecisions(
+  transactions: readonly (readonly ClaimFeeNote[])[],
+  ahead: readonly ClaimFeeNote[],
+  vaultFeeAsset: bigint | null,
+  nativeAssetId: string | undefined | null,
+  verificationBaseFee: number | null
+): { shortfall: boolean; admission?: ClaimFeeAdmission }[] {
+  const admitAll = (admission: ClaimFeeAdmission) => transactions.map(() => ({ shortfall: false, admission }));
+  if (!nativeAssetId) {
+    return admitAll('native_id_unknown');
+  }
   if (verificationBaseFee === null || !Number.isFinite(verificationBaseFee) || verificationBaseFee <= 0) {
-    return refuseNone;
+    return admitAll('fee_unknown');
   }
-  const held = feeAssetHeld(balances, nativeAssetId);
-  if (held === null || !Number.isFinite(held)) {
-    return refuseNone;
+  if (vaultFeeAsset === null) {
+    return admitAll('balance_unknown');
   }
-  if (ahead.some(note => note.carriesMoreAssets || note.faucetId === nativeAssetId)) {
-    return refuseNone;
+  const hasUnknownAssets = (note: ClaimFeeNote) =>
+    note.assetsUnknown || note.carriesMoreAssets || !note.faucetId.trim() || !note.amount.trim();
+  if (ahead.some(hasUnknownAssets)) {
+    return admitAll('ahead_assets_unknown');
+  }
+  if (ahead.some(note => note.faucetId === nativeAssetId)) {
+    return admitAll('ahead_native');
   }
   // A whole-unit budget is below a fractional fee exactly when it is below its ceiling.
   const fee = BigInt(Math.ceil(verificationBaseFee));
-  const vault = BigInt(Math.round(held));
   return transactions.map(notes => {
-    let available = vault;
+    let available = vaultFeeAsset;
     for (const note of notes) {
-      if (note.carriesMoreAssets) return false;
+      if (hasUnknownAssets(note)) return { shortfall: false, admission: 'note_assets_unknown' };
       if (note.faucetId !== nativeAssetId) continue;
       try {
         available += BigInt(note.amount);
       } catch {
-        return false;
+        return { shortfall: false, admission: 'note_assets_unknown' };
       }
     }
-    return available < fee;
+    return available < fee ? { shortfall: true } : { shortfall: false, admission: 'known_sufficient' };
   });
 }
 
@@ -236,7 +271,7 @@ export function isWorthClaiming(
 }
 
 /**
- * Sum of note amounts, in the asset's smallest unit — the value to hand
+ * Sum of note amounts, in the asset's smallest unit - the value to hand
  * `isWorthClaiming` when these notes will be claimed as ONE transaction.
  *
  * Shared by the three unattended auto-consumers so they cannot drift on how the batch

@@ -1,8 +1,15 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
-import type { ConsumeEntryPoint, TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type {
+  ClaimFeeAdmission,
+  ConsumeDeferralCause,
+  ConsumeEntryPoint,
+  TransactionFailureDiagnostics
+} from 'lib/telemetry/transaction-failure';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
@@ -153,6 +160,10 @@ export interface IConsumedNote {
   faucetId: string;
   /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
   amount?: bigint;
+  /** Whether the queued note carried other assets; absent means its full asset list is unknown. */
+  carriesMoreAssets?: boolean;
+  /** Full fungible assets used by the fee gate, independent of the row's display fields. */
+  feeAssets?: { faucetId: string; amount: bigint }[];
 }
 
 /**
@@ -211,6 +222,7 @@ export interface IBridgedReceiveExtraInputs {
   /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
   cctp?: IUsdcxCctpLeg;
   error?: string;
+  errorId?: UserErrorId;
   /**
    * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
    * first phase write. Absent on rows written before this field and on E2E hook rows.
@@ -464,6 +476,8 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
+  /** Reviewed delivery floor for amount-selected withdrawals; source retries must not lower it. */
+  reviewedMinimumReceivedAtomic?: string;
   epochAllocatorUrl?: string;
   underlyingAddress?: string;
   /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
@@ -694,6 +708,10 @@ export interface ITransaction {
    * report. Absent on rows queued before it and on rows no queue call made (recovered history). Not indexed.
    */
   consumeEntryPoint?: ConsumeEntryPoint;
+  /** Most recent automatic requeue cause. Survives pickups; explicit Retry clears it. Not indexed. */
+  lastDeferral?: ConsumeDeferralCause;
+  /** Consume fee gate's last admission reason. Survives pickups; explicit Retry replaces it. Not indexed. */
+  feeAdmission?: ClaimFeeAdmission;
   /**
    * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
    * dry run that the confirmation sheet already renders.
@@ -1159,6 +1177,10 @@ export class ConsumeTransaction implements ITransaction {
   rotationFunding?: true;
   /** See `ITransaction.consumeEntryPoint`. */
   consumeEntryPoint?: ConsumeEntryPoint;
+  /** See `ITransaction.lastDeferral`. */
+  lastDeferral?: ConsumeDeferralCause;
+  /** See `ITransaction.feeAdmission`. */
+  feeAdmission?: ClaimFeeAdmission;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
   transactionId?: string;
@@ -1181,7 +1203,12 @@ export class ConsumeTransaction implements ITransaction {
   // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
   // every consume signs the same way. Old persisted rows may still carry a stray
   // `background` property; it's ignored.
-  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
+  constructor(
+    accountId: string,
+    notes: ConsumableNote | ConsumableNote[],
+    delegateTransaction?: boolean,
+    feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
+  ) {
     const list = Array.isArray(notes) ? notes : [notes];
     const first = list[0];
     if (!first) {
@@ -1215,12 +1242,30 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
-    this.consumedNotes = list.map(note => ({
-      id: note.id,
-      senderAddress: note.senderAddress,
-      faucetId: note.faucetId,
-      ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
-    }));
+    this.consumedNotes = list.map(note => {
+      const feeNotes = feeNotesById?.get(note.id);
+      let feeAssets: IConsumedNote['feeAssets'];
+      if (
+        feeNotes !== undefined &&
+        feeNotes.every(
+          fact => !fact.assetsUnknown && !fact.carriesMoreAssets && fact.faucetId.trim() && fact.amount.trim()
+        )
+      ) {
+        try {
+          feeAssets = feeNotes.map(fact => ({ faucetId: fact.faucetId, amount: BigInt(fact.amount) }));
+        } catch {
+          // Unparseable facts must stay unknown to later fee checks.
+        }
+      }
+      return {
+        id: note.id,
+        senderAddress: note.senderAddress,
+        faucetId: note.faucetId,
+        carriesMoreAssets: note.carriesMoreAssets,
+        ...(note.amount === '' ? {} : { amount: BigInt(note.amount) }),
+        ...(feeAssets === undefined ? {} : { feeAssets })
+      };
+    });
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

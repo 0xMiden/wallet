@@ -5,14 +5,22 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+import {
+  dappConfirmationStore,
+  type DAppConfirmationRequest,
+  type DAppLoginSignConfirmationRequest
+} from 'lib/dapp-browser/confirmation-store';
 import { useDappConfirmation } from 'lib/dapp-browser/use-dapp-confirmation';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { truncateAddress } from 'utils/string';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The wallet-adapter package ships as ESM and is not transformed by jest, so the
 // repo-level manual mock (`__mocks__/@miden-sdk/miden-wallet-adapter-base.ts`)
@@ -469,6 +477,10 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     expect(onResolve).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(expect.any(Error));
     expect(screen.getByTestId('dapp-approval-error')).toHaveTextContent('protector check failed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_dapp_approval_failed', 'inline');
 
     confirmMock.mockResolvedValue(true);
     await act(async () => {
@@ -941,5 +953,90 @@ describe('DappConfirmationModal test ids', () => {
     render(<DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
     fireEvent.click(screen.getByTestId('dapp-confirmation-approve'));
     expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed: true }), 'req-1');
+  });
+});
+
+describe('DappConfirmationModal - a login signature', () => {
+  const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
+  const OPAQUE_ROW = 'Warning, this site asked you to sign a value the wallet cannot decode.';
+  const loginRequest = (overrides: Partial<DAppLoginSignConfirmationRequest> = {}) =>
+    buildRequest({
+      type: 'loginSign',
+      origin: 'https://example.org',
+      appMeta: { name: 'example.org' },
+      domain: 'example.org',
+      accountId: LOGIN_ACCOUNT_ID,
+      transactionMessages: ['Kind, word', OPAQUE_ROW],
+      ...overrides
+    });
+
+  beforeEach(() => {
+    confirmMock.mockReset();
+  });
+
+  it("names the site and shows the request's account, with no detail rows", () => {
+    render(<DappConfirmationModal request={loginRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+
+    expect(screen.getByText('dappLoginSignRequest:example.org')).toBeInTheDocument();
+    expect(screen.getByText('loginSignatureNote:example.org')).toBeInTheDocument();
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
+    expect(screen.queryByText(truncateAddress(FULL_ACCOUNT_ID))).not.toBeInTheDocument();
+    expect(screen.queryByText(OPAQUE_ROW)).not.toBeInTheDocument();
+    expect(screen.queryByText('Kind, word')).not.toBeInTheDocument();
+  });
+
+  // Approve reports the account the sheet shows, not the wallet's selected one.
+  it.each([
+    ['Approve', /approve/i, { confirmed: true, accountPublicKey: LOGIN_ACCOUNT_ID }],
+    ['Deny', /deny/i, { confirmed: false }]
+  ] as const)('settles a login from %s, with no biometric prompt', (_label, name, result) => {
+    const onResolve = jest.fn();
+    render(<DappConfirmationModal request={loginRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+
+    fireEvent.click(screen.getByRole('button', { name }));
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining(result), 'req-1');
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('cannot approve a login that names no account, and Deny still settles it', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={loginRequest({ accountId: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByText('noAccountSelected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
+  });
+
+  it('cannot approve a login that names no site, and Deny still settles it', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={loginRequest({ domain: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
   });
 });

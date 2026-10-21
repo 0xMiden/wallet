@@ -73,6 +73,22 @@ let currentAccountPublicKey = 'miden-account-1';
 // Steerable for the Idle case; `'Ready'` is the string every other suite in this family uses.
 let mockWalletStatus: unknown = 'Ready';
 const mockStoreListeners = new Set<(state: unknown) => void>();
+jest.mock('lib/telemetry/transaction-failure', () => ({
+  ...jest.requireActual('lib/telemetry/transaction-failure'),
+  reportTransactionFailure: jest.fn(jest.requireActual('lib/telemetry/transaction-failure').reportTransactionFailure)
+}));
+jest.mock('./background-notification', () => ({
+  ...jest.requireActual('./background-notification'),
+  notifyBackgroundTransactionFailed: jest.fn(
+    jest.requireActual('./background-notification').notifyBackgroundTransactionFailed
+  )
+}));
+
+jest.mock('../transaction/claim-fee', () => ({
+  ...jest.requireActual('../transaction/claim-fee'),
+  readClaimFeeContext: jest.fn(jest.requireActual('../transaction/claim-fee').readClaimFeeContext)
+}));
+
 jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({ currentAccount: { publicKey: currentAccountPublicKey }, status: mockWalletStatus }),
@@ -252,6 +268,7 @@ jest.mock('nanoid', () => {
 
 import * as dapp from './dapp';
 import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
+import { OperationAbortedError } from './offscreen-codec';
 
 const UNLOCKED_CONTEXT = { vault: { signData: mockSignData } };
 
@@ -309,6 +326,100 @@ beforeEach(() => {
   mockStartTransactionProcessing.mockReturnValue(Promise.resolve());
   mockImportNoteBytes.mockReset();
   mockImportNoteBytes.mockResolvedValue('note-1');
+});
+
+describe('coded refusals (#1583)', () => {
+  const handlers: ReadonlyArray<[string, (error: unknown) => Promise<unknown>]> = [
+    [
+      'request',
+      error => {
+        mockImportNoteBytes.mockRejectedValueOnce(error);
+        return dapp.requestImportPrivateNote('https://miden.xyz', {
+          type: MidenDAppMessageType.ImportPrivateNoteRequest,
+          sourcePublicKey: 'miden-account-1',
+          note: 'c29tZW5vdGVieXRlcw=='
+        });
+      }
+    ],
+    [
+      'read',
+      error => {
+        mockGetInputNoteDetails.mockRejectedValueOnce(error);
+        return dapp.requestPrivateNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          notefilterType: NoteFilterTypes.Committed
+        });
+      }
+    ],
+    [
+      'carried-note decode',
+      error => {
+        const lock = jest.requireMock<typeof import('../sdk/miden-client')>('../sdk/miden-client');
+        const decodeLock = jest.spyOn(lock, 'withWasmClientLock').mockRejectedValueOnce(error);
+        return dapp
+          .requestConsumeTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.ConsumeRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              noteId: 'note-1',
+              noteBytes: 'c29tZW5vdGVieXRlcw==',
+              faucetId: 'faucet-1',
+              noteType: 'private',
+              amount: 50
+            }
+          })
+          .finally(() => decodeLock.mockRestore());
+      }
+    ]
+  ];
+  const uncoded: ReadonlyArray<[unknown, string]> = [
+    [new Error('node said NOT_FOUND'), 'INVALID_PARAMS: Error: node said NOT_FOUND'],
+    [new Error('NOT_FOUND_LATER'), 'INVALID_PARAMS: Error: NOT_FOUND_LATER'],
+    ['NOT_FOUND', 'INVALID_PARAMS: NOT_FOUND'],
+    [{ message: 'NOT_FOUND' }, 'INVALID_PARAMS: [object Object]']
+  ];
+
+  beforeEach(() => {
+    mockQueueNoteImport.mockResolvedValue(undefined);
+  });
+
+  describe.each(handlers)('%s', (_name, request) => {
+    it.each(['NOT_FOUND', 'LOGIN_KEY_UNAVAILABLE: no key', 'INVALID_PARAMS: bad'])(
+      'preserves the error and exact message for %s',
+      async message => {
+        const error = new Error(message);
+        const pending = request(error);
+
+        await expect(pending).rejects.toThrow(new Error(message));
+        await expect(pending).rejects.toBe(error);
+      }
+    );
+
+    it.each(uncoded)('wraps the uncoded value %s once', async (error, message) => {
+      await expect(request(error)).rejects.toThrow(new Error(message));
+    });
+
+    it('returns the kill ahead of a coded and locked wrapper', async () => {
+      const kill = new WasmClientPoisonedError('watchdog', new Error('read parked'));
+      const error = Object.assign(new Error('NOT_FOUND', { cause: kill }), { reason: 'locked' });
+
+      await expect(request(error)).rejects.toBe(kill);
+    });
+  });
+
+  it('returns the request lock refusal ahead of a coded message', async () => {
+    const error = Object.assign(new Error('LOGIN_KEY_UNAVAILABLE: no key'), { reason: 'locked' });
+    mockImportNoteBytes.mockRejectedValueOnce(error);
+
+    await expect(
+      dapp.requestImportPrivateNote('https://miden.xyz', {
+        type: MidenDAppMessageType.ImportPrivateNoteRequest,
+        sourcePublicKey: 'miden-account-1',
+        note: 'c29tZW5vdGVieXRlcw=='
+      })
+    ).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+  });
 });
 
 // ─── requestPermission (mobile paths) ──────────────────────────────
@@ -570,6 +681,105 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     noteType: 'Private',
     amount: '50'
   };
+
+  const poison = new WasmClientPoisonedError('watchdog', new Error('read parked'));
+  const abort = new OperationAbortedError('op-1378', 'deadline');
+  const terminated = new Error('Client terminated');
+  const webTerminated = new Error('WebClient terminated');
+  const killCases: ReadonlyArray<[string, Error, Error]> = [
+    ['a watchdog eviction', poison, poison],
+    ['an offscreen abort', abort, abort],
+    ['a terminated client', terminated, terminated],
+    ['a terminated web client', webTerminated, webTerminated],
+    ['a cause-wrapped poison', new Error('INVALID_PARAMS: preview wrapper', { cause: poison }), poison]
+  ];
+
+  it.each(killCases)('passes through %s from the consume preview read', async (_label, error, kill) => {
+    mockGetInputNoteDetails.mockRejectedValueOnce(error);
+
+    await expect(
+      dapp.requestConsumeTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toBe(kill);
+    expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
+  it.each(killCases)('passes through %s from the carried-note decode lock', async (_label, error, kill) => {
+    const lock = jest.requireMock('../sdk/miden-client');
+    const decodeLock = jest.spyOn(lock, 'withWasmClientLock').mockRejectedValueOnce(error);
+    try {
+      await expect(
+        dapp.requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { ...validTx, noteBytes: 'c29tZW5vdGVieXRlcw==' }
+        } as never)
+      ).rejects.toBe(kill);
+      expect(decodeLock).toHaveBeenCalledTimes(1);
+      expect(mockGetInputNoteDetails).not.toHaveBeenCalled();
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    } finally {
+      decodeLock.mockRestore();
+    }
+  });
+
+  it('approved consume fee refusal preserves its message without INVALID_PARAMS', async () => {
+    const realQueue = jest.requireActual<typeof import('../transaction/initiate')>('../transaction/initiate');
+    const { ClaimFeeRefusedError } = realQueue;
+    const originalConsume = mockInitiateConsumeTransactionFromId.getMockImplementation();
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
+    const proxy = jest.requireActual<typeof import('./miden-client-proxy')>('./miden-client-proxy').midenClientProxy;
+    const summary = jest.spyOn(proxy, 'getInputNoteSummary');
+    const report = jest.mocked(
+      jest.requireMock<typeof import('lib/telemetry/transaction-failure')>('lib/telemetry/transaction-failure')
+        .reportTransactionFailure
+    );
+    const notify = jest.mocked(
+      jest.requireMock<typeof import('./background-notification')>('./background-notification')
+        .notifyBackgroundTransactionFailed
+    );
+    await Repo.transactions.clear();
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    summary.mockResolvedValue({ noteType: NoteType.Public, assets: [{ faucetId: 'faucet-1', amount: '50' }] });
+    mockInitiateConsumeTransactionFromId.mockImplementation(realQueue.initiateConsumeTransactionFromId);
+    try {
+      const error: unknown = await dapp
+        .requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+        })
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ClaimFeeRefusedError);
+      if (!(error instanceof Error)) throw new Error('Expected an approved consume refusal');
+      expect(error.message).toBe(new ClaimFeeRefusedError().message);
+      expect(error.message).not.toContain('INVALID_PARAMS');
+      expect(error.message).not.toContain(MidenDAppErrorType.InvalidParams);
+      expect((await Repo.transactions.toArray()).filter(row => row.type === 'consume')).toEqual([]);
+      expect(summary).toHaveBeenCalledWith('note-1');
+      expect(feeContext).toHaveBeenCalledWith('miden-account-1');
+      expect(mockRequestConfirmation).toHaveBeenCalled();
+      expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+      expect(report).not.toHaveBeenCalled();
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      mockInitiateConsumeTransactionFromId.mockReset();
+      if (originalConsume) mockInitiateConsumeTransactionFromId.mockImplementation(originalConsume);
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
+      summary.mockRestore();
+      await Repo.transactions.clear();
+    }
+  });
 
   it('rejects when consume preview fails (getTokenMetadata throws)', async () => {
     mockGetTokenMetadata.mockRejectedValueOnce(new Error('metadata-fail'));
@@ -853,6 +1063,27 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         await expect(consumeWithBytes()).rejects.toBe(kill);
         expect(mockImportNoteBytes).not.toHaveBeenCalled();
       });
+
+      it('passes a cause-wrapped kill through the fallback decode after approval', async () => {
+        const kill = new WasmClientPoisonedError('watchdog', new Error('fallback decode parked'));
+        const error = new Error('INVALID_PARAMS: decode wrapper', { cause: kill });
+        const lock = jest.requireMock('../sdk/miden-client');
+        const originalLock = lock.withWasmClientLock;
+        const decodeLock = jest.spyOn(lock, 'withWasmClientLock');
+        mockRequestConfirmation.mockImplementationOnce(async () => {
+          decodeLock.mockImplementationOnce(originalLock).mockRejectedValueOnce(error);
+          return { confirmed: true, delegate: true };
+        });
+
+        try {
+          await expect(consumeWithBytes()).rejects.toBe(kill);
+          expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+          expect(mockImportNoteBytes).not.toHaveBeenCalled();
+          expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+        } finally {
+          decodeLock.mockRestore();
+        }
+      });
     });
 
     it('refuses a carried note another transaction holds rather than answer with that transaction', async () => {
@@ -877,6 +1108,15 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     it('rejects with the kill itself, not InvalidParams, when the import is evicted', async () => {
       const kill = new WasmClientPoisonedError('watchdog', new Error('import parked'));
       mockImportNoteBytes.mockRejectedValueOnce(kill);
+
+      await expect(consumeWithBytes()).rejects.toBe(kill);
+      expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('queues carried bytes and passes through the inner kill when their approved import fails', async () => {
+      const kill = new WasmClientPoisonedError('watchdog', new Error('import parked'));
+      mockImportNoteBytes.mockRejectedValueOnce(new Error('INVALID_PARAMS: import wrapper', { cause: kill }));
 
       await expect(consumeWithBytes()).rejects.toBe(kill);
       expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
@@ -1202,7 +1442,7 @@ describe('requestTransaction — mobile error branches', () => {
           payload: {
             address: 'miden-account-1',
             recipientAddress: 'bob',
-            transactionRequest: 'base64req'
+            transactionRequest: 'YmFzZTY0cmVx'
           }
         }
       } as never)
@@ -1220,6 +1460,57 @@ describe('requestSendTransaction — mobile error branches', () => {
     noteType: 'Private',
     amount: '100'
   };
+
+  it('passes a cause-wrapped spending-limit read kill through before approval', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('policy read parked'));
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(new Error('NOT_GRANTED', { cause: kill }));
+
+    await expect(
+      dapp.requestSendTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toBe(kill);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('passes a spending-limit price error kill through before send approval', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('price read parked'));
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(
+      new SpendingLimitPriceUnavailableError('TOK', { cause: kill })
+    );
+
+    await expect(
+      dapp.requestSendTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toBe(kill);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('answers a spending-limit price error without a kill with the send retry refusal', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(new SpendingLimitPriceUnavailableError('TOK'));
+
+    await expect(
+      dapp.requestSendTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: validTx
+      } as never)
+    ).rejects.toThrow(new Error('NOT_GRANTED: Spending limit changed. Review and retry the transaction.'));
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
 
   it('rejects when format preview throws', async () => {
     mockWithUnlocked.mockRejectedValueOnce(new Error('preview-fail'));
@@ -1258,7 +1549,7 @@ describe('startDappBackgroundProcessing error handling', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -1275,7 +1566,7 @@ describe('startDappBackgroundProcessing error handling', () => {
         payload: {
           address: 'miden-account-1',
           recipientAddress: 'bob',
-          transactionRequest: 'base64req'
+          transactionRequest: 'YmFzZTY0cmVx'
         }
       }
     } as never);
@@ -1546,6 +1837,54 @@ describe('removeDApp', () => {
     const result = await dapp.removeDApp('https://nonexistent.xyz', 'miden-account-1');
     expect(result).toBeDefined();
   });
+
+  it('ends every Bread Connect session kept for the origin, so a later grant cannot bring one back', async () => {
+    const other = { session: 'session-2', origin: 'https://other.xyz' };
+    storageState.bread_connect_sessions = {
+      'session-1': { session: 'session-1', origin: 'https://miden.xyz' },
+      'session-2': other,
+      broken: 7,
+      empty: null
+    };
+
+    await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+    expect(storageState.bread_connect_sessions).toEqual({ 'session-2': other, broken: 7, empty: null });
+
+    await dapp.removeDApp('https://nonexistent.xyz', 'miden-account-1');
+    expect(storageState.bread_connect_sessions).toEqual({ 'session-2': other, broken: 7, empty: null });
+  });
+
+  it('keeps the permission when the Bread Connect sessions cannot be ended, so no session outlives it', async () => {
+    const sessions = { 'session-1': { session: 'session-1', origin: 'https://miden.xyz' } };
+    Object.defineProperty(storageState, 'bread_connect_sessions', {
+      configurable: true,
+      enumerable: true,
+      get: () => sessions,
+      set: () => {
+        throw new Error('disk full');
+      }
+    });
+
+    await expect(dapp.removeDApp('https://miden.xyz', 'miden-account-1')).rejects.toThrow('disk full');
+
+    expect((await dapp.getAllDApps())['https://miden.xyz']).toEqual([SESSION]);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['a string', 'sessions']
+  ])(
+    'removes the permission when the Bread Connect session store is %s, and leaves the store as it was',
+    async (_n, value) => {
+      storageState.bread_connect_sessions = value;
+
+      await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+
+      expect((await dapp.getAllDApps())['https://miden.xyz']).toEqual([]);
+      expect(storageState.bread_connect_sessions).toBe(value);
+    }
+  );
 });
 
 // ── requestSign — input validation branches ─────────────────────
@@ -1964,7 +2303,7 @@ describe('requestTransaction - custom spending-limit gate', () => {
       type: MidenDAppMessageType.TransactionRequest,
       sourcePublicKey: 'miden-account-1',
       transaction: {
-        payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+        payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
       }
     }) as never;
   const viewMoving = (assets: { faucetId: string; amount: bigint }[]) => ({
@@ -2082,7 +2421,20 @@ describe('requestTransaction - custom spending-limit gate', () => {
     ]);
   });
 
-  it('refuses a dApp request when a covered asset has no price', async () => {
+  it('passes a spending-limit price error kill through before custom approval', async () => {
+    const kill = new WasmClientPoisonedError('watchdog', new Error('price read parked'));
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(
+      new SpendingLimitPriceUnavailableError('TOK', { cause: kill })
+    );
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toBe(kill);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('answers a spending-limit price error without a kill with the custom retry refusal', async () => {
     mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new SpendingLimitPriceUnavailableError('faucet-a'));
 
     // The full retry-suffixed message, not a bare NotGranted substring: the custom path converts
@@ -2090,8 +2442,11 @@ describe('requestTransaction - custom spending-limit gate', () => {
     // `customSpendingLimitState`), and a substring match can't tell that conversion apart from one
     // that dropped the retry text - which is exactly the divergence this asserts against.
     await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
-      /spending limit changed.*retry/i
+      new Error('NOT_GRANTED: Spending limit changed. Review and retry the transaction.')
     );
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
     // Same reasoning as every other wallet-side refusal here: the carried notes must not stay
     // hidden past a refusal that was never the user's decline.
@@ -2178,7 +2533,7 @@ describe('requests for an account that is not the current one (#1419)', () => {
     currentAccountPublicKey = ACCOUNT_A;
   });
 
-  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'base64req' };
+  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' };
   const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
 
   const requests: Record<string, (permission?: string) => Promise<unknown>> = {
@@ -2406,7 +2761,7 @@ describe('a locked wallet (#1414)', () => {
         type: MidenDAppMessageType.TransactionRequest,
         sourcePublicKey: 'miden-account-1',
         transaction: {
-          payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+          payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'YmFzZTY0cmVx' }
         }
       } as never),
     consume: () =>
@@ -2510,11 +2865,7 @@ describe('a locked wallet (#1414)', () => {
         sourcePublicKey: 'miden-account-1',
         transaction: { payload: { address: 'miden-account-1', recipientAddress: 'bob' } }
       } as never)
-    ).rejects.toThrow(
-      new Error(
-        `${MidenDAppErrorType.InvalidParams}: Error: ${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`
-      )
-    );
+    ).rejects.toThrow(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 

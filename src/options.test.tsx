@@ -33,6 +33,17 @@ const mockResetStorage = jest.fn();
 // or heavy child providers run.
 jest.mock('./main.css', () => ({}));
 jest.mock('lib/lock-up/run-checks', () => ({}));
+jest.mock('./i18n', () => ({}));
+jest.mock('app/a11y/AwaitI18N', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: async () => undefined }));
+jest.mock('lib/remote-config/runtime', () => ({
+  initFeatureEligibility: async () => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn: true, swap: true }
+  })
+}));
 
 jest.mock('app/a11y/DisableOutlinesForClick', () => ({
   __esModule: true,
@@ -64,6 +75,15 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// False on an options page an extension reload or update orphaned.
+const mockHasExtensionRuntime = { value: true };
+const mockReloadInPlace = jest.fn();
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  hasExtensionRuntime: () => mockHasExtensionRuntime.value,
+  reloadInPlace: () => mockReloadInPlace()
+}));
+
 const reloadMock = browser.runtime.reload as jest.Mock;
 
 /**
@@ -85,6 +105,8 @@ beforeEach(() => {
   mockAlert.mockReset();
   mockResetStorage.mockReset();
   reloadMock.mockReset();
+  mockReloadInPlace.mockReset();
+  mockHasExtensionRuntime.value = true;
 });
 
 // Here rather than at the end of a test, so a failing assertion cannot leave a spy in place.
@@ -130,6 +152,7 @@ describe('src/options.tsx', () => {
 
     await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockReloadInPlace).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
@@ -147,7 +170,11 @@ describe('src/options.tsx', () => {
       });
 
       await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
-      expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+      expect(mockAlert).toHaveBeenCalledWith({
+        title: 'error',
+        children: 'resetDidNotFinish',
+        errorId: 'resetDidNotFinish'
+      });
       // While the alert is open nothing reloads, and a second Reset is ignored.
       await act(async () => {
         fireEvent.click(getResetButton());
@@ -163,6 +190,29 @@ describe('src/options.tsx', () => {
     await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
     expect(mockAlert.mock.invocationCallOrder[0]!).toBeLessThan(reloadMock.mock.invocationCallOrder[0]!);
     expect(warn).toHaveBeenCalledWith(expect.any(String), wipeError);
+  });
+
+  it('reloads the page in place when an extension reload or update has taken its runtime away', async () => {
+    mockHasExtensionRuntime.value = false;
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockImplementation(async () => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    const addListener = jest.spyOn(window, 'addEventListener');
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+    await waitFor(() => expect(mockResetStorage).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(reloadMock).not.toHaveBeenCalled();
+    expect(mockReloadInPlace).toHaveBeenCalledTimes(1);
+    expect(mockAlert).not.toHaveBeenCalled();
+    // No runtime to reload, so no pagehide reload is armed either.
+    expect(addListener.mock.calls.map(([type]) => type)).not.toContain('pagehide');
   });
 
   // Closing the Options tab runs nothing after the await it is in, the wipe's or the alert's, and the service
@@ -286,8 +336,48 @@ describe('src/options.tsx', () => {
     });
 
     await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
-    expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'reload failed' });
+    expect(mockAlert).toHaveBeenCalledWith({
+      title: 'error',
+      children: 'reload failed',
+      errorId: 'raw_options_reload_failed'
+    });
     expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards resetDidNotFinish from the actual options wipe catch', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockRejectedValue(new Error('private wipe detail'));
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: 'resetDidNotFinish', errorId: 'resetDidNotFinish' }]
+    ]);
+  });
+
+  it.each([
+    ['Error', new Error('private reload detail'), 'private reload detail'],
+    ['non-Error', { message: 'not an Error', toString: (): string => 'raw reload detail' }, 'raw reload detail']
+  ])('forwards raw_options_reload_failed while preserving the %s reload display', async (_kind, failure, display) => {
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockResolvedValue(undefined);
+    reloadMock.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+
+    await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: display, errorId: 'raw_options_reload_failed' }]
+    ]);
   });
 
   it('ignores a second Reset pressed while the wipe is still running', async () => {
