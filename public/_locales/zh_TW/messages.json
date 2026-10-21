@@ -7122,5 +7122,124 @@
   "walletAccessUnavailableBody": {
     "message": "請檢查網路連線後重試。",
     "englishSource": "Check your connection and try again."
+  },
+  "categoryFinance": {
+    "message": "金融",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "其他",
+    "englishSource": "Others"
+  },
+  "arcadeGameCoins": {
+    "message": "遊戲幣",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "餘額不可用",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "每週 10 GC",
+    "englishSource": "10 GC every week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "每週一 UTC 00:00 於合作夥伴主網重置。未使用的 GC 將結轉至下週。錯過的週數不會累積。您需支付索賠網路手續費。",
+    "englishSource": "Resets Monday at 00:00 UTC on Partner Mainnet. Unspent GC carries over. Missed weeks do not stack. You pay the claim network fee."
+  },
+  "arcadeChecking": {
+    "message": "正在核對每週津貼……",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "本週已申領。下次申領時間：$date$（UTC）。",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "日期不詳",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "無論您的餘額為何，每週 10 GC 已準備就緒。",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "等待確認與收據。請先檢查狀態，再嘗試重新操作。",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "該請求已確認失敗。您可以再次嘗試。",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "本網路目前尚未設定每週獎勵與 GC 餘額功能。您仍可免費遊玩。",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "申領 10 GC",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "本週聲明",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "待收",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "重新嘗試申訴",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "檢查狀態",
+    "englishSource": "Check status"
+  },
+  "arcadeGames": {
+    "message": "遊戲",
+    "englishSource": "Games"
+  },
+  "arcadeLoadingGames": {
+    "message": "正在載入遊戲……",
+    "englishSource": "Loading games…"
+  },
+  "arcadeNoGames": {
+    "message": "未找到相關遊戲",
+    "englishSource": "No games found"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "此網路上的遊戲將顯示於此處。請嘗試其他搜尋方式，或稍後再查看。",
+    "englishSource": "Games listed for this network will appear here. Try another search or check back later."
+  },
+  "arcadeFreePlay": {
+    "message": "免費遊玩與重播。發布結果需支付 1 GC 加上網路手續費，費用由您承擔。排名與獎勵均屬於各遊戲。",
+    "englishSource": "Play and replay for free. Posting a result costs 1 GC plus network fees, paid by you. Rankings and rewards belong to each game."
+  },
+  "arcadePlay": {
+    "message": "播放 $name$",
+    "englishSource": "Play $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   }
 }

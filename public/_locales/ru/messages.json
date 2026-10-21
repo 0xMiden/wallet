@@ -7122,5 +7122,124 @@
   "walletAccessUnavailableBody": {
     "message": "Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Check your connection and try again."
+  },
+  "categoryFinance": {
+    "message": "Финансы",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Прочее",
+    "englishSource": "Others"
+  },
+  "arcadeGameCoins": {
+    "message": "Игровые монеты",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Баланс недоступен",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "10 GC каждую неделю",
+    "englishSource": "10 GC every week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "Сброс происходит в понедельник в 00:00 UTC в партнерской основной сети. Неизрасходованные GC переносятся на следующий период. Пропущенные недели не суммируются. Вы оплачиваете сетевую комиссию за заявку.",
+    "englishSource": "Resets Monday at 00:00 UTC on Partner Mainnet. Unspent GC carries over. Missed weeks do not stack. You pay the claim network fee."
+  },
+  "arcadeChecking": {
+    "message": "Проверка еженедельного лимита…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "Заявка подана на этой неделе. Следующая заявка: $date$ UTC.",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "дата отсутствует",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "Ваши еженедельные 10 GC готовы, независимо от вашего баланса.",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "Ожидается подтверждение и получение. Проверьте статус, прежде чем повторить попытку.",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "Запрос был признан неудачным. Вы можете повторить попытку.",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "Еженедельные заявки и баланс GC пока не настроены для этой сети. Вы по-прежнему можете играть бесплатно.",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "Претензия 10 GC",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "Заявлено на этой неделе",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "Ожидание получения",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "Повторная подача заявки",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "Проверить статус",
+    "englishSource": "Check status"
+  },
+  "arcadeGames": {
+    "message": "Игры",
+    "englishSource": "Games"
+  },
+  "arcadeLoadingGames": {
+    "message": "Загрузка игр…",
+    "englishSource": "Loading games…"
+  },
+  "arcadeNoGames": {
+    "message": "Игр не найдено",
+    "englishSource": "No games found"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Игры, доступные в этой сети, будут отображаться здесь. Попробуйте другой поиск или проверьте позже.",
+    "englishSource": "Games listed for this network will appear here. Try another search or check back later."
+  },
+  "arcadeFreePlay": {
+    "message": "Играйте и переигрывайте бесплатно. Публикация результата стоит 1 GC плюс сетевые сборы, которые оплачиваете вы. Рейтинги и награды относятся к каждой игре.",
+    "englishSource": "Play and replay for free. Posting a result costs 1 GC plus network fees, paid by you. Rankings and rewards belong to each game."
+  },
+  "arcadePlay": {
+    "message": "Играть в $name$",
+    "englishSource": "Play $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   }
 }
