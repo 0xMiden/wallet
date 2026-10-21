@@ -525,15 +525,6 @@ function objectAt(envelope: Record<string, unknown>, key: string): Record<string
   return nested;
 }
 
-function sentryEvents(): Record<string, unknown>[] {
-  return captured.flatMap(entry =>
-    entry.body.split('\n').flatMap(line => {
-      const item = parsePayload(line);
-      return 'exception' in item ? [item] : [];
-    })
-  );
-}
-
 const stringAt = (envelope: Record<string, unknown>, key: string): string => {
   const value = envelope[key];
   return typeof value === 'string' ? value : `<${typeof value}>`;
