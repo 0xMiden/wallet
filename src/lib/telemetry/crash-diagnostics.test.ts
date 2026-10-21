@@ -4,10 +4,13 @@ import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
 import {
+  COMPLETION_GUARDS,
+  COMPLETION_STEPS,
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
   annotateCrash,
   snapshotCrashDiagnostics,
+  withCompletionStep,
   withProposalStep
 } from './crash-diagnostics';
 import { USER_ERROR_SURFACES } from './user-visible-error';
@@ -701,6 +704,46 @@ describe('source-bound crash diagnostics', () => {
     await expect(withProposalStep('proposal_create', async () => 7)).resolves.toBe(7);
     const refusal = { status: 409 };
     await expect(withProposalStep('proposal_create', () => Promise.reject(refusal))).rejects.toBe(refusal);
+  });
+
+  it('names the submit-crossing steps and the guardian sync guard as proposal facts', () => {
+    expect(PROPOSAL_STEPS).toEqual(expect.arrayContaining(['submit_serialize', 'submit_pin', 'client_build']));
+    expect(PROPOSAL_GUARDS).toContain('guardian_out_of_sync');
+    const error = new Error('guardian out of sync');
+    annotateCrash(error, { proposalStep: 'service_select', proposalGuard: 'guardian_out_of_sync' });
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      proposalStep: 'service_select',
+      proposalGuard: 'guardian_out_of_sync'
+    });
+  });
+
+  it('accepts every completion step and guard, and a guard only beside its step', () => {
+    for (const completionStep of COMPLETION_STEPS) {
+      for (const completionGuard of COMPLETION_GUARDS) {
+        const error = new Error('completion failed');
+        annotateCrash(error, { completionStep, completionGuard });
+        expect(snapshotCrashDiagnostics(error)).toEqual({ completionStep, completionGuard });
+      }
+    }
+    const guardOnly = new Error('guard only');
+    annotateCrash(guardOnly, { completionGuard: 'no_input_notes' });
+    expect(snapshotCrashDiagnostics(guardOnly)).toEqual({});
+    const unlisted = new Error('unlisted');
+    annotateCrash(unlisted, { completionStep: 'result_read 0xabcdef', completionGuard: 'other' });
+    annotateCrash(unlisted, { completionStep: { toString: () => 'status_write' } });
+    expect(snapshotCrashDiagnostics(unlisted)).toEqual({});
+  });
+
+  it('keeps the innermost completion step and leaves proposal facts alone', async () => {
+    const error = new Error('write failed');
+    const inner = withCompletionStep('status_write', () => Promise.reject(error));
+    await expect(withCompletionStep('result_read', () => inner)).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ completionStep: 'status_write' });
+    annotateCrash(error, { proposalStep: 'chain_sync' });
+    expect(snapshotCrashDiagnostics(error)).toEqual({ completionStep: 'status_write', proposalStep: 'chain_sync' });
+    await expect(withCompletionStep('row_read', async () => 7)).resolves.toBe(7);
+    const refusal = { status: 409 };
+    await expect(withCompletionStep('row_read', () => Promise.reject(refusal))).rejects.toBe(refusal);
   });
 });
 

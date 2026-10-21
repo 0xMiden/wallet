@@ -16,6 +16,15 @@ import { ITransactionStatus, type ITransaction } from '../db/types';
 
 const hold = {};
 const order: string[] = [];
+// Per-test faults for the submit crossing and the completion, reset in beforeEach.
+const mockState: {
+  requestSerialize?: Error;
+  clientBuild?: Error;
+  resultRead?: Error;
+  resultSerialize?: Error;
+  noInputNotes?: boolean;
+  noAssets?: boolean;
+} = {};
 const noteId = `0x${'ab'.repeat(32)}`;
 const transactionId = `0x${'bc'.repeat(32)}`;
 const accountId = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
@@ -45,7 +54,10 @@ const mockSubmit = jest.fn(async () => ({ apply: async () => {} }));
 const executedNote = {
   id: () => accountRef(noteId),
   metadata: () => ({ sender: () => accountRef('private-sender'), noteType: () => NoteType.Public }),
-  assets: () => ({ fungibleAssets: () => [{ faucetId: () => accountRef(faucetId), amount: () => 987654321n }] })
+  assets: () => ({
+    fungibleAssets: () =>
+      mockState.noAssets ? [] : [{ faucetId: () => accountRef(faucetId), amount: () => 987654321n }]
+  })
 };
 const header = () => ({ to_commitment: () => accountRef(`0x${'de'.repeat(32)}`), nonce: () => ({ asInt: () => 1n }) });
 const result = {
@@ -54,11 +66,17 @@ const result = {
     accountId: () => accountRef(accountId),
     initialAccountHeader: header,
     finalAccountHeader: header,
-    inputNotes: () => ({ notes: () => [{ note: () => executedNote }] }),
+    inputNotes: () => {
+      if (mockState.resultRead) throw mockState.resultRead;
+      return { notes: () => (mockState.noInputNotes ? [] : [{ note: () => executedNote }]) };
+    },
     outputNotes: () => ({ notes: () => [] }),
     userOutputNotes: () => []
   }),
-  serialize: () => new Uint8Array([5, 6])
+  serialize: () => {
+    if (mockState.resultSerialize) throw mockState.resultSerialize;
+    return new Uint8Array([5, 6]);
+  }
 };
 const mockExecute = jest.fn(async (..._args: unknown[]) => ({
   result,
@@ -78,7 +96,12 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args),
   signProposal: (...args: unknown[]) => mockSignProposal(...args),
   abandonCandidate: (...args: unknown[]) => mockAbandon(...args),
-  createTransactionProposalRequest: async () => ({ serialize: () => new Uint8Array([7, 8]) }),
+  createTransactionProposalRequest: async () => ({
+    serialize: () => {
+      if (mockState.requestSerialize) throw mockState.requestSerialize;
+      return new Uint8Array([7, 8]);
+    }
+  }),
   syncState: async () => {}
 }));
 
@@ -112,13 +135,17 @@ jest.mock('../sdk/helpers', () => ({
 }));
 jest.mock('../sdk/miden-client', () => ({
   ...jest.requireActual('../sdk/miden-client'),
-  getMidenClient: async () => ({
-    getAccount: (...args: unknown[]) => mockAccountRead(...args),
-    client: {
-      syncChain: async () => {},
-      transactions: { executeRequest: (...args: unknown[]) => mockExecute(...args) }
-    }
-  }),
+  getMidenClient: async () => {
+    // Only the pipeline's own build runs after the Guardian signed.
+    if (mockState.clientBuild && mockSignProposal.mock.calls.length > 0) throw mockState.clientBuild;
+    return {
+      getAccount: (...args: unknown[]) => mockAccountRead(...args),
+      client: {
+        syncChain: async () => {},
+        transactions: { executeRequest: (...args: unknown[]) => mockExecute(...args) }
+      }
+    };
+  },
   withWasmClientLock: async <T>(body: (held: object) => Promise<T>) => body(hold),
   withWasmLockWatchdogPaused: async <T>(body: () => Promise<T>) => body(),
   getCurrentWasmLockHold: () => hold,
@@ -139,6 +166,10 @@ jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
   syncAndRecordFeeFaucet: async (_client: unknown, sync: () => Promise<void>) => sync()
 }));
 jest.mock('../sync-lock', () => ({ syncUnderBoundedLock: async () => {} }));
+jest.mock('../back/offscreen-prover', () => ({
+  ...jest.requireActual('../back/offscreen-prover'),
+  isOffscreenAvailable: () => true
+}));
 jest.mock('../guardian/tip-execution', () => ({ prepareGuardianTipExecution: async () => {} }));
 jest.mock('../back/background-notification', () => ({
   notifyBackgroundTransactionFailed: async () => {},
@@ -248,6 +279,7 @@ beforeEach(async () => {
   requests.length = 0;
   configRequests.length = 0;
   order.length = 0;
+  for (const key of Object.keys(mockState)) Reflect.deleteProperty(mockState, key);
   process.env.SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
   process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'false';
   jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
@@ -274,6 +306,9 @@ const consumeAtProposal =
   'proving preference local; platform extension; queued by unrecorded; last deferral none; ' +
   'claim fee admission unrecorded; point pipeline; unknown; thrown error. authentication';
 async function failureEvent(step: string, guard?: string, message = consumeAtProposal): Promise<void> {
+  await failureEventWith({ proposalStep: step, proposalGuard: guard }, message);
+}
+async function failureEventWith(expected: Record<string, string | undefined>, message: string): Promise<void> {
   await flush();
   expect(requests).toHaveLength(1);
   const request = requests[0];
@@ -296,8 +331,7 @@ async function failureEvent(step: string, guard?: string, message = consumeAtPro
   expect(exception.type).toBe('WalletTransactionFailure');
   expect(exception.value).toEqual(expect.stringContaining(message));
   const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
-  expect(diagnostics).toMatchObject({ proposalStep: step });
-  expect(diagnostics.proposalGuard).toBe(guard);
+  for (const [key, value] of Object.entries(expected)) expect(diagnostics[key]).toBe(value);
   const wholeRequest = JSON.stringify(request);
   for (const value of [
     accountId,
@@ -608,4 +642,136 @@ it('reports a failed cold service load for a claim that funds the everyday key r
   expectTerminal(await Repo.transactions.get(transaction.id));
   await failureEvent('service_load');
   expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load' });
+});
+
+const consumeAtSending = 'Transaction failed: tx_receive; stage sending; ';
+const consumeAfterSync = 'Transaction failed: tx_receive; stage confirming; confirming step guardian_synced; ';
+
+it('reports the guardian sync guard as a refusal at service selection before any proposal', async () => {
+  const stored = await run({ ...account, guardianSyncStatus: 'resolving' });
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'sending' });
+  expect(mockLoad).not.toHaveBeenCalled();
+  expect(mockConsumeProposal).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'service_select', proposalGuard: 'guardian_out_of_sync' }, consumeAtSending);
+});
+
+it('reports a failed pipeline client build after the co-sign as the client build', async () => {
+  const error = privateFailure();
+  mockState.clientBuild = error;
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'sending' });
+  expect(mockSignProposal).toHaveBeenCalledTimes(1);
+  expect(mockExecute).not.toHaveBeenCalled();
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'client_build', proposalGuard: undefined }, consumeAtSending);
+  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'client_build' });
+});
+
+describe('with the offscreen pipeline', () => {
+  beforeEach(() => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+  });
+
+  it('reports a request that cannot be packed for the pipeline as the submit serialization', async () => {
+    const error = privateFailure();
+    mockState.requestSerialize = error;
+    const stored = await run();
+    expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'sending' });
+    expect(stored?.mayHaveSubmitted).toBeUndefined();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    await failureEventWith({ proposalStep: 'submit_serialize', proposalGuard: undefined }, consumeAtSending);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'submit_serialize' });
+  });
+
+  it('reports a failed crossing pin as the submit pin', async () => {
+    const error = privateFailure();
+    const rejectPin = (changes: unknown) => {
+      if (typeof changes === 'object' && changes !== null && 'mayHaveSubmitted' in changes) throw error;
+    };
+    Repo.transactions.hook('updating', rejectPin);
+    try {
+      const stored = await run(account, true);
+      expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'sending' });
+      expect(mockSubmit).not.toHaveBeenCalled();
+      await failureEventWith({ proposalStep: 'submit_pin', proposalGuard: undefined }, consumeAtSending);
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(rejectPin);
+    }
+  });
+});
+
+describe('a claim that fails while recording its result after the guardian sync', () => {
+  function expectSubmittedOnce(stored: ITransaction | undefined): void {
+    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+  }
+
+  it.each([
+    ['result_read', () => (mockState.resultRead = privateFailure())],
+    ['result_serialize', () => (mockState.resultSerialize = privateFailure())]
+  ])('reports a failed %s as the finishing step', async (step, arm) => {
+    const error = arm();
+    expectSubmittedOnce(await run());
+    await failureEventWith({ completionStep: step, completionGuard: undefined }, consumeAfterSync);
+    expect(snapshotCrashDiagnostics(error)).toMatchObject({ completionStep: step });
+  });
+
+  it.each([
+    ['no_input_notes', () => (mockState.noInputNotes = true)],
+    ['no_fungible_assets', () => (mockState.noAssets = true)]
+  ])('reports the %s check as a refusal while reading the result', async (guard, arm) => {
+    arm();
+    expectSubmittedOnce(await run());
+    await failureEventWith({ completionStep: 'result_read', completionGuard: guard }, consumeAfterSync);
+  });
+
+  it('reports a failed read of its own record as the row read', async () => {
+    const error = privateFailure();
+    let synced = false;
+    let thrown = false;
+    const markSynced = (changes: unknown) => {
+      if (typeof changes === 'object' && changes !== null && Reflect.get(changes, 'stage') === 'guardian-synced')
+        synced = true;
+    };
+    const rejectRead = (record: unknown) => {
+      if (synced && !thrown) {
+        thrown = true;
+        throw error;
+      }
+      return record;
+    };
+    Repo.transactions.hook('updating', markSynced);
+    Repo.transactions.hook('reading', rejectRead);
+    try {
+      expectSubmittedOnce(await run());
+      expect(thrown).toBe(true);
+      await failureEventWith({ completionStep: 'row_read', completionGuard: undefined }, consumeAfterSync);
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(markSynced);
+      Repo.transactions.hook('reading').unsubscribe(rejectRead);
+    }
+  });
+
+  it('reports a failed completed-status write as the status write', async () => {
+    const error = privateFailure();
+    let thrown = false;
+    const rejectComplete = (changes: unknown) => {
+      if (
+        !thrown &&
+        typeof changes === 'object' &&
+        changes !== null &&
+        Reflect.get(changes, 'status') === ITransactionStatus.Completed
+      ) {
+        thrown = true;
+        throw error;
+      }
+    };
+    Repo.transactions.hook('updating', rejectComplete);
+    try {
+      expectSubmittedOnce(await run());
+      await failureEventWith({ completionStep: 'status_write', completionGuard: undefined }, consumeAfterSync);
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(rejectComplete);
+    }
+  });
 });
