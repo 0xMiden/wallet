@@ -1,0 +1,72 @@
+name: NEVER-MERGE 1589 native terminal regression
+on:
+  push:
+    branches: [ci/1589-native-terminal-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+      CI: 'true'
+      FORCE_COLOR: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bind frozen test source
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/1589-native-terminal-red"
+          test ! -e "$proof"
+          mkdir "$proof"
+          echo "PROOF_DIR=$proof" >> "$GITHUB_ENV"
+          cp .github/ci/1589-native-terminal-snapshot.py "$proof/snapshot.py"
+          git rev-parse HEAD HEAD^{tree} HEAD^ > "$proof/transport.txt"
+          test "$(git rev-parse HEAD^)" = 'bcd140eb776405df83462129a776bda7dfc42c91'
+          git checkout --detach 'bcd140eb776405df83462129a776bda7dfc42c91'
+          PROOF_DIR="$proof" python3 "$proof/snapshot.py" before
+      - name: Install frozen dependencies
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          set +e
+          yarn install --frozen-lockfile --network-timeout 600000 2>&1 | tee "$PROOF_DIR/install.log"
+          codes=("${PIPESTATUS[@]}")
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/install.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/install.tee.exit"
+          test "${codes[0]}" -eq 0 && test "${codes[1]}" -eq 0
+      - name: Run all four unchanged adapter suites
+        run: |
+          set -euo pipefail
+          args=(yarn jest --runTestsByPath packages/bread-connect-capacitor/src/index.test.ts packages/bread-connect-capacitor/src/transport.test.ts packages/bread-connect-capacitor/src/wallet.test.ts packages/bread-connect-capacitor/src/native-opener.test.ts --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/jest.json")
+          printf '%s\0' "${args[@]}" > "$PROOF_DIR/jest.argv"
+          set +e
+          "${args[@]}" 2>&1 | tee "$PROOF_DIR/jest.log"
+          codes=("${PIPESTATUS[@]}")
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/jest.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/jest.tee.exit"
+          if [ "${codes[1]}" -ne 0 ]; then exit "${codes[1]}"; fi
+          exit "${codes[0]}"
+      - name: Preserve source bookends
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/snapshot.py" after
+          for suffix in source.json identity.txt stage.bin status.bin index.bin; do
+            cmp "$PROOF_DIR/before-$suffix" "$PROOF_DIR/after-$suffix"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 1589-native-terminal-red
+          path: ${{ env.PROOF_DIR }}/
+          include-hidden-files: true
+          if-no-files-found: error
