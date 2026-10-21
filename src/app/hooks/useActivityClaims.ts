@@ -170,16 +170,28 @@ export function useActivityClaims() {
     .join(',');
   const [heldTxIds, setHeldTxIds] = useState<ReadonlySet<string>>(new Set());
   const [retryErrors, setRetryErrors] = useState<ReadonlyMap<string, RetryFailure>>(new Map());
+  // Rows the queue put back after a Guardian 409 (#1666), as of the last emission for this slot: another account,
+  // endpoint or network reuses no wait, and nothing watched means none is known.
+  const [guardianWait, setGuardianWait] = useState<{ key: string; txIds: ReadonlySet<string> }>({
+    key,
+    txIds: new Set()
+  });
 
   useEffect(() => {
-    if (!watchedTxIds) return;
+    if (!watchedTxIds) {
+      setGuardianWait(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
+      return;
+    }
     const txIds = watchedTxIds.split(',');
     return subscribeToLiveQuery(() => Repo.transactions.where('id').anyOf(txIds).toArray(), {
       next: rows => {
         const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt'>>();
         const held = new Set<string>();
+        const waiting = new Set<string>();
         for (const tx of rows) {
-          if (tx.status === ITransactionStatus.Completed) {
+          if (tx.status === ITransactionStatus.Queued && tx.guardianBusy === true) {
+            waiting.add(tx.id);
+          } else if (tx.status === ITransactionStatus.Completed) {
             settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt });
           } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
             if (holdsNotes(tx)) held.add(tx.id);
@@ -188,6 +200,9 @@ export function useActivityClaims() {
         }
         // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
         setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
+        setGuardianWait(previous =>
+          previous.key === key && sameIds(previous.txIds, waiting) ? previous : { key, txIds: waiting }
+        );
         // A refusal describes the hold it met; once the row moves on it must not return with a later hold.
         setRetryErrors(previous => {
           const moved = rows.filter(tx => !held.has(tx.id) && previous.has(tx.id));
@@ -213,11 +228,13 @@ export function useActivityClaims() {
 
   const items = useMemo(() => {
     // A refusal belongs to the held claim whose Retry met it: once the row settles or runs again it no longer applies.
-    const heldFields = (
+    const rowFields = (
       status: PendingActivityStatus,
       txId: string | undefined
-    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure'> => {
-      if (status !== 'claiming' || txId === undefined || !heldTxIds.has(txId)) return {};
+    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure' | 'guardianBusy'> => {
+      if (status !== 'claiming' || txId === undefined) return {};
+      if (!heldTxIds.has(txId))
+        return guardianWait.key === key && guardianWait.txIds.has(txId) ? { guardianBusy: true } : {};
       const retryError = retryErrors.get(txId);
       return retryError === undefined
         ? { held: true }
@@ -242,7 +259,7 @@ export function useActivityClaims() {
           break;
       }
       const txId = note.claimingTxId;
-      result.set(note.id, { note, status, txId, ...heldFields(status, txId) });
+      result.set(note.id, { note, status, txId, ...rowFields(status, txId) });
     }
     for (const [id, attempt] of attempts) {
       const current = result.get(id);
@@ -258,7 +275,7 @@ export function useActivityClaims() {
       // Claimed receipts and queued claims outlive the note on purpose.
       if (attempt.status === 'failed' && (!current || (current.status !== 'pending' && current.status !== 'failed')))
         continue;
-      result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...heldFields(attempt.status, attempt.txId) });
+      result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...rowFields(attempt.status, attempt.txId) });
     }
     const built = [...result.values()];
     // Each card's Accept claims its note alone, after whatever is already queued.
@@ -284,6 +301,8 @@ export function useActivityClaims() {
     claim.retriableNoteIds,
     attempts,
     heldTxIds,
+    guardianWait,
+    key,
     retryErrors,
     balances,
     nativeFaucetId,

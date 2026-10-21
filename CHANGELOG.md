@@ -23,10 +23,12 @@
 
 ### Fixes
 
+- [FIX][all] Existing crash reports add fixed storage owner, operation and page visibility values without reporting storage contents or changing report grouping; the privacy policy lists every value (#1613)
 - [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
 - [FIX][all] The external-wallet connection picker offers wallet connections without email or social sign-in, including when the remote dashboard enables them (#1625).
 - [FIX][tests] The live iOS USDCx round trip deposits 5.2 USDC for a 5 USDCx return withdrawal. A public faucet outage no longer stops bridge-out coverage. A verified faucet grant raises the return amount to 6 USDCx; both paths check the payout and wallet confirmation.
 - [FIX][extension] Incoming-note notifications use the Chrome fallback when the Web Notifications API fails during permission or construction.
+- [FIX][all] An incoming transfer whose claim the Guardian holds back while it settles the previous change says "Waiting for your Guardian" on its Activity card, open or closed, instead of only showing a spinner (#1666).
 
 - [FIX][all] CI dependency installation retries registry failures and timeouts before giving up, so a transient outage does not immediately discard builds or UI smoothness measurements.
 - [FIX][all] A USDCx withdrawal no longer fails with `Unable to read the USDCx faucet's burn policy`, which every review on testnet showed once the faucet's nonce map outgrew the full-account read. A burn must be at least 5 USDCx, or the faucet's minimum burn when that is larger; the wallet reads that minimum from an account proof, and a failed read keeps 5 USDCx instead of blocking the burn.

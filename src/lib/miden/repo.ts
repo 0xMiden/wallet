@@ -1,4 +1,12 @@
-import Dexie, { Transaction } from 'dexie';
+import Dexie, { DBCore, DBCoreCursor, DBCoreMutateResponse, DBCoreTable, Middleware, Transaction } from 'dexie';
+
+import {
+  annotateCrash,
+  snapshotCrashDiagnostics,
+  StorageCrashDiagnostics,
+  StorageOperation,
+  StorageOwner
+} from 'lib/telemetry/crash-diagnostics';
 
 import { ITransaction, ITransactionStatus } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
@@ -284,7 +292,112 @@ function defineSchema(target: Dexie): void {
 function buildTridentDb(name: string): Dexie {
   const target = new Dexie(name, { modifyChunkSize: 25 });
   defineSchema(target);
+  installWalletStorageDiagnostics(target);
   return target;
+}
+
+function walletTableOwner(name: string): StorageOwner | undefined {
+  if (name === Table.Transactions) return 'wallet_transactions';
+  if (name === Table.SpendingLimits) return 'wallet_limits';
+  return undefined;
+}
+
+function observeWalletStorage<T>(
+  invoke: () => Promise<T>,
+  owner: StorageOwner,
+  operation: StorageOperation
+): Promise<T> {
+  try {
+    // Keep the invoked promise's chain and Dexie's active transaction zone.
+    return invoke().then(undefined, (error: unknown) => {
+      annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+      throw error;
+    });
+  } catch (error) {
+    annotateCrash(error, { storageOwner: owner, storageOperation: operation });
+    throw error;
+  }
+}
+
+function observeWalletCursor(cursor: DBCoreCursor, owner: StorageOwner): DBCoreCursor {
+  const start = cursor.start;
+  const observedStart: DBCoreCursor['start'] = function (this: DBCoreCursor, ...args) {
+    return observeWalletStorage(() => start.apply(this, args), owner, 'cursor');
+  };
+  // Dexie replaces start on exhaustion; next must keep using that replacement.
+  cursor.start = observedStart;
+  return cursor;
+}
+
+function installWalletStorageDiagnostics(target: Dexie): void {
+  const middleware: Middleware<DBCore> = {
+    stack: 'dbcore',
+    name: 'WalletStorageDiagnostics',
+    level: 11,
+    create: down => {
+      const transaction: DBCore['transaction'] = (...args) => {
+        const [stores] = args;
+        const store = stores.length === 1 ? stores[0] : undefined;
+        const owner = store === undefined ? 'wallet_database' : (walletTableOwner(store) ?? 'wallet_database');
+        try {
+          return down.transaction(...args);
+        } catch (error) {
+          annotateCrash(error, { storageOwner: owner, storageOperation: 'transaction' });
+          throw error;
+        }
+      };
+      return {
+        ...down,
+        transaction,
+        table: name => {
+          const table = down.table(name);
+          const owner = walletTableOwner(name);
+          if (owner === undefined) return table;
+          const get: DBCoreTable['get'] = (...args) => observeWalletStorage(() => table.get(...args), owner, 'get');
+          const getMany: DBCoreTable['getMany'] = (...args) =>
+            observeWalletStorage(() => table.getMany(...args), owner, 'get');
+          const query: DBCoreTable['query'] = (...args) =>
+            observeWalletStorage(() => table.query(...args), owner, 'query');
+          const count: DBCoreTable['count'] = (...args) =>
+            observeWalletStorage(() => table.count(...args), owner, 'count');
+          const openCursor: DBCoreTable['openCursor'] = (...args) =>
+            observeWalletStorage(() => table.openCursor(...args), owner, 'cursor').then(cursor =>
+              cursor === null ? null : observeWalletCursor(cursor, owner)
+            );
+          const mutate: DBCoreTable['mutate'] = (...args) =>
+            observeWalletStorage(() => table.mutate(...args), owner, 'mutate').then(
+              (response: DBCoreMutateResponse) => {
+                // DBCore resolves partial failures; Dexie builds the public aggregate later.
+                for (const failure of Object.values(response.failures)) {
+                  annotateCrash(failure, { storageOwner: owner, storageOperation: 'mutate' });
+                }
+                return response;
+              }
+            );
+          return { ...table, get, getMany, query, count, openCursor, mutate };
+        }
+      };
+    }
+  };
+  target.use(middleware);
+
+  const open = target.open;
+  const rejectOpen = (error: unknown): never => {
+    // A failed upgrade can already identify a table through Dexie's error links.
+    const existing: StorageCrashDiagnostics = snapshotCrashDiagnostics(error);
+    if (existing.storageOwner === undefined || existing.storageOperation === undefined) {
+      annotateCrash(error, { storageOwner: 'wallet_database', storageOperation: 'open' });
+    }
+    throw error;
+  };
+  const observedOpen: Dexie['open'] = function (this: Dexie, ...args) {
+    try {
+      return open.apply(this, args).then(undefined, rejectOpen);
+    } catch (error) {
+      return rejectOpen(error);
+    }
+  };
+  target.open = observedOpen;
 }
 
 export const db = buildTridentDb('TridentMain');

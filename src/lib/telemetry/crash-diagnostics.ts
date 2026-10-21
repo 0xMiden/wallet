@@ -38,6 +38,22 @@ export type ProposalStep = (typeof PROPOSAL_STEPS)[number];
 export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing'] as const;
 export type ProposalGuard = (typeof PROPOSAL_GUARDS)[number];
 
+export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
+export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
+export type PageVisibility = 'visible' | 'hidden' | 'unknown';
+
+export const STORAGE_OWNERS: readonly StorageOwner[] = ['wallet_transactions', 'wallet_limits', 'wallet_database'];
+export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
+  'get',
+  'query',
+  'count',
+  'cursor',
+  'mutate',
+  'transaction',
+  'open'
+];
+export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
+
 export type CrashDiagnostics = WasmStartupEvidence & {
   operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
   requestType?: WalletMessageType | MidenMessageType;
@@ -46,11 +62,15 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   workerMode?: 'enabled' | 'disabled';
   confirmationHandler?: ConfirmationHandlerState;
   portReconnected?: boolean;
+  storageOwner?: StorageOwner;
+  storageOperation?: StorageOperation;
   userErrorId?: UserErrorId;
   userErrorSurface?: UserErrorSurface;
   proposalStep?: ProposalStep;
   proposalGuard?: ProposalGuard;
 };
+
+export type StorageCrashDiagnostics = Pick<CrashDiagnostics, 'storageOwner' | 'storageOperation'>;
 
 const diagnosticsByError = new WeakMap<Error, CrashDiagnostics>();
 const requestTypes = [
@@ -76,6 +96,8 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       extensionViews: suppliedViews,
       confirmationHandler: suppliedCode,
       portReconnected,
+      storageOwner: suppliedOwner,
+      storageOperation: suppliedStorageOperation,
       userErrorId,
       userErrorSurface: suppliedSurface,
       proposalStep: suppliedStep,
@@ -100,10 +122,23 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
     if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
-    const previous = diagnosticsByError.get(error);
+    const storageOwner = STORAGE_OWNERS.find(value => value === suppliedOwner);
+    const storageOperation = STORAGE_OPERATIONS.find(value => value === suppliedStorageOperation);
+    const previous = { ...diagnosticsByError.get(error) };
+    if (
+      storageOwner !== undefined &&
+      storageOperation !== undefined &&
+      (storageOwner !== 'wallet_database' || storageOperation === 'transaction' || storageOperation === 'open')
+    ) {
+      // Do not join a new operation to a stale owner.
+      delete previous.storageOwner;
+      delete previous.storageOperation;
+      safe.storageOwner = storageOwner;
+      safe.storageOperation = storageOperation;
+    }
     // The innermost boundary names the step first; an outer one it propagates through only knows a broader one.
     const proposalStep = PROPOSAL_STEPS.find(step => step === suppliedStep);
-    if (proposalStep !== undefined && previous?.proposalStep === undefined) {
+    if (proposalStep !== undefined && previous.proposalStep === undefined) {
       safe.proposalStep = proposalStep;
       const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
       if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
@@ -140,11 +175,85 @@ export function errorChain(error: unknown): Error[] {
   return chain;
 }
 
+function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined {
+  const seen = new Set<Error>();
+  const visiting = new Set<Error>();
+  let failureEntries = 0;
+  const visit = (link: unknown, depth: number): StorageCrashDiagnostics | undefined => {
+    if (!(link instanceof Error) || depth > 3 || visiting.has(link)) return {};
+    seen.add(link);
+    if (seen.size > 32) return {};
+    const explicit = diagnosticsByError.get(link);
+    if (explicit?.storageOwner !== undefined && explicit.storageOperation !== undefined) {
+      return { storageOwner: explicit.storageOwner, storageOperation: explicit.storageOperation };
+    }
+    visiting.add(link);
+    const inner: unknown = 'inner' in link ? link.inner : undefined;
+    const failures: unknown = 'failures' in link ? link.failures : undefined;
+    let candidate: StorageCrashDiagnostics | undefined;
+    let missingCandidate = false;
+    if (inner !== undefined && inner !== null) {
+      candidate = visit(inner, depth + 1);
+      if (candidate !== undefined && candidate.storageOperation === undefined) return {};
+      missingCandidate = candidate === undefined;
+    }
+    if (failures !== undefined) {
+      if (!Array.isArray(failures)) return {};
+      const length: unknown = failures.length;
+      if (typeof length !== 'number' || !Number.isInteger(length) || length <= 0 || length > 32) return {};
+      failureEntries += length;
+      // Count entries even when several slots reference the same Error.
+      if (failureEntries > 32) return {};
+      for (let index = 0; index < length; index++) {
+        const entry: unknown = failures[index];
+        const promoted = visit(entry, depth + 1);
+        if (promoted === undefined) {
+          missingCandidate = true;
+          continue;
+        }
+        if (promoted.storageOwner === undefined || promoted.storageOperation === undefined) return {};
+        if (
+          candidate !== undefined &&
+          (candidate.storageOwner !== promoted.storageOwner || candidate.storageOperation !== promoted.storageOperation)
+        )
+          return {};
+        candidate = promoted;
+      }
+    }
+    visiting.delete(link);
+    return missingCandidate && candidate !== undefined ? {} : candidate;
+  };
+  try {
+    // Undefined permits cause inheritance; an empty result rejects uncertain attribution.
+    return visit(error, 0);
+  } catch {
+    // Inaccessible fixed links make attribution uncertain, never the failure itself.
+    return {};
+  }
+}
+
 export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
-  return Object.assign(
-    {},
-    ...errorChain(error)
-      .reverse()
-      .map(link => diagnosticsByError.get(link))
-  );
+  const snapshot: CrashDiagnostics = {};
+  for (const link of errorChain(error).reverse()) {
+    const { storageOwner, storageOperation, ...other } = diagnosticsByError.get(link) ?? {};
+    Object.assign(snapshot, other);
+    const storage = storageDiagnosticsAt(link);
+    if (storage !== undefined) {
+      // A link's own pair replaces inherited storage fields, and a rejected promotion clears them.
+      delete snapshot.storageOwner;
+      delete snapshot.storageOperation;
+      Object.assign(snapshot, storage);
+    }
+  }
+  return snapshot;
+}
+
+export function readPageVisibility(): PageVisibility {
+  try {
+    if (typeof document === 'undefined') return 'unknown';
+    const visibility = document.visibilityState;
+    return visibility === 'visible' || visibility === 'hidden' ? visibility : 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }
