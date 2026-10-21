@@ -462,7 +462,8 @@ jobs:
       # and stopping it there would download Gradle to stop nothing.
       - name: Stop the Gradle daemon
         if: steps.apk-cache.outputs.cache-hit != 'true'
-        run: cd android && ./gradlew --stop || true
+        working-directory: android
+        run: ./gradlew --stop || true
       - name: Stagger legs on the shared faucet cooldown
         # The public faucet rate-limits one shared cooldown (public-faucet.ts); the two legs fund 2 minutes apart.
         run: sleep $(( ${{ strategy.job-index }} * 120 ))
