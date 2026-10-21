@@ -8,6 +8,7 @@ import { syncBeforeVerdict } from 'lib/miden/sync-lock';
 import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
+import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagnostic-log';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
   reportTransactionFailure,
@@ -85,6 +86,18 @@ const REPORTED_ROTATION_REFUSALS = new Map<string, TransactionFailureReason>([
   [ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, 'rotation_funding_note_unavailable'],
   [ROTATION_FUNDING_NON_NATIVE_ERROR, 'rotation_funding_not_native']
 ]);
+
+// How a failed swap's end is recorded; every reason not named here, and an unnamed error, is `failed` unless it timed out.
+const SWAP_END_BY_REASON = new Map<TransactionFailureReason, DiagnosticEndOutcome>([
+  ['user_cancelled', 'cancelled'],
+  ['interrupted_on_startup', 'interrupted'],
+  ['stuck_reaped', 'timeout'],
+  ['queued_expired', 'timeout']
+]);
+
+const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: string): DiagnosticEndOutcome =>
+  (reason === undefined ? undefined : SWAP_END_BY_REASON.get(reason)) ??
+  (classifyError(rawError) === 'timeout' ? 'timeout' : 'failed');
 
 const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
   error instanceof RotationGateConsumeRefusal
@@ -229,6 +242,13 @@ export const cancelTransaction = async (
     return false;
   }
 
+  if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
+    logOperationEnd(
+      'swap',
+      swapEndOutcome(reportedReason ?? reportedWalletReason(error), rawError),
+      elapsedMsSince(committed.initiatedAt)
+    );
+  }
   if (committed !== undefined && !committed.restoredFromBackup) {
     reportTransactionFailure({
       point: 'pipeline',
@@ -372,6 +392,9 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     return undefined;
   });
   if (!entered) return;
+  if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
+    logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
+  }
   if (committed !== undefined && !committed.restoredFromBackup) {
     reportTransactionFailure({
       point: 'pipeline',

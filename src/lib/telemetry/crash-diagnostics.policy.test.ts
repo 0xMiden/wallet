@@ -22,6 +22,14 @@ import {
   STORAGE_OWNERS
 } from './crash-diagnostics';
 import {
+  DIAGNOSTIC_DURATIONS,
+  DIAGNOSTIC_END_OUTCOMES,
+  DIAGNOSTIC_LOG_EVENTS,
+  DIAGNOSTIC_OPERATIONS,
+  DIAGNOSTIC_STEP_OUTCOMES,
+  DIAGNOSTIC_STEPS
+} from './diagnostic-log-contract';
+import {
   RELAY_CONNECTIVITY,
   RELAY_FAILURE_BUCKETS,
   RELAY_SERVICE,
@@ -65,6 +73,12 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['reconnected to the background', ['true', 'false']],
   ['the preparation step that failed', PROPOSAL_STEPS],
   ['which check refused it', PROPOSAL_GUARDS],
+  ['two fixed events', DIAGNOSTIC_LOG_EVENTS],
+  ['the operation it is about', DIAGNOSTIC_OPERATIONS],
+  ['the step it describes', DIAGNOSTIC_STEPS],
+  ['how that step ended', DIAGNOSTIC_STEP_OUTCOMES],
+  ['how the operation ended', DIAGNOSTIC_END_OUTCOMES],
+  ['how long it took, as a range', DIAGNOSTIC_DURATIONS],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],
