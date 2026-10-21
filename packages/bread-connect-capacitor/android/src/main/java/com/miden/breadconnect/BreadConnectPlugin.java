@@ -6,6 +6,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -19,10 +21,10 @@ import java.util.Arrays;
 @CapacitorPlugin(name = "BreadConnect")
 public class BreadConnectPlugin extends Plugin {
 
-    static final String BREAD_PACKAGE = "com.miden.wallet";
-    static final String REQUEST_PREFIX = "https://bread.miden.xyz/request#";
-    static final String MARKET_URL = "market://details?id=com.miden.wallet";
-    static final String PLAY_URL = "https://play.google.com/store/apps/details?id=com.miden.wallet";
+    static final String BREAD_PACKAGE = NativeOpenAttempt.BREAD_PACKAGE;
+    static final String REQUEST_PREFIX = NativeOpenAttempt.REQUEST_PREFIX;
+    static final String MARKET_URL = NativeOpenAttempt.MARKET_URL;
+    static final String PLAY_URL = NativeOpenAttempt.PLAY_URL;
     /** SHA-256 fingerprints of the certificates Bread is signed with, as bread.miden.xyz/.well-known/assetlinks.json lists them. */
     static final String[] BREAD_CERTIFICATES = {
         // The upload key, which signs release builds; only a build installed directly still carries it.
@@ -31,6 +33,28 @@ public class BreadConnectPlugin extends Plugin {
         "8B:C9:95:6B:54:07:27:1C:3B:97:A2:38:29:5D:A4:72:9E:1A:85:BB:39:1F:D7:D2:8C:74:5E:74:D2:12:B8:2D"
     };
 
+    private final Handler expiryHandler = new Handler(Looper.getMainLooper());
+    private final NativeOpenAttempt attempts = new NativeOpenAttempt(
+        new NativeOpenAttempt.IO() {
+            public boolean isBread() {
+                return BreadConnectPlugin.this.isBread(getContext().getPackageManager());
+            }
+            public boolean start(String link, String targetPackage) {
+                return BreadConnectPlugin.this.start(link, targetPackage);
+            }
+        },
+        (delay, action) -> {
+            expiryHandler.postDelayed(action, delay);
+            return () -> expiryHandler.removeCallbacks(action);
+        }
+    );
+
+    @Override
+    protected void handleOnDestroy() {
+        attempts.closeAll();
+        super.handleOnDestroy();
+    }
+
     @PluginMethod
     public void openWallet(PluginCall call) {
         String link = call.getString("url");
@@ -38,13 +62,48 @@ public class BreadConnectPlugin extends Plugin {
             call.reject("The link is not a Bread request link");
             return;
         }
-        boolean opened = isBread(getContext().getPackageManager()) && start(link, BREAD_PACKAGE);
-        if (!opened && !start(MARKET_URL, null)) {
-            start(PLAY_URL, null);
-        }
+        boolean opened = attempts.openWallet(link);
         JSObject result = new JSObject();
         result.put("opened", opened);
         call.resolve(result);
+    }
+
+    @PluginMethod
+    public void prepareOpen(PluginCall call) {
+        String id = attempts.prepare(call.getString("url"));
+        if (id == null) {
+            call.reject("The link is not a Bread request link");
+            return;
+        }
+        JSObject result = new JSObject();
+        result.put("attemptId", id);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void openStep(PluginCall call) {
+        String id = call.getString("attemptId");
+        String step = call.getString("step");
+        if (id == null || !("wallet".equals(step) || "primaryStore".equals(step) || "secondaryStore".equals(step))) {
+            call.reject("The native open step is invalid");
+            return;
+        }
+        NativeOpenAttempt.Result opened = attempts.openStep(id, step);
+        JSObject result = new JSObject();
+        result.put("opened", opened.opened);
+        if (opened.next != null) {
+            result.put("next", opened.next);
+        }
+        if (opened.cancelled) {
+            result.put("cancelled", true);
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void revokeOpen(PluginCall call) {
+        attempts.revoke(call.getString("attemptId"));
+        call.resolve();
     }
 
     private boolean start(String link, String targetPackage) {

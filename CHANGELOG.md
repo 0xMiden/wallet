@@ -23,6 +23,7 @@
 
 ### Fixes
 
+- [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
 - [FIX][all] The external-wallet connection picker offers wallet connections without email or social sign-in, including when the remote dashboard enables them (#1625).
 - [FIX][tests] The live iOS USDCx round trip deposits 5.2 USDC for a 5 USDCx return withdrawal. A public faucet outage no longer stops bridge-out coverage. A verified faucet grant raises the return amount to 6 USDCx; both paths check the payout and wallet confirmation.
 - [FIX][extension] Incoming-note notifications use the Chrome fallback when the Web Notifications API fails during permission or construction.
