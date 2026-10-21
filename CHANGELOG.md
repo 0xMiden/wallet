@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
 - [FIX][all] The send amount step says Continue before review, so it no longer suggests the payment will be sent immediately, and Continue buttons in Japanese read 続ける instead of 続きを読む (read more).
 
 - [CHANGE][all] Login key commitment tests verify key handles are freed and root and scalar buffers are zeroed for stored EVM keys and legacy seed-derived keys (#1579).

@@ -10,7 +10,7 @@ import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { ListGroup } from 'components/ui/ListGroup';
-import { SectionHeader } from 'components/ui/SectionHeader';
+import { Pill } from 'components/ui/Pill';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
@@ -101,7 +101,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     <TransactionSuccessLayout
       headerTitle=""
       accent={accentForTransactionType(transaction?.type)}
-      hero={<GuardianSwitchArt className="h-40 w-auto" aria-hidden="true" />}
+      hero={<GuardianSwitchArt className="-mt-4 h-40 w-auto" aria-hidden="true" />}
       title={t(commitUnconfirmed ? 'guardianSwitchUnconfirmedHeading' : 'guardianSwitchSuccessTitle')}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
@@ -188,9 +188,9 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
       )}
 
       <div className="mt-6 w-full text-left">
-        <SectionHeader as="h2" size="lg">
-          {t('guardianSwitchSuccessInfoTitle')}
-        </SectionHeader>
+        <h2>
+          <Pill>{t('guardianSwitchSuccessInfoTitle')}</Pill>
+        </h2>
         <ListGroup as="ul" surface="plain" insetHairlines className="mt-2">
           {infoRows.map(row => (
             <FactRow
