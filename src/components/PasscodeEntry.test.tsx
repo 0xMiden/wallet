@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import PasscodeEntry, { PasscodeEntry as NamedPasscodeEntry, PASSCODE_LENGTH } from './PasscodeEntry';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -417,5 +421,43 @@ describe('refused keys', () => {
     expect(screen.getByTestId('numpad-1')).toBeDisabled();
     fireEvent.click(screen.getByTestId('numpad-1'));
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the passcode surface after the dwell', () => {
+    render(<PasscodeEntry errorId="usdcxFaucetUnavailable" error="Failed" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'passcode');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<PasscodeEntry errorId={errorId} error="Failed" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<PasscodeEntry errorId="usdcxFaucetUnavailable" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<PasscodeEntry errorId="usdcxFaucetUnavailable" error="Failed" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<PasscodeEntry errorId="usdcxFaucetUnavailable" onSubmit={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

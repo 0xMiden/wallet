@@ -21,7 +21,13 @@ export const ProtectorProbeErrorNotice: React.FC<{ className?: string; onRetry: 
 
   return (
     <div className={className}>
-      <Notice tone="negative" role="alert" title={t('error')} data-testid="protector-probe-error">
+      <Notice
+        tone="negative"
+        errorId="couldNotCheckUnlockMethod"
+        role="alert"
+        title={t('error')}
+        data-testid="protector-probe-error"
+      >
         {t('couldNotCheckUnlockMethod')}
       </Notice>
       <Button

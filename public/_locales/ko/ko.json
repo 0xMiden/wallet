@@ -912,6 +912,8 @@
   "unavailable": "사용 불가",
   "bridgeFeatureUnavailableTitle": "일시적으로 이용 불가",
   "bridgeFeatureUnavailableBody": "이 외부 서비스는 현재 이용이 불가능합니다. 잠시 후 다시 시도해 주십시오.",
+  "geoRestrictedTitle": "Not available where you are",
+  "geoRestrictedBody": "This feature is not offered in your location.",
   "swapUnavailableTitle": "이 네트워크에서는 스왑 기능을 사용할 수 없습니다.",
   "swapUnavailableBody": "아직 이 네트워크에 대해 설정된 스왑 토큰은 없습니다.",
   "agglayerCheckingToken": "이 토큰이 Slow 경로를 지원하는지 확인 중…",
@@ -1559,5 +1561,11 @@
   "webViewUpdateChromeBody": "Bread를 사용하려면 이 버전의 Android에서 웹 페이지를 앱 형태로 표시하는 최신 버전의 Chrome이 필요합니다. Google Play에서 업데이트한 후 Bread를 다시 실행하세요.",
   "webViewStartFailedTitle": "Bread는 시작할 수 없었습니다",
   "webViewStartFailedBody": "Bread가 로드되는 도중 문제가 발생했습니다. 다시 시도하거나, Bread를 닫았다가 다시 열어보세요.",
-  "webViewStartFailedAction": "다시 시도해 보세요"
+  "webViewStartFailedAction": "다시 시도해 보세요",
+  "walletAccessCheckingTitle": "이용 가능 여부 확인 중",
+  "walletAccessCheckingBody": "해당 지역에서 지갑을 이용할 수 있는지 확인하는 동안 잠시 기다려 주세요.",
+  "walletAccessRestrictedTitle": "해당 지역에서는 지갑을 이용할 수 없습니다",
+  "walletAccessRestrictedBody": "현재 위치에서는 지갑을 이용할 수 없습니다.",
+  "walletAccessUnavailableTitle": "이용 가능 여부를 확인하지 못했습니다",
+  "walletAccessUnavailableBody": "연결을 확인하고 다시 시도해 주세요."
 }

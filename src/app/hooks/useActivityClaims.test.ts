@@ -1,9 +1,15 @@
-import { act, renderHook } from '@testing-library/react';
+import React from 'react';
 
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+
+import { PendingActivityCard } from 'app/templates/history/PendingActivityCard';
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { resetActivityReadState } from 'lib/settings/activity-read';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
 
@@ -41,6 +47,28 @@ jest.mock('lib/i18n', () => ({
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key) })
 }));
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+jest.mock('lib/animation', () => ({
+  springs: { standard: {} },
+  useMotion: () => ({ duration: 0 }),
+  usePreset: () => ({
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0 },
+    transition: { duration: 0 }
+  }),
+  reducedMotionTransition: { duration: 0 }
+}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('app/icons/v2', () => ({
+  Icon: () => null,
+  IconName: { Receive: 'receive', ChevronDown: 'chevron-down' }
+}));
+jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
+jest.mock('lib/remote-config/token-labels', () => ({
+  midenTokenLabel: (_snapshot: unknown, _faucetId: string, symbol: string) => symbol
+}));
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
 const mockClaim = {
   account: { publicKey: 'account' },
   safeClaimableNotes: [note],
@@ -161,6 +189,25 @@ function latestSubscription() {
 
 function settle(rows: MockRow[]) {
   act(() => latestSubscription().observer.next(rows));
+}
+
+function ClaimCards({ showCards = true }: { showCards?: boolean }) {
+  const claims = useActivityClaims();
+  const claimable = claims.items.filter(item => item.status === 'pending' || item.status === 'failed');
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement('button', { onClick: () => claims.acceptMany(claimable.map(item => item.note)) }, 'Accept All'),
+    showCards &&
+      claims.items.map(item =>
+        React.createElement(PendingActivityCard, {
+          key: `${claims.account.publicKey}|${mockEndpoint.rpc}|${mockEndpoint.network}|${item.note.id}`,
+          item,
+          onAccept: claims.accept,
+          onRetryHeld: claims.retryHeld
+        })
+      )
+  );
 }
 
 // Accept All reads the saved delivery faucets before it groups, so its first queue call follows that read.
@@ -1560,5 +1607,362 @@ describe('the network fee', () => {
       ['note-one', 'pending'],
       ['note-other', 'failed']
     ]);
+  });
+});
+
+describe('live claim failures through PendingActivityCard and Notice', () => {
+  const advance = (ms: number) => act(() => jest.advanceTimersByTime(ms));
+  const open = () => fireEvent.click(screen.getByRole('button', { expanded: false }));
+  const click = async (name: string) => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name }));
+    });
+  };
+  const held = () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const view = render(React.createElement(ClaimCards));
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    return view;
+  };
+  const expectRawReport = () =>
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_pending_activity_retry_failed', 'notice']]);
+  const observeHeldCard = () => {
+    let retryHeld: (() => Promise<void>) | undefined;
+    const commits: Array<{
+      failure: ReturnType<typeof useActivityClaims>['items'][number]['failure'];
+      tone: string | null;
+    }> = [];
+    function ObservedClaimCard() {
+      const claims = useActivityClaims();
+      const item = claims.items[0]!;
+      retryHeld = () => claims.retryHeld(item);
+      return React.createElement(
+        React.Profiler,
+        {
+          id: 'held-claim-card',
+          onRender: () => {
+            commits.push({
+              failure: item.failure,
+              tone: screen.queryByTestId('pending-activity-hint')?.getAttribute('data-tone') ?? null
+            });
+          }
+        },
+        React.createElement(PendingActivityCard, {
+          key: `${claims.account.publicKey}|${mockEndpoint.rpc}|${mockEndpoint.network}|${item.note.id}`,
+          item,
+          onAccept: claims.accept,
+          onRetryHeld: claims.retryHeld
+        })
+      );
+    }
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    render(React.createElement(ObservedClaimCard));
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    return {
+      commits,
+      retry: async () => {
+        await act(async () => {
+          if (!retryHeld) throw new Error('No mounted held claim');
+          await retryHeld();
+        });
+      }
+    };
+  };
+
+  beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockBalances.data = [];
+    mockBalances.isLoading = false;
+    mockBaseFee = null;
+    localStorage.clear();
+    resetActivityReadState();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each(['activityAcceptTransfer', 'Accept All'])(
+    'reports the real %s queue catch by its displayed fixed key after the Notice dwell',
+    async action => {
+      mockQueue.mockRejectedValueOnce(new Error('Queue refused'));
+      mockQueueMany.mockRejectedValueOnce(new Error('Batch queue refused'));
+      render(React.createElement(ClaimCards));
+      open();
+      await click(action);
+
+      expect(action === 'Accept All' ? mockQueueMany : mockQueue).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+      expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
+      expect(mockStart).not.toHaveBeenCalled();
+      advance(999);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      advance(1);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+      advance(5000);
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('reports a real queued attempt whose watched row becomes failed while mounted', async () => {
+    render(React.createElement(ClaimCards));
+    open();
+    await click('activityAcceptTransfer');
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    settle([{ id: 'tx-one', status: 3, held: false }]);
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+  });
+
+  it.each(['activityAcceptTransfer', 'Accept All'])(
+    'keeps the %s writer fee refusal warning silent rather than reporting every catch',
+    async action => {
+      mockQueue.mockRejectedValueOnce(new ClaimFeeRefusedError());
+      mockQueueMany.mockRejectedValueOnce(new ClaimFeeRefusedError());
+      render(React.createElement(ClaimCards));
+      open();
+      await click(action);
+      expect(action === 'Accept All' ? mockQueueMany : mockQueue).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('pending-activity-fee-notice')).toHaveAttribute('data-tone', 'warning');
+      expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+      expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('data-tone', 'neutral');
+      advance(5000);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['Guardian still holds the claim', 'insufficientFeeAsset'])(
+    'reports a held Retry Error by its fixed producer site, independent of raw text: %s',
+    async message => {
+      mockRequeue.mockRejectedValueOnce(new Error(message));
+      held();
+      await click('retry');
+      expect(mockRequeue).toHaveBeenCalledWith('tx-held');
+      expect(mockQueue).not.toHaveBeenCalled();
+      expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent(message);
+      expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('data-tone', 'negative');
+      expect(mockStart).not.toHaveBeenCalled();
+      advance(999);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      advance(1);
+      expectRawReport();
+    }
+  );
+
+  it('reports the typed held Retry fee refusal by its key despite localized text', async () => {
+    mockFeeCopy = 'localized fee refusal';
+    mockRequeue.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    held();
+    await click('retry');
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('localized fee refusal');
+    expect(mockStart).not.toHaveBeenCalled();
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['insufficientFeeAsset', 'notice']]);
+  });
+
+  it('keeps first-loaded retriable data silent through a detail refresh and reopen', () => {
+    mockClaim.retriableNoteIds = new Set([note.id]);
+    const first = render(React.createElement(ClaimCards));
+    open();
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+    advance(500);
+    mockClaim.safeClaimableNotes = [{ ...note, receivedAt: 123 }];
+    first.rerender(React.createElement(ClaimCards));
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    first.unmount();
+    render(React.createElement(ClaimCards));
+    open();
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each(['activityAcceptTransfer', 'Accept All'])(
+    'keeps a failed %s attempt restored from the per-account slot silent on a later card mount',
+    async action => {
+      mockQueue.mockRejectedValueOnce(new Error('Queue refused'));
+      mockQueueMany.mockRejectedValueOnce(new Error('Batch queue refused'));
+      const first = render(React.createElement(ClaimCards));
+      await click(action);
+      expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+      first.unmount();
+      render(React.createElement(ClaimCards));
+      open();
+      expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+      advance(5000);
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    }
+  );
+
+  it('cancels a held Retry refusal on recovery and does not revive it on a later hold', async () => {
+    mockRequeue.mockRejectedValueOnce(new Error('Guardian still holds the claim'));
+    held();
+    await click('retry');
+    advance(999);
+    settle([{ id: 'tx-held', status: 0 }]);
+    expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('data-tone', 'neutral');
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('transactionNotConfirmedHint');
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels the old refusal while Retry is running and lets a later refusal start another dwell', async () => {
+    let finish: () => void = () => {};
+    mockRequeue.mockRejectedValueOnce(new Error('First refusal')).mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finish = resolve;
+        })
+    );
+    held();
+    await click('retry');
+    advance(999);
+    await click('retry');
+    expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('data-tone', 'neutral');
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => finish());
+    mockRequeue.mockRejectedValueOnce(new Error('Later refusal'));
+    await click('retry');
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expectRawReport();
+  });
+
+  it('keeps one raw Retry dwell while the same held note refreshes its details', async () => {
+    mockRequeue.mockRejectedValueOnce(new Error('Guardian still holds the claim'));
+    const view = held();
+    await click('retry');
+    advance(500);
+    mockClaim.safeClaimableNotes = mockClaim.safeClaimableNotes.map(value => ({ ...value, receivedAt: 123 }));
+    view.rerender(React.createElement(ClaimCards));
+    expect(screen.getByText('activityReceivedOn')).toBeInTheDocument();
+    advance(499);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expectRawReport();
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts an unfinished dwell for a new same-ID Retry failure with no committed clear', async () => {
+    mockRequeue.mockImplementation(() => Promise.reject(new Error('Guardian still holds the claim')));
+    const { commits, retry } = observeHeldCard();
+    await retry();
+    const firstFailure = commits[commits.length - 1]?.failure;
+    const cardToggle = screen.getByRole('button', { expanded: true });
+    expect(firstFailure).toMatchObject({ id: 'raw_pending_activity_retry_failed' });
+    advance(900);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    const beforeSecond = commits.length;
+    await retry();
+    const secondFailure = commits[commits.length - 1]?.failure;
+    const secondCommits = commits.slice(beforeSecond);
+    expect(mockRequeue).toHaveBeenCalledTimes(2);
+    expect(secondFailure).not.toBe(firstFailure);
+    expect(secondFailure).toEqual(firstFailure);
+    expect(secondCommits).not.toHaveLength(0);
+    for (const commit of secondCommits) {
+      expect(commit.failure).toBe(secondFailure);
+      expect(commit.tone).toBe('negative');
+    }
+    expect(screen.getByRole('button', { expanded: true })).toBe(cardToggle);
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expectRawReport();
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports another same-ID Retry failure after its own dwell when the first already reported', async () => {
+    mockRequeue.mockImplementation(() => Promise.reject(new Error('Guardian still holds the claim')));
+    const { commits, retry } = observeHeldCard();
+    await retry();
+    const firstFailure = commits[commits.length - 1]?.failure;
+    const cardToggle = screen.getByRole('button', { expanded: true });
+    expect(firstFailure).toMatchObject({ id: 'raw_pending_activity_retry_failed' });
+    advance(1000);
+    expectRawReport();
+
+    const beforeSecond = commits.length;
+    await retry();
+    const secondFailure = commits[commits.length - 1]?.failure;
+    const secondCommits = commits.slice(beforeSecond);
+    expect(mockRequeue).toHaveBeenCalledTimes(2);
+    expect(secondFailure).not.toBe(firstFailure);
+    expect(secondFailure).toEqual(firstFailure);
+    expect(secondCommits).not.toHaveLength(0);
+    for (const commit of secondCommits) {
+      expect(commit.failure).toBe(secondFailure);
+      expect(commit.tone).toBe('negative');
+    }
+    expect(screen.getByRole('button', { expanded: true })).toBe(cardToggle);
+    advance(999);
+    expectRawReport();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['raw_pending_activity_retry_failed', 'notice'],
+      ['raw_pending_activity_retry_failed', 'notice']
+    ]);
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancels a refusal when its card unmounts and does not replay it when the card is restored', async () => {
+    mockRequeue.mockRejectedValueOnce(new Error('Guardian still holds the claim'));
+    const view = held();
+    await click('retry');
+    advance(999);
+    view.rerender(React.createElement(ClaimCards, { showCards: false }));
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    view.rerender(React.createElement(ClaimCards));
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('Guardian still holds the claim');
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not carry live eligibility into another account with the same restored failed note', async () => {
+    mockQueue.mockRejectedValueOnce(new Error('Queue refused'));
+    const view = render(React.createElement(ClaimCards));
+    open();
+    await click('activityAcceptTransfer');
+    advance(999);
+    mockClaim.account = { publicKey: 'account-other' };
+    mockClaim.retriableNoteIds = new Set([note.id]);
+    view.rerender(React.createElement(ClaimCards));
+    open();
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    mockClaim.account = { publicKey: 'account' };
+    view.rerender(React.createElement(ClaimCards));
+    open();
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('lets a local Retry on a first-loaded failed note create a fresh episode', async () => {
+    mockClaim.retriableNoteIds = new Set([note.id]);
+    mockQueue.mockRejectedValueOnce(new Error('Queue refused'));
+    render(React.createElement(ClaimCards));
+    open();
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await click('retry');
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
   });
 });

@@ -56,6 +56,7 @@ const RotateGuardian: FC = () => {
         currentEndpoint={currentEndpoint}
         allowCustomEndpoint
         error={error}
+        errorId="guardianEndpointUnchanged"
       />
     </PageLayout>
   );

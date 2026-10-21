@@ -4041,6 +4041,14 @@
     "message": "Dieser externe Dienst ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
   "swapUnavailableTitle": {
     "message": "Swap ist in diesem Netzwerk nicht verfügbar",
     "englishSource": "Swap is not available on this network"
@@ -7053,5 +7061,29 @@
   "webViewStartFailedAction": {
     "message": "Versuchen Sie es erneut",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Verfügbarkeit wird geprüft",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Bitte warte, während wir prüfen, ob die Wallet in deiner Region verfügbar ist.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Wallet in deiner Region nicht verfügbar",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Die Wallet ist an deinem aktuellen Standort nicht verfügbar.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Verfügbarkeit konnte nicht geprüft werden",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Prüfe deine Verbindung und versuche es erneut.",
+    "englishSource": "Check your connection and try again."
   }
 }

@@ -20,6 +20,8 @@ import { SWAP_VERDICT_LABEL_KEYS, swapEtaBlocksSubmit, SwapQuote, swapVerdict } 
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { EXPIRY_PRESETS, ExpiryPresetId, presetForSeconds } from './expiry';
 import { SLIPPAGE_PERCENT_BOUNDS, slippageBpsToPercent, slippagePercentToBps } from './slippage';
@@ -40,6 +42,7 @@ export interface ReviewSwapProps {
   onSlippageBpsChange: (bps: number) => void;
   onAutoConsumeChange: (enabled: boolean) => void;
   submitError?: string | null;
+  submitErrorId?: UserErrorId | null;
   onGoBack: () => void;
   onSubmit: () => void;
   /** A submission is in flight: the expiry holds still until it settles. */
@@ -147,6 +150,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   onSlippageBpsChange,
   onAutoConsumeChange,
   submitError,
+  submitErrorId,
   onGoBack,
   onSubmit,
   submitting = false
@@ -168,6 +172,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
 
   // The slippage draft: the typed percent is this screen's own until it reads
   // as a whole number of basis points inside the range, which is when it is pushed up.
+  useUserVisibleError(submitError ? (submitErrorId ?? null) : null, 'review');
   const [slippageDraft, setSlippageDraft] = useState(() => slippageBpsToPercent(slippageBps));
   const slippageOutOfRange = slippagePercentToBps(slippageDraft) === undefined;
   const onSlippageChange = useCallback(
@@ -327,6 +332,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             clearable={false}
             onChange={event => onSlippageChange(event.target.value)}
             trailing={<span className="text-body text-muted">{t('percentSign')}</span>}
+            errorId="swapSlippageRange"
             error={slippageOutOfRange ? t('swapSlippageRange', SLIPPAGE_PERCENT_BOUNDS) : undefined}
             errorTestId="swap-slippage-range"
             data-testid="swap-slippage-percent"

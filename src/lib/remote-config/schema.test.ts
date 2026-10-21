@@ -473,7 +473,10 @@ it.each([
   ['an onboarding section that is not an object', doc({ onboarding: true })],
   ['a null onboarding section', doc({ onboarding: null })],
   ['an invite-only flag written as text', doc({ onboarding: { inviteOnly: 'true' } })],
-  ['a null invite-only flag', doc({ onboarding: { inviteOnly: null } })]
+  ['a null invite-only flag', doc({ onboarding: { inviteOnly: null } })],
+  ['a geo section that is not an object', doc({ geo: [] })],
+  ['a geo rule that is not an object', doc({ geo: { earn: ['block UK'] } })],
+  ['a geo answer that is not yes or no', doc({ geo: { earn: { 'block UK': true } } })]
 ])('rejects a document with %s', (_label, body) => {
   expect(parseBridgeConfig(body, 'testnet')).toBeNull();
 });
@@ -673,5 +676,28 @@ describe('the AggLayer deposit tokens', () => {
     ['a Blockscout root with a query', { tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2?x=1' }]
   ])('rejects %s', (_label, fields) => {
     expect(parseBridgeConfig(withSection('agglayer', fields), 'testnet')).toBeNull();
+  });
+});
+
+describe('geo place rules', () => {
+  it('keeps yes answers for earn and swap, and drops a no, an unknown phrase, and an unknown feature', () => {
+    const parsed = parseBridgeConfig(
+      doc({
+        geo: {
+          earn: { 'block NY state': 'yes', 'block UK': 'yes', 'block US-CA': 'no', 'block Narnia': 'yes' },
+          swap: { 'block DE': 'yes' },
+          bridgeIn: { 'block UK': 'yes' }
+        }
+      }),
+      'testnet'
+    );
+    expect(parsed?.geo).toEqual({
+      earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }],
+      swap: [{ country: 'DE' }]
+    });
+  });
+
+  it('omits the section when the document names none', () => {
+    expect(parseBridgeConfig(doc(), 'testnet')?.geo).toBeUndefined();
   });
 });

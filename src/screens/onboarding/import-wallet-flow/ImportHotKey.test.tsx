@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { ScanQrDrawerProps } from 'screens/send-flow/ScanQrDrawer';
 
 import { ImportHotKeyScreen } from './ImportHotKey';
@@ -175,4 +176,99 @@ it('lays out on the step layout: one primary Continue pinned, the key sources se
   fireEvent.click(manual);
   expect(screen.getByLabelText('midenHotPrivateKey')).toHaveAttribute('id', 'hot-key-input');
   expect(screen.getByLabelText('evmPrivateKey')).toHaveAttribute('id', 'evm-key-input');
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
+describe('user-visible error reporting', () => {
+  it('does not report the positive key-pair-ready notice', () => {
+    render(<ImportHotKeyScreen />);
+    click('enterKeysManually');
+    fireEvent.change(screen.getByLabelText('midenHotPrivateKey'), { target: { value: HOT } });
+    fireEvent.change(screen.getByLabelText('evmPrivateKey'), { target: { value: EVM } });
+    expect(screen.getByText('privateKeyPairReady')).toBeVisible();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports manual invalid keys without sending key material', () => {
+    render(<ImportHotKeyScreen />);
+    click('enterKeysManually');
+    fireEvent.change(screen.getByLabelText('midenHotPrivateKey'), { target: { value: privateErrorFixture } });
+    expect(screen.getByRole('alert')).toHaveTextContent('importHotKeyInvalid');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('importHotKeyInvalid', 'notice');
+  });
+  it('reports the restore failure', () => {
+    render(<ImportHotKeyScreen isError />);
+    expect(screen.getByRole('alert')).toHaveTextContent('importHotKeyError');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('importHotKeyError', 'notice');
+  });
+  it.each(['cameraPermissionDenied', 'noQrCodeFound', 'smthWentWrong'])('reports native scan failure %s', async id => {
+    mockMobile = true;
+    mockScan.mockResolvedValue({ success: false, errorKey: id });
+    render(<ImportHotKeyScreen />);
+    await act(async () => {
+      click('scanQrTitle');
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(id);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport(id, 'notice');
+  });
+  it('reports an unreadable QR upload', async () => {
+    mockDecode.mockRejectedValue(new Error(privateErrorFixture));
+    render(<ImportHotKeyScreen />);
+    await act(async () => {
+      upload();
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('invalidQrImage');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('invalidQrImage', 'notice');
+  });
+  it('does not report scan cancellation or camera unavailable helper text', async () => {
+    mockAvailable = false;
+    const view = render(<ImportHotKeyScreen />);
+    expect(screen.getByText('keyCameraUnavailable')).toBeVisible();
+    dwellForError();
+    view.unmount();
+    mockAvailable = true;
+    mockMobile = true;
+    mockScan.mockResolvedValue({ success: false, errorKey: 'scanCancelled' });
+    render(<ImportHotKeyScreen />);
+    await act(async () => {
+      click('scanQrTitle');
+    });
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
 });

@@ -1,0 +1,132 @@
+name: Deploy Feature Eligibility
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+    outputs:
+      endpoint:
+        description: Verified public eligibility URL
+        value: ${{ jobs.deploy.outputs.endpoint }}
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published wallet release tag to deploy
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-eligibility-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: feature-eligibility-production
+    outputs:
+      endpoint: ${{ steps.readiness.outputs.endpoint }}
+    steps:
+      - name: Require a published release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        with:
+          script: |
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: process.env.RELEASE_TAG
+            });
+            if (release.draft || !release.published_at) throw new Error('A published release tag is required');
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve deployment revision
+        id: revision
+        shell: bash
+        run: |
+          revision=$(git rev-parse HEAD)
+          if [[ "$GITHUB_EVENT_NAME" == release && "$revision" != "$GITHUB_SHA" ]]; then
+            echo 'Release tag moved after the publication event' >&2
+            exit 1
+          fi
+          printf 'sha=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare server configuration and secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MAXMIND_ACCOUNT_ID: ${{ secrets.MAXMIND_ACCOUNT_ID }}
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
+          CALLER_HASH_SECRET: ${{ secrets.FEATURE_ELIGIBILITY_CALLER_HASH_SECRET }}
+          ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
+          MAXMIND_DAILY_QUERY_LIMIT: ${{ vars.MAXMIND_DAILY_QUERY_LIMIT || '0' }}
+          CALLER_REQUESTS_PER_MINUTE: ${{ vars.CALLER_REQUESTS_PER_MINUTE || '60' }}
+          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
+          DEPLOYMENT_REVISION: ${{ steps.revision.outputs.sha }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { resolve, join } from 'node:path';
+          import { validateEndpoint } from './services/feature-eligibility/check-deployment.mjs';
+          for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'MAXMIND_ACCOUNT_ID',
+            'MAXMIND_LICENSE_KEY', 'CALLER_HASH_SECRET', 'ALLOWED_ORIGINS']) {
+            if (!process.env[key]) throw new Error(`Missing production setting: ${key}`);
+          }
+          if (process.env.CALLER_HASH_SECRET.length < 32) throw new Error('CALLER_HASH_SECRET must have at least 32 characters');
+          for (const [key, maximum] of [['MAXMIND_DAILY_QUERY_LIMIT', 1_000_000], ['CALLER_REQUESTS_PER_MINUTE', 10_000]]) {
+            if (!/^[1-9][0-9]*$/.test(process.env[key]) || !Number.isSafeInteger(Number(process.env[key])) || Number(process.env[key]) > maximum) {
+              throw new Error(`Set an explicit positive production limit: ${key}`);
+            }
+          }
+          const origins = JSON.parse(process.env.ALLOWED_ORIGINS);
+          if (!Array.isArray(origins) || !origins.length || origins.some(value => typeof value !== 'string' || !value || value.includes('*'))) {
+            throw new Error('ALLOWED_ORIGINS must be a nonempty JSON array of exact wallet origins');
+          }
+          validateEndpoint(process.env.FEATURE_ELIGIBILITY_URL);
+          const service = resolve('services/feature-eligibility');
+          const config = JSON.parse(readFileSync(join(service, 'wrangler.jsonc'), 'utf8'));
+          config.main = resolve(service, config.main);
+          config.vars = Object.fromEntries(['ALLOWED_ORIGINS', 'MAXMIND_DAILY_QUERY_LIMIT',
+            'CALLER_REQUESTS_PER_MINUTE', 'DEPLOYMENT_REVISION'].map(key => [key, process.env[key]]));
+          writeFileSync(join(process.env.RUNNER_TEMP, 'feature-eligibility-release.json'), JSON.stringify(config), { mode: 0o600 });
+          const secrets = Object.fromEntries(['MAXMIND_ACCOUNT_ID', 'MAXMIND_LICENSE_KEY', 'CALLER_HASH_SECRET']
+            .map(key => [key, process.env[key]]));
+          writeFileSync(join(process.env.RUNNER_TEMP, 'feature-eligibility-secrets.json'), JSON.stringify(secrets), { mode: 0o600 });
+          NODE
+
+      - name: Deploy tagged service with server-only secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: >-
+          npx --yes wrangler@4.151.3 deploy
+          --config "$RUNNER_TEMP/feature-eligibility-release.json"
+          --secrets-file "$RUNNER_TEMP/feature-eligibility-secrets.json"
+          --message "Wallet release $RELEASE_TAG"
+
+      - name: Verify deployment and feature decisions
+        id: readiness
+        env:
+          FEATURE_ELIGIBILITY_URL: ${{ vars.FEATURE_ELIGIBILITY_URL }}
+          FEATURE_ELIGIBILITY_ALLOWED_ORIGINS: ${{ vars.FEATURE_ELIGIBILITY_ALLOWED_ORIGINS }}
+          FEATURE_ELIGIBILITY_REVISION: ${{ steps.revision.outputs.sha }}
+        run: node services/feature-eligibility/check-deployment.mjs
+
+      - name: Remove temporary server secrets
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/feature-eligibility-secrets.json" "$RUNNER_TEMP/feature-eligibility-release.json"

@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from '@playwright/test';
 
-import { PUBLISHED_BRIDGE_CONFIG_URL } from './fake-bridge-config';
 import { hexFaucetToBech32 } from './faucet-address';
+import { forgetFixtureConfig, setEligibilityFixtureConfig } from './feature-eligibility';
 import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
 import type { ChromeWalletPageApi } from './wallet-page';
@@ -150,21 +150,17 @@ function answerQuote(route: Route, decimalsOf: (faucetHex: string | null) => num
 }
 
 /**
- * Route the stub document and quote service, then reload: the page realm that read localnet's 404 waits out a
- * backoff before it asks again, and a fresh one reads the document at once. On localnet this waits for that
- * realm's read of the stub's pairs, which follows only an accepted document naming the stub.
+ * Share the localnet policy with every realm and the eligibility endpoint, then reload this page with quote
+ * routes installed. Reading the stub's pairs confirms the page accepted the configured solver.
  */
 async function serveStubQuoteService(
   page: Page,
   decimalsOf: (faucetHex: string | null) => number | undefined
 ): Promise<void> {
-  await page.route(`${PUBLISHED_BRIDGE_CONFIG_URL}/localnet.json`, route =>
-    route.fulfill({
-      contentType: 'application/json',
-      headers: { 'access-control-allow-origin': '*' },
-      body: JSON.stringify(STUB_LOCALNET_DOCUMENT)
-    })
-  );
+  if (IS_LOCALNET) {
+    await setEligibilityFixtureConfig(STUB_LOCALNET_DOCUMENT);
+    await forgetFixtureConfig(page, 'localnet');
+  }
   await page.route(isStubQuoteHost, route => answerQuote(route, decimalsOf));
   const pairsRead: Promise<unknown> = IS_LOCALNET
     ? page

@@ -9,6 +9,7 @@ import type {
   ConsumeEntryPoint,
   TransactionFailureDiagnostics
 } from 'lib/telemetry/transaction-failure';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
@@ -237,6 +238,7 @@ export interface IBridgedReceiveExtraInputs {
   /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
   cctp?: IUsdcxCctpLeg;
   error?: string;
+  errorId?: UserErrorId;
   /**
    * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
    * first phase write. Absent on rows written before this field and on E2E hook rows.

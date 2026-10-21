@@ -14,6 +14,7 @@ import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import HashChip from '../HashChip';
 import { DetailSection } from './DetailSection';
@@ -75,6 +76,7 @@ interface SwapDetailProps {
   offerCancelOrder: boolean;
   isCancellingOrder: boolean;
   cancelOrderError: string | null;
+  cancelOrderErrorId?: UserErrorId | null;
   onCancelOrder: () => void;
 }
 
@@ -268,6 +270,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   offerCancelOrder,
   isCancellingOrder,
   cancelOrderError,
+  cancelOrderErrorId,
   onCancelOrder
 }) => {
   const { t } = useTranslation();
@@ -528,7 +531,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
       {showFooter && (
         <div className="shrink-0 space-y-3 pb-4 pt-3">
           {cancelOrderError && (
-            <Notice tone="negative" role="alert" data-testid="swap-cancel-order-error">
+            <Notice tone="negative" errorId={cancelOrderErrorId} role="alert" data-testid="swap-cancel-order-error">
               {cancelOrderError}
             </Notice>
           )}

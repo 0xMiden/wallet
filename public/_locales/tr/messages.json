@@ -4041,6 +4041,14 @@
     "message": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
   "swapUnavailableTitle": {
     "message": "Bu ağda takas (swap) işlemi mevcut değildir",
     "englishSource": "Swap is not available on this network"
@@ -7053,5 +7061,29 @@
   "webViewStartFailedAction": {
     "message": "Tekrar deneyin",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Kullanılabilirlik kontrol ediliyor",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Cüzdanın bölgenizde kullanılabilir olup olmadığını kontrol ederken lütfen bekleyin.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Cüzdan bölgenizde kullanılamıyor",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Cüzdan bulunduğunuz konumda kullanılamıyor.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Kullanılabilirlik kontrol edilemedi",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Check your connection and try again."
   }
 }

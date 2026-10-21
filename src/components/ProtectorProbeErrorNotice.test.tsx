@@ -1,12 +1,14 @@
 import React from 'react';
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ProtectorProbeErrorNotice } from './ProtectorProbeErrorNotice';
 import en from '../../public/_locales/en/en.json';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string) => (['couldNotCheckUnlockMethod'].includes(key) ? `Visible ${key}` : key) })
 }));
 
 afterEach(cleanup);
@@ -49,4 +51,45 @@ it('names no network cause in its English copy', () => {
   const copy = en.couldNotCheckUnlockMethod;
 
   expect(copy).not.toMatch(/connection|network|internet/i);
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible protector-probe errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockReport.mockClear();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([false, true])(
+    'reports couldNotCheckUnlockMethod once while its notice remains visible, retrying=%s',
+    retrying => {
+      const view = render(<ProtectorProbeErrorNotice onRetry={jest.fn()} retrying={retrying} />);
+      expect(screen.getByRole('alert')).toHaveTextContent('Visible couldNotCheckUnlockMethod');
+      act(() => jest.advanceTimersByTime(999));
+      expect(mockReport.mock.calls).toEqual([]);
+      act(() => jest.advanceTimersByTime(1));
+      expect(mockReport.mock.calls).toEqual([['couldNotCheckUnlockMethod', 'notice']]);
+      view.rerender(<ProtectorProbeErrorNotice onRetry={jest.fn()} retrying={!retrying} />);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(mockReport.mock.calls).toEqual([['couldNotCheckUnlockMethod', 'notice']]);
+    }
+  );
+
+  it('does not report a probe notice removed at 999 ms', () => {
+    const view = render(<ProtectorProbeErrorNotice onRetry={jest.fn()} retrying={false} />);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    view.unmount();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
 });
