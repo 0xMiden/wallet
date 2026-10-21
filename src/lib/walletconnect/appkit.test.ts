@@ -1,5 +1,6 @@
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import { createAppKit } from '@reown/appkit/react';
+import { RouterController } from '@reown/appkit-controllers';
 import { getVersion, proxy } from 'valtio/vanilla';
 
 import {
@@ -8,7 +9,7 @@ import {
   type RelayDiagnostics
 } from 'lib/telemetry/relay-diagnostics';
 
-import { type AppKitInstance, CONNECT_VIEW, modal } from './appkit';
+import { type AppKitInstance, CONNECT_VIEW, modal, openConnectModal } from './appkit';
 import { EVM_CHAIN_DEFINITIONS, getChain } from './config';
 
 jest.mock('lib/remote-config/runtime', () => ({
@@ -56,7 +57,15 @@ describe('external-wallet picker', () => {
     expect(CONNECT_VIEW).toBe('ConnectingWalletConnectBasic');
   });
 
-  it('keeps every wallet connector and the wallet list off the extension', () => {
+  it('points the open modal at the wallet-less QR view on the extension', async () => {
+    jest.mocked(RouterController.reset).mockClear();
+    await openConnectModal();
+    expect(modal.open).toHaveBeenCalledWith({ view: 'ConnectingWalletConnectBasic', namespace: 'eip155' });
+    expect(RouterController.reset).toHaveBeenCalledWith('ConnectingWalletConnect');
+  });
+
+  it('keeps every wallet connector and the wallet list off the extension', async () => {
+    let realm: { appkit: typeof import('./appkit'); router: typeof import('@reown/appkit-controllers') } | undefined;
     jest.isolateModules(() => {
       jest.doMock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => false }));
       // The isolated registry maps the SDK to a fresh copy of its mock; read the one this realm's module sees.
@@ -69,7 +78,16 @@ describe('external-wallet picker', () => {
       expect(realmOptions?.enableCoinbase).toBe(true);
       expect(realmOptions?.allWallets).toBe('SHOW');
       expect(appkit.CONNECT_VIEW).toBe('Connect');
+      realm = {
+        appkit,
+        router: jest.requireActual<typeof import('@reown/appkit-controllers')>('@reown/appkit-controllers')
+      };
     });
+    expect(realm).toBeDefined();
+    if (!realm) return;
+    jest.mocked(realm.router.RouterController.reset).mockClear();
+    await realm.appkit.openConnectModal();
+    expect(realm.router.RouterController.reset).not.toHaveBeenCalled();
   });
 });
 

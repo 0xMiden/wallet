@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { type AppKitNetwork, defineChain } from '@reown/appkit/networks';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
+import { RouterController } from '@reown/appkit-controllers';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 
@@ -68,6 +69,20 @@ const extensionPage = isExtension();
 
 /** The modal view a connect opens: the QR code at once on the extension, else the wallet list. */
 export const CONNECT_VIEW = extensionPage ? 'ConnectingWalletConnectBasic' : 'Connect';
+
+/**
+ * The view the extension shows once the modal is open. The basic QR view draws a wallet list instead
+ * of a QR code when AppKit classifies the page as mobile (a coarse pointer or a mobile user agent), and
+ * each wallet in that list opens a page with a Browser tab. The wallet-less WalletConnect view always
+ * draws the QR code, but `open()` does not accept it, so the router is pointed at it after the open.
+ */
+const EXTENSION_QR_VIEW = 'ConnectingWalletConnect';
+
+/** Open the connect modal for the EVM namespace, on the QR code alone on the extension. */
+export async function openConnectModal(): Promise<void> {
+  await modal.open({ view: CONNECT_VIEW, namespace: 'eip155' });
+  if (extensionPage) RouterController.reset(EXTENSION_QR_VIEW);
+}
 
 export const modal = createAppKit({
   adapters: [wagmiAdapter],
