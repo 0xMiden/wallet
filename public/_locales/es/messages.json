@@ -7,15 +7,6 @@
     "message": "Lento · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
-  "bridgeRouteUnavailableTitle": {
-    "message": "$route$: ruta no disponible",
-    "englishSource": "$route$ route unavailable",
-    "placeholders": {
-      "route": {
-        "content": "$1"
-      }
-    }
-  },
   "bridgeRouteUnavailableBody": {
     "message": "Esta ruta no está disponible para esta transferencia. Puede continuar con otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."

@@ -7,7 +7,7 @@ import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { FlowAccent } from 'components/flow/accent';
-import { CardButton } from 'components/ui/Card';
+import { Card, CardButton } from 'components/ui/Card';
 import { DetailCard } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
@@ -54,6 +54,8 @@ export interface RouteCardProps {
   loading?: boolean;
   /** Id of the notice that explains why the card is disabled. */
   describedBy?: string;
+  /** Help remains readable inside the card, outside the disabled tap target. */
+  description?: React.ReactNode;
 }
 
 /** One selectable route row. Shared with the USDCx deposit route step. */
@@ -68,29 +70,33 @@ export const RouteCard: React.FC<RouteCardProps> = ({
   accent,
   disabled,
   loading,
-  describedBy
+  describedBy,
+  description
 }) => (
-  <CardButton
-    surface="outline"
-    padding="none"
-    type="button"
-    data-testid={testId}
-    onClick={onSelect}
-    aria-pressed={selected}
-    disabled={disabled}
-    aria-busy={loading}
-    aria-describedby={describedBy}
-    className="w-full disabled:opacity-50"
-  >
-    <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3">
-      <span className="text-title-section text-ink">{label}</span>
-      {selected && <SelectionCheck accent={accent} />}
-    </div>
-    <div className="grid grid-cols-2 gap-4 border-t border-hairline px-4 py-3">
-      <RouteMetric labelKey={feeLabelKey}>{fee}</RouteMetric>
-      <RouteMetric labelKey="bridgeArrivalEstimate">{eta}</RouteMetric>
-    </div>
-  </CardButton>
+  <Card surface="outline" padding="none" data-testid={testId ? `${testId}-card` : undefined}>
+    <CardButton
+      surface="outline"
+      padding="none"
+      type="button"
+      data-testid={testId}
+      onClick={onSelect}
+      aria-pressed={selected}
+      disabled={disabled}
+      aria-busy={loading}
+      aria-describedby={describedBy}
+      className="w-full border-0 disabled:opacity-50"
+    >
+      <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3">
+        <span className="text-title-section text-ink">{label}</span>
+        {selected && <SelectionCheck accent={accent} />}
+      </div>
+      <div className="grid grid-cols-2 gap-4 border-t border-hairline px-4 py-3">
+        <RouteMetric labelKey={feeLabelKey}>{fee}</RouteMetric>
+        <RouteMetric labelKey="bridgeArrivalEstimate">{eta}</RouteMetric>
+      </div>
+    </CardButton>
+    {description && <div className="flex flex-col gap-2 border-t border-hairline px-4 py-3">{description}</div>}
+  </Card>
 );
 
 const RouteMetric: React.FC<{ labelKey: string; children: React.ReactNode }> = ({ labelKey, children }) => {
@@ -148,15 +154,18 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
         eta={t('bridgePayoutTiming')}
         testId="bridge-route-usdcx"
         accent={accent}
+        describedBy="usdcx-burn-notice"
+        description={
+          <p className="text-caption text-muted" data-testid="usdcx-burn-notice" id="usdcx-burn-notice">
+            {t('usdcxWithdrawalNotice')}
+          </p>
+        }
       />
       {usdcxPayout && (
         <DetailCard>
           <UsdcxPayoutRows chainId={usdcxPayout.chainId} amount={usdcxPayout.amount} />
         </DetailCard>
       )}
-      <p className="text-caption text-muted" data-testid="usdcx-burn-notice">
-        {t('usdcxWithdrawalNotice')}
-      </p>
     </div>
   );
 };
@@ -168,23 +177,16 @@ const SLOW_NOTICE_ID = 'bridge-route-slow-unavailable';
 /** Availability describes a route before submission, never a failed transaction. */
 const RouteAvailabilityNotice: React.FC<{
   availability: FeatureAvailability;
-  label: string;
   id: string;
   'data-testid': string;
-}> = ({ availability, label, id, 'data-testid': testId }) => {
+}> = ({ availability, id, 'data-testid': testId }) => {
   const { t } = useTranslation();
   if (availability.state !== 'unavailable') return null;
   if (availability.reason === 'restricted') {
     return <FeatureUnavailableNotice availability={availability} variant="inline" id={id} data-testid={testId} />;
   }
   return (
-    <Notice
-      tone="neutral"
-      variant="inline"
-      id={id}
-      data-testid={testId}
-      title={t('bridgeRouteUnavailableTitle', { route: label })}
-    >
+    <Notice tone="neutral" variant="inline" id={id} data-testid={testId}>
       {t('bridgeRouteUnavailableBody')}
     </Notice>
   );
@@ -241,56 +243,83 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     <span className="text-base font-bold text-ink">{feeText}</span>
   );
 
+  const fastHint = route === 'epoch' ? notice : undefined;
+  const slowHint = route === 'agglayer' ? notice : undefined;
+
   return (
     <div className="mt-4 flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <RouteCard
-          emoji="⚡"
-          label={t('bridgeRouteEpoch')}
-          selected={route === 'epoch'}
-          onSelect={() => select('epoch')}
-          fee={fastFee}
-          eta={t('fastArrival')}
-          disabled={isFeatureBlocked(fastAvailability)}
-          describedBy={fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : undefined}
-          testId="bridge-route-fast"
-          accent={accent}
-        />
-        <RouteAvailabilityNotice
-          availability={fastAvailability}
-          label={t('bridgeRouteEpoch')}
-          id={FAST_NOTICE_ID}
-          data-testid="feature-unavailable-notice-fast"
-        />
-        {route === 'epoch' && notice && <p className="text-xs text-muted">{notice}</p>}
-      </div>
-      <div className="flex flex-col gap-2">
-        <RouteCard
-          emoji="🕐"
-          label={t('bridgeRouteAgglayer')}
-          selected={route === 'agglayer' && slowAllowed}
-          disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
-          loading={slowStatus === 'loading'}
-          describedBy={slowAvailability.state === 'unavailable' ? SLOW_NOTICE_ID : undefined}
-          onSelect={() => select('agglayer')}
-          fee={slowFee}
-          eta={t('slowArrival')}
-          testId="bridge-route-slow"
-          accent={accent}
-        />
-        <RouteAvailabilityNotice
-          availability={slowAvailability}
-          label={t('bridgeRouteAgglayer')}
-          id={SLOW_NOTICE_ID}
-          data-testid="feature-unavailable-notice-slow"
-        />
-        {route === 'agglayer' && notice && <p className="text-xs text-muted">{notice}</p>}
-        {slowNotice && (
-          <p role="status" className="text-xs text-muted">
-            {slowNotice}
-          </p>
-        )}
-      </div>
+      <RouteCard
+        emoji="⚡"
+        label={t('bridgeRouteEpoch')}
+        selected={route === 'epoch'}
+        onSelect={() => select('epoch')}
+        fee={fastFee}
+        eta={t('fastArrival')}
+        disabled={isFeatureBlocked(fastAvailability)}
+        describedBy={
+          fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : fastHint ? 'bridge-route-fast-hint' : undefined
+        }
+        testId="bridge-route-fast"
+        accent={accent}
+        description={
+          fastAvailability.state === 'unavailable' || fastHint ? (
+            <>
+              <RouteAvailabilityNotice
+                availability={fastAvailability}
+                id={FAST_NOTICE_ID}
+                data-testid="feature-unavailable-notice-fast"
+              />
+              {fastHint && (
+                <p id="bridge-route-fast-hint" className="text-caption text-muted">
+                  {fastHint}
+                </p>
+              )}
+            </>
+          ) : undefined
+        }
+      />
+      <RouteCard
+        emoji="🕐"
+        label={t('bridgeRouteAgglayer')}
+        selected={route === 'agglayer' && slowAllowed}
+        disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
+        loading={slowStatus === 'loading'}
+        describedBy={
+          slowAvailability.state === 'unavailable'
+            ? SLOW_NOTICE_ID
+            : slowNotice
+              ? 'bridge-route-slow-status'
+              : slowHint
+                ? 'bridge-route-slow-hint'
+                : undefined
+        }
+        onSelect={() => select('agglayer')}
+        fee={slowFee}
+        eta={t('slowArrival')}
+        testId="bridge-route-slow"
+        accent={accent}
+        description={
+          slowAvailability.state === 'unavailable' || slowNotice || slowHint ? (
+            <>
+              <RouteAvailabilityNotice
+                availability={slowAvailability}
+                id={SLOW_NOTICE_ID}
+                data-testid="feature-unavailable-notice-slow"
+              />
+              {slowHint && (
+                <p id="bridge-route-slow-hint" className="text-caption text-muted">
+                  {slowHint}
+                </p>
+              )}
+              {slowNotice && (
+                <p id="bridge-route-slow-status" role="status" className="text-caption text-muted">
+                  {slowNotice}
+                </p>
+              )}
+            </>
+          ) : undefined
+        }
+      />
     </div>
   );
 };

@@ -7,15 +7,6 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
-  "bridgeRouteUnavailableTitle": {
-    "message": "$route$ ルートが利用不可",
-    "englishSource": "$route$ route unavailable",
-    "placeholders": {
-      "route": {
-        "content": "$1"
-      }
-    }
-  },
   "bridgeRouteUnavailableBody": {
     "message": "この送金には、この経路は利用できません。利用可能な別の経路で続行してください。この画面からは取引が送信されていません。",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."

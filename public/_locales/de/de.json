@@ -1,7 +1,6 @@
 {
   "bridgeRouteEpoch": "Fast · Epoch",
   "bridgeRouteAgglayer": "Slow · Agglayer",
-  "bridgeRouteUnavailableTitle": "$route$-Route nicht verfügbar",
   "bridgeRouteUnavailableBody": "Dieser Weg ist für diese Überweisung nicht verfügbar. Sie können mit einem anderen verfügbaren Weg fortfahren. Von diesem Bildschirm aus wurde keine Transaktion übermittelt.",
   "bridgeContinueAgglayer": "Weiter über Agglayer",
   "bridgeContinueEpoch": "Weiter bei Epoch",

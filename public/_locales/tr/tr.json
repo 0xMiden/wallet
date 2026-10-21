@@ -1,7 +1,6 @@
 {
   "bridgeRouteEpoch": "Hızlı · Epoch",
   "bridgeRouteAgglayer": "Yavaş · Agglayer",
-  "bridgeRouteUnavailableTitle": "$route$ rotası kullanılamıyor",
   "bridgeRouteUnavailableBody": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",
   "bridgeContinueAgglayer": "Agglayer üzerinden devam edin",
   "bridgeContinueEpoch": "Epoch üzerinden devam edin",

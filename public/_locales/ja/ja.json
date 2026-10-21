@@ -1,7 +1,6 @@
 {
   "bridgeRouteEpoch": "Fast · Epoch",
   "bridgeRouteAgglayer": "Slow · Agglayer",
-  "bridgeRouteUnavailableTitle": "$route$ ルートが利用不可",
   "bridgeRouteUnavailableBody": "この送金には、この経路は利用できません。利用可能な別の経路で続行してください。この画面からは取引が送信されていません。",
   "bridgeContinueAgglayer": "Agglayerで続きを読む",
   "bridgeContinueEpoch": "Epochで続きを読む",

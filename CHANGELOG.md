@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, scope availability explanations to their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
+- [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
 
 ### Changes
 

@@ -1,7 +1,6 @@
 {
   "bridgeRouteEpoch": "Fast · Epoch",
   "bridgeRouteAgglayer": "Slow · Agglayer",
-  "bridgeRouteUnavailableTitle": "$route$ route unavailable",
   "bridgeRouteUnavailableBody": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen.",
   "bridgeContinueAgglayer": "Continue via Agglayer",
   "bridgeContinueEpoch": "Continue via Epoch",
