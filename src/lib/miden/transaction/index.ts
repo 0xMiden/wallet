@@ -3094,6 +3094,23 @@ const persistGuardianCandidate = async (
 };
 
 /**
+ * Drop the candidate this attempt kept on its row once its Guardian took the abandon (#1666): a later process's
+ * startup sweep must not send it again, since the Guardian may already have released that nonce to another write.
+ */
+const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      if (tx.guardianCandidate?.attemptId === attemptId && tx.guardianCandidate.nonce === nonce) {
+        delete tx.guardianCandidate;
+      }
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not drop abandoned candidate ${nonce} from transaction ${transaction.id}:`, error);
+  }
+};
+
+/**
  * Remember a candidate whose transaction never landed and whose best-effort abandon failed, so the account's next
  * proposal retries the abandon (#1317) instead of meeting that candidate until its Guardian's hold expires. Stamped
  * with the caller's `proposalStamps`, not the failure's time: the hold began at the proposal.
@@ -3822,6 +3839,7 @@ const generateGuardianTransaction = async (
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the pending delta on the outgoing guardian'
         );
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
       } catch (abandonError) {
         console.warn('[Guardian] could not abandon the pending delta before the direct switch (non-fatal)', {
           nonce: proposalResult.nonce,
@@ -4089,6 +4107,7 @@ const generateGuardianTransaction = async (
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the guardian candidate after a failed submission'
         );
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
       } catch (abandonError) {
         // Cleanup must never mask the transaction failure. The abandonment call
         // is idempotent, so the account's next proposal retries it (#1317), but

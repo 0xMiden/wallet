@@ -6911,6 +6911,8 @@ describe('generateTransaction — Guardian routing', () => {
         jest.spyOn(console, 'error').mockImplementation(() => {});
         const service = busyService();
         service.priorCandidateState.mockResolvedValue('settled');
+        // Taken, an abandon clears the record; refused, the candidate still awaits one.
+        service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
         mockGetOrCreateMultisigService.mockResolvedValue(service);
         const client = makeClientApi(makeResult());
         client.transactions.executeRequest.mockRejectedValueOnce(new Error('failed to execute transaction: kernel'));
@@ -7006,6 +7008,36 @@ describe('generateTransaction — Guardian routing', () => {
         await run(queueRow('next-send', SEND));
         expect(service.createSendProposal).toHaveBeenCalledTimes(1);
         expect(service.abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it('does not hand back a candidate whose abandon the attempt already took', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = settledService();
+        const client = makeClientApi(makeResult());
+        client.transactions.executeRequest.mockRejectedValueOnce(new Error('failed to execute transaction: kernel'));
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('abandoned-then-died', SEND);
+        await run(row);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        const left = stored(row.id).guardianCandidate as Record<string, unknown> | undefined;
+        // What an earlier process that died after that abandon, before failing the row, leaves for this one's sweep.
+        deadRow('abandoned-then-died-earlier', {
+          type: 'send',
+          guardianCandidate: left === undefined ? undefined : { ...left, attemptId: 'att-dead' }
+        });
+        clearGuardianAccountLocks();
+        arrangeClient();
+
+        await failInterruptedTransactions();
+        await run(queueRow('after-restart', SEND));
+
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(left).toBeUndefined();
       });
 
       it("keeps a later write's record over a dead row's candidate", async () => {
@@ -8976,6 +9008,8 @@ describe('generateTransaction — Guardian routing', () => {
     // set, so a delta left pending on a recovered operator cancels the NEXT
     // coordinated switch outright — leaving it is not harmless.
     expect(multisigService.abandonCandidate).toHaveBeenCalledWith(31);
+    // Taken, the abandon leaves nothing for a later startup sweep to send again (#1666).
+    expect(txStore.find(r => r.id === txId)!.guardianCandidate).toBeUndefined();
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
       ...provider,
