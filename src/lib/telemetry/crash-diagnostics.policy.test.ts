@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CONFIRMATION_HANDLER_STATES } from './crash-diagnostics';
+import { CONFIRMATION_HANDLER_STATES, PROPOSAL_GUARDS, PROPOSAL_STEPS } from './crash-diagnostics';
 import {
   RELAY_CONNECTIVITY,
   RELAY_FAILURE_BUCKETS,
@@ -37,6 +37,8 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],
   ['reconnected to the background', ['true', 'false']],
+  ['the preparation step that failed', PROPOSAL_STEPS],
+  ['which check refused it', PROPOSAL_GUARDS],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],

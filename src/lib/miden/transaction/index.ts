@@ -57,6 +57,7 @@ import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { withProposalStep } from 'lib/telemetry/crash-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
 import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
@@ -2063,7 +2064,7 @@ const consumeServiceFor = async (
   noteIds: string[],
   guardianProvider: GuardianAccountProvider
 ): Promise<MultisigService> => {
-  const account = (await guardianProvider.getAccounts()).find(a =>
+  const account = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
     sameWalletAccountId(a.publicKey, transaction.accountId)
   );
   const rotationPending = account?.requiresHotKeyRotation === true && !account.hotPublicKey;
@@ -3706,8 +3707,8 @@ const generateGuardianTransaction = async (
     }
   }
 
-  // Sign and execute the proposal
-  await setTransactionStage(transaction.id, 'signing-proposal');
+  // Sign and execute the proposal. The proposal already exists if this write fails.
+  await withProposalStep('signing_stage_write', () => setTransactionStage(transaction.id, 'signing-proposal'));
 
   // switch_guardian is on-chain threshold-2 (set at create time via
   // procedureThresholds). Hot's signAndCreateTransactionRequest below

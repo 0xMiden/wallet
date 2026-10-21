@@ -15,6 +15,7 @@ import {
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
+import { annotateCrash, withProposalStep } from 'lib/telemetry/crash-diagnostics';
 
 import {
   assertGuardianKeyCommitment,
@@ -422,7 +423,9 @@ export class MultisigService {
    * Create a consume notes transaction proposal.
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
-    return this.withChainSyncedHold('consume proposal', () => this.multisig.createConsumeNotesProposal(noteIds));
+    return this.withChainSyncedHold('consume proposal', () =>
+      withProposalStep('proposal_create', () => this.multisig.createConsumeNotesProposal(noteIds))
+    );
   }
 
   /** Current on-chain threshold for `procedure`, or undefined if none is set. */
@@ -531,16 +534,20 @@ export class MultisigService {
     { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Proposal> {
     return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
-      const requestBytes = await midenClientProxy.buildPswapCancelRequest(
-        this.accountId,
-        noteId,
-        step => assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step),
-        { allowNodeNote }
+      const requestBytes = await withProposalStep('reclaim_build', () =>
+        midenClientProxy.buildPswapCancelRequest(
+          this.accountId,
+          noteId,
+          step => assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: inside the cancel-request build', step),
+          { allowNodeNote }
+        )
       );
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
-      await persistRequest(requestBytes);
+      await withProposalStep('reclaim_persist', () => persistRequest(requestBytes));
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after persisting the request');
-      return this.multisig.createCustomProposal(requestBytes, 'custom_transaction');
+      return withProposalStep('proposal_create', () =>
+        this.multisig.createCustomProposal(requestBytes, 'custom_transaction')
+      );
     });
   }
 
@@ -1002,7 +1009,9 @@ export class MultisigService {
           throw error;
         }
         if (isPipelineKillLink(error)) throw error;
-        throw new ProposalChainSyncError(error);
+        const failed = new ProposalChainSyncError(error);
+        annotateCrash(failed, { proposalStep: 'chain_sync' });
+        throw failed;
       } finally {
         if (phase) phase.syncing = false;
       }

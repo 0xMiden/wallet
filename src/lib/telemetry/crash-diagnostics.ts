@@ -20,6 +20,24 @@ export const CONFIRMATION_HANDLER_STATES = [
 ] as const;
 export type ConfirmationHandlerState = (typeof CONFIRMATION_HANDLER_STATES)[number];
 
+/** The step a Guardian proposal's preparation was in when it failed, from the service lookup to the signing stage. */
+export const PROPOSAL_STEPS = [
+  'service_select',
+  'service_account_read',
+  'service_signer_read',
+  'service_load',
+  'chain_sync',
+  'reclaim_build',
+  'reclaim_persist',
+  'proposal_create',
+  'signing_stage_write'
+] as const;
+export type ProposalStep = (typeof PROPOSAL_STEPS)[number];
+
+/** The wallet's own checks that refuse to build a Guardian service for an account. */
+export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing'] as const;
+export type ProposalGuard = (typeof PROPOSAL_GUARDS)[number];
+
 export type CrashDiagnostics = WasmStartupEvidence & {
   operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
   requestType?: WalletMessageType | MidenMessageType;
@@ -30,6 +48,8 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   portReconnected?: boolean;
   userErrorId?: UserErrorId;
   userErrorSurface?: UserErrorSurface;
+  proposalStep?: ProposalStep;
+  proposalGuard?: ProposalGuard;
 };
 
 const diagnosticsByError = new WeakMap<Error, CrashDiagnostics>();
@@ -57,7 +77,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       confirmationHandler: suppliedCode,
       portReconnected,
       userErrorId,
-      userErrorSurface: suppliedSurface
+      userErrorSurface: suppliedSurface,
+      proposalStep: suppliedStep,
+      proposalGuard: suppliedGuard
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -78,9 +100,27 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
     if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
-    diagnosticsByError.set(error, { ...diagnosticsByError.get(error), ...safe });
+    const previous = diagnosticsByError.get(error);
+    // The innermost boundary names the step first; an outer one it propagates through only knows a broader one.
+    const proposalStep = PROPOSAL_STEPS.find(step => step === suppliedStep);
+    if (proposalStep !== undefined && previous?.proposalStep === undefined) {
+      safe.proposalStep = proposalStep;
+      const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
+      if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
+    }
+    diagnosticsByError.set(error, { ...previous, ...safe });
   } catch {
     // Reporting cannot change the failure being handled.
+  }
+}
+
+/** Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did. */
+export async function withProposalStep<T>(step: ProposalStep, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    annotateCrash(error, { proposalStep: step });
+    throw error;
   }
 }
 
