@@ -243,9 +243,14 @@ export function isListedSymbol(symbol: string | undefined): boolean {
 
 /** Return true when quotes are available or every requested asset has a final result. */
 export function pricesLoaded(prices: TokenPrices, priceSymbols: Iterable<string | undefined>): boolean {
-  if (Object.keys(prices).length > 0) return true;
+  const requested = [...priceSymbols];
+  // USDT and USDC come back with every fetch as conversion rates, so alone they say nothing about an asset.
+  const quoted = Object.keys(prices).some(
+    symbol => (symbol !== 'USDT' && symbol !== 'USDC') || requested.includes(symbol)
+  );
+  if (quoted) return true;
   let settled = false;
-  for (const symbol of priceSymbols) {
+  for (const symbol of requested) {
     if (fixedQuote(symbol) || (symbol !== undefined && markets.get(symbol) === null)) {
       settled = true;
       continue;

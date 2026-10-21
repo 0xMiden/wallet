@@ -223,6 +223,15 @@ it('values known balances only with a positive price and known scale', () => {
   expect(engine.pricesLoaded({}, [])).toBe(false);
 });
 
+it('waits for a requested asset while only the conversion quotes have arrived', () => {
+  const dollar = { price: 1, change24h: 0, percentageChange24h: 0 };
+  const conversion = { USDT: dollar, USDC: dollar };
+  expect(engine.pricesLoaded(conversion, ['PENDING'])).toBe(false);
+  expect(engine.pricesLoaded(conversion, ['USDC'])).toBe(true);
+  expect(engine.pricesLoaded({ ...conversion, BTC: dollar }, ['PENDING'])).toBe(true);
+  expect(engine.pricesLoaded(conversion, new Set(['USDCX']).values())).toBe(true);
+});
+
 it('shares one successful bulk metadata request across assets and concurrent callers', async () => {
   http.get
     .mockResolvedValueOnce({
