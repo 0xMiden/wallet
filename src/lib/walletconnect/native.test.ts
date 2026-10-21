@@ -1,7 +1,7 @@
 import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
-import { bridgeReceiveIdentity, bridgeReceiveLibraryError, walletRaised } from 'lib/telemetry/bridge-receive-failure';
+import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 
 import { type NativeFeeFields, readNativeFeeFields } from './fees';
 import {
@@ -220,131 +220,35 @@ describe('Android native request failures', () => {
   });
 
   it.each([
-    ['plain', false],
-    ['Error', true]
-  ])('wrapsFrozenRejectionsWithoutReclassifyingTheirAnswer: %s', async (_kind, errorObject) => {
+    ['plain', 'request', false],
+    ['plain', 'sendTransaction', false],
+    ['Error', 'request', true],
+    ['Error', 'sendTransaction', true]
+  ])('marksNonExtensibleRejectionsInPlace: %s %s', async (_kind, method, errorObject) => {
     for (const seal of [Object.freeze, Object.seal, Object.preventExtensions]) {
-      for (const fields of [
-        { details: 'local details', shortMessage: 'local short', expected: 'local details' },
-        { shortMessage: 'local short', expected: 'local short' },
-        { expected: 'local message' }
-      ]) {
-        const cause = { code: 4001 };
-        const original = seal(
-          Object.assign(errorObject ? new Error('local message', { cause }) : { message: 'local message', cause }, {
-            code: nativeFailureCode,
-            ...fields
-          })
-        );
-        rawNativeSend.mockRejectedValueOnce(original);
-        const { error: wrapped } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
-        if (!(wrapped instanceof Error)) throw new Error('Expected an Error wrapper');
+      let cause: unknown = { code: 4001 };
+      for (let index = 0; index < 6; index++) cause = new Error('opaque cause', { cause });
+      const original = seal(
+        Object.assign(errorObject ? new Error('local message', { cause }) : { message: 'local message', cause }, {
+          code: nativeFailureCode,
+          name: 'UserRejectedRequestError'
+        })
+      );
+      const before = bridgeReceiveLibraryError(original);
+      const rawMethod = method === 'request' ? rawNativeRequest : rawNativeSend;
+      rawMethod.mockRejectedValueOnce(original);
+      const { error: caught } = await rejectionOf(
+        method === 'request'
+          ? NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })
+          : NativeReown.sendTransaction({ chainId: 1, to: '0xto' })
+      );
 
-        expect(wrapped).not.toBe(original);
-        expect(wrapped.message).toBe(fields.expected);
-        expect(wrapped.cause).toBe(original);
-        expect(bridgeReceiveLibraryError(wrapped)).toBe('user_rejected');
-        expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
-        expect(readReownNativeFailure(original)).toBeUndefined();
-        expect(Object.keys(wrapped)).not.toContain('nativeOrigin');
-        expect(Reflect.get(wrapped, 'code')).toBeUndefined();
-      }
+      expect(caught).toBe(original);
+      expect(readReownNativeFailure(original)).toEqual(expectedSnapshot);
+      expect(bridgeReceiveLibraryError(caught)).toBe(before);
+      expect(before).toBe('user_rejected');
+      expect(Object.getOwnPropertySymbols(original)).toEqual([]);
     }
-  });
-
-  it('does not classify selected wrapper text as an original answer', async () => {
-    const original = Object.freeze({
-      code: nativeFailureCode,
-      message: 'x'.repeat(16_384),
-      details: 'Request expired'
-    });
-    expect(bridgeReceiveLibraryError(original)).toBe('other');
-    rawNativeRequest.mockRejectedValueOnce(original);
-    const { error: wrapped } = await rejectionOf(
-      NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })
-    );
-    if (!(wrapped instanceof Error)) throw new Error('Expected an Error wrapper');
-
-    expect(wrapped.message).toBe('Request expired');
-    expect(wrapped.cause).toBe(original);
-    expect(bridgeReceiveLibraryError(new Error(wrapped.message))).toBe('request_expired');
-    expect(bridgeReceiveLibraryError(wrapped)).toBe('other');
-    expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
-  });
-
-  it('preserves a frozen rejection custom name and string representation', async () => {
-    const original = Object.freeze(
-      Object.assign(new Error('wallet wording'), { name: 'UserRejectedRequestError', code: nativeFailureCode })
-    );
-    rawNativeSend.mockRejectedValueOnce(original);
-
-    const { error: wrapped } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
-    if (!(wrapped instanceof Error)) throw new Error('Expected an Error wrapper');
-
-    expect(wrapped).not.toBe(original);
-    expect(wrapped.name).toBe(original.name);
-    expect(wrapped.toString()).toBe(original.toString());
-    expect(wrapped.cause).toBe(original);
-    expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
-  });
-
-  it('keeps the default wrapper name when the frozen rejection name is not a string', async () => {
-    const original = Object.freeze({ name: 4001, message: 'wallet wording', code: nativeFailureCode });
-    rawNativeRequest.mockRejectedValueOnce(original);
-
-    const { error: wrapped } = await rejectionOf(
-      NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })
-    );
-    if (!(wrapped instanceof Error)) throw new Error('Expected an Error wrapper');
-
-    expect(wrapped.name).toBe('Error');
-    expect(wrapped.message).toBe(original.message);
-    expect(wrapped.cause).toBe(original);
-    expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
-  });
-
-  it('preserves classification and grouping when code 4001 is at the eighth original link', async () => {
-    let cause: unknown = { code: 4001 };
-    for (let index = 0; index < 6; index++) cause = new Error('opaque cause', { cause });
-    const original = Object.freeze(Object.assign(new Error('wallet wording', { cause }), { code: nativeFailureCode }));
-    expect(bridgeReceiveLibraryError(original)).toBe('user_rejected');
-    rawNativeSend.mockRejectedValueOnce(original);
-
-    const { error: wrapped } = await rejectionOf(NativeReown.sendTransaction({ chainId: 1, to: '0xto' }));
-    if (!(wrapped instanceof Error)) throw new Error('Expected an Error wrapper');
-
-    expect(wrapped).not.toBe(original);
-    expect(wrapped.cause).toBe(original);
-    expect(bridgeReceiveLibraryError(wrapped)).toBe('user_rejected');
-    expect(bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_deposit', cause: wrapped })).toBe(
-      bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_deposit', cause: original })
-    );
-    expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
-  });
-
-  it.each(['request', 'sendTransaction'])('preserves the original sixteen-visit budget for %s', async method => {
-    let cause: unknown = { code: 4001 };
-    for (let index = 0; index < 6; index++) cause = new Error('opaque cause', { cause });
-    for (let index = 0; index < 8; index++) cause = walletRaised(new Error('wallet wording', { cause }));
-    const original = Object.freeze(Object.assign(new Error('wallet wording', { cause }), { code: nativeFailureCode }));
-    expect(bridgeReceiveLibraryError(original)).toBe('user_rejected');
-    const rawMethod = method === 'request' ? rawNativeRequest : rawNativeSend;
-    rawMethod.mockRejectedValueOnce(original);
-
-    const pending =
-      method === 'request'
-        ? NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })
-        : NativeReown.sendTransaction({ chainId: 1, to: '0xto' });
-    const { error: wrapped } = await rejectionOf(pending);
-    if (!(wrapped instanceof Error)) throw new Error('Expected an Error wrapper');
-
-    expect(wrapped).not.toBe(original);
-    expect(wrapped.cause).toBe(original);
-    expect(bridgeReceiveLibraryError(wrapped)).toBe('user_rejected');
-    expect(bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_approve', cause: wrapped })).toBe(
-      bridgeReceiveIdentity({ route: 'usdcx', step: 'wallet_approve', cause: original })
-    );
-    expect(readReownNativeFailure(wrapped)).toEqual(expectedSnapshot);
   });
 
   it('copies only validated fields and omits wallet codes for non-wallet origins', async () => {
@@ -423,7 +327,7 @@ describe('Android native request failures', () => {
     }
   });
 
-  it('preserves the original rejection when code or display access is hostile', async () => {
+  it('preserves the original rejection when code, display or name access is hostile', async () => {
     const hostileCode = Object.defineProperty({}, 'code', {
       get() {
         throw new Error('hostile code');
@@ -453,13 +357,22 @@ describe('Android native request failures', () => {
     );
     const revoked = Proxy.revocable({}, {});
     revoked.revoke();
-    for (const original of [hostileCode, hostileDisplay, hostileName, hostileDescriptor, revoked.proxy]) {
+    for (const original of [hostileCode, hostileDescriptor, revoked.proxy]) {
       rawNativeRequest.mockRejectedValueOnce(original);
       const { error: caught } = await rejectionOf(
         NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })
       );
       expect(caught).toBe(original);
       expect(readReownNativeFailure(caught)).toBeUndefined();
+    }
+    // A valid own code is enough; the facade never reads display fields.
+    for (const original of [hostileDisplay, hostileName]) {
+      rawNativeRequest.mockRejectedValueOnce(original);
+      const { error: caught } = await rejectionOf(
+        NativeReown.request({ chainId: 1, method: 'personal_sign', params: [] })
+      );
+      expect(caught).toBe(original);
+      expect(readReownNativeFailure(caught)).toEqual(expectedSnapshot);
     }
   });
 

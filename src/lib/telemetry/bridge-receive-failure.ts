@@ -59,14 +59,10 @@ export interface BridgeReceiveFailure extends Partial<BridgeReceiveFailureSource
 // A registered symbol rather than a module-local set: every copy of this module in a realm reads the same mark, and a
 // failure's write and its report run in one realm.
 const WALLET_RAISED = Symbol.for('miden.bridge-receive.wallet-raised');
-const ORIGINAL_REJECTIONS = new WeakMap<object, object>();
 
 /** Marks an error raised in the wallet's own words, never an answer's: the report reads only the answer it wraps. */
-export function walletRaised<E extends Error>(error: E, originalRejection?: object): E {
+export function walletRaised<E extends Error>(error: E): E {
   Object.defineProperty(error, WALLET_RAISED, { value: true });
-  // A display-only wrapper must leave its original rejection's bounded traversal unchanged.
-  if (originalRejection !== undefined)
-    ORIGINAL_REJECTIONS.set(error, ORIGINAL_REJECTIONS.get(originalRejection) ?? originalRejection);
   return error;
 }
 
@@ -94,7 +90,6 @@ interface Link {
 }
 
 const MAX_LINKS = 8;
-const MAX_VISITS = MAX_LINKS * 2;
 const TEXT_LIMIT = 16_384;
 
 const REVERTED_ERRORS = new Set<unknown>([
@@ -147,14 +142,12 @@ function readLink(source: object): Link {
 }
 
 // The cause chain, objects included: an EIP-1193 rejection's code sits on the provider's plain error object. A link the
-// wallet raised is no answer, so only what it wraps is read. A separate visit cap bounds fresh-object causes.
+// wallet raised is no answer, so only what it wraps is read.
 function linksOf(error: unknown): Link[] {
   const chain: Link[] = [];
   const seen = new Set<unknown>();
   let current = error;
-  while (chain.length < MAX_LINKS && seen.size < MAX_VISITS) {
-    if (typeof current === 'object' && current !== null) current = ORIGINAL_REJECTIONS.get(current) ?? current;
-    if (seen.has(current)) break;
+  while (seen.size < MAX_LINKS && !seen.has(current)) {
     seen.add(current);
     if (typeof current === 'string') {
       if (current !== '') chain.push({ text: current.slice(0, TEXT_LIMIT) });

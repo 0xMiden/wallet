@@ -35,13 +35,8 @@ export type ReownNativeFailure = Readonly<
   )
 >;
 
-// Keep ownership at the native boundary: ordinary bridge fields carry no mark.
-const NATIVE_FAILURE = Symbol('reown-native-request-failure');
-type MarkedRejection = { readonly [NATIVE_FAILURE]?: ReownNativeFailure };
-
-function hasOwnMark(rejection: object): rejection is MarkedRejection {
-  return Object.prototype.hasOwnProperty.call(rejection, NATIVE_FAILURE);
-}
+// Keyed by identity, so a frozen rejection can be marked and no field of the rejection ever carries the mark.
+const NATIVE_FAILURES = new WeakMap<object, ReownNativeFailure>();
 
 function readField(source: object, key: string): unknown {
   try {
@@ -90,29 +85,16 @@ export function decodeReownNativeFailureCode(code: unknown): ReownNativeFailure 
 }
 
 export function markReownNativeFailure(rejection: object, snapshot: ReownNativeFailure): boolean {
-  try {
-    if (hasOwnMark(rejection)) return false;
-    const validated = validateReownNativeFailure(snapshot);
-    if (validated === undefined) return false;
-    // Never freeze bridge-owned data or let it mutate a request's saved observations.
-    Object.defineProperty(rejection, NATIVE_FAILURE, { value: Object.freeze(validated) });
-    return true;
-  } catch {
-    return false;
-  }
+  if (NATIVE_FAILURES.has(rejection)) return false;
+  const validated = validateReownNativeFailure(snapshot);
+  if (validated === undefined) return false;
+  // Never freeze bridge-owned data or let it mutate a request's saved observations.
+  NATIVE_FAILURES.set(rejection, Object.freeze(validated));
+  return true;
 }
 
 export function readReownNativeFailure(rejection: unknown): ReownNativeFailure | undefined {
-  try {
-    if (
-      (typeof rejection !== 'object' && typeof rejection !== 'function') ||
-      rejection === null ||
-      !hasOwnMark(rejection)
-    )
-      return undefined;
-    // An inherited mark or a marked cause belongs to another rejection.
-    return validateReownNativeFailure(rejection[NATIVE_FAILURE]);
-  } catch {
-    return undefined;
-  }
+  if ((typeof rejection !== 'object' && typeof rejection !== 'function') || rejection === null) return undefined;
+  // A prototype or a cause that is marked belongs to another rejection.
+  return NATIVE_FAILURES.get(rejection);
 }

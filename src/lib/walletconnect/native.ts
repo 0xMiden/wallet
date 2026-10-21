@@ -118,25 +118,11 @@ function nativeRequestRejection(rejection: unknown): unknown {
     // An inherited code belongs to another answer; getters are not a safe wire envelope.
     const code: unknown = Object.getOwnPropertyDescriptor(rejection, 'code')?.value;
     const snapshot = decodeReownNativeFailureCode(code);
-    if (snapshot === undefined || markReownNativeFailure(rejection, snapshot)) return rejection;
-
-    let message = '';
-    for (const key of ['details', 'shortMessage', 'message']) {
-      const value: unknown = Reflect.get(rejection, key);
-      if (typeof value === 'string' && value.trim()) {
-        message = value;
-        break;
-      }
-    }
-    // The classifier skips our display wrapper and reads the original wallet answer.
-    const wrapped = walletRaised(new Error(message, { cause: rejection }), rejection);
-    const name: unknown = Reflect.get(rejection, 'name');
-    if (typeof name === 'string') wrapped.name = name;
-    return markReownNativeFailure(wrapped, snapshot) ? wrapped : rejection;
+    if (snapshot !== undefined) markReownNativeFailure(rejection, snapshot);
   } catch {
     // Diagnostics must not replace a bridge rejection with an accessor's exception.
-    return rejection;
   }
+  return rejection;
 }
 
 export const NativeReown: ReownPlugin = new Proxy(rawNativeReown, {

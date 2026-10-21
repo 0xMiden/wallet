@@ -221,25 +221,28 @@ it('decodes the golden native envelope identically after discarding unknown keys
   ).toEqual(wallet);
 });
 
-it('marks a detached non-enumerable immutable snapshot', () => {
+it('marks by identity a detached immutable snapshot', () => {
   const { markReownNativeFailure, readReownNativeFailure } =
     jest.requireActual<BoundaryModule>('./native-request-failure');
+  for (const seal of [Object.freeze, Object.seal, Object.preventExtensions]) {
+    const sealed = seal(new Error('sealed'));
+    expect(markReownNativeFailure(sealed, wallet)).toBe(true);
+    expect(readReownNativeFailure(sealed)).toEqual(wallet);
+    expect(Object.getOwnPropertySymbols(sealed)).toEqual([]);
+  }
   const rejection = new Error('local', { cause: new Error('cause') });
   const cause = rejection.cause;
   expect(markReownNativeFailure(rejection, wallet)).toBe(true);
   expect(readReownNativeFailure(rejection)).toEqual(wallet);
   expect(Object.keys(rejection)).toEqual([]);
+  expect(Object.getOwnPropertySymbols(rejection)).toEqual([]);
   expect(JSON.stringify(rejection)).toBe('{}');
   const supplied: WalletSnapshot & { topic: string } = { ...wallet, topic: 'private-topic' };
   const detached = new Error('detached');
   expect(markReownNativeFailure(detached, supplied)).toBe(true);
   expect(Object.isFrozen(supplied)).toBe(false);
-  const [marker] = Object.getOwnPropertySymbols(detached);
-  expect(marker).toBeDefined();
-  if (marker === undefined) throw new Error('missing marker');
-  const descriptor = Object.getOwnPropertyDescriptor(detached, marker);
-  expect(descriptor).toEqual({ value: wallet, enumerable: false, writable: false, configurable: false });
-  const stored: unknown = descriptor?.value;
+  const stored = readReownNativeFailure(detached);
+  expect(stored).toEqual(wallet);
   expect(stored).not.toBe(supplied);
   expect(Object.isFrozen(stored)).toBe(true);
   supplied.walletResponseCode = 'other';
@@ -249,7 +252,6 @@ it('marks a detached non-enumerable immutable snapshot', () => {
   expect(readReownNativeFailure(rejection)).toEqual(wallet);
   expect(rejection.cause).toBe(cause);
   expect(rejection.message).toBe('local');
-  expect(markReownNativeFailure(Object.freeze(new Error('frozen')), wallet)).toBe(false);
   const plain = { message: 'plain', cause };
   expect(markReownNativeFailure(plain, base)).toBe(true);
   expect(readReownNativeFailure(plain)).toEqual(base);
@@ -266,7 +268,7 @@ it('marks a detached non-enumerable immutable snapshot', () => {
   expect(readReownNativeFailure(callable)).toEqual(wallet);
 });
 
-it('ignores forged fields and hostile accessors', () => {
+it('ignores forged fields and marks hostile objects by identity without touching them', () => {
   const { validateReownNativeFailure, markReownNativeFailure, readReownNativeFailure } =
     jest.requireActual<BoundaryModule>('./native-request-failure');
   expect(readReownNativeFailure({ nativeOrigin: 'wallet_error', diagnostics: wallet })).toBeUndefined();
@@ -277,16 +279,11 @@ it('ignores forged fields and hostile accessors', () => {
   const marked = new Error('marked');
   expect(markReownNativeFailure(marked, wallet)).toBe(true);
   expect(readReownNativeFailure(new Error('outer', { cause: marked }))).toBeUndefined();
+  expect(readReownNativeFailure(Object.assign({}, marked))).toBeUndefined();
   const inherited: object = Object.create(marked);
   expect(readReownNativeFailure(inherited)).toBeUndefined();
   expect(markReownNativeFailure(inherited, base)).toBe(true);
   expect(readReownNativeFailure(inherited)).toEqual(base);
-  const [marker] = Object.getOwnPropertySymbols(marked);
-  if (marker === undefined) throw new Error('missing marker');
-  const invalidMark = Object.defineProperty({}, marker, { value: { ...wallet, published: 'yes' } });
-  expect(readReownNativeFailure(invalidMark)).toBeUndefined();
-  const noisyMark = Object.defineProperty({}, marker, { value: { ...wallet, topic: 'private-topic' } });
-  expect(readReownNativeFailure(noisyMark)).toEqual(wallet);
   const hostile = new Proxy(
     {},
     {
@@ -303,22 +300,16 @@ it('ignores forged fields and hostile accessors', () => {
   );
   expect(() => validateReownNativeFailure(hostile)).not.toThrow();
   expect(validateReownNativeFailure(hostile)).toBeUndefined();
-  expect(() => readReownNativeFailure(hostile)).not.toThrow();
   expect(readReownNativeFailure(hostile)).toBeUndefined();
-  expect(markReownNativeFailure(hostile, wallet)).toBe(false);
-  const throwingMarker = Object.defineProperty({}, marker, {
-    get() {
-      throw new Error('marker');
-    }
-  });
-  expect(() => readReownNativeFailure(throwingMarker)).not.toThrow();
-  expect(readReownNativeFailure(throwingMarker)).toBeUndefined();
+  expect(markReownNativeFailure(hostile, wallet)).toBe(true);
+  expect(readReownNativeFailure(hostile)).toEqual(wallet);
   const revoked = Proxy.revocable({}, {});
   revoked.revoke();
   expect(() => validateReownNativeFailure(revoked.proxy)).not.toThrow();
   expect(validateReownNativeFailure(revoked.proxy)).toBeUndefined();
   expect(readReownNativeFailure(revoked.proxy)).toBeUndefined();
-  expect(markReownNativeFailure(revoked.proxy, wallet)).toBe(false);
+  expect(markReownNativeFailure(revoked.proxy, wallet)).toBe(true);
+  expect(readReownNativeFailure(revoked.proxy)).toEqual(wallet);
 });
 
 it.each(['nativeOrigin', 'requestAge', 'published'])('ignores throwing mandatory accessor %s', field => {
