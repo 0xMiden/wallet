@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "Carteira indisponível na sua região",
   "walletAccessRestrictedBody": "A carteira não está disponível na sua localização atual.",
   "walletAccessUnavailableTitle": "Não foi possível verificar a disponibilidade",
-  "walletAccessUnavailableBody": "Verifique a sua ligação e tente novamente."
+  "walletAccessUnavailableBody": "Verifique a sua ligação e tente novamente.",
+  "runtimeUnsupportedTitle": "Este navegador ou dispositivo não é compatível com a carteira",
+  "runtimeUnsupportedBody": "A carteira precisa do WebAssembly SIMD, que este navegador ou dispositivo não oferece. Abra a carteira em outro dispositivo ou em um navegador atualizado."
 }

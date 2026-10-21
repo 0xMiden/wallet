@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "Monedero no disponible en tu región",
   "walletAccessRestrictedBody": "El monedero no está disponible desde tu ubicación actual.",
   "walletAccessUnavailableTitle": "No se pudo comprobar la disponibilidad",
-  "walletAccessUnavailableBody": "Comprueba tu conexión e inténtalo de nuevo."
+  "walletAccessUnavailableBody": "Comprueba tu conexión e inténtalo de nuevo.",
+  "runtimeUnsupportedTitle": "Este navegador o dispositivo no puede ejecutar la cartera",
+  "runtimeUnsupportedBody": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado."
 }

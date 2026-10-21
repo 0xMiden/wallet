@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "Гаманець недоступний у вашому регіоні",
   "walletAccessRestrictedBody": "Гаманець недоступний у вашому поточному місцезнаходженні.",
   "walletAccessUnavailableTitle": "Не вдалося перевірити доступність",
-  "walletAccessUnavailableBody": "Перевірте з’єднання та спробуйте ще раз."
+  "walletAccessUnavailableBody": "Перевірте з’єднання та спробуйте ще раз.",
+  "runtimeUnsupportedTitle": "Цей браузер або пристрій не підтримує роботу гаманця",
+  "runtimeUnsupportedBody": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері."
 }

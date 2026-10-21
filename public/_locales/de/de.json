@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "Wallet in deiner Region nicht verfügbar",
   "walletAccessRestrictedBody": "Die Wallet ist an deinem aktuellen Standort nicht verfügbar.",
   "walletAccessUnavailableTitle": "Verfügbarkeit konnte nicht geprüft werden",
-  "walletAccessUnavailableBody": "Prüfe deine Verbindung und versuche es erneut."
+  "walletAccessUnavailableBody": "Prüfe deine Verbindung und versuche es erneut.",
+  "runtimeUnsupportedTitle": "Dieser Browser oder dieses Gerät kann die Wallet nicht ausführen",
+  "runtimeUnsupportedBody": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser."
 }
