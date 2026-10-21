@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "Cüzdan bölgenizde kullanılamıyor",
   "walletAccessRestrictedBody": "Cüzdan bulunduğunuz konumda kullanılamıyor.",
   "walletAccessUnavailableTitle": "Kullanılabilirlik kontrol edilemedi",
-  "walletAccessUnavailableBody": "Bağlantınızı kontrol edip tekrar deneyin."
+  "walletAccessUnavailableBody": "Bağlantınızı kontrol edip tekrar deneyin.",
+  "runtimeUnsupportedTitle": "Bu tarayıcı veya cihaz cüzdanı çalıştıramıyor",
+  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın."
 }

@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "Кошелёк недоступен в вашем регионе",
   "walletAccessRestrictedBody": "Кошелёк недоступен в вашем текущем местоположении.",
   "walletAccessUnavailableTitle": "Не удалось проверить доступность",
-  "walletAccessUnavailableBody": "Проверьте подключение и попробуйте ещё раз."
+  "walletAccessUnavailableBody": "Проверьте подключение и попробуйте ещё раз.",
+  "runtimeUnsupportedTitle": "Этот браузер или устройство не поддерживает работу кошелька",
+  "runtimeUnsupportedBody": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере."
 }
