@@ -205,9 +205,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       safe.proposalStep = proposalStep;
       const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
       if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
-      // Only beside the step this annotation is allowed to name, and only a listed change. Anything else is dropped.
+      // Only beside proposal creation, and only a listed change. A listed name on any other step is dropped.
       const securityChange = SECURITY_CHANGE_ACTIONS.find(action => action === suppliedChange);
-      if (securityChange !== undefined) safe.securityChange = securityChange;
+      if (proposalStep === 'proposal_create' && securityChange !== undefined) safe.securityChange = securityChange;
     }
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);

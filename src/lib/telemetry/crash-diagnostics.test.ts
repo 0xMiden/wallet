@@ -704,6 +704,9 @@ describe('source-bound crash diagnostics', () => {
     const alone = privateFailure();
     annotateCrash(alone, { securityChange: 'switch-guardian' });
     expect(snapshotCrashDiagnostics(alone)).toEqual({});
+    const otherStep = privateFailure();
+    annotateCrash(otherStep, { proposalStep: 'chain_sync', securityChange: 'switch-guardian' });
+    expect(snapshotCrashDiagnostics(otherStep)).toEqual({ proposalStep: 'chain_sync' });
     const kept = privateFailure();
     annotateCrash(kept, { proposalStep: 'proposal_create', securityChange: 'replace-hot-key' });
     annotateCrash(kept, {
