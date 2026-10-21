@@ -351,7 +351,7 @@
   "seedPhraseDescription": "秘密の復旧フレーズを書き留め、安全な場所に保管してください。このフレーズは、アカウントを復旧するための唯一の手段です。",
   "doNotShareWithAnyone": "誰にも教えないでください。",
   "anyoneCanTakeAssets": "このフレーズを知っている者なら誰でも、あなたの資産を永久に奪うことができます。",
-  "continue": "続きを読む",
+  "continue": "続ける",
   "noOperationsFound": "現在、取引は登録されていません。",
   "remove": "削除",
   "ifYouWantToRevealPrivateKeyFromOtherAccount": "別のアカウントのビューキーを表示したい場合は、右上のドロップダウンメニューからそのアカウントを選択してください。",
