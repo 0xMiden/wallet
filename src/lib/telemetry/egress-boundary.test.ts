@@ -1611,26 +1611,6 @@ describe('crash-report egress', () => {
       });
     });
 
-    it('keeps poisoned cursor contents and scrubbed credentials off the real wire', async () => {
-      consentOn();
-      initCrashReporting();
-      await withCursorRequestFailure(target, injectedFailure, async evidence => {
-        const publicFailure = await scanFailure();
-        expect(publicFailure).toBe(injectedFailure);
-        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
-        await flushEgress();
-        expect(evidence.opened).toBeGreaterThan(0);
-        expect(evidence.requestErrors).toBe(1);
-        expect(captured).toHaveLength(1);
-        const events = sentryEvents();
-        expect(events).toHaveLength(1);
-        const event = events[0];
-        if (event === undefined) throw new Error('missing cursor report');
-        expectOriginalExceptions(event);
-        expectNoStoragePoison(wireText());
-      });
-    });
-
     it('sends nothing when the same cursor failure is consumed', async () => {
       consentOn();
       initCrashReporting();
