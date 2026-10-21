@@ -1,0 +1,193 @@
+name: NEVER-MERGE 1616 five-ready scoped proof
+
+on:
+  push:
+    branches: [ci/1616-five-ready-positive-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  scoped-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      GIT_OPTIONAL_LOCKS: '0'
+      FORCE_COLOR: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind sole transport child and frozen source
+        id: bootstrap
+        run: |
+          set -euo pipefail
+          export PROOF_DIR="$RUNNER_TEMP/1616-five-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          test ! -e "$PROOF_DIR"
+          mkdir "$PROOF_DIR"
+          mkdir "$PROOF_DIR/tools" "$PROOF_DIR/prerequisites"
+          printf 'PROOF_DIR=%s\n' "$PROOF_DIR" >> "$GITHUB_ENV"
+          cp -- .github/ci/1616-five-ready/capture.py "$PROOF_DIR/tools/capture.py"
+          cp -- .github/ci/1616-five-ready/classify.py "$PROOF_DIR/tools/classify.py"
+          cp -- .github/ci/1616-five-ready/expected.json "$PROOF_DIR/tools/expected.json"
+          cp -- .github/ci/1616-five-ready/logger.bash "$PROOF_DIR/tools/logger.bash"
+          cp -- .github/ci/1616-five-ready/source-spec.json "$PROOF_DIR/tools/source-spec.json"
+          cp -- .github/workflows/1616-five-ready-positive-proof.yml "$PROOF_DIR/tools/1616-five-ready-positive-proof.yml"
+          python3 "$PROOF_DIR/tools/capture.py" init
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install exact lockfile
+        id: install
+        timeout-minutes: 9
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          run_logged "$PROOF_DIR/prerequisites/enable" corepack enable
+          run_logged "$PROOF_DIR/prerequisites/prepare" corepack prepare yarn@1.22.22 --activate
+          run_logged "$PROOF_DIR/prerequisites/install" timeout 6m yarn install --frozen-lockfile --network-timeout 600000
+      - name: Capture installed physical source and pinned test framework
+        id: inputs
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/tools/capture.py" installed
+      - name: Named format
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          run_logged "$PROOF_DIR/prerequisites/format" timeout 3m yarn --silent prettier --check src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx src/lib/telemetry/crash.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.ts src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/user-visible-error.ts src/screens/earn-flow/EarnDepositReview.test.tsx
+      - name: Named lint
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          run_logged "$PROOF_DIR/prerequisites/lint" timeout 3m yarn --silent eslint src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx src/lib/telemetry/crash.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.ts src/lib/telemetry/user-visible-error.test.ts src/lib/telemetry/user-visible-error.ts src/screens/earn-flow/EarnDepositReview.test.tsx
+      - name: Named typescript
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          run_logged "$PROOF_DIR/prerequisites/typescript" timeout 3m yarn --silent tsc --noEmit -p .
+      - name: Retain natural positive results and source
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          python3 "$PROOF_DIR/tools/capture.py" begin positive
+          out="$PROOF_DIR/arms/positive/results"
+          if run_logged "$out/jest" yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCard.test.tsx src/components/ui/PromptCarousel.test.tsx src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/user-visible-error.test.ts src/screens/earn-flow/EarnDepositReview.test.tsx --maxWorkers=2 --coverage=false --watch=false --no-colors --json --outputFile="$out/jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/tools/capture.py" end positive
+      - name: Retain natural omit-F001 results and source
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          python3 "$PROOF_DIR/tools/capture.py" begin omit-F001
+          out="$PROOF_DIR/arms/omit-F001/results"
+          if run_logged "$out/jest" yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCard.test.tsx src/components/ui/PromptCarousel.test.tsx src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/user-visible-error.test.ts src/screens/earn-flow/EarnDepositReview.test.tsx --maxWorkers=2 --coverage=false --watch=false --no-colors --json --outputFile="$out/jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/tools/capture.py" end omit-F001
+      - name: Retain natural omit-F002 results and source
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          python3 "$PROOF_DIR/tools/capture.py" begin omit-F002
+          out="$PROOF_DIR/arms/omit-F002/results"
+          if run_logged "$out/jest" yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCard.test.tsx src/components/ui/PromptCarousel.test.tsx src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/user-visible-error.test.ts src/screens/earn-flow/EarnDepositReview.test.tsx --maxWorkers=2 --coverage=false --watch=false --no-colors --json --outputFile="$out/jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/tools/capture.py" end omit-F002
+      - name: Retain natural omit-F003 results and source
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          python3 "$PROOF_DIR/tools/capture.py" begin omit-F003
+          out="$PROOF_DIR/arms/omit-F003/results"
+          if run_logged "$out/jest" yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCard.test.tsx src/components/ui/PromptCarousel.test.tsx src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/user-visible-error.test.ts src/screens/earn-flow/EarnDepositReview.test.tsx --maxWorkers=2 --coverage=false --watch=false --no-colors --json --outputFile="$out/jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/tools/capture.py" end omit-F003
+      - name: Retain natural omit-F005 results and source
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          python3 "$PROOF_DIR/tools/capture.py" begin omit-F005
+          out="$PROOF_DIR/arms/omit-F005/results"
+          if run_logged "$out/jest" yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCard.test.tsx src/components/ui/PromptCarousel.test.tsx src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/user-visible-error.test.ts src/screens/earn-flow/EarnDepositReview.test.tsx --maxWorkers=2 --coverage=false --watch=false --no-colors --json --outputFile="$out/jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/tools/capture.py" end omit-F005
+      - name: Retain natural restored results and source
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          python3 "$PROOF_DIR/tools/capture.py" begin restored
+          out="$PROOF_DIR/arms/restored/results"
+          if run_logged "$out/jest" yarn jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCard.test.tsx src/components/ui/PromptCarousel.test.tsx src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/use-user-visible-error.test.tsx src/lib/telemetry/user-visible-error.test.ts src/screens/earn-flow/EarnDepositReview.test.tsx --maxWorkers=2 --coverage=false --watch=false --no-colors --json --outputFile="$out/jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/tools/capture.py" end restored
+      - name: Retain natural compatibility results and source
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          python3 "$PROOF_DIR/tools/capture.py" begin compatibility
+          out="$PROOF_DIR/arms/compatibility/results"
+          if run_logged "$out/jest" yarn jest --runTestsByPath src/lib/telemetry/crash.test.ts src/lib/telemetry/redact.test.ts src/lib/telemetry/transaction-failure.test.ts --maxWorkers=2 --coverage=false --watch=false --no-colors --json --outputFile="$out/jest.json"; then
+            :
+          else
+            :
+          fi
+          python3 "$PROOF_DIR/tools/capture.py" end compatibility
+      - name: Always retain current state then restore canonical source
+        if: always() && steps.bootstrap.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          run_logged "$PROOF_DIR/finalize" python3 "$PROOF_DIR/tools/capture.py" finalize
+      - name: Validate complete raw observations after restoration
+        if: always() && steps.inputs.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/tools/logger.bash"
+          run_logged "$PROOF_DIR/classify" python3 "$PROOF_DIR/tools/classify.py"
+      - name: Always seal all visible and hidden evidence
+        if: always() && steps.bootstrap.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/tools/capture.py" seal
+      - name: Always upload raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1616-five-ready-scoped-proof
+          path: ${{ env.PROOF_DIR }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

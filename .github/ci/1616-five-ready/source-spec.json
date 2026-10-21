@@ -1,0 +1,193 @@
+{
+  "status": "UNRUN_PRIVATE_CI_PROPOSAL",
+  "source_head": "ac2e2d66a517991b08be452163be312152f44afd",
+  "source_tree": "2bd1813981899a8505b3cb58bc6eefb9d42f27af",
+  "source_parent": "9f569b9a2e35cadbc5edbc03634f5f36f037cc62",
+  "before_fixes": "c556df8d557629f0b4aac9bf09c0feffbba54d35",
+  "review_base": "abc6eaefd5598daf9f803927045b733b57c74668",
+  "source_entries": 3633,
+  "regular_files": 3631,
+  "symlinks": 2,
+  "transport_paths": [
+    ".github/ci/1616-five-ready/capture.py",
+    ".github/ci/1616-five-ready/classify.py",
+    ".github/ci/1616-five-ready/expected.json",
+    ".github/ci/1616-five-ready/logger.bash",
+    ".github/ci/1616-five-ready/source-spec.json",
+    ".github/workflows/1616-five-ready-positive-proof.yml"
+  ],
+  "mutations": {
+    "omit-F001": {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx",
+      "candidate": {
+        "oid": "f26929f76a57b417c127f63c2652babf160eac2b",
+        "sha256": "45c25bbcb20256c6c45bdbb11edc07364bdf5513d33819bc9dd3befb7b14a43b",
+        "bytes": 12627
+      },
+      "omission": {
+        "oid": "3fd8aa30440279d6325f8219e10a15aab5d74a44",
+        "sha256": "b4bd48bcb738da94de60e8621f744728ce4bee6a971770aeb36bdd91535339df",
+        "bytes": 12690
+      }
+    },
+    "omit-F002": {
+      "path": "src/lib/telemetry/use-user-visible-error.ts",
+      "candidate": {
+        "oid": "b823591f5c6c22aa84bc8f23efd53503d9c47dbc",
+        "sha256": "4a4a8dfa192ff6ae7ec942b1298a1c8b9cc740f437fa608bbe3b858c115dcb09",
+        "bytes": 1130
+      },
+      "omission": {
+        "oid": "16fa5c4c6154772c77f94b69cec5c7282db797f6",
+        "sha256": "b7fc2d595e28954cae2aba17dbd00b356c84a354df9c1bd036c608b153f82b8e",
+        "bytes": 470
+      }
+    },
+    "omit-F003": {
+      "path": "src/lib/telemetry/user-visible-error.ts",
+      "candidate": {
+        "oid": "96cfd7152c56c7132dbeb6796e93cdc0ea0e118a",
+        "sha256": "b9d92bcbb039bfec79bfe44cc2e523998e6a3d8fd4ef84ce9480e9b6be2d3359",
+        "bytes": 2094
+      },
+      "omission": {
+        "oid": "3bead6422289ce39840e28212403f858789a7840",
+        "sha256": "8a4c7ef7412ae11df0d9f72b31c2d6742e16e70fe6f98219f62358658976a979",
+        "bytes": 2087
+      }
+    },
+    "omit-F005": {
+      "path": "src/lib/telemetry/crash.ts",
+      "candidate": {
+        "oid": "dc031a0cac526287c8b82e0b82884f5ef0ae10fc",
+        "sha256": "e1fe04b3c274c090e0b73008368452b6d9ea639487cbd1effef889157e0e6e22",
+        "bytes": 19886
+      },
+      "omission": {
+        "oid": "c6a72d5dc5f80766a3661651631f77d76d994a9d",
+        "sha256": "91820e4493baef130c1ee953d661a0193e1de188aba0d3e872f09388559bbfda",
+        "bytes": 19046
+      }
+    }
+  },
+  "framework_roots": [
+    "node_modules/@jest/fake-timers",
+    "node_modules/@miden/hd-key",
+    "node_modules/@sentry/browser",
+    "node_modules/@sentry/browser-utils",
+    "node_modules/@sentry/core",
+    "node_modules/@sinonjs/fake-timers",
+    "node_modules/@testing-library/dom",
+    "node_modules/@testing-library/react",
+    "node_modules/babel-jest",
+    "node_modules/jest",
+    "node_modules/jest-environment-jsdom",
+    "node_modules/jest-runtime",
+    "node_modules/jsdom",
+    "node_modules/react",
+    "node_modules/react-dom"
+  ],
+  "framework_prior_files": 3634,
+  "framework_prior_sha256": "b4185d861caceda7169df2cda9bc080603379d5e048be86930c41c5700b79a51",
+  "framework_api_files": [
+    "node_modules/expect/package.json",
+    "node_modules/expect/build/index.js",
+    "node_modules/jest-circus/package.json",
+    "node_modules/jest-circus/build/jestAdapterInit.js",
+    "node_modules/jest-circus/build/runner.js",
+    "node_modules/jest-util/package.json",
+    "node_modules/jest-util/build/index.js",
+    "node_modules/@jest/test-result/package.json",
+    "node_modules/@jest/test-result/build/index.js",
+    "node_modules/@jest/core/package.json",
+    "node_modules/@jest/core/build/index.js",
+    "node_modules/jest-matcher-utils/package.json",
+    "node_modules/jest-matcher-utils/build/index.js",
+    "node_modules/jest-message-util/package.json",
+    "node_modules/jest-message-util/build/index.js",
+    "node_modules/pretty-format/package.json",
+    "node_modules/pretty-format/build/index.js",
+    "node_modules/jest-mock/package.json",
+    "node_modules/jest-mock/build/index.js",
+    "node_modules/jest/package.json",
+    "node_modules/jest/build/index.js",
+    "node_modules/@swc/jest/package.json",
+    "node_modules/@swc/jest/index.js",
+    "node_modules/@babel/code-frame/package.json",
+    "node_modules/@babel/code-frame/lib/index.js",
+    "node_modules/stack-utils/package.json",
+    "node_modules/stack-utils/index.js",
+    "node_modules/slash/package.json",
+    "node_modules/slash/index.js"
+  ],
+  "framework_prior_basis": "Accepted privacy/page CI39524824034 actual3634 physical file manifest; oldUI725 is an exact subset. Additional29 runner/matcher files are bound to current frozen lock and captured physically, with no invented earlier identity claim.",
+  "named_format_files": [
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx",
+    "src/lib/telemetry/crash.ts",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/use-user-visible-error.ts",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/lib/telemetry/user-visible-error.ts",
+    "src/screens/earn-flow/EarnDepositReview.test.tsx"
+  ],
+  "prerequisite_argv": {
+    "enable": [
+      "corepack",
+      "enable"
+    ],
+    "prepare": [
+      "corepack",
+      "prepare",
+      "yarn@1.22.22",
+      "--activate"
+    ],
+    "install": [
+      "timeout",
+      "6m",
+      "yarn",
+      "install",
+      "--frozen-lockfile",
+      "--network-timeout",
+      "600000"
+    ],
+    "format": [
+      "timeout",
+      "3m",
+      "yarn",
+      "--silent",
+      "prettier",
+      "--check",
+      "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx",
+      "src/lib/telemetry/crash.ts",
+      "src/lib/telemetry/egress-boundary.test.ts",
+      "src/lib/telemetry/use-user-visible-error.ts",
+      "src/lib/telemetry/user-visible-error.test.ts",
+      "src/lib/telemetry/user-visible-error.ts",
+      "src/screens/earn-flow/EarnDepositReview.test.tsx"
+    ],
+    "lint": [
+      "timeout",
+      "3m",
+      "yarn",
+      "--silent",
+      "eslint",
+      "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx",
+      "src/lib/telemetry/crash.ts",
+      "src/lib/telemetry/egress-boundary.test.ts",
+      "src/lib/telemetry/use-user-visible-error.ts",
+      "src/lib/telemetry/user-visible-error.test.ts",
+      "src/lib/telemetry/user-visible-error.ts",
+      "src/screens/earn-flow/EarnDepositReview.test.tsx"
+    ],
+    "typescript": [
+      "timeout",
+      "3m",
+      "yarn",
+      "--silent",
+      "tsc",
+      "--noEmit",
+      "-p",
+      "."
+    ]
+  }
+}

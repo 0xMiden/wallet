@@ -1,0 +1,1933 @@
+{
+  "status": "UNRUN_PRIVATE_CI_PROPOSAL",
+  "cases": [
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard uses the design-system 16px card radius, not the retired 10px token",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard takes the `outline` surface: a hairline edge on `page`, not a grey block",
+      "prior_status": "passed",
+      "prior_assertions": 6
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard keeps one style entry for each variant",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard draws the `default` variant on `page` with the muted body and the 36px bubble",
+      "prior_status": "passed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard draws the `critical` variant on `page` with the muted body and the 36px bubble",
+      "prior_status": "passed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard draws the `receive` variant on the Receive tint with its ink",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard draws the `warning` variant on the sand tint with its ink",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard runs the card action when its content is clicked",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard exposes the card action as a real button, so the platform gives it keyboard activation",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard is not focusable when the card has no action",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard keeps the dismiss and CTA controls outside the card-action button",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard runs the CTA exactly once without bubbling to the card action",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard dismisses without invoking either card action",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard does not invoke a disabled CTA",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard renders the loading status indicator",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard renders the success status indicator",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard renders the failure status indicator",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard keeps the action available after a failure so it can be retried",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard the card draws every icon in one bubble gives the hero the round tinted bubble its siblings wear",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard the card draws every icon in one bubble gives a positive hero the status tint rather than a solid green tile",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard the card draws every icon in one bubble draws the leading icon and the status marks as the same bubble",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard does not loop the funding animations when the user asks for reduced motion",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard announces each hero state by mutating one stable live region",
+      "prior_status": "passed",
+      "prior_assertions": 6
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard announces a failure that follows the Funding hero through the same live region",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard focus when a hero takes over the card (#923) keeps keyboard focus in the card when the activated button is replaced by the hero",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard focus when a hero takes over the card (#923) does not move focus for a tap that never focused the card",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard focus when a hero takes over the card (#923) hands focus back to the card action when the hero ends",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard focus when a hero takes over the card (#923) hands focus back when the hero ends in a browser that blurs as the tabindex goes",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard focus when a hero takes over the card (#923) hands focus back when the hero ends after the page lost focus with the card still focused",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard focus when a hero takes over the card (#923) leaves focus where the user moved it when the hero ends",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "PromptCard focus when a hero takes over the card (#923) never moves focus for a hero that shows after the tap",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "user-visible error reporting reports its displayed error once on the prompt surface after the dwell",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "user-visible error reporting does not report an error without an identifier: undefined",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "user-visible error reporting does not report an error without an identifier: null",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "user-visible error reporting does not report when it is not showing an error",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCard.test.tsx",
+      "full_name": "user-visible error reporting cancels reporting when the error clears within the dwell",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel suppresses a card click emitted immediately after a drag",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel claims pointer gestures before they reach an outer page carousel",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel does not make a lone slide a drag surface, and pages once a second slide arrives",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel wires up the gesture claim when the track mounts after an empty render",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel keeps the selected slide on screen when a sibling before it is removed or added",
+      "prior_status": "passed",
+      "prior_assertions": 6
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel ends a snap-back still running when the slide list changes, so it cannot pull the track away",
+      "prior_status": "passed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel places the track again when the other slide goes during a drag, since paging is then off",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel draws the active dot in the accent and the rest on the hairline, visible on the page",
+      "prior_status": "passed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel keeps a focused dot on its own slide when a slide before it goes",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel which slide is on stage shows a prompt that arrives ahead of the first slide of an untouched carousel",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel which slide is on stage keeps a focused slide on stage when a prompt arrives ahead, and lets the prompt take it once focus leaves",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel which slide is on stage never keeps a scroll offset on the viewport, so only the track moves the slides",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel which slide is on stage returns to the first slide when the slide the user chose goes",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel which slide is on stage brings a slide the user moves focus into on stage, and keeps it there when a prompt arrives ahead",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel claims pointer gestures only once there is a second slide to page to",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel keeps a slide and its focus when a sibling before it is removed",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel keeps a slide and its focus when a sibling is added before it",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel user-visible error reporting waits for an inactive failure to become active and complete a fresh dwell",
+      "prior_status": "failed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/components/ui/PromptCarousel.test.tsx",
+      "full_name": "PromptCarousel user-visible error reporting cancels the visible dwell when its slide leaves and restarts it on return",
+      "prior_status": "failed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports reports a known id and surface once as WalletUserVisibleError",
+      "prior_status": "passed",
+      "prior_assertions": 8
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: \"Unable to read 0x12ab\", \"review\"",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: \"usdcxFaucetUnavailable\", \"toast\"",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: null, \"review\"",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: undefined, \"review\"",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: 42, \"review\"",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: {\"toString\": [Function toString]}, \"review\"",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: \"usdcxFaucetUnavailable\", {\"toString\": [Function toString]}",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports drops an unknown id or surface: \"usdcxFaucetUnavailable\", null",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports sends one report per id and surface per minute",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports caps a realm at 30 reports in 10 minutes",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports keeps the pair cooldown tied to elapsed time after a backward wall-clock correction",
+      "prior_status": "failed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports keeps the pair cooldown tied to elapsed time after a forward wall-clock correction",
+      "prior_status": "failed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports keeps the realm window tied to elapsed time after a backward wall-clock correction",
+      "prior_status": "failed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports keeps the realm window tied to elapsed time after a forward wall-clock correction",
+      "prior_status": "failed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports does not charge an invalid or throttled call against the realm cap",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports resets both limits for isolated tests",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error.test.ts",
+      "full_name": "user-visible error reports every non-raw id is a key in en.json, and the list is sorted without duplicates",
+      "prior_status": "passed",
+      "prior_assertions": 352
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows a spinner until a transaction row is available",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows the processing title and description before the deposit is submitted",
+      "prior_status": "passed",
+      "prior_assertions": 6
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus names the pending wallet confirmation while the deposit waits for the next prompt",
+      "prior_status": "passed",
+      "prior_assertions": 6
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus keeps the failure message when a confirmation was pending as the deposit failed",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows the failed title and its recorded error",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus falls back to the generic transaction error for an unstamped failure",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus layout wider than the button cap pins an uncapped hide button in the shared flow footer",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus layout wider than the button cap pins an uncapped done button in the shared flow footer",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus layout wider than the button cap wraps a failure message with an unbreakable token inside the body",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus layout wider than the button cap closes from the header while the deposit is in flight",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus moves to the success layout once the deposit is submitted",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route labels the route USDCx",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route uses the recorded Arc source chain for the route and explorer",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route offers no explorer for a source chain the wallet knows no explorer for",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route waits for the attestation while the row is delivering",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route shows the Arc leg for an executor-route row while it is delivering",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route keeps the direct route copy for an Arc row",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route reads Confirmed once the attestation moved the row to ready",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus USDCx (Circle xReserve) route reads Completed once the minted note is received",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus rounds a long Fast deposit up in the submitting state instead of showing every digit",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus rounds a long Fast deposit up in the failed state instead of showing every digit",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus rounds a long Fast deposit up in the delivering state instead of showing every digit",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus rounds a long Fast deposit up in the received state instead of showing every digit",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus expands the decimals of a tiny amount instead of showing zero",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows the credited amount once received, never the quote",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows the stored \"you receive\" amount 12.00 while in flight as 12, unpadded and unrounded",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows the stored \"you receive\" amount 12.345 while in flight as 12.345, unpadded and unrounded",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus names the asset without a number once received when the delivered faucet has no known scale",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus keeps six decimals of a credited ETH amount",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows a Slow amount as typed, without a trailing separator",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus shows the Slow route amounts as typed, not rounded at the asset precision",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus testnet bridge USDC label names both sides of a Fast deposit by the testnet label in flight",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus testnet bridge USDC label names both sides of a Fast deposit by the testnet label once received",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus testnet bridge USDC label names a USDC source by the testnet label while the token read has not succeeded",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus testnet bridge USDC label names the source of a Slow USDC deposit by the testnet label, as its Review did",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "EvmBridgeDepositStatus testnet bridge USDC label keeps a Slow ETH deposit on ETH",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures reports an observed live failure with raw reason once",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures reports an observed live failure with empty reason once",
+      "prior_status": "failed",
+      "prior_assertions": 0
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures reports an observed live failure with generic fallback once",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures keeps the same raw failure episode when only its displayed details change",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures keeps the already failed persisted failure quiet",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures keeps the first loaded persisted failure quiet",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures keeps the reopened persisted failure quiet",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures keeps the selected row changed persisted failure quiet",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures cancels a watched failure on recover before dwell",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures cancels a watched failure on unmount before dwell",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures cancels a watched failure on row change before dwell",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+      "full_name": "user-visible watched bridge failures keeps loading, signing and the next-confirmation wait quiet",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "reports once after the message has shown for 1000 ms",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "sends nothing when the message clears before 1000 ms",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "keeps one episode while the text changes under one id",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "starts a new episode when the id changes",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "starts a new episode after a clear",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "sends nothing after unmount within the dwell",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "sends nothing for an absent id: undefined",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "sends nothing for an absent id: null",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "restarts the dwell when the surface changes",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "cancels the old dwell when the id changes before it finishes",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "retained page activity keeps an inactive retained page silent until a full reveal dwell",
+      "prior_status": "failed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "retained page activity cancels a retained page dwell at 999 ms and starts a full dwell on reveal",
+      "prior_status": "failed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+      "full_name": "retained page activity does not repeat a reported episode when the retained page is hidden and revealed",
+      "prior_status": "passed",
+      "prior_assertions": 8
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress sends something at all, so every absence assertion below can fail",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress reaches only the Aptabase endpoint derived from the app key",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress sends one event per request, never the 25-event batch endpoint",
+      "prior_status": "passed",
+      "prior_assertions": 121
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress authenticates with the App-Key header Aptabase requires",
+      "prior_status": "passed",
+      "prior_assertions": 121
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress reports every flow, on the success, cancellation and error path",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress leaks no forbidden value, in any encoding, on any path",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress puts exactly the Aptabase envelope keys on the wire and nothing else",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress puts exactly the four systemProps on the wire, and none of the fingerprinting three",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress never puts osVersion anywhere in an envelope, on any path",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress never puts locale anywhere in an envelope, on any path",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress never puts deviceModel anywhere in an envelope, on any path",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress derives every prop key from the allowlist and nothing else",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress names the effective network on every event, flows and settled operations alike",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress includes a finite nonnegative duration on every completed product flow",
+      "prior_status": "passed",
+      "prior_assertions": 181
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress retains provided settled-operation durations and leaves absent intervals absent",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress carries no nested structure beyond the two objects Aptabase defines",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress carries no string value beyond the closed unions, the version, the flow id and two constants",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress groups one run under one session id, and pairs flows by the flow id inside it",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress mints a different session id for a different run, so nothing links across launches",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "product-event egress holds the allowlist across the entire event type space, not just the paths driven above",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress reports a handled offscreen assertion without raw transaction data or a frontend scope",
+      "prior_status": "passed",
+      "prior_assertions": 6
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress reports a failed inbound bridge by its route, step and library error, and nothing its text says",
+      "prior_status": "passed",
+      "prior_assertions": 12
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress retains each separate terminal failure even when their diagnostic facts match",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress sends an envelope at all, so every absence assertion below can fail",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value from a wrapped-error cause chain, in any encoding",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value from a poisoned stack",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when privateKeyHex is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when authSecretKey is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when addressMainnet is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when addressTestnet is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when addressDevnet is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when addressLocalnet is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when compositePublicKey is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when noteId is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when transactionId is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when mnemonic12 is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when mnemonic24 is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when amount is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when balance is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when apiKey is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no forbidden value when rpcUrlWithCredentials is the whole message, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no password when it is named, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no passcode when it is named, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress leaks no credentials out of an RPC URL, raw or encoded",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress sends exact source-bound diagnostics and scrubbed causes on the real Sentry wire",
+      "prior_status": "passed",
+      "prior_assertions": 8
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress retains exact validated local compiled positions and source build identity only",
+      "prior_status": "passed",
+      "prior_assertions": 6
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress retains ordinary scrubbed WASM frames beside validated local frames without their raw offsets",
+      "prior_status": "passed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress closed values for a startup trap and an unanswered dApp approval names a startup trap's shared-memory probe and window count, and nothing that identifies it",
+      "prior_status": "passed",
+      "prior_assertions": 12
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress closed values for a startup trap and an unanswered dApp approval names a shared memory that still grows beside a lone window",
+      "prior_status": "passed",
+      "prior_assertions": 8
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress closed values for a startup trap and an unanswered dApp approval adds no memory evidence to a startup failure that is not a WebAssembly trap",
+      "prior_status": "passed",
+      "prior_assertions": 9
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress closed values for a startup trap and an unanswered dApp approval names the background's state for an unanswered dApp approval, and nothing that identifies it",
+      "prior_status": "passed",
+      "prior_assertions": 12
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress replaces unknown URLs with a static filename while retaining scrubbed frame symbols",
+      "prior_status": "passed",
+      "prior_assertions": 9
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress never promotes frame-looking multiline message data into compiled positions",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress fails closed when a header-shaped stack disagrees with the captured error",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress accepts a legitimate headerless frame stack:     at initialize (capacitor://localhost/mobile.js:1:5000)",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress accepts a legitimate headerless frame stack: initialize@capacitor://localhost/mobile.js:1:5000",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress accepts a legitimate headerless frame stack: @capacitor://localhost/mobile.js:1:5000",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress enforces the authoritative empty frame snapshot for root/missing stacks",
+      "prior_status": "passed",
+      "prior_assertions": 7
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress enforces the authoritative empty frame snapshot for root/empty stacks",
+      "prior_status": "passed",
+      "prior_assertions": 7
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress enforces the authoritative empty frame snapshot for root/rejected stacks",
+      "prior_status": "passed",
+      "prior_assertions": 7
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress enforces the authoritative empty frame snapshot for cause/missing stacks",
+      "prior_status": "passed",
+      "prior_assertions": 7
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress enforces the authoritative empty frame snapshot for cause/empty stacks",
+      "prior_status": "passed",
+      "prior_assertions": 7
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress enforces the authoritative empty frame snapshot for cause/rejected stacks",
+      "prior_status": "passed",
+      "prior_assertions": 7
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress names the network the crash happened on, as a tag and in the diagnostics",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "crash-report egress reaches only the configured Sentry host",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports a raw display leaks none of its text",
+      "prior_status": "passed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports puts only the closed id and surface on the wire",
+      "prior_status": "passed",
+      "prior_assertions": 9
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports preserves every closed surface through crash scrubbing",
+      "prior_status": "passed",
+      "prior_assertions": 26
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports drops a contaminated report despite identifier fragments in a breadcrumb",
+      "prior_status": "failed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports drops a contaminated report despite identifier fragments in extra data",
+      "prior_status": "failed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports drops a contaminated report despite a closed surface in a breadcrumb",
+      "prior_status": "failed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports drops a contaminated report despite a closed surface in extra data",
+      "prior_status": "failed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports preserves canonical closed data with harmless free-text fields",
+      "prior_status": "passed",
+      "prior_assertions": 7
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports retains a repeated report after the minute instead of letting Sentry deduplicate it",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports drops raw text containing an address, amount and recovery phrase before capture",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "user-visible error reports sends nothing without crash-report permission",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports names the relay and only its closed context, at warning level, with none of the failure text",
+      "prior_status": "passed",
+      "prior_assertions": 17
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports names the report Error whatever the failure called itself, under the fixed text and its own frames",
+      "prior_status": "passed",
+      "prior_assertions": 4
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports labels no host outside the relay allowlist, and leaves its level alone",
+      "prior_status": "passed",
+      "prior_assertions": 5
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports sends a stuck relay once per failure bucket: three reports for seven failures",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports sends nothing while the device is offline, and still counts the failure",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports drops an offline failure before browser permission answers, and sends the next range",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports sends nothing for a failure dropped because browser permission is denied, and the range of the next one",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports sends nothing for a failure dropped because reporting stopped before its permission check answered, and the range of the next one",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports sends nothing for a failure dropped because there was no client to capture it, and the range of the next one",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports sends one report for two failures of one range captured before either is sent",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports counts an Error captured by every path as one failure, and a new Error with the same text as the next",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "WalletConnect relay failure reports names a network change the crash listeners saw in the 30 seconds before, and none once they stopped",
+      "prior_status": "passed",
+      "prior_assertions": 3
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "the boundary is the only way out has one consent-gated sender, reached from one place outside the telemetry module",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "the boundary is the only way out confines the crash-reporting SDK to the module that scrubs before it",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "consent boundary sends crash reports without product events when usage sharing is off",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "consent boundary sends both when usage consent and browser permission are granted",
+      "prior_status": "passed",
+      "prior_assertions": 2
+    },
+    {
+      "path": "src/lib/telemetry/egress-boundary.test.ts",
+      "full_name": "consent boundary sends nothing when both permission and usage-consent checks fail",
+      "prior_status": "passed",
+      "prior_assertions": 1
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header renders the page shell, resolves the vault by id, and shows the parsed amount + asset logo",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header sets the caption and the figure in the amount step's own entry type",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header names no vault in the header when the vaultId matches nothing",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header gives the CTA the earn flow colour",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header strips thousands separators and trailing zeros from the amount",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header shows a typed amount exactly, never rounded to two decimals",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header defaults the amount to 0 when the query string has no amount param",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit amount header reads a non-numeric amount as 0 in the hero, the CTA and the projection",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA lets a Guardian account open a position",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA adds no haptic of its own and opens the Epoch position with the scaled amount + account owner",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA scales by the collateral the config names and deposits that collateral",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA deposits nothing while the config names no collateral",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA confirms the deposit with the earn-deposit reason and the shared hardware-only protector probe",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA does not open the position when biometric confirmation is declined, leaving the CTA usable again",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA shows the screen's own error, and deposits nothing, when the protector probe rejects",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA requires strict authentication before any Earn quote or intent work when over limit",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA discards an authorization that no longer matches the deposit it was minted for",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA discards a forged authorization for a different account instead of depositing against it",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA opens the unvalued challenge when the pre-check cannot price the deposit",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA falls back to the generic error when the pre-check itself cannot open the unpriced challenge",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA shows a real Error rejection from the pre-check by its own message",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA falls back to a generic error when the price-unavailable pre-check has no configured limit to read",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA opens the unvalued challenge when the actual deposit cannot be priced",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA re-enables the CTA when the drawer authorize path cannot open the unpriced challenge",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA cancels the Earn challenge before quote or intent work and preserves the amount",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA reopens the challenge after a stale Earn authorization without losing the deposit amount",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA routes to the generating-transaction page as soon as the tx row exists",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA surfaces an error and never calls the SDK when the account has no EVM address",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA surfaces the SDK error message when opening the position rejects",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA reports user-visible raw submit failure only after the full display dwell",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA does not report user-visible raw submit failure unmounted before dwell",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA falls back to a generic message when the rejection is not an Error",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA ignores a second tap while the first submission is in flight",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview open position CTA disables the CTA for a zero amount",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview the pinned footer sits on the page margin, the same on every platform",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit projection renders the projection chart and the three projected reward tiles",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit projection projects from aprPercent rather than the parsed apy string when they differ",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit projection renders the static detail rows including the route built from the vault",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit projection sets the projection and the details on outline cards inside one heading-face wrapper",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit projection renders zero rewards when the amount is zero",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview deposit projection treats a missing aprPercent as zero (placeholder vault, `?? 0` branch)",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview names the network it will commit on",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview after a failed load says the load failed, with Retry, instead of offering to open a position in a placeholder vault",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview after a failed load reports user-visible error: says the load failed, with Retry, instead of offering to open a position in a placeholder vault",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview after a failed load keeps the failure said while a retry is out, with no vault in the header",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview after a failed load draws nothing it has not loaded during a first load with no error",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview after a failed load reports user-visible error: draws nothing it has not loaded during a first load with no error",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview after a failed load shows no notice over a found vault when only one owner's positions failed",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "EarnDepositReview after a failed load keeps a vault it already has, under the notice",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "native USDCx funding shows USDCx and uses its exact faucet and atomic amount for a native deposit",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "native USDCx funding refuses review for an old collateral identity after the frontend switches to USDCx",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "native USDCx funding reports user-visible error: refuses review for an old collateral identity after the frontend switches to USDCx",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "native USDCx funding says why the deposit waits while the collateral is loading",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "native USDCx funding says why the deposit waits while the collateral is unavailable",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "native USDCx funding sends a review link that names no faucet back to the amount step, depositing nothing",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    },
+    {
+      "path": "src/screens/earn-flow/EarnDepositReview.test.tsx",
+      "full_name": "native USDCx funding submits a review link that names the current faucet",
+      "prior_status": "UNRUN_SOURCE_PREDICTION",
+      "prior_assertions": null
+    }
+  ],
+  "arms": [
+    {
+      "name": "positive",
+      "passed": 283,
+      "failed": 0,
+      "exit": 0,
+      "targets": []
+    },
+    {
+      "name": "omit-F001",
+      "passed": 282,
+      "failed": 1,
+      "exit": 1,
+      "targets": [
+        {
+          "path": "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+          "full_name": "user-visible watched bridge failures reports an observed live failure with empty reason once",
+          "prior_assertions": 0,
+          "positive_assertions": 4,
+          "line": 678,
+          "column": 73,
+          "matcher_pass": false,
+          "message_prefix": "expect(element).toHaveTextContent()\n\nExpected element to have text content:\n  Visible generic bridge failure\nReceived:\n",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        }
+      ]
+    },
+    {
+      "name": "omit-F002",
+      "passed": 279,
+      "failed": 4,
+      "exit": 1,
+      "targets": [
+        {
+          "path": "src/components/ui/PromptCarousel.test.tsx",
+          "full_name": "PromptCarousel user-visible error reporting waits for an inactive failure to become active and complete a fresh dwell",
+          "prior_assertions": 1,
+          "positive_assertions": 6,
+          "line": 497,
+          "column": 42,
+          "matcher_pass": true,
+          "message_prefix": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: \"guardianHistoryFailed\", \"prompt\"",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/components/ui/PromptCarousel.test.tsx",
+          "full_name": "PromptCarousel user-visible error reporting cancels the visible dwell when its slide leaves and restarts it on return",
+          "prior_assertions": 2,
+          "positive_assertions": 6,
+          "line": 519,
+          "column": 42,
+          "matcher_pass": true,
+          "message_prefix": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: \"guardianHistoryFailed\", \"prompt\"",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+          "full_name": "retained page activity keeps an inactive retained page silent until a full reveal dwell",
+          "prior_assertions": 2,
+          "positive_assertions": 7,
+          "line": 132,
+          "column": 40,
+          "matcher_pass": true,
+          "message_prefix": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: \"deadletteredNotesBodyOne\", \"inline\"",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/use-user-visible-error.test.tsx",
+          "full_name": "retained page activity cancels a retained page dwell at 999 ms and starts a full dwell on reveal",
+          "prior_assertions": 4,
+          "positive_assertions": 9,
+          "line": 154,
+          "column": 40,
+          "matcher_pass": true,
+          "message_prefix": "expect(jest.fn()).not.toHaveBeenCalled()\n\nExpected number of calls: 0\nReceived number of calls: 1\n\n1: \"deadletteredNotesBodyOne\", \"inline\"",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        }
+      ]
+    },
+    {
+      "name": "omit-F003",
+      "passed": 278,
+      "failed": 5,
+      "exit": 1,
+      "targets": [
+        {
+          "path": "src/lib/telemetry/user-visible-error.test.ts",
+          "full_name": "user-visible error reports keeps the pair cooldown tied to elapsed time after a backward wall-clock correction",
+          "prior_assertions": 4,
+          "positive_assertions": 5,
+          "line": 112,
+          "column": 26,
+          "matcher_pass": false,
+          "message_prefix": "expect(jest.fn()).toHaveBeenCalledTimes(expected)\n\nExpected number of calls: 2\nReceived number of calls: 1",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/user-visible-error.test.ts",
+          "full_name": "user-visible error reports keeps the pair cooldown tied to elapsed time after a forward wall-clock correction",
+          "prior_assertions": 3,
+          "positive_assertions": 5,
+          "line": 108,
+          "column": 26,
+          "matcher_pass": false,
+          "message_prefix": "expect(jest.fn()).toHaveBeenCalledTimes(expected)\n\nExpected number of calls: 1\nReceived number of calls: 2",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/user-visible-error.test.ts",
+          "full_name": "user-visible error reports keeps the realm window tied to elapsed time after a backward wall-clock correction",
+          "prior_assertions": 5,
+          "positive_assertions": 6,
+          "line": 137,
+          "column": 26,
+          "matcher_pass": false,
+          "message_prefix": "expect(jest.fn()).toHaveBeenCalledTimes(expected)\n\nExpected number of calls: 31\nReceived number of calls: 30",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/user-visible-error.test.ts",
+          "full_name": "user-visible error reports keeps the realm window tied to elapsed time after a forward wall-clock correction",
+          "prior_assertions": 4,
+          "positive_assertions": 6,
+          "line": 133,
+          "column": 26,
+          "matcher_pass": false,
+          "message_prefix": "expect(jest.fn()).toHaveBeenCalledTimes(expected)\n\nExpected number of calls: 30\nReceived number of calls: 31",
+          "message_exact": true,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/egress-boundary.test.ts",
+          "full_name": "user-visible error reports retains a repeated report after the minute instead of letting Sentry deduplicate it",
+          "prior_assertions": 1,
+          "positive_assertions": 2,
+          "line": 1758,
+          "column": 22,
+          "matcher_pass": false,
+          "message_prefix": "expect(received).toHaveLength(expected)\n\nExpected length: 2\nReceived length: 1\n",
+          "basis": "New source-predicted elapsed-clock fixture sensitivity; no prior actual omission credit."
+        }
+      ]
+    },
+    {
+      "name": "omit-F005",
+      "passed": 279,
+      "failed": 4,
+      "exit": 1,
+      "targets": [
+        {
+          "path": "src/lib/telemetry/egress-boundary.test.ts",
+          "full_name": "user-visible error reports drops a contaminated report despite identifier fragments in a breadcrumb",
+          "prior_assertions": 4,
+          "positive_assertions": 6,
+          "line": 1698,
+          "column": 22,
+          "matcher_pass": false,
+          "message_prefix": "expect(received).toHaveLength(expected)\n\nExpected length: 0\nReceived length: 1\n",
+          "message_exact": false,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/egress-boundary.test.ts",
+          "full_name": "user-visible error reports drops a contaminated report despite identifier fragments in extra data",
+          "prior_assertions": 4,
+          "positive_assertions": 6,
+          "line": 1698,
+          "column": 22,
+          "matcher_pass": false,
+          "message_prefix": "expect(received).toHaveLength(expected)\n\nExpected length: 0\nReceived length: 1\n",
+          "message_exact": false,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/egress-boundary.test.ts",
+          "full_name": "user-visible error reports drops a contaminated report despite a closed surface in a breadcrumb",
+          "prior_assertions": 4,
+          "positive_assertions": 6,
+          "line": 1698,
+          "column": 22,
+          "matcher_pass": false,
+          "message_prefix": "expect(received).toHaveLength(expected)\n\nExpected length: 0\nReceived length: 1\n",
+          "message_exact": false,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        },
+        {
+          "path": "src/lib/telemetry/egress-boundary.test.ts",
+          "full_name": "user-visible error reports drops a contaminated report despite a closed surface in extra data",
+          "prior_assertions": 4,
+          "positive_assertions": 6,
+          "line": 1698,
+          "column": 22,
+          "matcher_pass": false,
+          "message_prefix": "expect(received).toHaveLength(expected)\n\nExpected length: 0\nReceived length: 1\n",
+          "message_exact": false,
+          "basis": "Exact accepted causal frame/prerequisite count; full positive assertions source-predicted until this CI."
+        }
+      ]
+    },
+    {
+      "name": "restored",
+      "passed": 283,
+      "failed": 0,
+      "exit": 0,
+      "targets": []
+    }
+  ],
+  "core_files": [
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx",
+    "src/components/ui/PromptCard.test.tsx",
+    "src/components/ui/PromptCarousel.test.tsx",
+    "src/lib/telemetry/egress-boundary.test.ts",
+    "src/lib/telemetry/use-user-visible-error.test.tsx",
+    "src/lib/telemetry/user-visible-error.test.ts",
+    "src/screens/earn-flow/EarnDepositReview.test.tsx"
+  ],
+  "compatibility_files": [
+    "src/lib/telemetry/crash.test.ts",
+    "src/lib/telemetry/redact.test.ts",
+    "src/lib/telemetry/transaction-failure.test.ts"
+  ],
+  "compatibility_counts": "Discover and retain actual raw counts and names; no invented numeric inventory."
+}
