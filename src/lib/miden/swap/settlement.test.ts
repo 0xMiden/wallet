@@ -892,6 +892,28 @@ describe('swap order note settlement', () => {
     expect(swapRow.extraInputs).toEqual(expect.objectContaining({ settledAt: 500 }));
   });
 
+  it('repairs no reclaim stamp while a payback claim of the order is still in flight (#1644)', async () => {
+    const order = tx();
+    const completedReclaim = {
+      id: 'consume-tip',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      completedAt: 500,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' }
+    };
+    const submittedPayback = {
+      id: 'consume-payback',
+      type: 'consume',
+      status: ITransactionStatus.Unconfirmed,
+      extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapSettlePartial: true }
+    };
+    toArray.mockResolvedValueOnce([order]).mockResolvedValueOnce([completedReclaim, submittedPayback]);
+
+    await reconcileSwapOrderNotes('account-1', [], false, 150);
+
+    expect(modify).not.toHaveBeenCalled();
+  });
+
   it('does not run the stamp repair for an already-stamped order', async () => {
     toArray.mockResolvedValue([
       tx({

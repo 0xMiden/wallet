@@ -105,9 +105,8 @@ it('stamps a settlement split over several claims only once the last of them com
   expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toEqual(expect.any(Number));
 });
 
-it('a sibling claim awaiting its verdict holds the stamp, one of the other kind or a failed one does not', async () => {
+it('a sibling claim awaiting its verdict holds the stamp, a failed one does not', async () => {
   await Repo.transactions.add(swapOrder());
-  await Repo.transactions.add(settlementClaim('settle-1', 'settle', ITransactionStatus.Queued));
   await Repo.transactions.add(settlementClaim('reclaim-failed', 'reclaim', ITransactionStatus.Failed));
   await Repo.transactions.add(settlementClaim('reclaim-unconfirmed', 'reclaim', ITransactionStatus.Unconfirmed));
 
@@ -129,6 +128,21 @@ it('never stamps the order from one chunk of a split settlement', async () => {
     extraInputs: { swapOrderTxId: 'swap', swapSettleKind: 'reclaim', swapSettlePartial: true }
   });
   await Repo.transactions.add(settlementClaim('reclaim-failed', 'reclaim', ITransactionStatus.Failed));
+
+  await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
+
+  expect((await Repo.transactions.get('reclaim'))?.status).toBe(ITransactionStatus.Completed);
+  expect((await Repo.transactions.get('swap'))?.extraInputs?.reclaimedAt).toBeUndefined();
+});
+
+// The payback side outranks the tip: a reclaimedAt written while the order has settle claims would shut the repair,
+// which runs only with both stamps absent, so a split payback settlement would never read Confirmed (#1644).
+it('leaves an order with settle claims to the settle stamp when its lone reclaim completes', async () => {
+  await Repo.transactions.add(swapOrder());
+  await Repo.transactions.add({
+    ...settlementClaim('settle-chunk', 'settle', ITransactionStatus.Completed),
+    extraInputs: { swapOrderTxId: 'swap', swapSettleKind: 'settle', swapSettlePartial: true }
+  });
 
   await completeConsumeTransaction('reclaim', reclaimOfOrderNote());
 

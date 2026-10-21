@@ -263,6 +263,12 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
   // notes leave the consumable list before its verdict, so "nothing left to claim" is not yet "settled" (#1644).
   const kind = settle.extraInputs?.swapSettleKind === 'reclaim' ? 'reclaim' : 'settle';
   if (linked.some(tx => isOpenSettlementClaim(tx, { swapOrderTxId: order.id, swapSettleKind: kind }))) return;
+  // And a payback claim still in flight outranks a completed reclaim, as at completion: its settledAt is the stamp.
+  if (
+    kind === 'reclaim' &&
+    linked.some(tx => isOpenSettlementClaim(tx, { swapOrderTxId: order.id, swapSettleKind: 'settle' }))
+  )
+    return;
   const stampedAt = settle.completedAt ?? Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id: order.id }).modify(tx => {
     // `false`, not a bare return - dexie re-puts the deep clone for any other value, and this
