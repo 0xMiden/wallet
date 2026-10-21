@@ -92,3 +92,30 @@ it('yields no logos from a document one bad token rejects', () => {
   const doc = list([token({ faucetId: 'mtst1bbb', logoURI: logo('mtst1bbb') }), token({ network: undefined })]);
   expect(parseTokenList(doc, 'testnet')).toBeNull();
 });
+
+it('uses the full listed symbol and an explicit price asset override', () => {
+  const doc = list([
+    token({ symbol: 'IETH' }),
+    token({ faucetId: 'mtst1bbb', symbol: 'IBTC', binanceAsset: 'BTC' }),
+    token({ network: 'devnet', faucetId: 'mdev1ccc', symbol: 'ETH' })
+  ]);
+  expect(parseTokenList(doc, 'testnet')?.priceAssets).toEqual(
+    new Map([
+      ['mtst1aaa', 'IETH'],
+      ['mtst1bbb', 'BTC']
+    ])
+  );
+});
+
+it.each(['', 'eth', ' ETH', 'ETH ', 'ETH/USDT', 'A'.repeat(21), 42, null])(
+  'drops an invalid price override %p and keeps verification',
+  binanceAsset => {
+    const parsed = parseTokenList(list([token({ binanceAsset })]), 'testnet');
+    expect(parsed?.priceAssets.size).toBe(0);
+    expect(parsed?.ids).toEqual(new Set(['mtst1aaa']));
+  }
+);
+
+it.each(['', 'eth', 'ETH/USDT', 42, null, undefined])('drops invalid symbol %p', symbol => {
+  expect(parseTokenList(list([token({ symbol })]), 'testnet')?.priceAssets.size).toBe(0);
+});

@@ -8,6 +8,7 @@ import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chai
 import { isCoveredSymbol } from 'lib/prices/usd';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { parseSwapPairs, type SwapPairs } from 'lib/remote-config/swap-pairs';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { bridgePriceAllowlist } from './bridge-price-allowlist';
 import {
@@ -37,6 +38,7 @@ import {
 } from './tokens';
 
 // The bridged price entries: the testnet config's by default (the manual mock's answer), and others a test sets.
+jest.mock('lib/token-list/runtime', () => ({ peekTokenPriceAssets: jest.fn() }));
 jest.mock('./bridge-price-allowlist', () => ({ bridgePriceAllowlist: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
@@ -109,6 +111,12 @@ const mockNetworkName = jest.mocked(getEffectiveNetworkName);
 
 beforeEach(() => {
   _resetNormalizedFaucetIdsForTest();
+  jest.mocked(peekTokenPriceAssets).mockReturnValue(
+    new Map([
+      [TEST_TOKEN_IBTC.faucetId, 'BTC'],
+      [TEST_TOKEN_IETH.faucetId, 'ETH']
+    ])
+  );
   jest
     .mocked(bridgePriceAllowlist)
     .mockReset()
@@ -635,5 +643,25 @@ describe('SDK-confirmed provisional native unit pricing', () => {
   it('stops the default USDCX quote when authoritative chain metadata identifies MIDEN', () => {
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
     expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
+  });
+});
+
+describe('verified list price mapping', () => {
+  it('uses a verified faucet asset without trusting a reported symbol', () => {
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(new Map([['mtst1verified', 'ARB']]));
+    expect(priceSymbolFor('mtst1verified', 'ETH')).toBe('ARB');
+    expect(priceSymbolFor('mtst1other', 'ARB')).toBeUndefined();
+    expect(isCoveredSymbol('ARB')).toBe(true);
+  });
+
+  it('uses full verified symbols before bridge price aliases', () => {
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(
+      new Map([
+        [TEST_TOKEN_IETH.faucetId, 'IETH'],
+        ['mtst1listed', 'IBTC']
+      ])
+    );
+    expect(priceSymbolFor(TEST_TOKEN_IETH.faucetId, 'IETH')).toBe('IETH');
+    expect(priceSymbolFor('mtst1listed', 'BTC')).toBe('IBTC');
   });
 });
