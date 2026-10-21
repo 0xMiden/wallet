@@ -3,6 +3,7 @@ import React, { StrictMode, useEffect, useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { GeoLookup } from 'lib/remote-config/geo';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { WalletAccessGate } from './WalletAccessGate';
 
@@ -12,6 +13,10 @@ const mockInitEligibility = jest.fn<Promise<GeoLookup>, []>();
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: () => mockLoadEndpoints() }));
 jest.mock('lib/remote-config/runtime', () => ({ initFeatureEligibility: () => mockInitEligibility() }));
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 jest.mock('components/ui/Spinner', () => ({ Spinner: () => <div /> }));
 jest.mock('components/ui/Button', () => ({
   ButtonVariant: { Secondary: 'secondary' },
@@ -170,5 +175,52 @@ describe('WalletAccessGate startup only', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('startup eligibility failure reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it.each(['decision', 'endpoint bootstrap'])('reports a visible %s failure after a full dwell', async source => {
+    if (source === 'decision') mockInitEligibility.mockResolvedValue({ state: 'failed' });
+    else mockLoadEndpoints.mockRejectedValue(new Error('private bootstrap failure'));
+    render(<WalletAccessGate>Private wallet</WalletAccessGate>);
+    await act(async () => {});
+    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'unavailable');
+    expect(screen.getByText('walletAccessUnavailableBody')).toBeVisible();
+    expect(screen.queryByText('Private wallet')).toBeNull();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['walletAccessUnavailableBody', 'startup']]);
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['loading', 'restricted', 'allowed'])('keeps a %s startup result quiet', async status => {
+    if (status === 'loading') mockInitEligibility.mockReturnValue(new Promise(() => {}));
+    if (status === 'restricted')
+      mockInitEligibility.mockResolvedValue({ ...allowed, allowed: { ...allowed.allowed, wallet: false } });
+    render(<WalletAccessGate>Private wallet</WalletAccessGate>);
+    await act(async () => {});
+    if (status === 'allowed') expect(screen.getByText('Private wallet')).toBeVisible();
+    else expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('drops a startup failure removed before its dwell completes', async () => {
+    mockInitEligibility.mockResolvedValue({ state: 'failed' });
+    const view = render(<WalletAccessGate>Private wallet</WalletAccessGate>);
+    await act(async () => {});
+    expect(screen.getByText('walletAccessUnavailableBody')).toBeVisible();
+    act(() => jest.advanceTimersByTime(999));
+    view.unmount();
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

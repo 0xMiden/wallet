@@ -17,6 +17,7 @@ jest.mock('react-i18next', () => ({
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 const LOADING: FeatureAvailability = { state: 'loading' };
 const DOWN: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: 503' };
+const RESTRICTED: FeatureAvailability = { state: 'unavailable', reason: 'restricted' };
 
 describe('FeatureUnavailableNotice', () => {
   it('says the built-in copy as a warning, never the cause', () => {
@@ -99,6 +100,34 @@ describe('user-visible unavailable-feature errors', () => {
     expect(view.container).toBeEmptyDOMElement();
     act(() => jest.advanceTimersByTime(1000));
     expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('keeps a visible geographic restriction quiet', () => {
+    render(<FeatureUnavailableNotice availability={RESTRICTED} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('geoRestrictedBody');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('cancels an outage dwell when a geographic restriction replaces it', () => {
+    const view = render(<FeatureUnavailableNotice availability={DOWN} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('Visible bridgeFeatureUnavailableBody');
+    act(() => jest.advanceTimersByTime(999));
+    view.rerender(<FeatureUnavailableNotice availability={RESTRICTED} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('geoRestrictedBody');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('starts a full outage dwell after a geographic restriction clears', () => {
+    const view = render(<FeatureUnavailableNotice availability={RESTRICTED} />);
+    act(() => jest.advanceTimersByTime(5000));
+    view.rerender(<FeatureUnavailableNotice availability={DOWN} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('Visible bridgeFeatureUnavailableBody');
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
   });
 
   it.each([AVAILABLE, LOADING])('drops an unavailable episode cleared at 999 ms by %o', availability => {
