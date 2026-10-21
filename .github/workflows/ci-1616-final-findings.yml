@@ -19,11 +19,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: 7357c71f4406229ec694a74166c933ad029127e4
+          fetch-depth: 3
           persist-credentials: false
       - name: Verify exact test-only checkpoint
         run: |
           test "$(git rev-parse HEAD)" = 7357c71f4406229ec694a74166c933ad029127e4
-          test "$(git rev-parse HEAD^ )" = 1c7d709929067e27db83b78d17cd1e88d95d80d6
+          test "$(git rev-parse HEAD^)" = 1c7d709929067e27db83b78d17cd1e88d95d80d6
           git diff --exit-code 6bc7636be3d42a1a2c58a8f8486a90172de07a0a HEAD -- . ':!src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx' ':!src/components/ui/PromptCarousel.test.tsx' ':!src/lib/telemetry/user-visible-error.test.ts'
       - uses: actions/setup-node@v4
         with:
