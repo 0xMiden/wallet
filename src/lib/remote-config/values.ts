@@ -146,22 +146,26 @@ export function selectAgglayerDepositTokens(s: BridgeConfigSnapshot, chainId?: n
 
 /**
  * The registry entry for `originToken` (lowercase) on `chainId`: the faucet that mints its deliveries and the scale
- * it mints at. Null while the registry read is not ok or holds no faucet for the token on that chain's network (any
- * network while the L1 network id read is not ok).
+ * it mints at. The same address registered from another network is another bridged token, so the entry must be from
+ * `originNetwork` (a saved row's deposit network), else from the chain's read network id. Null while the registry
+ * read is not ok, while neither network is known, or while the registry holds no faucet for the token there.
  */
 export function selectAgglayerRegistryToken(
   s: BridgeConfigSnapshot,
   originToken: string,
-  chainId?: number
+  chainId?: number,
+  originNetwork?: number
 ): BridgeToken | null {
   const reads = agglayerReads(s, chainId);
-  const networkId = okValue(reads?.evmNetworkId);
+  const networkId = originNetwork ?? okValue(reads?.evmNetworkId);
+  if (networkId === null) return null;
   const tokens = okValue(reads?.tokens) ?? [];
-  return (
-    tokens.find(
-      token => token.originToken === originToken && (networkId === null || token.originNetwork === networkId)
-    ) ?? null
-  );
+  return registeredToken(tokens, originToken, networkId);
+}
+
+/** The entry for `originToken` registered from `networkId` in a registry read, or null. */
+export function registeredToken(tokens: BridgeToken[], originToken: string, networkId: number): BridgeToken | null {
+  return tokens.find(token => token.originToken === originToken && token.originNetwork === networkId) ?? null;
 }
 
 /**

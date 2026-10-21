@@ -4,8 +4,10 @@ import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import type { BridgeToken } from 'lib/remote-config/derive';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
 import {
+  registeredToken,
   selectAgglayerDeliveryFaucets,
   selectAgglayerRegistryToken,
   selectNativeEthToken
@@ -293,11 +295,13 @@ export async function agglayerDeliverySenders(): Promise<(sender: string) => boo
 /**
  * The faucet that delivers a tracker's deposit, and its scale: the ERC-20 delivery the row saved, else the native-ETH
  * faucet its route saved, else the registry of the chain it was made on (DEFAULT_CHAIN_ID for a row saved before its
- * route was). Undefined while none names one.
+ * route was). An ERC-20 row that saved no faucet takes it from the snapshot's registry, else from `live`, a registry
+ * read of its bridge (`readLiveRegistries`), on the network it deposited from. Undefined while none names one.
  */
 function deliveryOf(
   snapshot: BridgeConfigSnapshot,
-  inputs: IBridgedReceiveExtraInputs
+  inputs: IBridgedReceiveExtraInputs,
+  live?: ReadonlyMap<string, BridgeToken[]>
 ): { faucet: string; scale: number } | undefined {
   const delivery = inputs.agglayerDelivery;
   const route = inputs.agglayerRoute;
@@ -306,7 +310,14 @@ function deliveryOf(
       return { faucet: delivery.faucetId, scale: delivery.scale };
     }
     // A test network registers the faucet on the first deposit: the registry of the row's chain names it since.
-    const registered = selectAgglayerRegistryToken(snapshot, delivery.originToken, route?.chainId ?? DEFAULT_CHAIN_ID);
+    const registered =
+      selectAgglayerRegistryToken(
+        snapshot,
+        delivery.originToken,
+        route?.chainId ?? DEFAULT_CHAIN_ID,
+        route?.evmNetworkId
+      ) ??
+      (route ? registeredToken(live?.get(route.midenBridgeId) ?? [], delivery.originToken, route.evmNetworkId) : null);
     return registered ? { faucet: registered.midenFaucetId, scale: registered.scale } : undefined;
   }
   if (route?.nativeEthFaucetId !== undefined && route.nativeEthScale !== undefined) {
@@ -314,6 +325,44 @@ function deliveryOf(
   }
   const token = selectNativeEthToken(snapshot, route?.chainId ?? DEFAULT_CHAIN_ID);
   return token ? { faucet: token.midenFaucetId, scale: token.scale } : undefined;
+}
+
+/**
+ * One registry read per bridge of the open ERC-20 rows whose token the snapshot holds no faucet for yet: a test
+ * network registers a token's faucet when its first deposit is claimed, usually before this realm's hourly refresh.
+ * A note from a faucet the snapshot already holds is not that delivery, so it reads nothing. A failed read leaves
+ * those rows unmatched.
+ */
+async function readLiveRegistries(
+  snapshot: BridgeConfigSnapshot,
+  rows: readonly ITransaction[],
+  sender: string
+): Promise<Map<string, BridgeToken[]>> {
+  const live = new Map<string, BridgeToken[]>();
+  const bridges = new Set(
+    rows.flatMap(tx => {
+      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+      const route = inputs?.agglayerRoute;
+      return inputs?.agglayerDelivery !== undefined && route && deliveryOf(snapshot, inputs) === undefined
+        ? [route.midenBridgeId]
+        : [];
+    })
+  );
+  if (bridges.size === 0 || selectAgglayerDeliveryFaucets(snapshot).some(faucet => sentByFaucet(sender, faucet))) {
+    return live;
+  }
+  const [{ readBridgeRegistry }, { getEffectiveRpcUrl }] = await Promise.all([
+    import('lib/remote-config/derive'),
+    import('lib/miden-chain/effective-endpoints')
+  ]);
+  for (const bridge of bridges) {
+    try {
+      live.set(bridge, (await readBridgeRegistry(bridge, getEffectiveRpcUrl())).tokens);
+    } catch (error) {
+      console.warn('[bridge-in] could not read the bridge registry for a first deposit', bridge, error);
+    }
+  }
+  return live;
 }
 
 /**
@@ -343,7 +392,7 @@ export async function takeAgglayerBridgeInInfo(args: {
   // long ago would otherwise take the next deposit of the same amount.
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
-  const matches = await Repo.transactions
+  const open = await Repo.transactions
     .where('type')
     .equals('bridged-receive')
     .filter(tx => {
@@ -354,24 +403,27 @@ export async function takeAgglayerBridgeInInfo(args: {
       // whatever the backup's author wrote.
       if (tx.restoredFromBackup) return false;
       const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
-      if (
+      return !(
         inputs?.provider !== 'agglayer' ||
         (inputs.agglayerDelivery === undefined && inputs.sourceSymbol !== AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL) ||
         inputs.phase === 'received' ||
         inputs.phase === 'failed' ||
         tx.initiatedAt < cutoffSec ||
         tx.amount === undefined
-      ) {
-        return false;
-      }
-      const delivery = deliveryOf(snapshot, inputs);
-      return (
-        delivery !== undefined &&
-        agglayerDeliveredAmount(tx.amount, delivery.scale) === args.amount &&
-        sentBy(delivery.faucet)
       );
     })
     .toArray();
+  const live = await readLiveRegistries(snapshot, open, args.senderAccountId);
+  const matches = open.filter(tx => {
+    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    const delivery = deliveryOf(snapshot, inputs, live);
+    return (
+      delivery !== undefined &&
+      tx.amount !== undefined &&
+      agglayerDeliveredAmount(tx.amount, delivery.scale) === args.amount &&
+      sentBy(delivery.faucet)
+    );
+  });
   matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
   const match = matches[0];
   if (!match) return undefined;

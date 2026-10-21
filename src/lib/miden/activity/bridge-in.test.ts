@@ -83,6 +83,20 @@ const snapshotWith = (
     }
   };
 };
+// The live read of a bridge's faucet registry, for a row whose token the snapshot does not hold yet.
+const mockReadBridgeRegistry = jest.fn(
+  async (_bridge: string, _rpcUrl: string): Promise<{ rollupId: number; tokens: BridgeToken[] }> => ({
+    rollupId: 86,
+    tokens: []
+  })
+);
+jest.mock('lib/remote-config/derive', () => ({
+  readBridgeRegistry: (bridge: string, rpcUrl: string) => mockReadBridgeRegistry(bridge, rpcUrl)
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => 'https://rpc.miden.test'
+}));
 let mockSnapshot: BridgeConfigSnapshot;
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: jest.fn(() => mockSnapshot),
@@ -105,6 +119,8 @@ const mockAccountText: Record<string, string> = {
   '0xbase': 'base-account',
   'usdc-sender': 'usdc-faucet-account',
   '0xusdcfaucet': 'usdc-faucet-account',
+  'elsewhere-sender': 'elsewhere-faucet-account',
+  '0xelsewhere': 'elsewhere-faucet-account',
   'usdcx-faucet-bech32': 'usdcx-faucet-account',
   '0xusdcx': 'usdcx-faucet-account'
 };
@@ -351,6 +367,80 @@ describe('takeAgglayerBridgeInInfo', () => {
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
     // The registered faucet is a delivery sender from then on.
     expect(isAgglayerBridgeDelivery('usdc-sender')).toBe(true);
+  });
+
+  // The route the deposit screen saves with an AggLayer row: its bridge account and the network it deposited from.
+  const usdcRoute: AgglayerRecoveryConfig = {
+    chainId: 11155111,
+    contractAddress: '0x00000000000000000000000000000000000000b2',
+    midenBridgeId: '0xbridge',
+    indexerUrl: 'https://indexer.test',
+    rollupId: 86,
+    evmNetworkId: 0
+  };
+  const firstDeposit = (originToken: string) => ({
+    id: 'usdc-row',
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    amount: 5n * 10n ** 8n,
+    initiatedAt: 1,
+    extraInputs: {
+      provider: 'agglayer',
+      phase: 'delivering',
+      sourceAmount: '5',
+      sourceSymbol: 'USDC',
+      agglayerRoute: usdcRoute,
+      agglayerDelivery: { originToken }
+    }
+  });
+
+  // The first deposit's claim registers the faucet, usually before this realm's hourly refresh: the row's own bridge
+  // is read once, and a note from a faucet the snapshot already holds never asks for it.
+  it('settles a first-deposit ERC-20 tracker from a live registry read', async () => {
+    const usdcToken: BridgeToken = {
+      midenFaucetId: '0xusdcfaucet',
+      originToken: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      originNetwork: 0,
+      scale: 8
+    };
+    mockTransactions.push(firstDeposit(usdcToken.originToken));
+    mockReadBridgeRegistry.mockResolvedValue({ rollupId: 86, tokens: [nativeEth('0xagg', 10), usdcToken] });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+    expect(mockReadBridgeRegistry).not.toHaveBeenCalled();
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
+    expect(mockReadBridgeRegistry).toHaveBeenCalledWith('0xbridge', 'https://rpc.miden.test');
+  });
+
+  // The same token registered from another network mints another bridged token: while the chain's network id read
+  // fails, the row's own deposit network still picks its faucet, and the other network's never settles it.
+  it('settles an ERC-20 tracker only by the faucet of the network it deposited from', async () => {
+    const originToken = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+    const elsewhere: BridgeToken = { midenFaucetId: '0xelsewhere', originToken, originNetwork: 3, scale: 8 };
+    const own: BridgeToken = { midenFaucetId: '0xusdcfaucet', originToken, originNetwork: 0, scale: 8 };
+    const reads = registryReads([nativeEth('0xagg', 10), elsewhere, own]);
+    mockSnapshot = {
+      ...snapshotWith({}),
+      derived: {
+        ...snapshotWith({}).derived!,
+        chains: {
+          11155111: { ...reads, agglayer: { ...reads.agglayer, evmNetworkId: { state: 'error', message: 'down' } } }
+        }
+      }
+    };
+    mockTransactions.push(firstDeposit(originToken));
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'elsewhere-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'usdc-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'usdc-row' });
   });
 
   // Matching rewrites the tracker row to `received` and makes the real consume

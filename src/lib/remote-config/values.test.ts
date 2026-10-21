@@ -492,4 +492,27 @@ describe('getters', () => {
     expect(new Set(faucets).size).toBe(faucets.length);
     expect(selectAgglayerDeliveryFaucets(withDerived({ agglayer: { tokens: ERROR } }))).toEqual([]);
   });
+
+  // The same address registered from another network is another bridged token: with no known network the lookup
+  // names none, and a saved deposit network picks its own entry whatever the chain's read says.
+  it('find a registered token only on a known origin network', () => {
+    const USDC = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+    const registry = SEPOLIA_READS.agglayer.tokens.state === 'ok' ? SEPOLIA_READS.agglayer.tokens.value : [];
+    const elsewhere = {
+      midenFaucetId: '0xaef9b3cd67458ad14510d371c65a58',
+      originToken: USDC,
+      originNetwork: 3,
+      scale: 10
+    };
+    const unread = withDerived({
+      agglayer: { tokens: { state: 'ok', value: [elsewhere, ...registry] }, evmNetworkId: ERROR }
+    });
+    expect(selectAgglayerRegistryToken(unread, USDC, 11155111)).toBeNull();
+    expect(selectAgglayerRegistryToken(unread, USDC, 11155111, 0)).toMatchObject({
+      midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e'
+    });
+    expect(selectAgglayerRegistryToken(unread, USDC, 11155111, 3)).toMatchObject({
+      midenFaucetId: elsewhere.midenFaucetId
+    });
+  });
 });
