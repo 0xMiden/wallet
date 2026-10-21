@@ -418,6 +418,8 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
+    expect(readOutcome).toHaveBeenCalledTimes(1);
+    expect(readOutcome).toHaveBeenCalledWith(`0x${'e'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
     expect(updatePhase).not.toHaveBeenCalled();
     expect(fetchDeposits).not.toHaveBeenCalled();
   });
@@ -447,7 +449,34 @@ describe('reconcileBridgedReceives', () => {
 
     expect(readOutcome).not.toHaveBeenCalled();
     expect(updatePhase).not.toHaveBeenCalled();
+    expect(fetchDeposits).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[bridge-receive] AggLayer receipt not readable', 'agg-no-chain');
     warn.mockRestore();
+  });
+
+  it('keeps an AggLayer row submitting whose saved hash is not a transaction hash', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    rows.push(submittingAggRow('agg-bad-hash', { evmTxHash: '0x1234' }));
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[bridge-receive] AggLayer receipt not readable', 'agg-bad-hash');
+    warn.mockRestore();
+  });
+
+  // A receipt that never settles leaves the row submitting, so the delivery window is what ends it.
+  it('times out a submitting AggLayer row older than the tracking age without reading its receipt', async () => {
+    rows.push({ ...submittingAggRow('agg-stale-submitting'), initiatedAt: WEEK_AGO_SEC });
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(updatePhase).toHaveBeenCalledWith('agg-stale-submitting', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 
   it('leaves an AggLayer row pending when the indexer is unreachable', async () => {
