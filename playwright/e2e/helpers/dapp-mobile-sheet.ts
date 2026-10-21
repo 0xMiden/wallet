@@ -371,7 +371,7 @@ async function withinRefusalBlocks<T>(host: SheetHost, start: () => Promise<T>, 
 
 /**
  * Runs a request that must open no sheet, and fails the moment one opens, or once it is answered when one opened and
- * closed unseen by the polls (the webview's latch). With `refusal`, the answer also came within one block.
+ * closed unseen by the polls (the webview's latch). With `refusal`, the answer also came within `REFUSAL_BLOCKS` blocks.
  */
 export async function expectNoSheet<T>(
   host: SheetHost,
