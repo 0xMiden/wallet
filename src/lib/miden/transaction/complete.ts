@@ -1532,6 +1532,7 @@ export const updateEarnWithdrawPhase = async (
       stage: settled.stage,
       delegateTransaction: settled.delegateTransaction,
       diagnostics: settled.failureDiagnostics,
+      lastDeferral: settled.lastDeferral,
       error: extra?.error ?? settled.rawError ?? settled.error
     });
   }
@@ -1664,6 +1665,7 @@ export const updateBridgedReceivePhase = async (
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      lastDeferral: failed.lastDeferral,
       error: extra?.error ?? failed.rawError ?? failed.error,
       bridgeReceive: { route: inputs?.provider, step: source?.step, cause: source?.cause }
     });
@@ -1872,6 +1874,7 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
       stage: failed.stage,
       delegateTransaction: failed.delegateTransaction,
       diagnostics: failed.failureDiagnostics,
+      lastDeferral: failed.lastDeferral,
       reason: 'never_committed',
       error: failed.error
     });
@@ -1961,6 +1964,7 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
       stage: demoted.stage,
       delegateTransaction: demoted.delegateTransaction,
       diagnostics: demoted.failureDiagnostics,
+      lastDeferral: demoted.lastDeferral,
       error
     });
   }
