@@ -108,7 +108,10 @@ describe('lookupFeatureEligibility', () => {
   it.each([
     ['an inherited flag without an explicit development build', { MIDEN_ELIGIBILITY_OPEN: 'true' }],
     ['a production build that inherited the flag', { MODE_ENV: 'production', MIDEN_ELIGIBILITY_OPEN: 'true' }],
-    ['an end-to-end development build that inherited the flag', { MODE_ENV: 'development', MIDEN_E2E_TEST: 'true', MIDEN_ELIGIBILITY_OPEN: 'true' }]
+    [
+      'an end-to-end development build that inherited the flag',
+      { MODE_ENV: 'development', MIDEN_E2E_TEST: 'true', MIDEN_ELIGIBILITY_OPEN: 'true' }
+    ]
   ])('does not open eligibility for %s', (label, env) => {
     expect(devEligibilityOpen(env)).toBe(false);
     expect(label).toBeTruthy();
