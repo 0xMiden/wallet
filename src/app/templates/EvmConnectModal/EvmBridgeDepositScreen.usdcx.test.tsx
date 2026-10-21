@@ -1884,6 +1884,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(walletPrompt).toHaveBeenCalledTimes(1);
       expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
         error: error.message,
+        errorId: 'raw_bridge_deposit_failed',
         failure: { step: stage === 'prompt' ? 'wallet_approve' : 'approve_receipt', cause: error }
       });
       const lastCall = jest.mocked(updateBridgedReceivePhase).mock.calls.at(-1);
