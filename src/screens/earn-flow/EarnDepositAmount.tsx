@@ -128,12 +128,12 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               className="shrink-0 px-4 pt-4"
             />
           )}
-          <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 shrink-0" />
+          <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 w-auto shrink-0" />
           {/* One reason at a time: a deposit that is down already says why Continue is dead. */}
           {earnDeposit.state !== 'unavailable' && (
             <EarnCollateralNotice
               reason={earnCollateral.state === 'resolved' ? null : earnCollateral.state}
-              className="mx-4 mt-4 shrink-0"
+              className="mx-4 mt-4 w-auto shrink-0"
             />
           )}
           <div className="min-h-0 flex-1">
