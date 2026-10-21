@@ -2120,7 +2120,9 @@ export class Vault {
       guard();
       if (expectedHotPubKey === newHotPubKey) {
         if (account.requiresHotKeyRotation !== undefined && account.requiresHotKeyRotation !== false) {
-          throw Object.assign(new PublicError('The hot-key rotation metadata is incomplete'), { code: HOT_KEY_CHANGED });
+          throw Object.assign(new PublicError('The hot-key rotation metadata is incomplete'), {
+            code: HOT_KEY_CHANGED
+          });
         }
         return {
           accounts: allAccounts,

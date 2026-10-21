@@ -1582,7 +1582,10 @@ describe('MultisigService', () => {
           const service = await makeService(register, { signerCommitments: cachedSigners });
           mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['fresh-hot', 'fresh-cold'] });
           const assertCurrent = jest.fn();
-          await expect(service.verifyCurrentStateOnChain(undefined, assertCurrent)).resolves.toEqual(['fresh-hot', 'fresh-cold']);
+          await expect(service.verifyCurrentStateOnChain(undefined, assertCurrent)).resolves.toEqual([
+            'fresh-hot',
+            'fresh-cold'
+          ]);
           expect(register).not.toHaveBeenCalled();
           expect(cachedSigners).toEqual(['cached-hot', 'cached-cold']);
           expect(mockSyncState).toHaveBeenCalled();
@@ -1592,7 +1595,9 @@ describe('MultisigService', () => {
         it('GEO022 refuses a local state that fails the fresh chain comparison without registering', async () => {
           const register = jest.fn(async () => undefined);
           const service = await makeService(register, {
-            verifyStateCommitment: async () => { throw new Error('local commitment does not match chain'); }
+            verifyStateCommitment: async () => {
+              throw new Error('local commitment does not match chain');
+            }
           });
           await expect(service.verifyCurrentStateOnChain()).rejects.toBeInstanceOf(GuardianReRegisterRefusedError);
           expect(register).not.toHaveBeenCalled();
@@ -1602,16 +1607,23 @@ describe('MultisigService', () => {
           const barrier = makeBarrier();
           const refused = new Error('residual proof retired');
           let current = true;
-          const assertCurrent = () => { if (!current) throw refused; };
+          const assertCurrent = () => {
+            if (!current) throw refused;
+          };
           const register = jest.fn(async () => undefined);
           const service = await makeService(register, { verifyStateCommitment: async () => barrier.wait() });
           const proof = service.verifyCurrentStateOnChain(undefined, assertCurrent);
           const outcome = proof.catch((error: unknown) => error);
           try {
-            await barrier.ready; current = false; barrier.release();
+            await barrier.ready;
+            current = false;
+            barrier.release();
             expect(await outcome).toBe(refused);
             expect(register).not.toHaveBeenCalled();
-          } finally { barrier.release(); await outcome; }
+          } finally {
+            barrier.release();
+            await outcome;
+          }
         });
 
         it('GEO022 returns an empty fresh signer set without borrowing the cached allowlist as evidence', async () => {
@@ -1627,7 +1639,11 @@ describe('MultisigService', () => {
           const register = jest.fn(async () => undefined);
           const service = await makeService(register);
           mockSyncState.mockClear();
-          await expect(service.verifyCurrentStateOnChain(undefined, () => { throw denied; })).rejects.toBe(denied);
+          await expect(
+            service.verifyCurrentStateOnChain(undefined, () => {
+              throw denied;
+            })
+          ).rejects.toBe(denied);
           expect(mockSyncState).not.toHaveBeenCalled();
           expect(register).not.toHaveBeenCalled();
         });

@@ -39,7 +39,8 @@ export function createHotKeySwapGuard(
     expectedScope !== undefined &&
     (!expectedScope ||
       typeof expectedScope.guardianEndpoint !== 'string' ||
-      canonicalGuardianEndpoint(expectedScope.guardianEndpoint) !== canonicalGuardianEndpoint(resolveGuardianEndpoint(admitted)) ||
+      canonicalGuardianEndpoint(expectedScope.guardianEndpoint) !==
+        canonicalGuardianEndpoint(resolveGuardianEndpoint(admitted)) ||
       expectedScope.guardianEpoch !== (admitted.guardianEpoch ?? 0) ||
       expectedScope.network !== network ||
       expectedScope.rpcUrl !== rpcUrl)
@@ -66,8 +67,10 @@ export function createHotKeySwapGuard(
       bindingOf(current) !== accountBinding ||
       (storedAccount !== undefined &&
         bindingOf(storedAccount) !== accountBinding &&
-        !(storedAccount.hotPublicKey === newHotPublicKey &&
-          bindingOf({ ...storedAccount, hotPublicKey: admittedHotPublicKey }) === accountBinding))
+        !(
+          storedAccount.hotPublicKey === newHotPublicKey &&
+          bindingOf({ ...storedAccount, hotPublicKey: admittedHotPublicKey }) === accountBinding
+        ))
     ) {
       throw new PublicError('The hot-key update belongs to a retired account or network');
     }

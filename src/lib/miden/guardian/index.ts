@@ -742,7 +742,10 @@ export class MultisigService {
         // whole app's WASM access for that minute once per retry in this loop; the
         // ceiling bounds the hold as a whole.
         await withWasmClientLock(
-          () => { assertCurrent?.(); return this.multisig.syncState(); },
+          () => {
+            assertCurrent?.();
+            return this.multisig.syncState();
+          },
           { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync' }
         );
         assertCurrent?.();
@@ -1232,7 +1235,10 @@ export class MultisigService {
     lockOptions?: WasmClientLockOptions,
     assertCurrent?: () => void
   ): Promise<void> {
-    const { updatedStateBase64, freshSignerCommitments } = await this.readCurrentStateForRegistration(lockOptions, assertCurrent);
+    const { updatedStateBase64, freshSignerCommitments } = await this.readCurrentStateForRegistration(
+      lockOptions,
+      assertCurrent
+    );
     // Guard against a truncated read: AccountInspector.fromAccount swallows
     // per-slot storage-read failures (skips the slot, no throw), so a partial
     // read could yield an empty set. NEVER overwrite a good cached allowlist with
@@ -1318,7 +1324,6 @@ export class MultisigService {
   ): Promise<readonly string[]> {
     return (await this.readCurrentStateForRegistration(lockOptions, assertCurrent)).freshSignerCommitments;
   }
-
 }
 
 // Re-export types that may be needed by consumers

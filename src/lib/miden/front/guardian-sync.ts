@@ -1643,8 +1643,10 @@ async function finishOwnRotation(
   try {
     if (!zustandProvider.swapHotKey) throw new Error('swapHotKey not implemented in this provider');
     await zustandProvider.swapHotKey(
-      account.publicKey, rotation.newHotPublicKey,
-      confirmOnly ? rotation.newHotPublicKey : account.hotPublicKey ?? null, expectedScope
+      account.publicKey,
+      rotation.newHotPublicKey,
+      confirmOnly ? rotation.newHotPublicKey : (account.hotPublicKey ?? null),
+      expectedScope
     );
   } catch (swapError) {
     const code =
@@ -1722,8 +1724,10 @@ async function attemptColdReRegisterSelfHeal(
   if (!account.coldPublicKey) return 'refused-permanently';
   const endpoint = resolveGuardianEndpoint(account);
   const expectedScope: GuardianHotKeySwapScope = {
-    guardianEndpoint: endpoint, guardianEpoch: account.guardianEpoch ?? 0,
-    network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl()
+    guardianEndpoint: endpoint,
+    guardianEpoch: account.guardianEpoch ?? 0,
+    network: getEffectiveNetworkName(),
+    rpcUrl: getEffectiveRpcUrl()
   };
   const isCurrent = () => isCurrentGuardianSyncPass(generation, account.publicKey, endpoint);
   const assertCurrent = (): void => {
@@ -1964,7 +1968,10 @@ async function attemptColdReRegisterSelfHeal(
     if (!allowConfigure || (rotation && hotMatches)) {
       if (!rotation) return 'refused-transiently';
       const confirmedRotation = rotation;
-      const signers = await coldService.verifyCurrentStateOnChain(GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS, assertCurrent);
+      const signers = await coldService.verifyCurrentStateOnChain(
+        GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS,
+        assertCurrent
+      );
       assertCurrent();
       if (!signers.some(signer => sameCommitment(signer, confirmedRotation.commitment))) return 'refused-transiently';
       return await finishOwnRotation(account, confirmedRotation, isCurrent, expectedScope, true);
@@ -2093,7 +2100,9 @@ function stampPendingActivationCheck(
  * holds, the same stop rule as the account loop's own heals.
  */
 async function finishFailedHotKeyRotations(
-  accounts: WalletAccount[], generation: number, allowConfigure = true
+  accounts: WalletAccount[],
+  generation: number,
+  allowConfigure = true
 ): Promise<boolean> {
   for (const account of accounts) {
     if (generation !== syncGeneration) return false;
@@ -2143,11 +2152,17 @@ async function finishFailedHotKeyRotations(
         continue;
       }
       const outcome = await attemptColdReRegisterSelfHeal(
-        current, healFuseKey, generation, true,
-        canConfigure ? () => {
-          if (activationPushes.get(account.publicKey) !== pushBudget) throw new Error('Guardian push budget changed');
-          pushBudget.pushes += 1;
-        } : undefined,
+        current,
+        healFuseKey,
+        generation,
+        true,
+        canConfigure
+          ? () => {
+              if (activationPushes.get(account.publicKey) !== pushBudget)
+                throw new Error('Guardian push budget changed');
+              pushBudget.pushes += 1;
+            }
+          : undefined,
         canConfigure
       );
       if (!isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) {
@@ -2574,8 +2589,10 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         (await finishFailedHotKeyRotations([account], generation))
       )
         break;
-      if ((await currentPassAccount(generation, account.publicKey, endpoint)) &&
-          isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)) {
+      if (
+        (await currentPassAccount(generation, account.publicKey, endpoint)) &&
+        isCurrentGuardianSyncPass(generation, account.publicKey, endpoint)
+      ) {
         // Sync succeeded → the account is authorized; clear any accumulated
         // self-heal state so a future divergence starts its persistence count
         // fresh, and stand down the guardian-unreachable prompt.
