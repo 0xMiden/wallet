@@ -2685,4 +2685,19 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
       })
     );
   });
+
+  // The decimals a token was offered at may be an indexer's: the contract's own decide what 1.5 means, so a token
+  // whose contract reports others is refused before any prompt.
+  it('refuses an ERC-20 whose contract reports other decimals than it was offered at', async () => {
+    answerRpc(18n);
+
+    await confirmErc20Deposit();
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
+      'bridge-tx',
+      'failed',
+      expect.objectContaining({ failure: expect.objectContaining({ step: 'precheck_route' }) })
+    );
+  });
 });

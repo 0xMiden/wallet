@@ -291,6 +291,20 @@ async function readErc20Balance(evmAddress: string, contract: `0x${string}`, cha
   return decodeFunctionResult({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', data: result });
 }
 
+const ERC20_DECIMALS_ABI = [
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint8' }] }
+] as const;
+
+/** An ERC-20's decimals as its contract on the AggLayer chain reports them. */
+async function readErc20Decimals(contract: `0x${string}`, chainId: number): Promise<number> {
+  const data = encodeFunctionData({ abi: ERC20_DECIMALS_ABI, functionName: 'decimals' });
+  const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest'], chainId);
+  if (!isHex(result)) {
+    throw new Error('ERC-20 decimals returned no data');
+  }
+  return decodeFunctionResult({ abi: ERC20_DECIMALS_ABI, functionName: 'decimals', data: result });
+}
+
 /** The symbol the recipient gets on Miden. xReserve mints USDCx; the other routes keep the source symbol. */
 function outputSymbolFor(route: IBridgeProvider, sourceSymbol: string): string {
   switch (route) {
@@ -1024,6 +1038,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const captured = agglayerRecovery;
         if (!captured) throw walletRaised(new Error('AggLayer route is not configured'));
         const { contractAddress, rollupId } = captured;
+        // An offered token's decimals may be an indexer's; the contract's own decide the amount sent.
+        if (erc20 && (await readErc20Decimals(erc20.contractAddress, agglayerChainId)) !== erc20.decimals) {
+          throw walletRaised(new Error('The token contract reports other decimals than the wallet offered it at.'));
+        }
         const sourceDecimals = slowSourceDecimals;
         const amountInBaseUnits = parseUnits(amount.trim(), sourceDecimals);
         const tokenAddress: `0x${string}` = (() => {
