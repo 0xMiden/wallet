@@ -1,0 +1,721 @@
+{
+  "ready": true,
+  "source": "e050843b30d49ef2c076093f245ce9ccb246ef8e",
+  "tree": "22f90e97abd59d76750b20786b7577de5d67e653",
+  "parent": "2c2847236ef1321e2d93348e477745cbe6dd5e38",
+  "tracked_count": 3680,
+  "branch": "ci/1639-current-proposal-red",
+  "transport_paths": [
+    ".github/workflows/1639-current-proposal-red.yml",
+    ".github/proof/1639-proposal-red/capture.py",
+    ".github/proof/1639-proposal-red/bindings.json"
+  ],
+  "source_inputs": [
+    {
+      "path": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "sha256": "2b270a1dcc5a622c0cf3c4dc72bdf947c595c8ff878da06386a71786aad505e2",
+      "bytes": 4912,
+      "git_mode": "100644",
+      "git_blob": "40b738a183e55676ed5ce096f1ac106f5c01a3b1"
+    },
+    {
+      "path": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "sha256": "7231de5b4c4624248f3639685ae610263ce6ea260332c8b2f9bf8757af0ca441",
+      "bytes": 8830,
+      "git_mode": "100644",
+      "git_blob": "3e38dfdc033b74003da7161180003c7eb0a0a648"
+    },
+    {
+      "path": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "sha256": "8ae4b19c1abb5bd6d652f77c97acecb5627ab7aa16a87b31647b2709149df6cc",
+      "bytes": 19633,
+      "git_mode": "100644",
+      "git_blob": "4d048af964a82e2a8b73f836ce43b5f0e3cdeaa9"
+    },
+    {
+      "path": "src/lib/miden/front/guardian-manager.ts",
+      "sha256": "500024e8dfe2ae250a9a5d6e0e7ecc0fb07fa3c32161280f24a980dfbba37090",
+      "bytes": 17019,
+      "git_mode": "100644",
+      "git_blob": "92aaa035b2833b1f7de51a9300d5b80b60177806"
+    },
+    {
+      "path": "src/lib/miden/guardian/index.ts",
+      "sha256": "2d2e178d33bb7e3e0e53e0d1f577b4af6300bbf36c4a219ce4d4146b52cbb281",
+      "bytes": 64111,
+      "git_mode": "100644",
+      "git_blob": "3862ba8406224ca14862e5ac3caec0a2e98484cb"
+    },
+    {
+      "path": "src/lib/miden/transaction/index.ts",
+      "sha256": "ebe1659da4939f2c262216b2c67943d9b7dfd2ac29dde643065d94e944e34a79",
+      "bytes": 257183,
+      "git_mode": "100644",
+      "git_blob": "6219adb62ec7c6b769c2fe32215604ad0242058a"
+    },
+    {
+      "path": "src/lib/telemetry/crash-diagnostics.ts",
+      "sha256": "7ecfeddb95396c48d9088c5db58dadcd0625ba4cbc42044ec0ae2f8af87e3362",
+      "bytes": 11461,
+      "git_mode": "100644",
+      "git_blob": "30827f1add677c6b4711d287a33ed7f40aa1e075"
+    },
+    {
+      "path": "src/lib/telemetry/crash.ts",
+      "sha256": "d368135771c954997ab48698dcef8972dd40ceadf57106ae8005220214c5e388",
+      "bytes": 21023,
+      "git_mode": "100644",
+      "git_blob": "f9fdb69d776fd5a96e0c7758f7434127a39d2222"
+    },
+    {
+      "path": "src/lib/telemetry/transaction-failure.ts",
+      "sha256": "899a14722411d23e3ea7ca88b0f1539c1df6d37a06a805d8e43007b3c4c20eca",
+      "bytes": 35792,
+      "git_mode": "100644",
+      "git_blob": "08bdd22d2826f3d191d4234d8c7b92073be8dcd7"
+    },
+    {
+      "path": "src/lib/telemetry/transaction-operation.ts",
+      "sha256": "27b30210c5596949dd0f094bf79d2ca404cdc41fce3136c860ec11e4e5c5fc8e",
+      "bytes": 7111,
+      "git_mode": "100644",
+      "git_blob": "92c652ad8b116f8e69b3643d8196302f39e1ad17"
+    },
+    {
+      "path": "src/lib/telemetry/redact.ts",
+      "sha256": "1c572f9d02a0c5d6a18caac1eeeeb689b505f0787452337e7e577786a5faf1a6",
+      "bytes": 16256,
+      "git_mode": "100644",
+      "git_blob": "4187caa2ce76b8787660975c6a20a485fe118f2e"
+    },
+    {
+      "path": "src/lib/telemetry/context.ts",
+      "sha256": "87877069d295fc2219a929ebca9bb1413351bfb80305af10262f14785b64119e",
+      "bytes": 1359,
+      "git_mode": "100644",
+      "git_blob": "569acb41f86b37934da552b866b15b8b90415bb9"
+    },
+    {
+      "path": "src/lib/telemetry/user-visible-error-contract.ts",
+      "sha256": "af87b4ba57ad625e427b3b4cc87c97397309f01565b0e0bb3e8d2f1a736262f6",
+      "bytes": 12937,
+      "git_mode": "100644",
+      "git_blob": "52eea7c74536f07ab09c82c8e83e51aef88920ce"
+    },
+    {
+      "path": "src/lib/walletconnect/native-request-failure.ts",
+      "sha256": "83576cec3e6d3c9b4555529790235992ed9209a6f474f807505e36312df51751",
+      "bytes": 4898,
+      "git_mode": "100644",
+      "git_blob": "9cdd192337473854e5d0e7eb75545b1cb1645c0b"
+    },
+    {
+      "path": "src/lib/miden/repo.ts",
+      "sha256": "69e0897c0865d531b6ed4ac4d975c4b4a826483150d4980fcdd0d54d3a7a26f8",
+      "bytes": 33485,
+      "git_mode": "100644",
+      "git_blob": "737faf17dbc11d02920702103ed7814efee074c1"
+    },
+    {
+      "path": "src/lib/miden/db/types.ts",
+      "sha256": "936e3f6a4ebe3c76620996344adbcc251b2c6375310a20dc9923b64003af10aa",
+      "bytes": 80856,
+      "git_mode": "100644",
+      "git_blob": "340dff52aa7d960a96bd35b47d71a9167a4b7b76"
+    },
+    {
+      "path": "jest.config.ts",
+      "sha256": "73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6",
+      "bytes": 10839,
+      "git_mode": "100644",
+      "git_blob": "f4ca64f9b388d86da39def01c886bbfbba9f65d0"
+    },
+    {
+      "path": "jest.setup.js",
+      "sha256": "247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0",
+      "bytes": 1959,
+      "git_mode": "100644",
+      "git_blob": "7f77082c2e8d6fc30afb430325be3ce305c43ef5"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+      "bytes": 1390,
+      "git_mode": "100644",
+      "git_blob": "0d431024b44e5a2c81cacb32eda3420cda552380"
+    },
+    {
+      "path": ".prettierrc",
+      "sha256": "7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf",
+      "bytes": 361,
+      "git_mode": "100644",
+      "git_blob": "2fdaf943c0c26787ef61d6240834dffac0cecc7a"
+    },
+    {
+      "path": ".prettierignore",
+      "sha256": "f69fc353577cdc8651e6cffc57ce8e156b8ca9bba11dba9242e5c08b667a00cd",
+      "bytes": 81,
+      "git_mode": "100644",
+      "git_blob": "aab5d479eb17d9913d0d4a5337de303567f10ee5"
+    },
+    {
+      "path": "package.json",
+      "sha256": "9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e",
+      "bytes": 23234,
+      "git_mode": "100644",
+      "git_blob": "5ed317129cab8ec62e4264364d1a0db5d31c9b9b"
+    },
+    {
+      "path": "yarn.lock",
+      "sha256": "624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7",
+      "bytes": 785240,
+      "git_mode": "100644",
+      "git_blob": "9852dfc4e2a160548e8b3a5023e6edb9cb01aed5"
+    },
+    {
+      "path": "__mocks__/wasmMock.js",
+      "sha256": "57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66",
+      "bytes": 3946,
+      "git_mode": "100644",
+      "git_blob": "394afab472dbfe3205fe4e67c6463e0894f7d438"
+    },
+    {
+      "path": "__mocks__/@openzeppelin/miden-multisig-client.ts",
+      "sha256": "53cb1bb7e65a5d27b107a27b0080ac9714b7be0801a04007692b4c78ec3979ac",
+      "bytes": 6750,
+      "git_mode": "100644",
+      "git_blob": "92c8a3d862dbf2f55bdf5ffa73278bd11db76199"
+    },
+    {
+      "path": "__mocks__/@openzeppelin/guardian-client.ts",
+      "sha256": "d374369ee20aae00bd32d9bb5d0a51eef67475930acc52e473501907519e8d5a",
+      "bytes": 958,
+      "git_mode": "100644",
+      "git_blob": "1a0aeb26c73a3f78d7956fdb4880963c760fc5ac"
+    }
+  ],
+  "tests": [
+    "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+    "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+    "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts"
+  ],
+  "expected_cases": [
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "reports the consume service-selection read after routing and the guardian check succeed",
+      "ancestorTitles": [],
+      "title": "reports the consume service-selection read after routing and the guardian check succeed",
+      "status": "failed",
+      "numPassingAsserts": 23,
+      "first_frame": [294, 23],
+      "matcher_keys": ["message", "pass"],
+      "matcher_name": "toMatchObject",
+      "expected": null,
+      "actual": null,
+      "expected_matcher_message": "expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"service_select\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }",
+      "historical_full_failure_message": "Error: expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"service_select\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }\n    at toMatchObject (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:294:23)\n    at Object.<anonymous> (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:354:3)"
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "carries the inner real service-load fact through the full terminal report path",
+      "ancestorTitles": [],
+      "title": "carries the inner real service-load fact through the full terminal report path",
+      "status": "failed",
+      "numPassingAsserts": 17,
+      "first_frame": [294, 23],
+      "matcher_keys": ["message", "pass"],
+      "matcher_name": "toMatchObject",
+      "expected": null,
+      "actual": null,
+      "expected_matcher_message": "expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"service_load\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }",
+      "historical_full_failure_message": "Error: expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"service_load\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }\n    at toMatchObject (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:294:23)\n    at Object.<anonymous> (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:362:3)"
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "reports the real consume proposal boundary once without changing terminal behavior",
+      "ancestorTitles": [],
+      "title": "reports the real consume proposal boundary once without changing terminal behavior",
+      "status": "failed",
+      "numPassingAsserts": 18,
+      "first_frame": [294, 23],
+      "matcher_keys": ["message", "pass"],
+      "matcher_name": "toMatchObject",
+      "expected": null,
+      "actual": null,
+      "expected_matcher_message": "expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"proposal_create\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }",
+      "historical_full_failure_message": "Error: expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"proposal_create\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }\n    at toMatchObject (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:294:23)\n    at Object.<anonymous> (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:372:3)"
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "reports failed reclaim persistence before proposing and keeps the stored retry bytes",
+      "ancestorTitles": [],
+      "title": "reports failed reclaim persistence before proposing and keeps the stored retry bytes",
+      "status": "failed",
+      "numPassingAsserts": 22,
+      "first_frame": [294, 23],
+      "matcher_keys": ["message", "pass"],
+      "matcher_name": "toMatchObject",
+      "expected": null,
+      "actual": null,
+      "expected_matcher_message": "expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"reclaim_persist\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }",
+      "historical_full_failure_message": "Error: expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"reclaim_persist\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }\n    at toMatchObject (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:294:23)\n    at Object.<anonymous> (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:402:5)"
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "reports a failed signing-stage write after proposal return without resending",
+      "ancestorTitles": [],
+      "title": "reports a failed signing-stage write after proposal return without resending",
+      "status": "failed",
+      "numPassingAsserts": 22,
+      "first_frame": [294, 23],
+      "matcher_keys": ["message", "pass"],
+      "matcher_name": "toMatchObject",
+      "expected": null,
+      "actual": null,
+      "expected_matcher_message": "expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"signing_stage_write\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }",
+      "historical_full_failure_message": "Error: expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"signing_stage_write\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }\n    at toMatchObject (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:294:23)\n    at Object.<anonymous> (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:424:5)"
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "reports only the source-known missing-hot-key guard without key material",
+      "ancestorTitles": [],
+      "title": "reports only the source-known missing-hot-key guard without key material",
+      "status": "failed",
+      "numPassingAsserts": 18,
+      "first_frame": [294, 23],
+      "matcher_keys": ["message", "pass"],
+      "matcher_name": "toMatchObject",
+      "expected": null,
+      "actual": null,
+      "expected_matcher_message": "expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"service_select\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }",
+      "historical_full_failure_message": "Error: expect(received).toMatchObject(expected)\n\n- Expected  - 1\n+ Received  + 3\n\n  Object {\n-   \"proposalStep\": \"service_select\",\n+   \"appVersion\": \"1.17.5\",\n+   \"network\": \"testnet\",\n+   \"platform\": \"extension\",\n  }\n    at toMatchObject (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:294:23)\n    at Object.<anonymous> (/home/runner/work/wallet/wallet/src/lib/miden/transaction/proposal-diagnostics.integration.test.ts:433:3)"
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "completes an ordinary consume without producing a failure report",
+      "ancestorTitles": [],
+      "title": "completes an ordinary consume without producing a failure report",
+      "status": "passed",
+      "numPassingAsserts": 5
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "preserves the existing backpressure requeue without a terminal failure report",
+      "ancestorTitles": [],
+      "title": "preserves the existing backpressure requeue without a terminal failure report",
+      "status": "passed",
+      "numPassingAsserts": 11
+    },
+    {
+      "file": "src/lib/miden/transaction/proposal-diagnostics.integration.test.ts",
+      "fullName": "preserves the existing outage requeue without a terminal failure report",
+      "ancestorTitles": [],
+      "title": "preserves the existing outage requeue without a terminal failure report",
+      "status": "passed",
+      "numPassingAsserts": 11
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a plain chain-sync rejection as the existing wrapper and original cause",
+      "ancestorTitles": [],
+      "title": "keeps a plain chain-sync rejection as the existing wrapper and original cause",
+      "status": "failed",
+      "numPassingAsserts": 2,
+      "first_frame": [79, 46],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "chain_sync"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"chain_sync\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"chain_sync\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/guardian/proposal-diagnostics.test.ts:79:46)\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)"
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a pre-sync lock admission rejection raw and unlabelled",
+      "ancestorTitles": [],
+      "title": "keeps a pre-sync lock admission rejection raw and unlabelled",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a pre-sync client build rejection raw and unlabelled",
+      "ancestorTitles": [],
+      "title": "keeps a pre-sync client build rejection raw and unlabelled",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a pre-sync hold validation rejection raw and unlabelled",
+      "ancestorTitles": [],
+      "title": "keeps a pre-sync hold validation rejection raw and unlabelled",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "retires a sync trap in its hold and rethrows it raw without a chain-sync diagnostic",
+      "ancestorTitles": [],
+      "title": "retires a sync trap in its hold and rethrows it raw without a chain-sync diagnostic",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a sync watchdog eviction raw without retirement, proposal or a chain-sync diagnostic",
+      "ancestorTitles": [],
+      "title": "keeps a sync watchdog eviction raw without retirement, proposal or a chain-sync diagnostic",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a sync realm-error eviction raw without retirement, proposal or a chain-sync diagnostic",
+      "ancestorTitles": [],
+      "title": "keeps a sync realm-error eviction raw without retirement, proposal or a chain-sync diagnostic",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a sync offscreen abort raw without retirement, proposal or a chain-sync diagnostic",
+      "ancestorTitles": [],
+      "title": "keeps a sync offscreen abort raw without retirement, proposal or a chain-sync diagnostic",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a sync terminated client raw without retirement, proposal or a chain-sync diagnostic",
+      "ancestorTitles": [],
+      "title": "keeps a sync terminated client raw without retirement, proposal or a chain-sync diagnostic",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a sync terminated web client raw without retirement, proposal or a chain-sync diagnostic",
+      "ancestorTitles": [],
+      "title": "keeps a sync terminated web client raw without retirement, proposal or a chain-sync diagnostic",
+      "status": "passed",
+      "numPassingAsserts": 6
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "names the consume proposal rejection without wrapping the original Error",
+      "ancestorTitles": [],
+      "title": "names the consume proposal rejection without wrapping the original Error",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [140, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "proposal_create"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"proposal_create\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"proposal_create\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/guardian/proposal-diagnostics.test.ts:140:43)"
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a reclaim build failure before persistence or proposal creation",
+      "ancestorTitles": [],
+      "title": "keeps a reclaim build failure before persistence or proposal creation",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [149, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "reclaim_build"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"reclaim_build\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"reclaim_build\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/guardian/proposal-diagnostics.test.ts:149:43)"
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "keeps a reclaim persistence failure before proposal creation",
+      "ancestorTitles": [],
+      "title": "keeps a reclaim persistence failure before proposal creation",
+      "status": "failed",
+      "numPassingAsserts": 2,
+      "first_frame": [165, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "reclaim_persist"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"reclaim_persist\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"reclaim_persist\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/guardian/proposal-diagnostics.test.ts:165:43)"
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "names a reclaim proposal rejection only after its bytes were persisted",
+      "ancestorTitles": [],
+      "title": "names a reclaim proposal rejection only after its bytes were persisted",
+      "status": "failed",
+      "numPassingAsserts": 2,
+      "first_frame": [183, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "proposal_create"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"proposal_create\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"proposal_create\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/guardian/proposal-diagnostics.test.ts:183:43)"
+    },
+    {
+      "file": "src/lib/miden/guardian/proposal-diagnostics.test.ts",
+      "fullName": "returns successful ordinary and reclaim proposals with unchanged request bytes",
+      "ancestorTitles": [],
+      "title": "returns successful ordinary and reclaim proposals with unchanged request bytes",
+      "status": "passed",
+      "numPassingAsserts": 4
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "names a provider read rejection without replacing its Error",
+      "ancestorTitles": [],
+      "title": "names a provider read rejection without replacing its Error",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [62, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_select"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:62:43)\n    at processTicksAndRejections (node:internal/process/task_queues:103:5)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "names the exact account guard for missing account",
+      "ancestorTitles": [],
+      "title": "names the exact account guard for missing account",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [75, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_select",
+        "proposalGuard": "account_not_guardian"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 4\n+ Received  + 1\n\n- Object {\n-   \"proposalGuard\": \"account_not_guardian\",\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 4\n+ Received  + 1\n\n- Object {\n-   \"proposalGuard\": \"account_not_guardian\",\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}\n    at toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:75:43)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "names the exact account guard for wrong account type",
+      "ancestorTitles": [],
+      "title": "names the exact account guard for wrong account type",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [75, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_select",
+        "proposalGuard": "account_not_guardian"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 4\n+ Received  + 1\n\n- Object {\n-   \"proposalGuard\": \"account_not_guardian\",\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 4\n+ Received  + 1\n\n- Object {\n-   \"proposalGuard\": \"account_not_guardian\",\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}\n    at toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:75:43)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "names only the exact missing-hot-key guard",
+      "ancestorTitles": [],
+      "title": "names only the exact missing-hot-key guard",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [88, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_select",
+        "proposalGuard": "hot_key_missing"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 4\n+ Received  + 1\n\n- Object {\n-   \"proposalGuard\": \"hot_key_missing\",\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 4\n+ Received  + 1\n\n- Object {\n-   \"proposalGuard\": \"hot_key_missing\",\n-   \"proposalStep\": \"service_select\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:88:43)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "keeps the original rejection at service_account_read",
+      "ancestorTitles": [],
+      "title": "keeps the original rejection at service_account_read",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [104, 45],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_account_read"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_account_read\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_account_read\",\n- }\n+ Object {}\n    at toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:104:45)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "keeps the original rejection at service_signer_read",
+      "ancestorTitles": [],
+      "title": "keeps the original rejection at service_signer_read",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [104, 45],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_signer_read"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_signer_read\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_signer_read\",\n- }\n+ Object {}\n    at toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:104:45)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "keeps the original rejection at service_load",
+      "ancestorTitles": [],
+      "title": "keeps the original rejection at service_load",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [104, 45],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_load"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_load\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_load\",\n- }\n+ Object {}\n    at toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:104:45)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "does not infer a local guard from an unrelated load error message",
+      "ancestorTitles": [],
+      "title": "does not infer a local guard from an unrelated load error message",
+      "status": "failed",
+      "numPassingAsserts": 1,
+      "first_frame": [112, 43],
+      "matcher_keys": ["actual", "expected", "message", "name", "pass"],
+      "matcher_name": "toEqual",
+      "expected": {
+        "proposalStep": "service_load"
+      },
+      "actual": {},
+      "expected_matcher_message": "expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_load\",\n- }\n+ Object {}",
+      "historical_full_failure_message": "Error: expect(received).toEqual(expected) // deep equality\n\n- Expected  - 3\n+ Received  + 1\n\n- Object {\n-   \"proposalStep\": \"service_load\",\n- }\n+ Object {}\n    at Object.toEqual (/home/runner/work/wallet/wallet/src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts:112:43)"
+    },
+    {
+      "file": "src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts",
+      "fullName": "keeps successful cache reuse free of failure diagnostics",
+      "ancestorTitles": [],
+      "title": "keeps successful cache reuse free of failure diagnostics",
+      "status": "passed",
+      "numPassingAsserts": 3
+    }
+  ],
+  "historical_run": 39350464209,
+  "framework": [
+    "jest",
+    "jest-cli",
+    "expect",
+    "jest-circus",
+    "jest-config",
+    "jest-runtime",
+    "jest-resolve",
+    "jest-runner",
+    "jest-environment-jsdom",
+    "jest-util",
+    "jest-matcher-utils",
+    "jest-message-util",
+    "pretty-format",
+    "@jest/core",
+    "@jest/test-result",
+    "@jest/reporters",
+    "@jest/transform",
+    "@swc/jest",
+    "@swc/core",
+    "@sentry/browser",
+    "@sentry/core",
+    "@sentry/browser-utils",
+    "dexie",
+    "fake-indexeddb",
+    "react",
+    "typescript",
+    "eslint",
+    "prettier",
+    "ts-node"
+  ],
+  "framework_versions": {
+    "jest": "30.4.2",
+    "jest-cli": "30.4.2",
+    "expect": "30.4.1",
+    "jest-circus": "30.4.2",
+    "jest-config": "30.4.2",
+    "jest-runtime": "30.4.2",
+    "jest-resolve": "30.4.1",
+    "jest-runner": "30.4.2",
+    "jest-environment-jsdom": "30.4.1",
+    "jest-util": "30.4.1",
+    "jest-matcher-utils": "30.4.1",
+    "jest-message-util": "30.4.1",
+    "pretty-format": "30.4.1",
+    "@jest/core": "30.4.2",
+    "@jest/test-result": "30.4.1",
+    "@jest/reporters": "30.4.1",
+    "@jest/transform": "30.4.1",
+    "@swc/jest": "0.2.39",
+    "@swc/core": "1.15.41",
+    "@sentry/browser": "10.70.0",
+    "@sentry/core": "10.70.0",
+    "@sentry/browser-utils": "10.70.0",
+    "dexie": "4.4.2",
+    "fake-indexeddb": "4.0.2",
+    "react": "18.2.0",
+    "typescript": "5.9.3",
+    "eslint": "8.57.1",
+    "prettier": "3.8.4",
+    "ts-node": "10.9.2"
+  },
+  "framework_critical_files": [
+    "expect/build/index.js",
+    "jest-circus/build/jestAdapterInit.js",
+    "jest-circus/build/runner.js",
+    "jest-config/build/index.js",
+    "jest-runtime/build/index.js",
+    "jest-runner/build/index.js",
+    "jest-util/build/index.js",
+    "@jest/core/build/index.js",
+    "@jest/test-result/build/index.js",
+    "@jest/transform/build/index.js",
+    "@swc/jest/index.js",
+    "@sentry/core/build/cjs/index.js",
+    "dexie/dist/dexie.js",
+    "fake-indexeddb/build/cjs/index.js"
+  ],
+  "node_version": "v22.23.3",
+  "yarn_version": "1.22.22",
+  "natural_jest_exit": 1,
+  "expected_counts": {
+    "cases": 33,
+    "failed": 19,
+    "passed": 14,
+    "skipped": 0,
+    "runtime_errors": 0,
+    "suites": 3
+  },
+  "no_current_runtime_credit": true
+}

@@ -1,0 +1,138 @@
+name: NEVER-MERGE 1639 current proposal diagnostics expected red
+
+on:
+  push:
+    branches: [ci/1639-current-proposal-red]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+      GIT_OPTIONAL_LOCKS: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Bind source and isolated three-file transport
+        id: bind
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/ci/1639-current-proposal-red
+          export PROOF_DIR="$RUNNER_TEMP/1639-current-proposal-red"
+          export SOURCE_ROOT="$RUNNER_TEMP/1639-proposal-source"
+          test ! -e "$PROOF_DIR"
+          test ! -e "$SOURCE_ROOT"
+          mkdir "$PROOF_DIR"
+          printf 'PROOF_DIR=%s\nSOURCE_ROOT=%s\n' "$PROOF_DIR" "$SOURCE_ROOT" >> "$GITHUB_ENV"
+          cp .github/proof/1639-proposal-red/capture.py "$PROOF_DIR/capture.py"
+          cp .github/proof/1639-proposal-red/bindings.json "$PROOF_DIR/bindings.json"
+          cp .github/workflows/1639-current-proposal-red.yml "$PROOF_DIR/workflow.yml"
+          python3 - <<'PY_BIND'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          root, out = Path.cwd(), Path(os.environ['PROOF_DIR'])
+          binding = json.loads((out / 'bindings.json').read_text())
+          def git(*args):
+              return subprocess.check_output(['git', *args], cwd=root)
+          head = git('rev-parse', 'HEAD').decode().strip()
+          assert head == os.environ['GITHUB_SHA']
+          commit = git('cat-file', '-p', head)
+          parents = [line[7:].decode() for line in commit.split(b'\n\n', 1)[0].splitlines() if line.startswith(b'parent ')]
+          assert parents == [binding['source']]
+          changes = git('diff', '--name-status', '--no-renames', binding['source'], head).decode().splitlines()
+          assert sorted(changes) == sorted('A\t' + path for path in binding['transport_paths'])
+          files = []
+          for path in binding['transport_paths']:
+              physical = (root / path).read_bytes()
+              assert physical == git('show', head + ':' + path)
+              files.append({'path': path, 'bytes': len(physical), 'sha256': hashlib.sha256(physical).hexdigest()})
+          (out / 'transport-commit.txt').write_bytes(commit)
+          (out / 'source-commit.txt').write_bytes(git('cat-file', '-p', binding['source']))
+          (out / 'transport-inputs.json').write_text(json.dumps({'head': head, 'parents': parents,
+              'tree': git('rev-parse', 'HEAD^{tree}').decode().strip(), 'source': binding['source'],
+              'source_tree': binding['tree'], 'files': files}, indent=2) + '\n')
+          PY_BIND
+          git worktree add --detach "$SOURCE_ROOT" e050843b30d49ef2c076093f245ce9ccb246ef8e
+          cat > "$PROOF_DIR/record.sh" <<'SH_RECORD'
+          record() {
+            local label=$1
+            shift
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$label.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$label.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$label.tee.exit"
+            test "${codes[1]}" -eq 0 || return "${codes[1]}"
+            return "${codes[0]}"
+          }
+          SH_RECORD
+          printf 'BASH_ENV=%s\n' "$PROOF_DIR/record.sh" >> "$GITHUB_ENV"
+      - name: Pin Yarn and capture clean source before install
+        run: |
+          set -euo pipefail
+          record corepack-prepare corepack prepare yarn@1.22.22 --activate
+          record checkout-snapshot python3 "$PROOF_DIR/capture.py" source checkout
+      - name: Install exact lock
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_ROOT"
+          record install yarn install --frozen-lockfile --non-interactive
+      - name: Named formatting lint and full types before runtime
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_ROOT"
+          tests=(src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts src/lib/miden/guardian/proposal-diagnostics.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts)
+          record format yarn prettier --check "${tests[@]}"
+          record lint yarn eslint --max-warnings=0 "${tests[@]}"
+          record types yarn ts
+      - name: Bind source index and runtime framework before cases
+        id: before
+        run: |
+          set -euo pipefail
+          record snapshot-before python3 "$PROOF_DIR/capture.py" snapshot before
+      - name: Run all three suites retaining natural expected red
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cd "$SOURCE_ROOT"
+          record jest yarn jest --runTestsByPath src/lib/miden/front/guardian-manager.proposal-diagnostics.test.ts src/lib/miden/guardian/proposal-diagnostics.test.ts src/lib/miden/transaction/proposal-diagnostics.integration.test.ts --maxWorkers=2 --coverage=false --json --outputFile "$PROOF_DIR/jest.json"
+      - name: Capture unchanged source index and framework after checks
+        if: ${{ always() && steps.bind.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          record snapshot-after python3 "$PROOF_DIR/capture.py" snapshot after
+      - name: Independently classify exact 33-case causal proof
+        if: ${{ always() && steps.bind.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          record classify python3 "$PROOF_DIR/capture.py" classify
+      - name: Seal all raw and hidden proof outputs
+        if: ${{ always() && steps.bind.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" seal
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proposal-diagnostics-current-red-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/1639-current-proposal-red
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
