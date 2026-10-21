@@ -2,7 +2,12 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
-import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+import {
+  markNativeSessionPrecheck,
+  type NativeSessionPrecheckFailure,
+  type NativeSessionPrecheckRecovery,
+  walletRaised
+} from 'lib/telemetry/bridge-receive-failure';
 
 import { getChain, type EvmChain } from './config';
 import { readNativeFeeFields } from './fees';
@@ -200,12 +205,12 @@ function sessionApproves(state: ReownState, chainId: number): boolean {
   return Array.isArray(state.chainIds) && state.chainIds.includes(chainId);
 }
 
-async function readNativeState(fallback: ReownState): Promise<ReownState> {
+async function readNativeState(fallback: ReownState): Promise<{ state: ReownState; unread: boolean }> {
   try {
-    return await NativeReown.getState();
+    return { state: await NativeReown.getState(), unread: false };
   } catch (err) {
     console.warn('[NativeReown] could not read the state again after the chain request', err);
-    return fallback;
+    return { state: fallback, unread: true };
   }
 }
 
@@ -214,13 +219,19 @@ async function readNativeState(fallback: ReownState): Promise<ReownState> {
  * that approves `chainId`, from a `stateChanged` event or a re-read, or with the last state read
  * once `NATIVE_SESSION_CHAIN_WAIT_MS` has passed, whichever comes first.
  */
-async function waitForSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
+async function waitForSessionChain(
+  state: ReownState,
+  chainId: number
+): Promise<{ state: ReownState; unread: boolean }> {
   let latest = state;
+  let sawState = false;
+  let sawUnread = false;
   let finish: () => void = () => undefined;
   const finished = new Promise<void>(resolve => {
     finish = () => resolve();
   });
   const observe = (next: ReownState) => {
+    sawState = true;
     // A slower re-read that lacks the chain does not replace a state that approved it.
     if (sessionApproves(latest, chainId)) return;
     latest = next;
@@ -237,14 +248,17 @@ async function waitForSessionChain(state: ReownState, chainId: number): Promise<
   let polling = true;
   let poll: ReturnType<typeof setTimeout> | undefined;
   const reread = async () => {
-    observe(await readNativeState(latest));
+    const next = await readNativeState(latest);
+    // A failed re-read is not a session observation: the last state stands, and the attempt records that it was unread.
+    if (next.unread) sawUnread = true;
+    else observe(next.state);
     if (polling) poll = setTimeout(() => void reread(), NATIVE_SESSION_CHAIN_POLL_MS);
   };
   const deadline = setTimeout(finish, NATIVE_SESSION_CHAIN_WAIT_MS);
   try {
     void reread();
     await finished;
-    return latest;
+    return { state: latest, unread: !sawState && sawUnread };
   } finally {
     polling = false;
     clearTimeout(poll);
@@ -271,14 +285,14 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
 async function requestSessionChain(
   state: ReownState,
   chainId: number
-): Promise<{ state: ReownState; native?: ReownNativeFailure }> {
+): Promise<{ state: ReownState; native?: ReownNativeFailure; recovery: NativeSessionPrecheckRecovery }> {
   const approved = state.chainIds;
-  if (!Array.isArray(approved) || approved.includes(chainId)) return { state };
+  if (!Array.isArray(approved) || approved.includes(chainId)) return { state, recovery: 'not_attempted' };
   const chain = getChain(chainId);
   const requestChainId = state.chainId !== undefined && approved.includes(state.chainId) ? state.chainId : approved[0];
   // The public RPC: `rpcUrl` can be the WalletConnect proxy, which carries our project id. A chain without one
   // cannot be added, so the caller's guard refuses it.
-  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return { state };
+  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return { state, recovery: 'unsupported' };
 
   const hexChainId = `0x${chainId.toString(16)}`;
   try {
@@ -304,23 +318,51 @@ async function requestSessionChain(
     });
   } catch (err) {
     console.warn(`[NativeReown] could not add or switch to eip155:${chainId}`, err);
-    return { state: await readNativeState(state), native: readReownNativeFailure(err) };
+    const reread = await readNativeState(state);
+    return {
+      state: reread.state,
+      native: readReownNativeFailure(err),
+      recovery: reread.unread ? 'rejected_unread' : 'rejected'
+    };
   }
-  return { state: await waitForSessionChain(state, chainId) };
+  const waited = await waitForSessionChain(state, chainId);
+  return { state: waited.state, recovery: waited.unread ? 'unconfirmed_unread' : 'unconfirmed' };
+}
+
+function sessionPrecheckFailure(state: ReownState): NativeSessionPrecheckFailure {
+  return !state.connected || !state.topic ? 'session_missing' : 'chain_unapproved';
+}
+
+function rememberSessionPrecheck(
+  error: unknown,
+  failure: NativeSessionPrecheckFailure,
+  recovery: NativeSessionPrecheckRecovery
+): void {
+  if ((typeof error !== 'object' && typeof error !== 'function') || error === null) return;
+  markNativeSessionPrecheck(error, { failure, recovery });
 }
 
 /**
  * Makes sure that the connected session approved `chainId` before the wallet signs on it: reads
  * the state, tries to add and switch to a missing chain, then applies the guard. Call it before
- * the first wallet prompt of a signing flow.
+ * the first wallet prompt of a signing flow. A refusal keeps its message and carries only the closed
+ * precheck failure and add-and-switch attempt. A state read that throws is rethrown as itself.
  */
 export async function prepareNativeSessionChain(chainId: number): Promise<void> {
-  const { state, native } = await requestSessionChain(await NativeReown.getState(), chainId);
+  let current: ReownState;
+  try {
+    current = await NativeReown.getState();
+  } catch (err) {
+    rememberSessionPrecheck(err, 'state_unread', 'not_attempted');
+    throw err;
+  }
+  const { state, native, recovery } = await requestSessionChain(current, chainId);
   try {
     assertNativeSessionChain(state, chainId, nativeChainName(chainId));
   } catch (refusal) {
     // Only the refused add or switch request's closed values travel; its text and the rejection stay behind.
     if (native !== undefined && refusal instanceof Error) markReownNativeFailure(refusal, native);
+    rememberSessionPrecheck(refusal, sessionPrecheckFailure(state), recovery);
     throw refusal;
   }
 }

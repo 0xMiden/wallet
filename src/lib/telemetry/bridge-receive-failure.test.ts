@@ -12,6 +12,10 @@ import {
   type BridgeReceiveFailure,
   bridgeReceiveLibraryError,
   bridgeReceiveNativeFailure,
+  markNativeSessionPrecheck,
+  NATIVE_SESSION_PRECHECK_FAILURES,
+  NATIVE_SESSION_PRECHECK_RECOVERIES,
+  readNativeSessionPrecheck,
   REOWN_NATIVE_ORIGINS,
   REOWN_WALLET_RESPONSE_CODES,
   REOWN_REQUEST_AGES,
@@ -229,6 +233,24 @@ it('never builds a report the recovery-phrase filter would discard, for any rout
   expect(discarded).toEqual([]);
 });
 
+it('never builds a report the recovery-phrase filter would discard for any session precheck pair', () => {
+  const discarded: string[] = [];
+  for (const failure of NATIVE_SESSION_PRECHECK_FAILURES)
+    for (const recovery of NATIVE_SESSION_PRECHECK_RECOVERIES)
+      for (const raised of [false, true])
+        for (const stored of ['network down', 'unknown']) {
+          const cause = raised ? walletRaised(new Error('socket hang up')) : new Error('socket hang up');
+          markNativeSessionPrecheck(cause, { failure, recovery });
+          const message = reportBridge({ route: 'usdcx', step: 'precheck_session_chain', cause }, stored);
+          if (
+            containsSeedMaterial(message, englishWordlist) ||
+            !message.includes(`precheck ${failure}; attempt ${recovery}`)
+          )
+            discarded.push(`${failure} ${recovery} ${raised} ${stored}`);
+        }
+  expect(discarded).toEqual([]);
+});
+
 it.each([...BRIDGE_RECEIVE_ROUTES])('names the route %s', route => {
   expect(reportBridge({ route })).toContain(`; via ${route}; failed at other; evm error none. `);
 });
@@ -326,7 +348,11 @@ it.each([
     () => REOWN_PUBLICATIONS,
     () => bridgePolicyClause('; publication observation', '; background observation')
   ],
-  ['background observation', () => REOWN_BACKGROUND_ANSWERS, () => bridgePolicyClause('; background observation')]
+  [
+    'background observation',
+    () => REOWN_BACKGROUND_ANSWERS,
+    () => bridgePolicyClause('; background observation', '. When a native session precheck')
+  ]
 ])(
   'the privacy policy lists every reportable inbound-bridge %s in its own clause, and nothing else',
   (_name, values, clause) => {
@@ -341,15 +367,12 @@ it('the privacy policy lists every native session precheck failure and add-and-s
 
   expect(failures).not.toBe('');
   expect(attempts).not.toBe('');
-  expect(listedIn(failures)).toEqual(['chain_unapproved', 'other', 'session_missing', 'state_unread']);
-  expect(listedIn(attempts)).toEqual([
-    'not_attempted',
-    'other',
-    'rejected',
-    'rejected_unread',
-    'unconfirmed',
-    'unconfirmed_unread'
-  ]);
+  expect(listedIn(failures)).toEqual([...NATIVE_SESSION_PRECHECK_FAILURES, 'other'].sort());
+  expect(listedIn(attempts)).toEqual([...NATIVE_SESSION_PRECHECK_RECOVERIES, 'other'].sort());
+  expect(listedIn(failures.replace('`state_unread`', ''))).not.toEqual(
+    [...NATIVE_SESSION_PRECHECK_FAILURES, 'other'].sort()
+  );
+  expect(listedIn(`${attempts} \`eip155:1\``)).not.toEqual([...NATIVE_SESSION_PRECHECK_RECOVERIES, 'other'].sort());
 });
 
 it('policyClauseRejectsMissingOrExtraSentinels', () => {
@@ -477,4 +500,60 @@ it('keepsNativeOriginIndependentOfEvmClass', () => {
   markReownNativeFailure(opaque, { ...nativeSnapshot, walletResponseCode: 'user_rejected' });
   expect(bridgeReceiveLibraryError(opaque)).toBe('other');
   expect(opaque).not.toHaveProperty('code');
+});
+
+it('reports a native session precheck from the cause and leaves ids, hex and amounts out of the display string', () => {
+  const chainId = 5042002;
+  const address = `0x${'ab'.repeat(20)}`;
+  const hash = `0x${'cd'.repeat(32)}`;
+  const cause = walletRaised(
+    new Error(`The connected WalletConnect session did not approve Arc Testnet (eip155:${chainId}).`)
+  );
+  Object.assign(cause, {
+    chainId,
+    networkName: 'Arc Testnet',
+    topic: 'topic-secret',
+    failure: address,
+    recovery: '1.25'
+  });
+  expect(markNativeSessionPrecheck(cause, { failure: 'eip155:1', recovery: 'rejected' } as never)).toBe(false);
+  expect(readNativeSessionPrecheck(cause)).toBeUndefined();
+  expect(markNativeSessionPrecheck(cause, { failure: 'chain_unapproved', recovery: 'rejected' })).toBe(true);
+  expect(markNativeSessionPrecheck(cause, { failure: 'state_unread', recovery: 'not_attempted' })).toBe(false);
+  expect(readNativeSessionPrecheck(cause)).toEqual({ failure: 'chain_unapproved', recovery: 'rejected' });
+  markReownNativeFailure(cause, nativeSnapshot);
+
+  const message = reportBridge(
+    { route: 'usdcx', step: 'precheck_session_chain', cause },
+    `Reconnect Arc Testnet eip155:${chainId} amount 9.99 ${hash} https://secret.example topic-secret`
+  );
+
+  expect(message).toContain(
+    '; via usdcx; failed at precheck_session_chain; precheck chain_unapproved; attempt rejected; evm error none. '
+  );
+  for (const secret of [
+    String(chainId),
+    'Arc Testnet',
+    'eip155',
+    'WalletConnect',
+    '1.25',
+    '9.99',
+    '0x',
+    'abab',
+    'cdcd',
+    'https://',
+    'topic-secret',
+    address
+  ]) {
+    expect(message).not.toContain(secret);
+  }
+  expect(containsSeedMaterial(message, englishWordlist)).toBe(false);
+  const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  expect(snapshotCrashDiagnostics(report)).toEqual({
+    reownNativeOrigin: 'wallet_error',
+    reownWalletResponseCode: 'internal_error',
+    reownRequestAge: '120_to_300s',
+    reownPublished: 'confirmed',
+    reownBackgrounded: 'yes'
+  });
 });
