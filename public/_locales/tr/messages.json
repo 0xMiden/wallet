@@ -1819,6 +1819,10 @@
     "message": "Diğer",
     "englishSource": "Other"
   },
+  "others": {
+    "message": "Diğerleri",
+    "englishSource": "Others"
+  },
   "thousandFormat": {
     "message": "$thousand$ k",
     "englishSource": "$thousand$k",
@@ -5259,8 +5263,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "~20 dakika",
-    "englishSource": "~20 min"
+    "message": "~2 dk",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1 dk",

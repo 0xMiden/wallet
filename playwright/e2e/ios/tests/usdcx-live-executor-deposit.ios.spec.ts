@@ -117,7 +117,7 @@ const BUDGET = {
   check: 30_000,
   sourceBurn: ARC_READ_STEP_BUDGET_MS,
   // A fast transfer forwarded in 8-10 s when probed; Circle falls back to source finality (15-20 min) when its fast
-  // allowance runs out, and the wallet tells users about 20 min.
+  // allowance runs out, and the wallet tells users about 2 min.
   iris: 1_500_000,
   arcForward: 150_000,
   rowForward: 120_000,
