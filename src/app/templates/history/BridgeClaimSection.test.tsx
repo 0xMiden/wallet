@@ -1028,3 +1028,153 @@ describe('BridgeClaimSection', () => {
     });
   });
 });
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible bridge action errors', () => {
+  const settle = () =>
+    act(async () => {
+      for (let tick = 0; tick < 30; tick++) {
+        await Promise.resolve();
+      }
+    });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockGetCurrentMidenBlock.mockReset().mockResolvedValue(1200);
+    mockFindExitDeposit.mockReset().mockResolvedValue(READY);
+    mockClaimAgglayer.mockReset().mockResolvedValue({ wait: async () => undefined, hash: 'synthetic-claim' });
+    mockInitiateConsumeFromId.mockReset().mockResolvedValue('synthetic-reclaim');
+    mockTrackerPolls.length = 0;
+    mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+    mockFeeCopy = 'Visible claim fee refusal';
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports a live claim raw producer as raw_bridge_claim_failed', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('private claim 42 at https://synthetic.invalid'));
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private claim 42 at https://synthetic.invalid');
+    await expectErrorAfterDwell('raw_bridge_claim_failed', 'inline');
+  });
+
+  it('reports the actual translated session refusal as evmChainNotApproved', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(
+      new Error('private wrapper', { cause: new NativeSessionChainNotApprovedError(11155111, 'Synthetic') })
+    );
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('t:evmChainNotApproved');
+    await expectErrorAfterDwell('evmChainNotApproved', 'inline');
+  });
+
+  it('reports a live reclaim raw producer as raw_bridge_reclaim_failed', async () => {
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 42'));
+    renderSection({ entry: entry() });
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private reclaim amount 42');
+    await expectErrorAfterDwell('raw_bridge_reclaim_failed', 'inline');
+  });
+
+  it('reports the actual reclaim fee refusal as insufficientFeeAsset', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    renderSection({ entry: entry() });
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible claim fee refusal');
+    await expectErrorAfterDwell('insufficientFeeAsset', 'inline');
+  });
+
+  it.each(['retry', 'unmount'])('cancels a live claim error on %s before dwell', async control => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('short claim failure'));
+    const view = renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('short claim failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'retry') {
+      fireEvent.click(screen.getByText('t:claimAsset'));
+      await settle();
+    } else view.unmount();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps the destination-wallet mismatch caution silent', async () => {
+    mockEvm.address = '0xother';
+    renderSection({ entry: agglayer() });
+    await settle();
+    expect(screen.getByText('t:connectDestinationWalletToClaim')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps a raced but successfully recovered claim silent', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('private already claimed'));
+    mockFindExitDeposit
+      .mockResolvedValueOnce(READY)
+      .mockResolvedValueOnce({ ...READY, claim_tx_hash: 'synthetic-recovered' });
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps a persisted failed bridge status and reclaim-height helper silent', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValue(500);
+    renderSection({ entry: entry() });
+    await settle();
+    expect(screen.getByText(/t:bridgeFailed/)).toBeInTheDocument();
+    expect(screen.getByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});

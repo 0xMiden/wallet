@@ -50,6 +50,8 @@ export interface AnswerOptions {
 
 const METHODS = new Set<string>([
   MidenDAppMessageType.SignRequest,
+  MidenDAppMessageType.LoginKeyRequest,
+  MidenDAppMessageType.LoginSignRequest,
   MidenDAppMessageType.TransactionRequest,
   MidenDAppMessageType.SendTransactionRequest,
   MidenDAppMessageType.ConsumeRequest,

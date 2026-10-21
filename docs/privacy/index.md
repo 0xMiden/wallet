@@ -11,7 +11,11 @@ Bread Wallet by Miden ("the App") is a non-custodial cryptocurrency wallet for t
 
 ## Who we are
 
-The App is published by Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615), c/o Ogier Global (Cayman) Limited, 89 Nexus Way, Camana Bay, Grand Cayman, KY1-9009, Cayman Islands ("Miden", "we"). Miden is the controller of the personal data described in this policy. For anything about your data, write to privacy@miden.team.
+The App is published by Miden Technologies (US) Corp., a Delaware corporation (file number 10598340), 850 New Burton Road, Suite 201, Dover, Delaware 19904-5786, United States ("Miden", "we"). Miden is the controller of the personal data described in this policy. For anything about your data, write to privacy@miden.team or call +1 707 813 2275.
+
+Parts of the Miden network and its services are operated by our affiliate Whiteharbor Technologies, a Cayman Islands exempted company (company number 417615). Where this policy describes the network, the USDCx contract, a validator or the Miden swap solver, "Miden" includes that affiliate.
+
+<!-- TODO: decide whether Whiteharbor is a joint controller or a processor for network-side data; the sentence above treats it as part of "Miden" without deciding. -->
 
 <!-- TODO before publication: confirm whether an EU or UK representative under GDPR Article 27 is required. If one is appointed, add their name and address here. -->
 
@@ -31,20 +35,20 @@ Usage data, below, is sent **only while that setting is on**. Crash reports are 
 
 When the setting is on, the App reports the start and the end of a small set of activities. Each report is a single message with no free-form text in it — there is no field an address, an amount, or an error message could occupy. A message contains only these:
 
-| What | Values |
-|---|---|
-| Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity |
+| What                                                    | Values                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Which activity                                          | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity    |
 | Which kind of work, for work the App did on your behalf | One of: sending, receiving, swapping, earning, bridging, a guardian change, a dApp's transaction, another transaction, proving, or one of three services being unreachable. A category of work, never a recipient, an amount, an asset, a dApp, or an endpoint. See "Work the App does on your behalf" below |
-| Whether it started or ended | `started` or `ended`, or `settled` for work the App did on your behalf |
-| How it ended | `completed`, `cancelled`, or `errored` |
-| Broad error category, if it failed | One of: network, rpc, proving, validation, storage, auth, timeout, unknown |
-| How long it took | A duration in milliseconds |
-| How far you got | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting` |
-| App version | For example, `1.15.21` |
-| Platform | `extension`, `ios`, or `android` |
-| Network | `mainnet`, `testnet`, `devnet`, or `localnet` |
-| A short random number for that one activity | Explained under "Identifiers" below |
-| A short random number for that run of the App | Explained under "Identifiers" below |
+| Whether it started or ended                             | `started` or `ended`, or `settled` for work the App did on your behalf                                                                                                                                                                                                                                       |
+| How it ended                                            | `completed`, `cancelled`, or `errored`                                                                                                                                                                                                                                                                       |
+| Broad error category, if it failed                      | One of: network, rpc, proving, validation, storage, auth, timeout, unknown                                                                                                                                                                                                                                   |
+| How long it took                                        | A duration in milliseconds                                                                                                                                                                                                                                                                                   |
+| How far you got                                         | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting`                  |
+| App version                                             | For example, `1.15.21`                                                                                                                                                                                                                                                                                       |
+| Platform                                                | `extension`, `ios`, or `android`                                                                                                                                                                                                                                                                             |
+| Network                                                 | `mainnet`, `testnet`, `devnet`, or `localnet`                                                                                                                                                                                                                                                                |
+| A short random number for that one activity             | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
+| A short random number for that run of the App           | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
 
@@ -105,6 +109,8 @@ A crash that is the App's connection to the WalletConnect relay failing is sent 
 
 - **A WalletConnect relay connection that failed**: the label that says so (`walletconnect_relay`); whether the device's network connection had changed in the 30 seconds before (`just_changed` or `steady`); whether the App's window was on screen (`visible` or `hidden`); which App window it was (`popup`, `fullpage`, `sidepanel` or `confirm`); whether the connect-wallet screen was open in that window when the connection failed (`connect_modal` or `no_connect_modal`); whether the relay had connected in that window before (`true` or `false`); and how many relay failures that window had seen (`1`, `2-5` or `6+`). It never carries your connected wallet, its address, a session or pairing identifier, or the project key.
 
+When the App shows you an error message, it also reports that it did: which message it was (`activityHiddenNotesError`, `agglayerTokenUnsupported`, `amountMustBeLessThanBalance`, `biometricFailed`, `biometricHardwareUnavailable`, `biometricLockedOut`, `biometricNotEnrolled`, `biometricNotEnrolledWork`, `biometricNotStrong`, `biometricPasscodeNotSet`, `biometricSecurityUpdate`, `biometricStrongNotEnrolled`, `biometricStrongNotEnrolledWork`, `biometricUnavailable`, `biometricUnavailableIOS`, `bridgeDepositBalanceReadFailed`, `bridgeDepositBalanceTooLow`, `bridgeFeatureUnavailableBody`, `cameraPermissionDenied`, `cannotSendToSelf`, `confirmError`, `connectivityGuardianBody`, `connectivityNetworkBody`, `connectivityNodeBody`, `contactAlreadySaved`, `contactIsYourAccount`, `couldNotCheckUnlockMethod`, `couldNotDecodeTransaction`, `couldNotVerifyBySimulation`, `customGuardianUnreachable`, `dappLoadFailed`, `deadletteredNotesBody`, `deadletteredNotesBodyOne`, `devEndpointSaveFailed`, `earnCollateralUnavailable`, `earnFailedToOpenPosition`, `earnGaslessWithdrawalFailed`, `earnNoEvmAddress`, `earnPositionsLoadError`, `earnUnavailableOnNetwork`, `earnVaultLoadError`, `earnWithdrawAboveAvailable`, `earnWithdrawNotOwned`, `earnWithdrawPositive`, `earnWithdrawPrecision`, `earnWithdrawQuoteUnavailable`, `earnWithdrawRefresh`, `encryptedWalletFileExportFailedAccount`, `encryptedWalletFileExportFailedDesc`, `encryptedWalletFileJsonOnly`, `encryptedWalletFileMalformed`, `encryptedWalletFileReadFailed`, `encryptedWalletFileRestoreFailed`, `encryptedWalletFileSelectOne`, `encryptedWalletFileTooLarge`, `encryptedWalletFileUnsupportedVersion`, `encryptedWalletFileWrongNetwork`, `evmChainNotApproved`, `externalPageLoadFailed`, `failedToParseSigningPayload`, `faucetOverCap`, `faucetRateLimited`, `faucetRateLimitedWait`, `feeReserveBlocksSend`, `guardianAccountNotFound`, `guardianAuthenticationUnavailable`, `guardianEndpointUnchanged`, `guardianHistoryFailed`, `guardianHistoryPartial`, `guardianSwitchAlreadyInProgress`, `guardianUrlMismatch`, `guardianUrlNoOnChainGuardian`, `guardianUrlStaleRetry`, `guardianUrlUnreachable`, `hiddenTokensError`, `hiddenTokensUnreadable`, `historyDetailsLoadError`, `hotKeyHardwareErrorPromptBody`, `hotKeyRotationFailedGeneric`, `hotKeyRotationFundingClaimFailed`, `hotKeyRotationFundingClaimUnconfirmed`, `hotKeyRotationPromptBody`, `hotKeyRotationUnconfirmedBody`, `importHotKeyError`, `importHotKeyInvalid`, `importHotKeyNoAccount`, `importSeedPhraseError`, `incorrectPasscode`, `incorrectPassword`, `insufficientFeeAsset`, `insufficientFeeAssetShort`, `invalidAddress`, `invalidAmount`, `invalidEthereumAddress`, `invalidMidenAccountId`, `invalidMidenAddress`, `invalidPayload`, `invalidQrImage`, `invalidRecoverySeed`, `invalidUrl`, `justValidPreGeneratedMnemonic`, `mainnetAccessCheckFailed`, `mainnetAccessCodeRejected`, `mainnetAccessPasteFailed`, `meetGuardianNoneReachable`, `midenAddressWrongNetwork`, `noCameraFound`, `noQrCodeFound`, `noteClaimFailedRetry`, `nothingToPaste`, `passcodesDoNotMatch`, `passwordsDoNotMatch`, `raw_account_export_failed`, `raw_bridge_balance_failed`, `raw_bridge_claim_failed`, `raw_bridge_connect_failed`, `raw_bridge_deposit_failed`, `raw_bridge_deposit_submit_failed`, `raw_bridge_reclaim_failed`, `raw_choose_guardian_submit_failed`, `raw_confirm_approval_failed`, `raw_confirm_payload_failed`, `raw_contact_delete_failed`, `raw_contact_save_failed`, `raw_contact_scan_failed`, `raw_dapp_approval_failed`, `raw_dapp_permission_denied`, `raw_earn_deposit_submit_failed`, `raw_earn_withdraw_failed`, `raw_earn_withdraw_submit_failed`, `raw_encrypted_file_unlock_failed`, `raw_faucet_download_failed`, `raw_faucet_id_save_failed`, `raw_faucet_share_failed`, `raw_guardian_replace_hot_key_failed`, `raw_guardian_switch_failed`, `raw_guardian_url_save_failed`, `raw_history_cancel_failed`, `raw_history_details_load_failed`, `raw_history_retry_failed`, `raw_history_swap_cancel_failed`, `raw_home_faucet_failed`, `raw_hot_key_rotation_failed`, `raw_hot_key_rotation_funding_claim_failed`, `raw_import_hot_key_scan_failed`, `raw_import_recovery_lookup_failed`, `raw_onboarding_recovery_failed`, `raw_options_reload_failed`, `raw_pending_activity_retry_failed`, `raw_recovery_seed_submit_failed`, `raw_secret_reveal_failed`, `raw_seed_remove_failed`, `raw_seed_reveal_failed`, `raw_seed_verification_reveal_failed`, `raw_send_submit_failed`, `raw_startup_init_failed`, `raw_startup_root_missing`, `raw_swap_submit_failed`, `raw_transaction_failed`, `raw_transaction_retry_failed`, `raw_usdcx_execute_failed`, `recallTimeInPast`, `required`, `resetDidNotFinish`, `seedRemovalFailed`, `smthWentWrong`, `spendingLimitInvalidAmount`, `spendingLimitLoadFailed`, `spendingLimitSaveFailed`, `swapInvalidAmounts`, `swapPairNotListed`, `swapPriceMoved`, `swapPriceUnavailable`, `swapSameToken`, `swapSlippageRange`, `swapVerdictNoMarket`, `swapVerdictNoPrice`, `tokenActivityLoadError`, `tokenDecimalsInvalid`, `tokenMetadataSaveError`, `tokenNameInvalid`, `tokenSymbolInvalid`, `transactionErrorDescription`, `transactionFailedNotificationBody`, `transactionNotConfirmedNotificationBody`, `unknownTokenScale`, `unlockPasswordErrorDelay`, `updateNotificationActionFailed`, `usdcxBelowMinimumBurn`, `usdcxBurnFeeUnavailable`, `usdcxDepositFeeAboveBalance`, `usdcxDomainNotRegistered`, `usdcxFaucetUnavailable`, `usdcxForwardQuoteUnavailable`, `usdcxInvalidAmount`, `usdcxSendMoreThanPayoutFee`, `usdcxUnsupportedFaucet`, `verifyStepWrong`, `walletAccessUnavailableBody`, `walletSetupDidNotComplete`) and which kind of display showed it (`inline`, `field`, `passcode`, `notice`, `review`, `dialog`, `status_screen`, `prompt`, `startup`, `browser_alert`, `os_notification` or `native_toast`). It never sends the text you saw or typed. These reports use the same crash-report permission, with at most one report a minute for one message on one kind of display and 30 reports in ten minutes in each running App window or worker.
+
 Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library — the standard technical envelope, with nothing about you in it.
 
 Please read "What scrubbing can and cannot promise" below, which is the honest limit of this.
@@ -144,14 +150,14 @@ It means we cannot delete your data on request, and we would rather say so than 
 
 There is no identifier in this data by which we could find your records. If you asked us to delete your usage data or your crash reports, we would have no way to tell yours apart from everyone else's — the records simply do not say who they came from.
 
-This is a deliberate trade-off, not a way of avoiding the request. The alternative is to attach a durable identifier to every message so that we *could* find your data later, which would mean building the exact tracking capability we chose not to have. We decided that not being able to identify you is worth more than being able to service a deletion request, and this paragraph is the cost of that decision stated plainly.
+This is a deliberate trade-off, not a way of avoiding the request. The alternative is to attach a durable identifier to every message so that we _could_ find your data later, which would mean building the exact tracking capability we chose not to have. We decided that not being able to identify you is worth more than being able to service a deletion request, and this paragraph is the cost of that decision stated plainly.
 
 Two things do follow from it, in your favour:
 
 - **Turning the setting off is complete.** There is no profile left behind to keep, because there was never a profile.
 - **Everything expires on its own.** All usage data and all crash reports are deleted **90 days** after they are received. Nothing is kept longer, and nothing needs a request to make that happen.
 
-Everything the App stores about *your wallet* — your keys, accounts, balances, and history — is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
+Everything the App stores about _your wallet_ — your keys, accounts, balances, and history — is on your device, and you can delete it yourself with "Delete wallet" in Settings, or by uninstalling the App. That is unaffected by any of the above.
 
 ## What scrubbing can and cannot promise
 
@@ -169,20 +175,22 @@ None of them is a known leak. No part of the App puts a recovery phrase or a pas
 
 Crash reports are sent either way; usage data only if the setting is on:
 
-| Data | Processor | Where |
-|---|---|---|
-| Usage data | Aptabase | European Union (Germany) |
-| Crash reports | Sentry | European Union |
+| Data                      | Processor              | Where                                                                             |
+| ------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| Usage data                | Aptabase               | European Union (Germany)                                                          |
+| Crash reports             | Sentry                 | European Union                                                                    |
+| Feature eligibility check | Cloudflare and MaxMind | Connection address for the lookup; short-lived service records as described below |
 
 Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
 
-Both are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale.
+Aptabase and Sentry are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale. The feature eligibility service runs on Cloudflare and uses MaxMind to check the connection's IP address. The App receives only whether wallet access, Earn and Swap are allowed, plus the network and policy version. The service stores no raw IP address or geographic answer; it stores daily rotating keyed hashes of connection addresses, request counters and feature decisions. Feature decisions expire after five minutes, and expired caller records are removed in batches.
 
 ## How the App uses your device
 
 For transparency about how the App functions on your device (this is not data we receive or have access to):
 
 - Your Recovery Phrase and your Everyday Key are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled. They never leave your device. You can copy your Recovery Phrase, and you can download it and remove it from the device; what you do with that copy is up to you.
+- The App also derives an Ethereum address and key for you from your Recovery Phrase, used for Earn and for fiat on-ramp and off-ramp. That key is stored encrypted on your device, signs on your device, and never leaves it; restoring from your Recovery Phrase restores it.
 - Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, an encrypted copy is also held by your Guardian Operator; see "Your Guardian Operator" below. The App does not currently offer an export of your account state.
 
 <!-- TODO: when the account-state export ships, describe it here and in the Terms (section 3.3). Until then, do not reintroduce the "Encrypted Wallet File" sentence; the feature has no user interface. -->
@@ -207,21 +215,21 @@ Everything in this section is data the App must send for a feature to work. None
 
 ### The Miden network and its operator
 
-To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. However, during the network's current operating period Miden, as the network operator, has visibility into transaction data, including data associated with private accounts and private notes, for network-integrity, compliance and legal purposes. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
+To transact, the App sends transaction proofs and related data to the Miden network through its RPC endpoint and the note transport service. Miden is designed to support private transaction execution. During the network's current operating period, however, the transaction data you submit, including data associated with private accounts and private notes, is stored by the network's validators in encrypted form, and any two validators acting together can decrypt it. There are three validators, operated by Miden, Gateway.fm and LambdaClass. Miden cannot decrypt your data on its own; decryption requires two validators to cooperate, so at least one party independent of Miden must agree, and it takes place only for network-integrity, compliance and legal purposes, including in response to a lawful request. This is a property of the network in its current phase, not of the App; it applies whatever wallet you use.
 
-<!-- TODO: confirm with protocol engineering whether the operator sees this data directly or holds it encrypted with the ability to decrypt, and state the expected duration (e.g. "for the partner mainnet phase"). Align the wording with Terms section 12.1. -->
+<!-- TODO: state when this phase is expected to end, and link the validators' decryption policy once one is published. -->
 
 We retain compliance-related records, including block, unblock and legal-process records, for at least five years, and may disclose information where required by law or lawful process. Data written to the blockchain itself is permanent and cannot be deleted by anyone, including us.
 
 ### Your Guardian Operator
 
-If you enable a Guardian, your Guardian Operator receives and stores: an encrypted copy of your account state; the transaction summaries it is asked to acknowledge, and whether it acknowledged them; and the technical data needed to run the service. It does not receive your Recovery Phrase or your Everyday Key. Your Guardian Operator is a separate party from us unless the App tells you otherwise, and it handles this data under its own privacy notice.
+If you enable a Guardian, your Guardian Operator receives and stores an encrypted copy of your account state, and nothing else about you. It does not receive your Recovery Phrase, your Everyday Key, or any identity or contact data. At launch the Guardian Operators are LambdaClass (FOLTREK SA), KODA (Korea Digital Asset Co., Ltd.), Para (Capsule Labs Inc.) and Gateway.fm (GATEWAY.FM AS), all separate parties from us. When you create a wallet the App measures each operator's response time and assigns you the fastest one; the App shows you which operator you have, and you can change it at any time. Each operator handles this data under its own privacy notice.
 
-<!-- TODO: name the default Guardian Operator for partner mainnet, say whether it is Miden, an affiliate or an independent operator, and link its privacy notice. If the operator collects any identity or compliance data (e.g. for compliance zones), say so here. -->
+<!-- TODO: link each operator's privacy notice once they exist. Confirm with the Guardian team whether records of acknowledged transactions are retained after settlement; if so, add them to the first sentence. -->
 
 ### Fiat on-ramp and off-ramp (Transak)
 
-Buying crypto with fiat and selling crypto for fiat in the App is provided by Transak through a widget. When you use it you open an account with Transak and deal with Transak directly. Transak verifies your identity before you can transact and collects identity documents, bank details and other personal data for that purpose, under [Transak's privacy policy](https://transak.com/privacy-policy). We do not receive your identity documents or bank details.
+Buying crypto with fiat and selling crypto for fiat in the App is provided by Transak through a widget. When you use it you open an account with Transak and deal with Transak directly. Transak verifies your identity before you can transact and collects identity documents, bank details and other personal data for that purpose, under [Transak's privacy policy](https://transak.com/privacy-policy). We do not receive your identity documents or bank details. Transak pays crypto to, and receives crypto from, the Ethereum address the App derives for you (see "How the App uses your device"), so Transak can link your verified identity to that address, and transfers between that address and your Miden accounts are visible on the networks involved.
 
 <!-- TODO: state exactly what, if anything, the App receives back from Transak (e.g. an order status, a transaction id) and whether any Transak identifier is stored in the App. -->
 
@@ -233,13 +241,17 @@ A swap is filled by a third-party solver, and a bridge transfer is processed by 
 
 ### Earn
 
-<!-- TODO: describe what the Earn feature sends and to whom (the Earn Provider and its privacy notice). -->
+Earn is provided by Epoch (SYNC TECH LLC, St. Vincent and the Grenadines). When you use it, Epoch receives your Miden account, the Ethereum address the App derives for you, and the transactions you sign for the lending market on the Ethereum network that holds your position. The position is recorded at your Ethereum address in a third-party lending market, which sees that address and the amounts. The note that funds a deposit is public on Miden, so the deposit amount and your Miden account are visible on the network. Epoch handles this data under its own privacy notice.
+
+<!-- TODO: link Epoch's privacy notice. -->
 
 ### Geographic restrictions
 
-The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions. To apply that restriction, the IP address of a request is checked against the country it comes from, at the application level and at the network's sequencer endpoint. The IP address is used for that check and for the ordinary operation of the connection.
+The App asks for no location permission and reads no location sensor. The App and the Miden network are, however, not available from comprehensively sanctioned jurisdictions, and some features are not offered in every place. At startup, before allowing wallet access, the App asks a service running on Cloudflare whether wallet access, Earn and Swap are allowed for its connection. It keeps those decisions in memory for the page session and does not repeat the check while the wallet is open. Where a global or enabled feature restriction needs a place check, the service sends the connection's IP address to MaxMind and reads the country and region. The App receives no location and stores no IP address. The service retains only the short-lived records described above. The same address is also used for the ordinary operation of the connection, and the network's sequencer endpoint checks the country of a request.
 
-<!-- TODO: confirm whether IP addresses are logged for geoblocking or compliance purposes and for how long; if they are, say so here and in the retention section. -->
+Wallet access, including withdrawals, is unavailable in Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts. New Earn deposits are additionally unavailable in New York and the UK. Without a successful startup eligibility decision, wallet access stays closed.
+
+<!-- TODO: confirm whether infrastructure providers retain separate connection or geoblocking logs beyond the application records described here, and add their retention if applicable. -->
 
 ## Network traffic
 
@@ -269,17 +281,19 @@ The App is not directed at anyone under 18, and our Terms of Service require use
 
 ## Why we process data, and on what legal basis
 
-| Purpose | Data | Legal basis (GDPR Article 6) |
-|---|---|---|
-| Running the App and submitting your transactions | Transaction data sent to the network, Guardian data | Performance of our contract with you (the Terms of Service) |
-| Fixing crashes | Crash reports | Our legitimate interest in keeping the App working |
-| Understanding where people get stuck | Usage data | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place |
-| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network |
+| Purpose                                                                                      | Data                                                                          | Legal basis (GDPR Article 6)                                                                                                        |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Running the App and submitting your transactions                                             | Transaction data sent to the network, Guardian data                           | Performance of our contract with you (the Terms of Service)                                                                         |
+| Fixing crashes                                                                               | Crash reports                                                                 | Our legitimate interest in keeping the App working                                                                                  |
+| Understanding where people get stuck                                                         | Usage data                                                                    | Your consent, which you give by turning on "Share usage data" and can withdraw at any time in the same place                        |
+| Sanctions compliance, geographic restrictions, record-keeping, responding to lawful requests | IP country and region check, block and unblock records, legal-process records | Compliance with legal obligations, and our legitimate interest in operating a lawful network                                        |
+| Restricting new Earn deposits by region                                                      | IP country or region check as part of the wallet eligibility request          | Our legitimate interest in not offering new Earn deposits where we have chosen not to, and compliance with the laws of those places |
 
 ## How long we keep data
 
 - Usage data and crash reports: 90 days, then deleted automatically (see "Identifiers").
-- Compliance records (block, unblock and legal-process records): at least five years.
+- Compliance records (block, unblock and legal-process records): at least five years. These are separate from the transient eligibility-service records below.
+- Eligibility-service records: feature decisions expire after five minutes; caller records expire after five minutes without a request and are removed in batches. Caller identifiers are keyed hashes that rotate daily. The App keeps its eligibility decision in memory for at most 60 seconds and writes no geographic answer to device storage.
 - Data held by your Guardian Operator: as set out in its privacy notice.
 - Data written to the blockchain: permanent.
 

@@ -6,6 +6,8 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { TextField } from 'components/ui/TextField';
 import { useContacts } from 'lib/miden/front';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
@@ -30,6 +32,7 @@ export interface AddContactDrawerProps {
 }
 
 interface SheetBodyProps {
+  open: boolean;
   address: string;
   initialNetwork?: BridgeNetworkId;
   onSaved: () => void;
@@ -37,25 +40,29 @@ interface SheetBodyProps {
   onBusyChange: (busy: boolean) => void;
 }
 
-const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved, onBusyChange }) => {
+const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
   const isEvm = detectAddressChain(address) === 'ethereum';
   const [name, setName] = useState('');
   const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
   const [error, setError] = useState<string>();
+  const [errorId, setErrorId] = useState<UserErrorId>();
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
+  useUserVisibleError(open && error ? errorId : null, 'inline');
 
   const save = async () => {
     if (!trimmedName || saving) return;
     if (!isValidRecipientAddress(address)) {
       setError(t('invalidAddress'));
+      setErrorId('invalidAddress');
       return;
     }
     setSaving(true);
     onBusyChange(true);
     setError(undefined);
+    setErrorId(undefined);
     try {
       await addContact({
         address,
@@ -70,6 +77,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved,
       onSaved();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
+      setErrorId('raw_contact_save_failed');
       setSaving(false);
       onBusyChange(false);
     }
@@ -108,6 +116,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved,
         onChange={event => {
           setName(event.target.value);
           setError(undefined);
+          setErrorId(undefined);
         }}
         placeholder={t('contactNamePlaceholder')}
         maxLength={NAME_MAX_LENGTH}
@@ -182,6 +191,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
           {/* Remount per address so a new recipient starts with an empty name. */}
           <SheetBody
             key={address}
+            open={open}
             address={address}
             initialNetwork={network}
             onSaved={() => onOpenChange(false)}

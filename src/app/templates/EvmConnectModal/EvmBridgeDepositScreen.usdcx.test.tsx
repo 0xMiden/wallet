@@ -1,16 +1,19 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { toFunctionSelector } from 'viem';
 
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
+import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerChainConfig, UsdcxChainConfig } from 'lib/remote-config/schema';
 import { requestTimeoutError } from 'lib/remote-json';
 import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 import type { CctpBurnQuote } from 'lib/usdcx/cctp';
-import { runUsdcxDeposit } from 'lib/usdcx/deposit';
+import { runUsdcxDeposit, UsdcxDomainNotRegisteredError } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import {
   buildExecutorBurnIntent,
@@ -70,7 +73,12 @@ const registrationReadUrls = (xReserve: string): unknown[] =>
 // The key, then any values it names, so a case can read which balance, token and network a message was given.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key)
+    t: (key: string, values?: Record<string, unknown>) =>
+      mockRealBridgeDisplays && mockBridgeErrorCopy[key]
+        ? `${mockBridgeErrorCopy[key]}${values ? ' ' + JSON.stringify(values) : ''}`
+        : values
+          ? `${key} ${JSON.stringify(values)}`
+          : key
   })
 }));
 
@@ -136,7 +144,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 jest.mock('lib/usdcx/deposit', () => ({
   runUsdcxDeposit: jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`),
-  isUsdcxDomainNotRegisteredError: () => false
+  isUsdcxDomainNotRegisteredError:
+    jest.requireActual<typeof import('lib/usdcx/deposit')>('lib/usdcx/deposit').isUsdcxDomainNotRegisteredError,
+  UsdcxDomainNotRegisteredError:
+    jest.requireActual<typeof import('lib/usdcx/deposit')>('lib/usdcx/deposit').UsdcxDomainNotRegisteredError
 }));
 
 // The real derivation, spied on: a test can hand the screen a recipient no other path would produce.
@@ -210,92 +221,136 @@ jest.mock('lib/walletconnect/config', () => {
   };
 });
 
-jest.mock('./EvmBridgeDepositForm', () => ({
-  EvmBridgeDepositForm: ({
-    onAmountChange,
-    onContinue,
-    onSelectToken,
-    onSelectNetwork,
-    network,
-    tokenLabel,
-    isValidAmount,
-    error
-  }: {
-    network?: { chainId: number };
-    tokenLabel: string;
-    isValidAmount: boolean;
-    error?: string;
-    onAmountChange: (value?: string) => void;
-    onContinue: () => void;
-    onSelectToken: () => void;
-    onSelectNetwork?: () => void;
-  }) => (
-    <div>
-      <span data-testid="form-token">{tokenLabel}</span>
-      <span data-testid="form-network">{String(network?.chainId)}</span>
-      <span data-testid="form-ready">{String(isValidAmount)}</span>
-      <span data-testid="form-error">{error}</span>
-      <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
-        amount
-      </button>
-      <button data-testid="open-token-drawer" onClick={onSelectToken}>
-        token
-      </button>
-      {onSelectNetwork && (
-        <button data-testid="open-network-drawer" onClick={onSelectNetwork}>
-          network
-        </button>
-      )}
-      <button data-testid="continue" onClick={onContinue}>
-        continue
-      </button>
-    </div>
-  )
-}));
-
-jest.mock('./EvmBridgeDepositReview', () => {
-  // The real naming helper: the screen and the Review both name the arriving token through it.
-  const actual = jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview');
-  return {
-    ...actual,
-    EvmBridgeDepositReview: ({
-      onConfirm,
-      symbol,
-      label,
-      route,
-      fee,
-      sourceChainId,
-      canConfirm,
+jest.mock('./EvmBridgeDepositForm', () => {
+  const legacy = (() => ({
+    EvmBridgeDepositForm: ({
+      onAmountChange,
+      onContinue,
+      onSelectToken,
+      onSelectNetwork,
+      network,
+      tokenLabel,
+      isValidAmount,
       error
     }: {
-      onConfirm: () => void;
-      symbol: string;
-      label?: string;
-      route: Parameters<typeof actual.arrivingTokenName>[0];
-      fee?: string;
-      sourceChainId?: number;
-      canConfirm?: boolean;
+      network?: { chainId: number };
+      tokenLabel: string;
+      isValidAmount: boolean;
       error?: string;
+      onAmountChange: (value: string) => void;
+      onContinue: () => void;
+      onSelectToken: () => void;
+      onSelectNetwork?: () => void;
     }) => (
       <div>
-        {fee && <span data-testid="review-fee">{fee}</span>}
-        <span data-testid="review-error">{error}</span>
-        <span data-testid="review-can-confirm">{String(canConfirm)}</span>
-        <span data-testid="review-source">{String(sourceChainId)}</span>
-        <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
-        <button data-testid="confirm-deposit" onClick={onConfirm}>
-          confirm
+        <span data-testid="form-token">{tokenLabel}</span>
+        <span data-testid="form-network">{String(network?.chainId)}</span>
+        <span data-testid="form-ready">{String(isValidAmount)}</span>
+        <span data-testid="form-error">{error}</span>
+        <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
+          amount
+        </button>
+        <button data-testid="open-token-drawer" onClick={onSelectToken}>
+          token
+        </button>
+        {onSelectNetwork && (
+          <button data-testid="open-network-drawer" onClick={onSelectNetwork}>
+            network
+          </button>
+        )}
+        <button data-testid="continue" onClick={onContinue}>
+          continue
         </button>
       </div>
     )
+  }))();
+  return {
+    ...legacy,
+    EvmBridgeDepositForm: (
+      props: React.ComponentProps<typeof import('./EvmBridgeDepositForm').EvmBridgeDepositForm>
+    ) =>
+      mockRealBridgeDisplays
+        ? React.createElement(
+            jest.requireActual<typeof import('./EvmBridgeDepositForm')>('./EvmBridgeDepositForm').EvmBridgeDepositForm,
+            props
+          )
+        : legacy.EvmBridgeDepositForm(props)
   };
 });
 
-jest.mock('./EvmBridgeDepositStatus', () => ({
-  EvmBridgeDepositStatus: ({ awaitingNextConfirmation }: { awaitingNextConfirmation?: boolean }) => (
-    <div data-testid="deposit-status" data-awaiting={String(awaitingNextConfirmation ?? false)} />
-  )
-}));
+jest.mock('./EvmBridgeDepositReview', () => {
+  const legacy = (() => {
+    // The real naming helper: the screen and the Review both name the arriving token through it.
+    const actual = jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview');
+    return {
+      ...actual,
+      EvmBridgeDepositReview: ({
+        onConfirm,
+        symbol,
+        label,
+        route,
+        fee,
+        sourceChainId,
+        canConfirm,
+        error
+      }: {
+        onConfirm: () => void;
+        symbol: string;
+        label?: string;
+        route: Parameters<typeof actual.arrivingTokenName>[0];
+        fee?: string;
+        sourceChainId?: number;
+        canConfirm?: boolean;
+        error?: string;
+      }) => (
+        <div>
+          {fee && <span data-testid="review-fee">{fee}</span>}
+          <span data-testid="review-error">{error}</span>
+          <span data-testid="review-can-confirm">{String(canConfirm)}</span>
+          <span data-testid="review-source">{String(sourceChainId)}</span>
+          <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
+          <button data-testid="confirm-deposit" onClick={onConfirm}>
+            confirm
+          </button>
+        </div>
+      )
+    };
+  })();
+  return {
+    ...legacy,
+    EvmBridgeDepositReview: (
+      props: React.ComponentProps<typeof import('./EvmBridgeDepositReview').EvmBridgeDepositReview>
+    ) =>
+      mockRealBridgeDisplays
+        ? React.createElement(
+            jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview')
+              .EvmBridgeDepositReview,
+            props
+          )
+        : legacy.EvmBridgeDepositReview(props)
+  };
+});
+
+jest.mock('./EvmBridgeDepositStatus', () => {
+  const legacy = (() => ({
+    EvmBridgeDepositStatus: ({ awaitingNextConfirmation }: { awaitingNextConfirmation?: boolean }) => (
+      <div data-testid="deposit-status" data-awaiting={String(awaitingNextConfirmation ?? false)} />
+    )
+  }))();
+  return {
+    ...legacy,
+    EvmBridgeDepositStatus: (
+      props: React.ComponentProps<typeof import('./EvmBridgeDepositStatus').EvmBridgeDepositStatus>
+    ) =>
+      mockRealBridgeDisplays
+        ? React.createElement(
+            jest.requireActual<typeof import('./EvmBridgeDepositStatus')>('./EvmBridgeDepositStatus')
+              .EvmBridgeDepositStatus,
+            props
+          )
+        : legacy.EvmBridgeDepositStatus(props)
+  };
+});
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
   EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: string) => void }) =>
@@ -411,7 +466,11 @@ const depositScreen = (evmAddress = '0x1111111111111111111111111111111111111111'
 const renderScreen = () => render(depositScreen());
 
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
-const failedAt = (step: string, error: string) => ({ error, failure: { step, cause: expect.any(Error) } });
+const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
+  error,
+  errorId,
+  failure: { step, cause: expect.any(Error) }
+});
 /** The library error the crash report names for the cause the last failure write handed it. */
 const reportedEvmError = (): string =>
   bridgeReceiveLibraryError(
@@ -757,7 +816,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       'bridge-tx',
       failed ? 'failed' : 'submitting',
       failed
-        ? { error: error.message, failure: { step: broadcast ? 'deposit_receipt' : 'precheck_route', cause: error } }
+        ? {
+            error: error.message,
+            errorId: 'raw_bridge_deposit_failed',
+            failure: { step: broadcast ? 'deposit_receipt' : 'precheck_route', cause: error }
+          }
         : { evmTxHash: `0x${'2'.repeat(64)}` }
     );
   });
@@ -835,7 +898,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_session_chain', `evmChainNotApproved ${JSON.stringify({ network: 'Arc Testnet' })}`)
+      failedAt(
+        'precheck_session_chain',
+        `evmChainNotApproved ${JSON.stringify({ network: 'Arc Testnet' })}`,
+        'evmChainNotApproved'
+      )
     );
   });
 
@@ -1005,7 +1072,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_quote', 'usdcxForwardQuoteUnavailable')
+      failedAt('precheck_quote', 'usdcxForwardQuoteUnavailable', 'usdcxForwardQuoteUnavailable')
     );
   });
 
@@ -1092,7 +1159,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_balance', feeAboveBalance('1.52', 'Base Sepolia'))
+      failedAt('precheck_balance', feeAboveBalance('1.52', 'Base Sepolia'), 'usdcxDepositFeeAboveBalance')
     );
   });
 
@@ -1169,7 +1236,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
       'bridge-tx',
       'failed',
-      failedAt('precheck_balance', feeAboveBalance('1.531907', 'Base Sepolia'))
+      failedAt('precheck_balance', feeAboveBalance('1.531907', 'Base Sepolia'), 'usdcxDepositFeeAboveBalance')
     );
   });
 
@@ -1194,7 +1261,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       'failed',
       failedAt(
         'precheck_balance',
-        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`,
+        'bridgeDepositBalanceReadFailed'
       )
     );
   });
@@ -1218,7 +1286,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       'failed',
       failedAt(
         'precheck_balance',
-        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+        `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`,
+        'bridgeDepositBalanceReadFailed'
       )
     );
   });
@@ -1627,7 +1696,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
         'failed',
         failedAt(
           'precheck_balance',
-          `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`
+          `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`,
+          'bridgeDepositBalanceTooLow'
         )
       );
       expect(reportedEvmError()).toBe('none');
@@ -1654,7 +1724,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
         'bridge-tx',
         'failed',
-        failedAt('precheck_balance', `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network })}`)
+        failedAt(
+          'precheck_balance',
+          `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network })}`,
+          'bridgeDepositBalanceReadFailed'
+        )
       );
       expect(reportedEvmError()).toBe('timeout');
     }
@@ -1826,6 +1900,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await waitFor(() =>
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
         error: 'The connected EVM wallet provider is unavailable.',
+        errorId: 'raw_bridge_deposit_failed',
         failure: { step: 'provider_unavailable' }
       })
     );
@@ -1836,4 +1911,446 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(mockSwitchChain).not.toHaveBeenCalled();
     expect(prepareNativeSessionChain).not.toHaveBeenCalled();
   });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+let mockRealBridgeDisplays = false;
+let mockLiveBridgeRow: ITransaction | undefined;
+const mockLiveBridgeListeners = new Set<() => void>();
+let mockRealBridgeRowQuery = false;
+jest.mock('screens/generating-transaction/useTransactionRow', () => {
+  const useMockLiveBridgeRow = (_txId: string) => {
+    const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+    const row = useSyncExternalStore(
+      (listener: () => void) => {
+        mockLiveBridgeListeners.add(listener);
+        return () => {
+          mockLiveBridgeListeners.delete(listener);
+        };
+      },
+      () => mockLiveBridgeRow
+    );
+    return { row, loaded: true };
+  };
+  return {
+    useTransactionRow: (txId: string) => {
+      const useRow = mockRealBridgeRowQuery
+        ? jest.requireActual<typeof import('screens/generating-transaction/useTransactionRow')>(
+            'screens/generating-transaction/useTransactionRow'
+          ).useTransactionRow
+        : useMockLiveBridgeRow;
+      return useRow(txId);
+    }
+  };
+});
+jest.mock('lib/dexie-live-query', () => {
+  const actual = jest.requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query');
+  return { ...actual, subscribeToLiveQuery: jest.fn(actual.subscribeToLiveQuery) };
+});
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'synthetic-native' }));
+jest.mock('lib/store', () => ({
+  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never> }) => T) =>
+    selector({ assetsMetadata: {} })
+}));
+jest.mock('./UsdcxDepositSteps', () => ({ UsdcxDepositSteps: () => null }));
+jest.mock('./UsdcxExecuteAction', () => ({ UsdcxExecuteAction: () => null }));
+jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({ useHideNavbarWhileOpen: jest.fn() }));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
+const publishLiveBridgeRow = (row: ITransaction) => {
+  mockLiveBridgeRow = row;
+  mockLiveBridgeListeners.forEach(listener => listener());
+};
+const observeBridgeWrites = () => {
+  jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async input => {
+    publishLiveBridgeRow({
+      id: 'bridge-tx',
+      type: 'bridged-receive',
+      accountId: input.accountId,
+      amount: input.amount,
+      faucetId: input.faucetId,
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      displayMessage: 'Bridging in',
+      displayIcon: 'DEFAULT',
+      extraInputs: { ...input, phase: 'submitting' }
+    });
+    return 'bridge-tx';
+  });
+  jest.mocked(updateBridgedReceivePhase).mockImplementation(async (_id, phase, update) => {
+    if (mockLiveBridgeRow)
+      publishLiveBridgeRow({
+        ...mockLiveBridgeRow,
+        extraInputs: { ...mockLiveBridgeRow.extraInputs, ...update, phase }
+      });
+  });
+};
+const flushBridgePromises = () =>
+  act(async () => {
+    for (let tick = 0; tick < 40; tick++) await Promise.resolve();
+  });
+
+const mockBridgeErrorCopy: Record<string, string> = {
+  evmChainNotApproved: 'Reconnect the selected wallet',
+  bridgeDepositBalanceReadFailed: 'Could not check the balance',
+  bridgeDepositBalanceTooLow: 'The source wallet holds too little',
+  usdcxDomainNotRegistered: 'Circle has not enabled this destination',
+  usdcxForwardQuoteUnavailable: 'Circle could not price this transfer',
+  usdcxDepositFeeAboveBalance: 'Lower the amount to cover the fee'
+};
+
+describe('user-visible USDCx deposit producers', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRealBridgeDisplays = true;
+    mockLiveBridgeRow = undefined;
+    mockBridgeSnapshot = undefined;
+    mockNativeAvailable = false;
+    mockWebProviderConnected = true;
+    mockUseDebounce.mockImplementation((value: unknown) => [value]);
+    mockBalance = 10n ** 30n;
+    global.fetch = jest.fn().mockImplementation(answerRpc());
+    jest.mocked(quoteExecutorBurn).mockReset().mockResolvedValue({ signedQuote: '0x01', feeTotalAmount: 31_908n });
+    jest.mocked(runUsdcxDeposit).mockReset();
+    jest.mocked(runUsdcxExecutorDeposit).mockReset();
+    jest.mocked(prepareNativeSessionChain).mockReset().mockResolvedValue(undefined);
+    mockSwitchChain.mockReset().mockResolvedValue(undefined);
+    jest.mocked(initiateBridgedReceiveTransaction).mockReset();
+    jest.mocked(updateBridgedReceivePhase).mockReset();
+    observeBridgeWrites();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    mockRealBridgeDisplays = false;
+    mockLiveBridgeRow = undefined;
+    mockBridgeSnapshot = undefined;
+    mockNativeAvailable = false;
+    mockWebProviderConnected = true;
+    jest.mocked(initiateBridgedReceiveTransaction).mockReset().mockResolvedValue('bridge-tx');
+    jest.mocked(updateBridgedReceivePhase).mockReset().mockResolvedValue(undefined);
+    jest
+      .mocked(runUsdcxDeposit)
+      .mockReset()
+      .mockResolvedValue(`0x${'2'.repeat(64)}`);
+    jest
+      .mocked(runUsdcxExecutorDeposit)
+      .mockReset()
+      .mockResolvedValue(`0x${'2'.repeat(64)}`);
+  });
+  const realUsdcxReview = async (executor = false) => {
+    renderScreen();
+    await settle();
+    if (executor) {
+      fireEvent.click(screen.getByTestId('bridge-source-network'));
+      await settle();
+      fireEvent.click(screen.getByTestId('pick-network-base-sepolia'));
+      await settle();
+    }
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await settle();
+    fireEvent.click(screen.getByTestId('send-amount-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('bridge-deposit-review-confirm')).toBeInTheDocument();
+  };
+  const startAndObserve = async () => {
+    fireEvent.click(screen.getByTestId('bridge-deposit-review-confirm'));
+    await settle();
+    expect(await screen.findByText('bridgeDepositProcessing')).toBeInTheDocument();
+    jest.useFakeTimers();
+  };
+
+  it.each([
+    [
+      'domain refusal',
+      new UsdcxDomainNotRegisteredError(10007),
+      'Circle has not enabled this destination',
+      'usdcxDomainNotRegistered',
+      false
+    ],
+    [
+      'quote refusal',
+      new UsdcxForwardQuoteUnavailableError('private quote cause'),
+      'Circle could not price this transfer',
+      'usdcxForwardQuoteUnavailable',
+      true
+    ],
+    [
+      'executor fee refusal',
+      new UsdcxExecutorBalanceTooLowError(1_531_908n, 31_908n, 1_520_000n),
+      'Lower the amount to cover the fee',
+      'usdcxDepositFeeAboveBalance',
+      true
+    ],
+    [
+      'raw submission failure',
+      new Error('private burn 42 https://synthetic.invalid/0xabc'),
+      'private burn 42 https://synthetic.invalid/0xabc',
+      'raw_bridge_deposit_failed',
+      false
+    ]
+  ] satisfies [string, Error, string, string, boolean][])(
+    'reports the observed %s using its retained producer identity',
+    async (_label, cause, copy, id, executor) => {
+      let refuse: (cause: Error) => void = () => undefined;
+      const pending = new Promise<`0x${string}`>((_resolve, reject) => {
+        refuse = reject;
+      });
+      if (executor) jest.mocked(runUsdcxExecutorDeposit).mockReturnValueOnce(pending);
+      else jest.mocked(runUsdcxDeposit).mockReturnValueOnce(pending);
+      await realUsdcxReview(executor);
+      await startAndObserve();
+      await act(async () => {
+        refuse(cause);
+      });
+      await flushBridgePromises();
+      expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveTextContent(copy);
+      await expectErrorAfterDwell(id, 'status_screen');
+    }
+  );
+
+  it('reports a wrapped native session refusal by its fixed translated identity', async () => {
+    mockNativeAvailable = true;
+    let refuse: (cause: Error) => void = () => undefined;
+    jest.mocked(prepareNativeSessionChain).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          refuse = reject;
+        })
+    );
+    await realUsdcxReview();
+    await startAndObserve();
+    await act(async () => {
+      refuse(new Error('private wrapper', { cause: new NativeSessionChainNotApprovedError(5042002, 'Arc Testnet') }));
+    });
+    await flushBridgePromises();
+    expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveTextContent(
+      'Reconnect the selected wallet'
+    );
+    await expectErrorAfterDwell('evmChainNotApproved', 'status_screen');
+  });
+
+  it.each(['read failure', 'balance dropped'])(
+    'reports the actual preflight %s with a fixed identity',
+    async outcome => {
+      await realUsdcxReview();
+      let resume: () => void = () => undefined;
+      const pending = new Promise<void>(resolve => {
+        resume = resolve;
+      });
+      global.fetch = jest.fn().mockImplementation(async () => {
+        await pending;
+        if (outcome === 'read failure') throw new Error('private balance cause');
+        return { json: async () => ({ result: word(1n) }) };
+      });
+      await startAndObserve();
+      await act(async () => {
+        resume();
+      });
+      await flushBridgePromises();
+      const copy = outcome === 'read failure' ? 'Could not check the balance' : 'The source wallet holds too little';
+      const id = outcome === 'read failure' ? 'bridgeDepositBalanceReadFailed' : 'bridgeDepositBalanceTooLow';
+      expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveTextContent(copy);
+      await expectErrorAfterDwell(id, 'status_screen');
+    }
+  );
+
+  it('reports a late fee hold through the actual review layout', async () => {
+    let answer: (quote: CctpBurnQuote) => void = () => undefined;
+    jest.mocked(quoteExecutorBurn).mockImplementation(
+      () =>
+        new Promise<CctpBurnQuote>(resolve => {
+          answer = resolve;
+        })
+    );
+    mockBalance = 1_531_907n;
+    await realUsdcxReview(true);
+    jest.useFakeTimers();
+    await act(async () => {
+      answer({ signedQuote: '0x01', feeTotalAmount: 31_908n });
+    });
+    await flushBridgePromises();
+    expect(screen.getByText(/Lower the amount to cover the fee/)).toBeInTheDocument();
+    expect(screen.getByTestId('bridge-deposit-review-confirm')).toBeDisabled();
+    await expectErrorAfterDwell('usdcxDepositFeeAboveBalance', 'review');
+  });
+
+  it('keeps a pending Circle quote and the executor route guidance quiet', async () => {
+    jest.mocked(quoteExecutorBurn).mockImplementation(() => new Promise<CctpBurnQuote>(() => undefined));
+    await realUsdcxReview(true);
+    jest.useFakeTimers();
+    expect(screen.queryByText(/Lower the amount to cover the fee/)).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it.each([
+    ['xReserve', false, 5042002, 'xreserve'],
+    ['executor', true, 84532, 'cctp-executor']
+  ] satisfies [string, boolean, number, 'xreserve' | 'cctp-executor'][])(
+    'reports a fresh %s producer failure when its first row read is already failed',
+    async (_route, executor, sourceChainId, sourceRoute) => {
+      const deferred = () => {
+        let resolve: () => void = () => undefined;
+        let reject: (error: unknown) => void = () => undefined;
+        const promise = new Promise<void>((done, fail) => {
+          resolve = done;
+          reject = fail;
+        });
+        return { promise, resolve, reject };
+      };
+      const driverEntered = deferred();
+      const releaseDriver = deferred();
+      const subscriptionScheduled = deferred();
+      const releaseSubscriptionStart = deferred();
+      const firstRowDelivered = deferred();
+      const failureStored = deferred();
+      const deliveredRows: unknown[] = [];
+      const cause = new Error('Fresh bridge runner refused');
+      const actualSubscribe =
+        jest.requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query').subscribeToLiveQuery;
+      const actualCreate = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      ).initiateBridgedReceiveTransaction;
+      const actualUpdate = jest.requireActual<typeof import('lib/miden/transaction/complete')>(
+        'lib/miden/transaction/complete'
+      ).updateBridgedReceivePhase;
+      let createdId = '';
+      jest.mocked(initiateBridgedReceiveTransaction).mockImplementation(async input => {
+        createdId = await actualCreate(input);
+        return createdId;
+      });
+      jest.mocked(updateBridgedReceivePhase).mockImplementation(async (...args) => {
+        await actualUpdate(...args).catch(error => {
+          failureStored.reject(error);
+          throw error;
+        });
+        if (args[1] === 'failed') failureStored.resolve();
+      });
+      const failDriver = async () => {
+        driverEntered.resolve();
+        await releaseDriver.promise;
+        throw cause;
+      };
+      if (executor) jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(failDriver);
+      else jest.mocked(runUsdcxDeposit).mockImplementationOnce(failDriver);
+      mockRealBridgeRowQuery = true;
+      jest
+        .mocked(subscribeToLiveQuery)
+        .mockImplementationOnce(
+          <T,>(
+            query: () => T | Promise<T>,
+            observer: { next: (value: T) => void; error: (error: unknown) => void }
+          ) => {
+            let disposed = false;
+            let unsubscribe: (() => void) | undefined;
+            subscriptionScheduled.resolve();
+            void releaseSubscriptionStart.promise
+              .then(() => {
+                if (disposed) return;
+                unsubscribe = actualSubscribe(query, {
+                  next: value => {
+                    if (deliveredRows.length === 0) jest.useFakeTimers();
+                    deliveredRows.push(value);
+                    observer.next(value);
+                    firstRowDelivered.resolve();
+                  },
+                  error: error => {
+                    observer.error(error);
+                    firstRowDelivered.reject(error);
+                  }
+                });
+              })
+              .catch(error => {
+                if (disposed) return;
+                observer.error(error);
+                firstRowDelivered.reject(error);
+              });
+            return () => {
+              disposed = true;
+              unsubscribe?.();
+            };
+          }
+        );
+      try {
+        await realUsdcxReview(executor);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('bridge-deposit-review-confirm'));
+          await driverEntered.promise;
+        });
+        await subscriptionScheduled.promise;
+        expect(deliveredRows).toEqual([]);
+        expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+        await act(async () => {
+          releaseDriver.resolve();
+          await failureStored.promise;
+        });
+        expect(await Repo.transactions.get(createdId)).toMatchObject({
+          id: createdId,
+          type: 'bridged-receive',
+          extraInputs: {
+            provider: 'usdcx',
+            phase: 'failed',
+            error: 'Fresh bridge runner refused',
+            errorId: 'raw_bridge_deposit_failed',
+            sourceChainId,
+            usdcxSource: { route: sourceRoute }
+          }
+        });
+        expect(deliveredRows).toEqual([]);
+        await act(async () => {
+          releaseSubscriptionStart.resolve();
+          await firstRowDelivered.promise;
+        });
+        expect(deliveredRows).toEqual([
+          expect.objectContaining({ id: createdId, extraInputs: expect.objectContaining({ phase: 'failed' }) })
+        ]);
+        expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveTextContent(
+          'Fresh bridge runner refused'
+        );
+        await act(async () => {
+          jest.advanceTimersByTime(999);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+        await act(async () => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_deposit_failed', 'status_screen']]);
+        await act(async () => {
+          jest.advanceTimersByTime(1000);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_deposit_failed', 'status_screen']]);
+      } finally {
+        releaseDriver.resolve();
+        releaseSubscriptionStart.resolve();
+        cleanup();
+        jest.useRealTimers();
+        mockRealBridgeRowQuery = false;
+        jest.mocked(subscribeToLiveQuery).mockImplementation(actualSubscribe);
+      }
+    }
+  );
 });

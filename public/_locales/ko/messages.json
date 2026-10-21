@@ -86,16 +86,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "해당 금액은 faucet에서 정한 최소 소각 금액 미달입니다.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "최소 $amount$ USDCx를 전송하십시오.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "USDCx faucet의 소각 정책을 읽을 수 없습니다. 재검토를 요청하여 다시 시도해 주세요.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "USDCx faucet에 대해서는 아직 알려진 바가 없습니다. 검토를 다시 열어 재시도해 주십시오.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "$amount$ 이상의 USDCx를 $network$로 전송하세요: Circle의 수수료는 지급 금액에서 공제됩니다.",
@@ -4040,6 +4041,14 @@
     "message": "이 외부 서비스는 현재 이용이 불가능합니다. 잠시 후 다시 시도해 주십시오.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
+  },
   "swapUnavailableTitle": {
     "message": "이 네트워크에서는 스왑 기능을 사용할 수 없습니다.",
     "englishSource": "Swap is not available on this network"
@@ -7044,5 +7053,29 @@
   "webViewStartFailedAction": {
     "message": "다시 시도해 보세요",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "이용 가능 여부 확인 중",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "해당 지역에서 지갑을 이용할 수 있는지 확인하는 동안 잠시 기다려 주세요.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "해당 지역에서는 지갑을 이용할 수 없습니다",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "현재 위치에서는 지갑을 이용할 수 없습니다.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "이용 가능 여부를 확인하지 못했습니다",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "연결을 확인하고 다시 시도해 주세요.",
+    "englishSource": "Check your connection and try again."
   }
 }

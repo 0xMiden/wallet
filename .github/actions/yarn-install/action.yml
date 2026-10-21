@@ -56,13 +56,11 @@ runs:
         fi
 
         for attempt in $(seq 1 "$ATTEMPTS"); do
-          # Run bare and capture $? on the next line. NOT `if yarn …; then`: a
-          # false `if` with no `else` exits 0, so reading $? after the `fi`
-          # reports success for a failed install and loses timeout's 124.
-          $TIMEOUT yarn install --network-timeout 600000
-          status=$?
-          if [ "$status" -eq 0 ]; then
+          # Actions starts Bash with -e; capture failure inside else so it can retry.
+          if $TIMEOUT yarn install --network-timeout 600000; then
             exit 0
+          else
+            status=$?
           fi
           # 124 is timeout(1)'s "killed the command" code, worth naming: it means
           # the registry hung rather than answering with an error.

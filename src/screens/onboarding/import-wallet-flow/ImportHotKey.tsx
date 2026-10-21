@@ -13,6 +13,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { decodeQrImage } from 'lib/qr/image-decoder';
 import { isScanAvailable, scanQRCode } from 'lib/qr/scanner';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
@@ -101,6 +102,8 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
     setManual(value => !value);
     setErrorKey('');
   };
+
+  const displayedErrorKey = errorKey || 'importHotKeyInvalid';
 
   return (
     <OnboardingStepLayout
@@ -206,12 +209,16 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
         </div>
       )}
       {(errorKey || (manual && (hotKey || evmKey) && !pair)) && (
-        <Notice tone="negative" role="alert">
+        <Notice
+          errorId={isUserErrorId(displayedErrorKey) ? displayedErrorKey : 'raw_import_hot_key_scan_failed'}
+          tone="negative"
+          role="alert"
+        >
           {t(errorKey || 'importHotKeyInvalid')}
         </Notice>
       )}
       {isErrorProp && (
-        <Notice tone="negative" role="alert">
+        <Notice errorId="importHotKeyError" tone="negative" role="alert">
           {t('importHotKeyError')}
         </Notice>
       )}

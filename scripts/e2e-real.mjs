@@ -83,8 +83,8 @@ export const DEFAULT_ARC_RPCS = [
   'https://rpc.quicknode.testnet.arc.io',
   'https://rpc.testnet.arc.io'
 ];
-/** A 1 USDCx burn plus the 1 USDCx its fees may take: BURN_UNITS + GRANT_MARGIN_UNITS. */
-export const USDCX_GRANT_FLOOR_UNITS = 2_000_000n;
+/** A 5 USDCx burn plus the 1 USDCx its fees may take: BURN_UNITS + GRANT_MARGIN_UNITS. */
+export const USDCX_GRANT_FLOOR_UNITS = 6_000_000n;
 /** The faucet tier every usdcx wallet asks for by amount: GRANT_UNITS, 10 USDCx. */
 export const USDCX_GRANT_UNITS = 10_000_000n;
 /** One 0.001 USDC deposit plus its Arc gas reserve: DEPOSIT_UNITS + GAS_RESERVE_UNITS. */
@@ -1267,7 +1267,7 @@ async function probeArcFundedKey(url, arcKey) {
       const floor = formatUnits(USDCX_FUNDED_KEY_FLOOR_UNITS, USDCX_DECIMALS);
       const refill =
         arcKey.role === 'harness'
-          ? "; refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or export " +
+          ? '; refill it with yarn e2e:real --suite usdcx (after its burn pays out), or export ' +
             'E2E_ARC_PRIVATE_KEY with a funded key'
           : '';
       return record(false, 'Arc funded key', `${held}, below the ${floor} USDC one deposit and its gas need${refill}`);
@@ -1549,7 +1549,7 @@ export function l2KeyUsdcProblem(chain, address, units) {
   return (
     `top up the key on ${chain.name}: ${address} holds ${formatUnits(units, USDCX_DECIMALS)} USDC, below the ` +
     `${formatUnits(L2_BRIDGE_IN_USDC_FLOOR_UNITS, USDCX_DECIMALS)} USDC one bridge-in takes (0.001 deposited and ` +
-    "twice Circle's forward fee, up to 0.05 each); a green usdcx-burn-l2 run pays it about 0.99 USDC there"
+    "twice Circle's forward fee, up to 0.05 each); a green usdcx-burn-l2 run refills it with that run's payout"
   );
 }
 

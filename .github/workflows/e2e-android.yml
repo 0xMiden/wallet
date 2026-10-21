@@ -203,6 +203,9 @@ jobs:
         # a drained chain. No marker, no rebuild, and nothing about this step changes.
         uses: ./.github/actions/install-miden-client-cli
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build debug APK
         run: yarn test:e2e:android:build
 
@@ -217,7 +220,8 @@ jobs:
       # for the runner's 16 GB. The daemon lingers after `assembleDebug` holding
       # a GB or two it will never use again in this job.
       - name: Stop the Gradle daemon
-        run: cd android && ./gradlew --stop || true
+        working-directory: android
+        run: ./gradlew --stop || true
 
       - name: Run native Reown bridge smoke
         id: reown-native-smoke

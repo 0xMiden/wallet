@@ -1,11 +1,12 @@
 import React from 'react';
 
-import { render, act, waitFor } from '@testing-library/react';
+import { render, act, waitFor, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import {
   type GuardianProbeState,
   NO_GUARDIAN_ID,
@@ -67,15 +68,78 @@ jest.mock('app/templates/OnboardingNetwork', () => ({
 // Latest props handed to the stubbed OnboardingFlow (re-read after every render
 // so `onAction` always reflects the component's current closure/state).
 const mockFlowProps: { current: any } = { current: null };
+let mockRealRecoveryFlow = false;
+let mockRealConfirmationFlow = false;
 // Called with the props on every render of the stub, for tests that act at a precise point of a commit.
 const mockOnFlowRender: { current: ((props: any) => void) | null } = { current: null };
 jest.mock('screens/onboarding/navigator', () => ({
   OnboardingFlow: (props: any) => {
     mockFlowProps.current = props;
     mockOnFlowRender.current?.(props);
+    if (mockRealRecoveryFlow) {
+      const { OnboardingFlow } =
+        jest.requireActual<typeof import('screens/onboarding/navigator')>('screens/onboarding/navigator');
+      return <OnboardingFlow {...props} />;
+    }
     return <div data-testid="onboarding-flow" data-step={props.step} />;
   }
 }));
+
+// The integration opt-in keeps the actual navigator, recovery screen and Notice.
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+jest.mock('lib/telemetry/crash-diagnostics', () => ({ annotateCrash: jest.fn() }));
+jest.mock('react-i18next', () => {
+  const keys = [
+    'guardianAccountNotFound',
+    'guardianUrlUnreachable',
+    'smthWentWrong',
+    'importHotKeyNoAccount',
+    'walletSetupDidNotComplete'
+  ];
+  const t = (key: string) => (mockRealRecoveryFlow && keys.includes(key) ? `translated:${key}` : key);
+  return { useTranslation: () => ({ t }) };
+});
+jest.mock('screens/onboarding/common/OnboardingStepLayer', () => ({
+  OnboardingStepLayer: ({ children }: { children: React.ReactNode }) => <>{children}</>
+}));
+jest.mock('components/PageHeader', () => ({ PageHeader: () => null }));
+jest.mock('components/ProgressIndicator', () => ({ ProgressIndicator: () => null }));
+jest.mock('components/GuardianLogoTile', () => ({ GuardianLogoTile: () => null }));
+jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+jest.mock('screens/onboarding/common/Welcome', () => ({ WelcomeScreen: () => null }));
+jest.mock('screens/onboarding/common/ChooseProtection', () => ({ ChooseProtectionScreen: () => null }));
+jest.mock('screens/onboarding/common/Confirmation', () => ({
+  ConfirmationScreen: (
+    props: React.ComponentProps<typeof import('screens/onboarding/common/Confirmation').ConfirmationScreen>
+  ) => {
+    if (!mockRealConfirmationFlow) return null;
+    const { ConfirmationScreen } = jest.requireActual<typeof import('screens/onboarding/common/Confirmation')>(
+      'screens/onboarding/common/Confirmation'
+    );
+    return <ConfirmationScreen {...props} />;
+  }
+}));
+jest.mock('screens/onboarding/common/NetworkNotice', () => ({ NetworkNoticeScreen: () => null }));
+jest.mock('screens/onboarding/common/MainnetAccess', () => ({ MainnetAccessScreen: () => null }));
+jest.mock('screens/onboarding/common/CreatePassword', () => ({ CreatePasswordScreen: () => null }));
+jest.mock('screens/onboarding/common/SetupBiometric', () => ({ SetupBiometricScreen: () => null }));
+jest.mock('screens/onboarding/common/SetupPasscode', () => ({ SetupPasscodeScreen: () => null }));
+jest.mock('screens/onboarding/common/GuardianIntro', () => ({ GuardianIntroScreen: () => null }));
+jest.mock('screens/onboarding/common/MeetGuardian', () => ({ MeetGuardianScreen: () => null }));
+jest.mock('screens/onboarding/create-wallet-flow/BackUpSeedPhrase', () => ({ BackUpSeedPhraseScreen: () => null }));
+jest.mock('screens/onboarding/create-wallet-flow/SelectRecoveryMethod', () => ({
+  SelectRecoveryMethodScreen: () => null
+}));
+jest.mock('screens/onboarding/create-wallet-flow/SelectTransactionType', () => ({
+  SelectTransactionTypeScreen: () => null
+}));
+jest.mock('screens/onboarding/create-wallet-flow/VerifySeedPhrase', () => ({ VerifySeedPhraseScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/ImportSeedPhrase', () => ({ ImportSeedPhraseScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/SelectImportType', () => ({ SelectImportTypeScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/ImportWalletFile', () => ({ ImportWalletFileScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/ImportHotKey', () => ({ ImportHotKeyScreen: () => null }));
 
 // AwaitFonts wraps children behind a suspense font-load gate; render children
 // straight through so the flow probe mounts synchronously.
@@ -207,7 +271,10 @@ jest.mock('lib/settings/constants', () => ({}));
 // unanswered case has its own describe block.
 const mockTelemetryChoice = { made: true };
 jest.mock('lib/settings/helpers', () => ({
-  hasTelemetryChoice: () => mockTelemetryChoice.made
+  hasTelemetryChoice: () => mockTelemetryChoice.made,
+  isValidGuardianUrl: () => true,
+  sameGuardianEndpoint: (left: string, right: string) => left === right,
+  sanitizeGuardianUrl: (url: string) => url
 }));
 
 // Telemetry: every beginFlow() call records the flow name and hands back a fresh
@@ -402,6 +469,8 @@ beforeEach(() => {
   mockCanHandoff = false;
   mockTelemetryChoice.made = true;
   mockFlowProps.current = null;
+  mockRealRecoveryFlow = false;
+  mockRealConfirmationFlow = false;
   mockOnFlowRender.current = null;
   mockBackHandlerRef.current = null;
   mockTestNetworkKey = 'testnet';
@@ -4816,5 +4885,120 @@ describe('Welcome - Guardian discovery across browser history', () => {
     await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
 
     expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
+  });
+});
+
+describe('user-visible lookup producer reporting', () => {
+  const rawLookupFailure =
+    'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    mockRealRecoveryFlow = false;
+    mockRealConfirmationFlow = false;
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it.each([
+    { kind: 'missing-account', id: 'guardianAccountNotFound' },
+    { kind: 'network', id: 'guardianUrlUnreachable' },
+    { kind: 'no-text', id: 'smthWentWrong' },
+    { kind: 'key-account', id: 'importHotKeyNoAccount' },
+    { kind: 'raw', id: 'raw_import_recovery_lookup_failed' }
+  ])('reports the actual $kind producer through navigator and the real recovery notice', async ({ kind, id }) => {
+    const error =
+      kind === 'missing-account' || kind === 'key-account'
+        ? Object.assign(new Error(kind === 'key-account' ? 'translated:importHotKeyNoAccount' : rawLookupFailure), {
+            code: GUARDIAN_ACCOUNT_NOT_FOUND
+          })
+        : kind === 'network'
+          ? new Error('Failed to fetch')
+          : kind === 'no-text'
+            ? {}
+            : new Error(rawLookupFailure);
+    mockRegisterWallet.mockRejectedValue(error);
+    mockRegisterWalletFromHotKey.mockRejectedValue(error);
+    await renderWelcome();
+    if (kind === 'key-account') {
+      await setHash('#import-from-key');
+      await dispatch({ id: 'import-hot-key-submit', payload: `${'ab'.repeat(32)}:${'cd'.repeat(32)}` });
+    } else {
+      await dispatch({ id: 'select-import-type' });
+      await dispatch({ id: 'import-from-seed' });
+      await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    }
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://guardian.example.com' }
+    });
+    await setHash('#confirmation');
+    // Enable the real flow before the producer translates its closed failure copy.
+    mockRealRecoveryFlow = true;
+    await dispatch({ id: 'confirmation' });
+    await setHash('#import-select-recovery-method');
+    expect(screen.getByRole('alert')).toHaveTextContent(kind === 'raw' ? rawLookupFailure : `translated:${id}`);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'notice']]);
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain('translated:');
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(rawLookupFailure);
+  });
+  it.each([
+    { kind: 'raw', id: 'raw_onboarding_recovery_failed' },
+    { kind: 'no-text', id: 'smthWentWrong' }
+  ])('reports the actual $kind registration producer through the real Confirmation notice', async ({ kind, id }) => {
+    mockRegisterWallet.mockRejectedValue(kind === 'raw' ? new Error(rawLookupFailure) : new Error(''));
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    mockRealRecoveryFlow = true;
+    mockRealConfirmationFlow = true;
+    await dispatch({ id: 'confirmation' });
+    expect(screen.getByRole('alert')).toHaveTextContent(kind === 'raw' ? rawLookupFailure : 'translated:smthWentWrong');
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'notice']]);
+  });
+
+  it('reports the actual wallet-readiness failure using its closed key', async () => {
+    mockFetchState.mockResolvedValue({ status: IDLE });
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    mockRealRecoveryFlow = true;
+    mockRealConfirmationFlow = true;
+    let pending: Promise<void> | undefined;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5500);
+      await pending;
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('translated:walletSetupDidNotComplete');
+    // The episode begins when the failure commits after the readiness polling has ended.
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['walletSetupDidNotComplete', 'notice']]);
   });
 });
