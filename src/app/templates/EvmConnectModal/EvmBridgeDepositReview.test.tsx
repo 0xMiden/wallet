@@ -144,7 +144,7 @@ describe('EvmBridgeDepositReview', () => {
       expect(screen.getByText('usdcxRouteName usdcxArrivalArc')).toBeInTheDocument();
     });
 
-    it.each([11155111, 84532, 421614])('reads ~20 min for a USDCx deposit from chain %i', sourceChainId => {
+    it.each([11155111, 84532, 421614])('reads ~2 min for a USDCx deposit from chain %i', sourceChainId => {
       render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx', sourceChainId })} />);
       expect(screen.getByText('usdcxRouteName usdcxArrival')).toBeInTheDocument();
     });

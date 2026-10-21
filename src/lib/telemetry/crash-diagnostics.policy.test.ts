@@ -2,6 +2,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS
+} from 'lib/walletconnect/native-request-failure';
+
+import {
   CONFIRMATION_HANDLER_STATES,
   PAGE_VISIBILITY,
   PROPOSAL_GUARDS,
@@ -55,7 +63,12 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['which App window it was', RELAY_SURFACES],
   ['whether the connect-wallet screen was open in that window', RELAY_TRIGGERS],
   ['whether the relay had connected in that window before', ['true', 'false']],
-  ['how many relay failures that window had seen', RELAY_FAILURE_BUCKETS]
+  ['how many relay failures that window had seen', RELAY_FAILURE_BUCKETS],
+  ['; native origin', REOWN_NATIVE_ORIGINS],
+  ['; wallet response code', REOWN_WALLET_RESPONSE_CODES],
+  ['; request age', REOWN_REQUEST_AGES],
+  ['; publication observation', REOWN_PUBLICATIONS],
+  ['; background observation', REOWN_BACKGROUND_ANSWERS]
 ];
 
 it.each(FIELDS)('the privacy policy lists exactly the values a crash report can carry after "%s"', (phrase, values) => {

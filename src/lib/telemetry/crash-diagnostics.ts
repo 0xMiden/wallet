@@ -1,5 +1,13 @@
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
+import {
+  validateReownNativeFailure,
+  type ReownNativeOrigin,
+  type ReownWalletResponseCode,
+  type ReownRequestAge,
+  type ReownPublication,
+  type ReownBackgroundAnswer
+} from 'lib/walletconnect/native-request-failure';
 
 import {
   USER_ERROR_SURFACES,
@@ -62,6 +70,11 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   workerMode?: 'enabled' | 'disabled';
   confirmationHandler?: ConfirmationHandlerState;
   portReconnected?: boolean;
+  reownNativeOrigin?: ReownNativeOrigin;
+  reownWalletResponseCode?: ReownWalletResponseCode;
+  reownRequestAge?: ReownRequestAge;
+  reownPublished?: ReownPublication;
+  reownBackgrounded?: ReownBackgroundAnswer;
   storageOwner?: StorageOwner;
   storageOperation?: StorageOperation;
   userErrorId?: UserErrorId;
@@ -69,6 +82,47 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   proposalStep?: ProposalStep;
   proposalGuard?: ProposalGuard;
 };
+
+const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
+  'reownNativeOrigin',
+  'reownWalletResponseCode',
+  'reownRequestAge',
+  'reownPublished',
+  'reownBackgrounded'
+];
+
+function clearNativeDiagnostics(diagnostics: CrashDiagnostics): void {
+  for (const key of nativeKeys) delete diagnostics[key];
+}
+
+function nativeDiagnostics(diagnostics: Record<string, unknown>): CrashDiagnostics {
+  const native = validateReownNativeFailure({
+    get nativeOrigin() {
+      return diagnostics.reownNativeOrigin;
+    },
+    get walletResponseCode() {
+      return diagnostics.reownWalletResponseCode;
+    },
+    get requestAge() {
+      return diagnostics.reownRequestAge;
+    },
+    get published() {
+      return diagnostics.reownPublished;
+    },
+    get backgrounded() {
+      return diagnostics.reownBackgrounded;
+    }
+  });
+  if (native === undefined) return {};
+  const safe: CrashDiagnostics = {
+    reownNativeOrigin: native.nativeOrigin,
+    reownRequestAge: native.requestAge,
+    reownPublished: native.published
+  };
+  if (native.nativeOrigin === 'wallet_error') safe.reownWalletResponseCode = native.walletResponseCode;
+  if (native.backgrounded !== undefined) safe.reownBackgrounded = native.backgrounded;
+  return safe;
+}
 
 export type StorageCrashDiagnostics = Pick<CrashDiagnostics, 'storageOwner' | 'storageOperation'>;
 
@@ -143,7 +197,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
       if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
     }
-    diagnosticsByError.set(error, { ...previous, ...safe });
+    // A native annotation replaces a request's whole group, including absent optional observations.
+    if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
+    diagnosticsByError.set(error, { ...previous, ...safe, ...nativeDiagnostics(diagnostics) });
   } catch {
     // Reporting cannot change the failure being handled.
   }
@@ -235,8 +291,15 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined
 export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   const snapshot: CrashDiagnostics = {};
   for (const link of errorChain(error).reverse()) {
-    const { storageOwner, storageOperation, ...other } = diagnosticsByError.get(link) ?? {};
+    const stored = diagnosticsByError.get(link);
+    const { storageOwner, storageOperation, ...other } = stored ?? {};
+    clearNativeDiagnostics(other);
     Object.assign(snapshot, other);
+    const native: CrashDiagnostics = stored === undefined ? {} : nativeDiagnostics(stored);
+    if (native.reownNativeOrigin !== undefined) {
+      clearNativeDiagnostics(snapshot);
+      Object.assign(snapshot, native);
+    }
     const storage = storageDiagnosticsAt(link);
     if (storage !== undefined) {
       // A link's own pair replaces inherited storage fields, and a rejected promotion clears them.

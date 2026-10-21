@@ -1,9 +1,17 @@
+import { ICON_BY_TYPE, ITransactionType } from 'lib/miden/db/types';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
 import {
+  ActivityCategory,
+  activityCategoryOf,
   activityGroupKeyOf,
   activityGroupMatcher,
   activityGroupPath,
   groupActivityEntries,
+  hidesFaucetActivity,
   isActivityGroupKind,
+  isFaucetActivityEntry,
+  isFaucetClaimNote,
   isPendingActivityEntry
 } from './activityGroups';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
@@ -266,6 +274,91 @@ describe('activityGroupPath', () => {
   it('leaves a category group without an id segment', () => {
     expect(activityGroupPath({ kind: 'swap', id: 'swap' })).toBe('/activity/group/swap');
     expect(activityGroupPath({ kind: 'guardian', id: 'guardian' })).toBe('/activity/group/guardian');
+  });
+});
+
+describe('activityCategoryOf', () => {
+  const EXPECTED: Record<ITransactionType, ActivityCategory> = {
+    send: 'transfer',
+    consume: 'transfer',
+    'bridged-send': 'transfer',
+    'bridged-receive': 'transfer',
+    swap: 'swap',
+    'earn-deposit': 'earn',
+    'earn-withdraw': 'earn',
+    execute: 'others',
+    'switch-guardian': 'others',
+    'replace-hot-key': 'others',
+    'update-procedure-threshold': 'others'
+  };
+
+  const TYPES: ITransactionType[] = [
+    'send',
+    'consume',
+    'bridged-send',
+    'bridged-receive',
+    'swap',
+    'earn-deposit',
+    'earn-withdraw',
+    'execute',
+    'switch-guardian',
+    'replace-hot-key',
+    'update-procedure-threshold'
+  ];
+
+  it('puts each transaction type in its category', () => {
+    for (const txType of TYPES) {
+      expect([txType, activityCategoryOf(entry({ txType }))]).toEqual([txType, EXPECTED[txType]]);
+    }
+  });
+
+  it('covers every transaction type the wallet stores', () => {
+    expect([...TYPES].sort()).toEqual(Object.keys(ICON_BY_TYPE).sort());
+  });
+
+  it('keeps a failed row in the category of its type', () => {
+    expect(activityCategoryOf(entry({ txType: 'send', transactionIcon: 'FAILED' }))).toBe('transfer');
+    expect(activityCategoryOf(entry({ txType: 'consume', transactionIcon: 'FAILED' }))).toBe('transfer');
+    expect(activityCategoryOf(entry({ txType: 'swap', transactionIcon: 'FAILED' }))).toBe('swap');
+    expect(activityCategoryOf(entry({ txType: 'earn-withdraw', transactionIcon: 'FAILED' }))).toBe('earn');
+  });
+});
+
+describe('hidesFaucetActivity', () => {
+  it('hides the faucet activity on Mainnet only', () => {
+    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.MAINNET)).toBe(true);
+    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.TESTNET)).toBe(false);
+    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.DEVNET)).toBe(false);
+    expect(hidesFaucetActivity(MIDEN_NETWORK_NAME.LOCALNET)).toBe(false);
+  });
+});
+
+describe('isFaucetClaimNote', () => {
+  it('is a note of the native asset that the native faucet sent', () => {
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET })).toBe(true);
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: 'mtst1alice' })).toBe(false);
+    expect(isFaucetClaimNote({ faucetId: 'other-faucet', senderAddress: 'other-faucet' })).toBe(false);
+  });
+
+  it('reads the id it is given, and recognises nothing while that id is unknown', () => {
+    expect(isFaucetClaimNote({ faucetId: 'other-faucet', senderAddress: 'other-faucet' }, 'other-faucet')).toBe(true);
+    expect(isFaucetClaimNote({ faucetId: FAUCET, senderAddress: FAUCET }, null)).toBe(false);
+  });
+});
+
+describe('isFaucetActivityEntry', () => {
+  it('is a consume of the native asset that the native faucet sent, whatever its icon', () => {
+    const faucetClaim: Partial<IHistoryEntry> = { txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET };
+    expect(isFaucetActivityEntry(entry(faucetClaim), FAUCET)).toBe(true);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, transactionIcon: 'FAILED' }), FAUCET)).toBe(true);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, secondaryAddress: 'mtst1alice' }), FAUCET)).toBe(false);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, faucetId: 'other-faucet' }), FAUCET)).toBe(false);
+    expect(isFaucetActivityEntry(entry({ ...faucetClaim, txType: 'send' }), FAUCET)).toBe(false);
+  });
+
+  it('recognises nothing while the native faucet id is unknown', () => {
+    const faucetClaim: Partial<IHistoryEntry> = { txType: 'consume', faucetId: FAUCET, secondaryAddress: FAUCET };
+    expect(isFaucetActivityEntry(entry(faucetClaim), null)).toBe(false);
   });
 });
 
