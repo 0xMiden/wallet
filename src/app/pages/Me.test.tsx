@@ -6,8 +6,18 @@ import { navigate } from 'lib/woozie';
 
 import Me from './Me';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => [] }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, unknown>) =>
+      values
+        ? `${key}(${Object.entries(values)
+            .map(([name, value]) => `${name}=${value}`)
+            .join(',')})`
+        : key
+  })
+}));
+let mockEarned: string[] = [];
+jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => mockEarned }));
 jest.mock('./Settings', () => ({
   __esModule: true,
   default: ({ embedded }: { embedded: boolean }) => <div data-testid="original-settings" data-embedded={embedded} />
@@ -27,7 +37,10 @@ jest.mock('lib/woozie', () => ({
   )
 }));
 
-afterEach(() => jest.clearAllMocks());
+afterEach(() => {
+  mockEarned = [];
+  jest.clearAllMocks();
+});
 
 it('shows a standard Profile tab header and keeps the account identity without a close action', () => {
   render(<Me />);
@@ -57,10 +70,17 @@ it('releases the mobile tab frame when unmounted', () => {
 
 it('shows badge progress as a count and a meter', () => {
   render(<Me />);
-  expect(screen.getByText('badgesEarnedCount')).toBeInTheDocument();
+  expect(screen.getByText('badgesEarnedCount(earned=0,total=6)')).toBeInTheDocument();
   const meter = screen.getByRole('progressbar', { name: 'myBadges' });
   expect(meter).toHaveAttribute('aria-valuenow', '0');
   expect(meter).toHaveAttribute('aria-valuemax', '6');
+});
+
+it('counts an earned badge in the preview and its meter', () => {
+  mockEarned = ['first-deposit'];
+  render(<Me />);
+  expect(screen.getByText('badgesEarnedCount(earned=1,total=6)')).toBeInTheDocument();
+  expect(screen.getByRole('progressbar', { name: 'myBadges' })).toHaveAttribute('aria-valuenow', '1');
 });
 
 it('shows the address as one short copy chip and the network as its own tag', () => {
