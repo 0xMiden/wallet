@@ -169,6 +169,18 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     );
   });
 
+  // Without the fixture the wallet's access gate blocks onboarding, so no cell runs.
+  it.each([
+    ['dapp-e2e', 'yarn test:e2e:blockchain:build'],
+    ['dapp-e2e-ios', 'yarn test:e2e:mobile:build'],
+    ['dapp-e2e-android', 'yarn test:e2e:android:build']
+  ])('starts the eligibility fixture before %s builds the wallet', (job, build) => {
+    const block = jobBlock(job);
+    const fixture = block.indexOf('uses: ./.github/actions/start-eligibility-fixture');
+    expect(fixture).not.toBe(-1);
+    expect(block.indexOf(build)).toBeGreaterThan(fixture);
+  });
+
   // The failure-only log step runs before the records are uploaded and judged, so a wedged adb must not hold it.
   it.each<[string, number]>([
     ['e2e-dapp.yml', 8],

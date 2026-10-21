@@ -201,6 +201,9 @@ jobs:
       - name: Install dependencies (linked PRs injected)
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
+      # Builds bake the fixture's eligibility and config URLs, so it starts before them, as in the Chrome job.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
       - name: Install miden-client-cli
         # A cold compile takes minutes; it happens here, not inside a journey's budget.
         uses: ./.github/actions/install-miden-client-cli
@@ -288,7 +291,7 @@ jobs:
         run: |
           tree=$(git ls-tree HEAD | awk -F '\t' '$2 !~ /^(playwright|docs|test|tasks|plans|skills|screenshots|store-listing|\.github|\.claude|\.agents)$/ && $2 !~ /\.md$/' | git hash-object --stdin)
           xcode=$(xcodebuild -version | git hash-object --stdin)
-          echo "key=dapp-e2e-ios-app-v1-$E2E_NETWORK-${tree:0:16}-${xcode:0:12}" >> "$GITHUB_OUTPUT"
+          echo "key=dapp-e2e-ios-app-v2-$E2E_NETWORK-${tree:0:16}-${xcode:0:12}" >> "$GITHUB_OUTPUT"
       - name: Restore the app build
         id: app-cache
         if: steps.app-key.outputs.key != ''
@@ -431,6 +434,9 @@ jobs:
       - name: Install dependencies (linked PRs injected)
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
+      # Builds bake the fixture's eligibility and config URLs, so it starts before them, as in the Chrome job.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
       - name: Install miden-client-cli
         # The action keeps its own cache by runner OS and architecture; a cold compile happens here, not in a journey.
         uses: ./.github/actions/install-miden-client-cli
@@ -440,7 +446,7 @@ jobs:
         if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: |
           tree=$(git ls-tree HEAD | awk -F '\t' '$2 !~ /^(playwright|docs|test|tasks|plans|skills|screenshots|store-listing|\.github|\.claude|\.agents)$/ && $2 !~ /\.md$/' | git hash-object --stdin)
-          echo "key=dapp-e2e-android-apk-v1-$E2E_NETWORK-${tree:0:16}" >> "$GITHUB_OUTPUT"
+          echo "key=dapp-e2e-android-apk-v2-$E2E_NETWORK-${tree:0:16}" >> "$GITHUB_OUTPUT"
       - name: Restore the APK build
         id: apk-cache
         if: steps.apk-key.outputs.key != ''
