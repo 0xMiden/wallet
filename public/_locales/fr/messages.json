@@ -11,6 +11,10 @@
     "message": "Cet itinéraire n’est pas disponible pour ce transfert. Vous pouvez continuer avec un autre itinéraire disponible. Aucune transaction n’a été soumise à partir de cet écran.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
   },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Cet itinéraire n’est pas disponible pour ce transfert, et aucun autre itinéraire n’est disponible pour le moment. Aucune transaction n’a été soumise à partir de cet écran.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
   "bridgeContinueAgglayer": {
     "message": "Continuer via Agglayer",
     "englishSource": "Continue via Agglayer"

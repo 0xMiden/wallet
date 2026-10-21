@@ -2,6 +2,7 @@
   "bridgeRouteEpoch": "Rápido · Epoch",
   "bridgeRouteAgglayer": "Lento · Agglayer",
   "bridgeRouteUnavailableBody": "Esta ruta no está disponible para esta transferencia. Puede continuar con otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
+  "bridgeRouteNoneAvailableBody": "Esta ruta no está disponible para esta transferencia, y en este momento no hay ninguna otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
   "bridgeContinueAgglayer": "Continúa en Agglayer",
   "bridgeContinueEpoch": "Continuar en Epoch",
   "usdcxBurnTitle": "Quemar USDCx",

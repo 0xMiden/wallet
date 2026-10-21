@@ -11,6 +11,10 @@
     "message": "Esta ruta no está disponible para esta transferencia. Puede continuar con otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
   },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Esta ruta no está disponible para esta transferencia, y en este momento no hay ninguna otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
   "bridgeContinueAgglayer": {
     "message": "Continúa en Agglayer",
     "englishSource": "Continue via Agglayer"

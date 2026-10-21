@@ -11,6 +11,10 @@
     "message": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
   },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Bu transfer için bu rota kullanılamaz ve şu anda başka bir rota da mevcut değildir. Bu ekrandan herhangi bir işlem gönderilmemiştir.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
   "bridgeContinueAgglayer": {
     "message": "Agglayer üzerinden devam edin",
     "englishSource": "Continue via Agglayer"

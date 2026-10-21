@@ -2,6 +2,7 @@
   "bridgeRouteEpoch": "Hızlı · Epoch",
   "bridgeRouteAgglayer": "Yavaş · Agglayer",
   "bridgeRouteUnavailableBody": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",
+  "bridgeRouteNoneAvailableBody": "Bu transfer için bu rota kullanılamaz ve şu anda başka bir rota da mevcut değildir. Bu ekrandan herhangi bir işlem gönderilmemiştir.",
   "bridgeContinueAgglayer": "Agglayer üzerinden devam edin",
   "bridgeContinueEpoch": "Epoch üzerinden devam edin",
   "usdcxBurnTitle": "USDCx'i Yak",

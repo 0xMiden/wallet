@@ -2,6 +2,7 @@
   "bridgeRouteEpoch": "Rápido · Epoch",
   "bridgeRouteAgglayer": "Lento · Agglayer",
   "bridgeRouteUnavailableBody": "Esta rota não está disponível para esta transferência. Você pode continuar com outra rota disponível. Nenhuma transação foi enviada a partir desta tela.",
+  "bridgeRouteNoneAvailableBody": "Essa rota não está disponível para esta transferência, e nenhuma outra rota está disponível no momento. Nenhuma transação foi enviada a partir desta tela.",
   "bridgeContinueAgglayer": "Continue no Agglayer",
   "bridgeContinueEpoch": "Continue na Epoch",
   "usdcxBurnTitle": "Queimar USDCx",
