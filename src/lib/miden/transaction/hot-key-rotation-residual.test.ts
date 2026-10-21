@@ -9,7 +9,6 @@ interface MockRow {
   initiatedAt: number;
   extraInputs: Record<string, unknown>;
   restoredFromBackup?: boolean;
-  recovered?: boolean;
   displayMessage?: string;
   displayIcon?: string;
   completedAt?: number;
@@ -113,79 +112,5 @@ describe('markRotationCompleted (#1233)', () => {
     await markRotationCompleted('switch');
 
     expect(mockRows).toEqual(before);
-  });
-});
-
-describe('GEO012 committed hot-key bookkeeping residuals', () => {
-  it('GEO012 revisits only eligible Completed rotations with the explicit pending bookkeeping flag', async () => {
-    const pending = { newHotPublicKey: 'new-hot', hotKeyPersistFailed: true };
-    mockRows.push(
-      rotationRow('pending', 100, { status: ITransactionStatus.Completed, extraInputs: pending }),
-      rotationRow('ordinary', 200, { status: ITransactionStatus.Completed }),
-      rotationRow('cleared', 300, {
-        status: ITransactionStatus.Completed,
-        extraInputs: { ...pending, hotKeyPersistFailed: false }
-      }),
-      rotationRow('truthy', 400, {
-        status: ITransactionStatus.Completed,
-        extraInputs: { ...pending, hotKeyPersistFailed: 'true' }
-      }),
-      rotationRow('imported', 500, {
-        status: ITransactionStatus.Completed,
-        extraInputs: pending,
-        restoredFromBackup: true
-      }),
-      rotationRow('recovered', 600, {
-        status: ITransactionStatus.Completed,
-        extraInputs: pending,
-        recovered: true
-      }),
-      rotationRow('discarded', 700, {
-        status: ITransactionStatus.Failed,
-        extraInputs: { ...pending, nodeDiscarded: true }
-      }),
-      rotationRow('other-account', 800, {
-        status: ITransactionStatus.Completed,
-        extraInputs: pending,
-        accountId: 'acc-2'
-      }),
-      rotationRow('switch', 900, {
-        type: 'switch-guardian',
-        status: ITransactionStatus.Completed,
-        extraInputs: pending
-      })
-    );
-
-    await expect(findFailedHotKeyRotations('acc-1_suffix')).resolves.toEqual([
-      { id: 'pending', newHotPublicKey: 'new-hot' }
-    ]);
-  });
-
-  it('GEO012 clears the pending flag after a verified heal and removes the Completed row from later work', async () => {
-    const row = rotationRow('pending-heal', 100, {
-      status: ITransactionStatus.Completed,
-      displayMessage: 'Everyday key rotated',
-      extraInputs: {
-        newHotPublicKey: 'new-hot',
-        guardianEndpoint: 'https://guardian.example',
-        hotKeyPersistFailed: true
-      }
-    });
-    mockRows.push(row);
-
-    await markRotationCompleted(row.id);
-
-    expect(row).toMatchObject({
-      status: ITransactionStatus.Completed,
-      displayIcon: 'DEFAULT',
-      stage: 'complete',
-      extraInputs: {
-        newHotPublicKey: 'new-hot',
-        guardianEndpoint: 'https://guardian.example',
-        hotKeyPersistFailed: false
-      }
-    });
-    expect(row.completedAt).toEqual(expect.any(Number));
-    await expect(findFailedHotKeyRotations('acc-1')).resolves.toEqual([]);
   });
 });

@@ -10,7 +10,6 @@
 
 import * as Actions from 'lib/miden/back/actions';
 import { store, toFront } from 'lib/miden/back/store';
-import { assertWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { processInProcessRequest } from './in-process-request-handler';
@@ -32,16 +31,6 @@ export class DesktopIntercomAdapter {
     if (this.initialized) return;
 
     console.log('DesktopIntercomAdapter: Initializing backend');
-    try {
-      assertWalletAccessAllowed();
-    } catch {
-      const [{ initBridgeConfig }, { loadEndpointOverrides }] = await Promise.all([
-        import('lib/remote-config/runtime'),
-        import('lib/miden-chain/effective-endpoints')
-      ]);
-      await loadEndpointOverrides();
-      await initBridgeConfig();
-    }
     await Actions.init();
 
     // Watch store changes and notify subscribers

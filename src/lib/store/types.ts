@@ -16,7 +16,6 @@ import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
-  GuardianHotKeySwapScope,
   ImportedAccountBackup,
   GuardianRecoveryAction,
   RecoveryPreparation,
@@ -206,14 +205,7 @@ export interface WalletActions {
   signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  prepareCommittedGuardianCompletion: (transactionId: string) => Promise<void>;
-  completeCommittedGuardianRow: (transactionId: string, deadlineMs?: number) => Promise<void>;
-  swapHotKey: (
-    accountPublicKey: string,
-    newHotPubKey: string,
-    expectedHotPubKey?: string | null,
-    expectedScope?: GuardianHotKeySwapScope
-  ) => Promise<void>;
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
   /**
    * Conditional rollback after the node discards a rotation. Refused unless the

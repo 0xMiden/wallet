@@ -10,9 +10,7 @@ import { updateEarnDepositStatus } from 'lib/miden/activity';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { assertEarnDepositAvailable } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
-import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { type EarnMarket, getEarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
@@ -360,7 +358,6 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
     throw new Error('Enter a valid EVM address (0x followed by 40 hex characters).');
   }
   const evmRecipient = args.evmAddress;
-  assertEarnDepositAvailable(getBridgeConfigSnapshot());
 
   const market = getEarnMarket();
   const allocatorUrl = getEpochAllocatorUrl();

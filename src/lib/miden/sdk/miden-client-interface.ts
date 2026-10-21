@@ -51,7 +51,6 @@ import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
-import { assertWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import type { AuthScheme } from 'lib/shared/types';
 import { annotateCrash, type CrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
@@ -78,7 +77,6 @@ import {
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
 import {
-  ensureWalletAccessOutsideWasmLock,
   getCurrentWasmLockHold,
   retireWasmClientForCaughtTrap,
   withWasmLockWatchdogPaused,
@@ -1884,11 +1882,7 @@ export class MidenClientInterface {
    * A delegated attempt that fails before `markSubmitting()` falls back to a
    * local one through `proveWithFallback`; nothing falls back once it has run.
    */
-  async swapTransaction(
-    transaction: SwapTransaction,
-    onStage?: LeafStage,
-    assertSubmissionAllowed?: () => void
-  ): Promise<TransactionResult> {
+  async swapTransaction(transaction: SwapTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
     const access = this.innerClientAccess();
@@ -1933,8 +1927,7 @@ export class MidenClientInterface {
         return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage);
       },
       transaction.delegateTransaction,
-      this.liveness,
-      assertSubmissionAllowed
+      this.liveness
     );
   }
 
@@ -1942,8 +1935,7 @@ export class MidenClientInterface {
     accountId: string,
     requestBytes: Uint8Array,
     delegateTransaction?: boolean,
-    onStage?: LeafStage,
-    assertSubmissionAllowed?: () => void
+    onStage?: LeafStage
   ): Promise<TransactionResult> {
     return proveWithFallback(
       async (prover, attempt) => {
@@ -1986,8 +1978,7 @@ export class MidenClientInterface {
         return result;
       },
       delegateTransaction,
-      this.liveness,
-      assertSubmissionAllowed
+      this.liveness
     );
   }
 
@@ -2003,19 +1994,6 @@ export class MidenClientInterface {
     return this.innerClientAccess()._withInnerWebClient(fn);
   }
 
-  private assertSubmissionCurrent(attempt: ProveAttempt): void {
-    if (attempt.evicted()) {
-      throw new WasmClientPoisonedError(
-        'watchdog',
-        new Error('operation abandoned during the submission access check')
-      );
-    }
-  }
-
-  private async ensureSubmissionAccess(attempt: ProveAttempt): Promise<void> {
-    await ensureWalletAccessOutsideWasmLock(getCurrentWasmLockHold(), () => this.assertSubmissionCurrent(attempt));
-  }
-
   /**
    * The worker leg of a staged local attempt (#945): prove `executed` in the realm's
    * prove worker, then submit that proof and apply it. Everything before
@@ -2027,15 +2005,17 @@ export class MidenClientInterface {
     onStage?: LeafStage
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
+    // No re-check of the hold between here and `submitProven`: the helper's own
+    // post-prove `assertWasmHoldCurrent` already ran, and the only `onStage` this
+    // realm installs (`postStageEvent`) is synchronous, so `await` only yields one
+    // microtask before `markSubmitting()`, not a real parking point. An async
+    // `onStage` would need its own re-check.
     // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
     if (onStage) {
       await onStage('submitting', {
         evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
       });
     }
-    await this.ensureSubmissionAccess(attempt);
-    this.assertSubmissionCurrent(attempt);
-    assertWalletAccessAllowed();
     attempt.markSubmitting();
     const submitted = await this.client.transactions.submitProven(proof, executed.result);
     // The node already has the transaction: a failed apply is retried while that is safe, and one
@@ -2100,9 +2080,6 @@ export class MidenClientInterface {
     }
     // Point of no return: a retry past here would build a fresh request (a new note serial; for a
     // swap, a second PSWAP note locking the offered asset twice) and submit a second write.
-    await this.ensureSubmissionAccess(attempt);
-    this.assertSubmissionCurrent(attempt);
-    assertWalletAccessAllowed();
     attempt.markSubmitting();
     const submitted = await proven.submit();
     recordProveTiming(`${write} staged: submit returned; applying`);
@@ -2202,14 +2179,9 @@ export class MidenClientInterface {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
       // Point of no return — see the identical mark on the inline send path.
-      await this.ensureSubmissionAccess(attempt);
-      this.assertSubmissionCurrent(attempt);
-      assertWalletAccessAllowed();
+      attempt.markSubmitting();
       await access._withInnerWebClient(async inner => {
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
-        this.assertSubmissionCurrent(attempt);
-        assertWalletAccessAllowed();
-        attempt.markSubmitting();
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
         // Same rule as the staged applies (#1233). This block holds the SDK lock and the wallet's,
@@ -2521,8 +2493,7 @@ export function remoteProver(): TransactionProver | undefined {
 export async function proveWithFallback<T>(
   fn: (prover: TransactionProver | undefined, attempt: ProveAttempt) => Promise<T>,
   delegateTransaction: boolean | undefined,
-  liveness: ClientLiveness,
-  assertSubmissionAllowed?: () => void
+  liveness: ClientLiveness
 ): Promise<T> {
   recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
   const shouldDelegate = delegateTransaction === true;
@@ -2544,7 +2515,6 @@ export async function proveWithFallback<T>(
   // Flipped by the callback right before its first irreversible write. Read in
   // the catch below to decide whether a retry is safe — see the docstring.
   let submitReached = false;
-  let submissionAccessRefused = false;
   // Whether the attempt currently running uses the local prover, i.e. whether
   // `pauseWatchdogForLocalProve` should pause (issue #775). Set immediately
   // before each `fn(...)` below, so the flag always describes the live attempt.
@@ -2559,15 +2529,8 @@ export async function proveWithFallback<T>(
   // recovery always disposes (or marks) the client before releasing the mutex,
   // so a disposed client identifies the caller as a corpse.
   const hold = getCurrentWasmLockHold();
-  const generation = wasmClientGeneration();
   const attempt: ProveAttempt = {
     markSubmitting: () => {
-      try {
-        assertSubmissionAllowed?.();
-      } catch (error) {
-        submissionAccessRefused = true;
-        throw error;
-      }
       submitReached = true;
     },
     pauseWatchdogForLocalProve: op => {
@@ -2583,10 +2546,8 @@ export async function proveWithFallback<T>(
       liveness.disposed || hold === null
         ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
         : proveInWorker(result, hold),
-    holdIsCurrent: () =>
-      !liveness.disposed && wasmClientGeneration() === generation && hold !== null && getCurrentWasmLockHold() === hold,
-    evicted: () =>
-      liveness.disposed || wasmClientGeneration() !== generation || (hold !== null && getCurrentWasmLockHold() !== hold)
+    holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
+    evicted: () => liveness.disposed || (hold !== null && getCurrentWasmLockHold() !== hold)
   };
 
   const startedAt = performance.now();
@@ -2627,8 +2588,6 @@ export async function proveWithFallback<T>(
     // client, so it takes the non-retryable tail to its lock.
     if (
       shouldDelegate &&
-      !isWalletAccessDeniedError(err) &&
-      !submissionAccessRefused &&
       !submitReached &&
       !isApplyAfterSubmitError(err) &&
       !(err instanceof WebAssembly.RuntimeError)

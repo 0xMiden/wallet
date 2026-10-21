@@ -50,7 +50,7 @@ export function useSwapPickerTokens(partnersOf?: string): SwapToken[] {
  * log; users see the swap screen's own copy.
  */
 export function swapAvailability(snapshot: BridgeConfigSnapshot): FeatureAvailability {
-  const gated = geoFeatureGate('swap', snapshot.config, snapshot.geo);
+  const gated = geoFeatureGate('swap', snapshot.geo);
   if (gated) return gated;
   if (getDefaultSwapPair() !== null) return { state: 'available' };
   if (snapshot.status === 'loading') return { state: 'loading' };

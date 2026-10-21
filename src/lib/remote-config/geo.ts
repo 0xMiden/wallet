@@ -23,7 +23,7 @@ export interface FeatureEligibility {
   allowed: Record<GeoFeature, boolean>;
 }
 
-/** A failed decision keeps configured features closed until an existing refresh retries it. */
+/** A failed startup decision keeps the wallet closed until the page restarts. */
 export type GeoLookup = { state: 'loading' } | { state: 'failed' } | ({ state: 'ready' } & FeatureEligibility);
 
 /** Structural feature availability; live route and market probes remain separate. */

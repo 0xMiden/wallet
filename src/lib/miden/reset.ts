@@ -10,7 +10,6 @@ import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
 import { bridgeConfigDerivedKey } from 'lib/remote-config/derived-snapshot';
 import { BRIDGE_CONFIG_FLOOR_KEY, bridgeConfigCacheKey } from 'lib/remote-config/source';
-import { invalidateWalletAccess } from 'lib/remote-config/wallet-access';
 import { storageCleared } from 'lib/storage-cleared';
 
 const BRIDGE_CONFIG_DOCUMENT_KEYS: readonly string[] = Object.values(MIDEN_NETWORK_NAME).flatMap(network => [
@@ -52,7 +51,6 @@ const DEVELOPER_RESET_KEPT_KEYS: readonly string[] = PRESERVED_STORAGE_KEYS.filt
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
 // failure can lose it, and a failure rejects the reset rather than being swallowed.
 async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<void> {
-  invalidateWalletAccess();
   try {
     if (isMobile()) {
       const { Preferences } = await import('@capacitor/preferences');
@@ -177,7 +175,6 @@ export async function resetStorageDestructive({
 // open-link's and Bread Connect's records, because the platform keeps reporting the launch link for the rest of the
 // app session.
 export async function clearClientStorage(): Promise<void> {
-  invalidateWalletAccess();
   try {
     removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
     removeSessionStorageExcept([...OPEN_LINK_SESSION_KEYS, ...BREAD_CONNECT_SESSION_KEYS]);

@@ -14,8 +14,6 @@
  */
 
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { WalletStatus, type WalletAccount } from 'lib/shared/types';
-import { WalletType } from 'screens/onboarding/types';
 
 const mockAlarmsCreate = jest.fn();
 const mockAlarmsClear = jest.fn();
@@ -91,17 +89,10 @@ jest.mock('lib/platform', () => ({
 const mockWithUnlocked = jest.fn();
 // The store's unlock predicate, answering as `withUnlocked` does: `lockedWithUnlocked` locks both.
 let mockVaultUnlocked = true;
-interface HotKeySwapState {
-  inited: boolean;
-  status: WalletStatus;
-  vault: object;
-  accounts: WalletAccount[];
-}
-let mockHotKeySwapState: HotKeySwapState | undefined;
 jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn),
   isUnlocked: () => mockVaultUnlocked,
-  store: { getState: () => mockHotKeySwapState ?? {} },
+  store: { getState: () => ({}) },
   accountsUpdated: jest.fn()
 }));
 
@@ -120,7 +111,6 @@ const lockedWithUnlocked = () => {
 
 const mockIntercomBroadcast = jest.fn();
 jest.mock('./defaults', () => ({
-  ...jest.requireActual<typeof import('./defaults')>('./defaults'),
   getIntercom: () => ({ broadcast: mockIntercomBroadcast })
 }));
 
@@ -129,7 +119,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockWithUnlocked.mockReset();
   mockVaultUnlocked = true;
-  mockHotKeySwapState = undefined;
   mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
@@ -277,15 +266,12 @@ describe('setupTransactionProcessor', () => {
     // `getAllUncompletedTransactions` which returns both statuses, so the orphan
     // is reaped by `safeGenerateTransactionsLoop` → `cancelStuckTransactions` on
     // the next SW spawn.
-    // Startup finds the orphan; the resumed pass drains it instead of leaving a
-    // real retry timer running across the next resetModules boundary.
-    mockGetAllUncompletedTransactions.mockResolvedValue([]).mockResolvedValueOnce([{ id: 'orphan', status: 1 }]);
+    mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'orphan', status: 1 }]);
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     // Drain the promise chain (getAllUncompletedTransactions → then → startTransactionProcessing).
     await flushAsync();
-    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
-    expect(mockAlarmsClear).toHaveBeenCalledWith('miden-tx-processor');
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalled();
   });
 
   it('does not auto-resume when there are no uncompleted transactions', async () => {
@@ -533,58 +519,28 @@ describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
 });
 
 describe('vaultGuardianProvider.swapHotKey', () => {
-  const vaultSwapping = async () => {
-    const account: WalletAccount = {
-      publicKey: 'acc',
-      type: WalletType.Guardian,
-      authScheme: 'ecdsa',
-      name: 'Guardian account',
-      isPublic: true,
-      hdIndex: 0,
-      hotPublicKey: 'old-pub',
-      coldPublicKey: 'cold-pub',
-      guardianEndpoint: 'https://guardian.example',
-      guardianEpoch: 2
-    };
-    const currentAccount = { ...account, hotPublicKey: 'new-pub' };
-    const swapHotKey = jest.fn(async () => ({ accounts: [currentAccount], currentAccount }));
-    const vault = { swapHotKey, insertKeySink: async () => undefined };
-    mockHotKeySwapState = { inited: true, status: WalletStatus.Ready, vault, accounts: [account] };
-    mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault }));
-    const processor = await import('./transaction-processor');
-    // The absolute SDK alias has a manual mock; use the guard's actual module.
-    const realm = jest.requireActual<typeof import('../sdk/miden-client')>('../sdk/miden-client');
-    realm.installRealmKeystore({ insertKey: vault.insertKeySink });
-    return {
-      processor,
-      swapHotKey,
-      retire: () => {
-        realm.uninstallRealmKeystore({ insertKey: vault.insertKeySink });
-        mockHotKeySwapState = undefined;
-      }
-    };
+  const vaultSwapping = () => {
+    const swapHotKey = jest.fn(async () => ({ accounts: [], currentAccount: undefined }));
+    mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault: { swapHotKey } }));
+    return swapHotKey;
   };
 
   it('passes the expectation to the vault (#1233)', async () => {
-    const fixture = await vaultSwapping();
-    try {
-      await fixture.processor.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
 
-      expect(fixture.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub', expect.any(Function));
-    } finally {
-      fixture.retire();
-    }
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
   });
 
   it('passes no expectation when the caller passes none (#1233)', async () => {
-    const fixture = await vaultSwapping();
-    try {
-      await fixture.processor.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
 
-      expect(fixture.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined, expect.any(Function));
-    } finally {
-      fixture.retire();
-    }
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
   });
 });
 

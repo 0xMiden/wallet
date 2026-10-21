@@ -36,19 +36,8 @@ jest.mock('lib/lock-up/run-checks', () => ({}));
 jest.mock('./i18n', () => ({}));
 jest.mock('app/a11y/AwaitI18N', () => ({ __esModule: true, default: () => null }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: async () => undefined }));
-jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: async () => undefined }));
-let mockAccessSnapshot: { status: 'allowed' | 'restricted' | 'loading' | 'unavailable'; expiresAt: number | null } = {
-  status: 'allowed',
-  expiresAt: 60_000
-};
-const mockAccessListeners = new Set<() => void>();
-jest.mock('lib/remote-config/wallet-access', () => ({
-  getWalletAccessSnapshot: () => mockAccessSnapshot,
-  subscribeWalletAccess: (listener: () => void) => {
-    mockAccessListeners.add(listener);
-    return () => mockAccessListeners.delete(listener);
-  },
-  ensureWalletAccessAllowed: async () => undefined
+jest.mock('lib/remote-config/runtime', () => ({
+  initFeatureEligibility: async () => ({ state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: true } })
 }));
 
 jest.mock('app/a11y/DisableOutlinesForClick', () => ({
@@ -123,22 +112,6 @@ afterEach(() => {
 const getResetButton = () => screen.getByRole('button', { name: 'resetExtension' });
 
 describe('src/options.tsx', () => {
-  it.each(['loading', 'restricted', 'unavailable'] as const)(
-    'hides destructive options and dialogs while access is %s',
-    async status => {
-      await act(async () => {
-        mockAccessSnapshot = { status, expiresAt: null };
-        mockAccessListeners.forEach(listener => listener());
-      });
-      expect(screen.queryByRole('button', { name: 'resetExtension' })).toBeNull();
-      expect(screen.queryByTestId('dialogs')).toBeNull();
-      await act(async () => {
-        mockAccessSnapshot = { status: 'allowed', expiresAt: 60_000 };
-        mockAccessListeners.forEach(listener => listener());
-      });
-    }
-  );
-
   it('mounts the Options page into #root with heading + reset button', () => {
     // OptionsWrapper -> Options JSX executed by the real createRoot render.
     expect(screen.getByRole('heading', { name: 'leoWalletOptions' })).toBeInTheDocument();

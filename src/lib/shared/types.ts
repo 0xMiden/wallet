@@ -87,10 +87,6 @@ export enum WalletMessageType {
   SignEvmResponse = 'SIGN_EVM_RESPONSE',
   PersistNewHotKeyRequest = 'PERSIST_NEW_HOT_KEY_REQUEST',
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
-  PrepareCommittedGuardianCompletionRequest = 'PREPARE_COMMITTED_GUARDIAN_COMPLETION_REQUEST',
-  PrepareCommittedGuardianCompletionResponse = 'PREPARE_COMMITTED_GUARDIAN_COMPLETION_RESPONSE',
-  CompleteCommittedGuardianCompletionRequest = 'COMPLETE_COMMITTED_GUARDIAN_COMPLETION_REQUEST',
-  CompleteCommittedGuardianCompletionResponse = 'COMPLETE_COMMITTED_GUARDIAN_COMPLETION_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
@@ -974,39 +970,11 @@ export interface PersistNewHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.PersistNewHotKeyResponse;
 }
 
-export interface PrepareCommittedGuardianCompletionRequest extends WalletMessageBase {
-  type: WalletMessageType.PrepareCommittedGuardianCompletionRequest;
-  transactionId: string;
-}
-
-export interface PrepareCommittedGuardianCompletionResponse extends WalletMessageBase {
-  type: WalletMessageType.PrepareCommittedGuardianCompletionResponse;
-  token: string;
-}
-
-export interface CompleteCommittedGuardianCompletionRequest extends WalletMessageBase {
-  type: WalletMessageType.CompleteCommittedGuardianCompletionRequest;
-  token: string;
-  deadlineMs?: number;
-}
-
-export interface CompleteCommittedGuardianCompletionResponse extends WalletMessageBase {
-  type: WalletMessageType.CompleteCommittedGuardianCompletionResponse;
-}
-
-export interface GuardianHotKeySwapScope {
-  guardianEndpoint: string;
-  guardianEpoch: number;
-  network: MIDEN_NETWORK_NAME;
-  rpcUrl: string;
-}
-
 export interface SwapHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyRequest;
   accountPublicKey: string;
   newHotPubKey: string;
   expectedHotPubKey?: string | null;
-  expectedScope?: GuardianHotKeySwapScope;
 }
 
 export interface SwapHotKeyResponse extends WalletMessageBase {
@@ -1329,8 +1297,6 @@ export type WalletRequest =
   | SignWordRequest
   | SignEvmRequest
   | PersistNewHotKeyRequest
-  | PrepareCommittedGuardianCompletionRequest
-  | CompleteCommittedGuardianCompletionRequest
   | SwapHotKeyRequest
   | SetGuardianEndpointRequest
   | RevertGuardianEndpointRequest
@@ -1406,8 +1372,6 @@ export type WalletResponse =
   | SignWordResponse
   | SignEvmResponse
   | PersistNewHotKeyResponse
-  | PrepareCommittedGuardianCompletionResponse
-  | CompleteCommittedGuardianCompletionResponse
   | SwapHotKeyResponse
   | SetGuardianEndpointResponse
   | RevertGuardianEndpointResponse

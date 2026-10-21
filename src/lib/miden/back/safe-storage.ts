@@ -29,7 +29,7 @@ export async function fetchAndDecryptOne<T>(storageKey: string, key: CryptoKey) 
 }
 
 /** Encrypt and save several items under the vault key, each as iv (32 hex) + ciphertext. */
-export async function encryptAndSaveMany(items: [string, any][], key: CryptoKey, assertCurrent?: () => void) {
+export async function encryptAndSaveMany(items: [string, any][], key: CryptoKey) {
   const encItems = await Promise.all(
     items.map(async ([storageKey, stuff]) => {
       storageKey = await wrapStorageKey(storageKey);
@@ -38,18 +38,11 @@ export async function encryptAndSaveMany(items: [string, any][], key: CryptoKey,
     })
   );
 
-  assertCurrent?.();
-  await saveEncrypted(encItems, assertCurrent);
+  await saveEncrypted(encItems);
 }
 
-export async function removeMany(keys: string[], assertCurrent?: () => void) {
-  const wrapped = await Promise.all(keys.map(wrapStorageKey));
-  assertCurrent?.();
-  if (assertCurrent) {
-    await getStorage().remove(wrapped, assertCurrent);
-  } else {
-    await getStorage().remove(wrapped);
-  }
+export async function removeMany(keys: string[]) {
+  await getStorage().remove(await Promise.all(keys.map(wrapStorageKey)));
 }
 
 export async function getPlain<T>(key: string): Promise<T | undefined> {
@@ -76,15 +69,11 @@ async function fetchEncryptedOne<T>(key: string) {
   }
 }
 
-async function saveEncrypted<T>(items: { [k: string]: T } | [string, T][], assertCurrent?: () => void) {
+async function saveEncrypted<T>(items: { [k: string]: T } | [string, T][]) {
   if (Array.isArray(items)) {
     items = iterToObj(items);
   }
-  if (assertCurrent) {
-    await getStorage().set(items, assertCurrent);
-  } else {
-    await getStorage().set(items);
-  }
+  await getStorage().set(items);
 }
 
 function iterToObj(iter: [string, any][]) {

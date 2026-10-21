@@ -12,13 +12,6 @@ const requireProbes = () =>
 /** Never the mutex owner, so a catch handed it can never retire anything. */
 const NO_HOLD = {} as unknown as WasmLockHold;
 
-// These fixtures own their synthetic hold; the real helper must not release a different module's mutex.
-function ensureFixtureSubmissionAccess(_hold: unknown, assertCurrent: () => void): Promise<void> {
-  return jest
-    .requireActual<typeof import('./miden-client')>('./miden-client')
-    .ensureWalletAccessOutsideWasmLock(null, assertCurrent);
-}
-
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   recordSyncedFeeFaucetId: jest.fn(async () => true)
@@ -1556,30 +1549,6 @@ describe('MidenClientInterface', () => {
     expect(staged.executeRequest).not.toHaveBeenCalled();
   });
 
-  it('does not broadcast a consume whose access is revoked while proof is running', async () => {
-    const access = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
-      'lib/remote-config/wallet-access'
-    );
-    const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
-    const staged = stagedExecuteRequest(() => {
-      jest.mocked(access.ensureWalletAccessAllowed).mockRejectedValue(denied);
-      jest.mocked(access.assertWalletAccessAllowed).mockImplementation(() => {
-        throw denied;
-      });
-    });
-    mockStagedSdk();
-    const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromClient(
-      buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as never,
-      'testnet'
-    );
-    await expect(
-      client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as never)
-    ).rejects.toBe(denied);
-    expect(staged.submit).not.toHaveBeenCalled();
-    expect(staged.apply).not.toHaveBeenCalled();
-  });
-
   it('consumeNoteId returns TransactionResult', async () => {
     const staged = stagedExecuteRequest();
     // `consume` set here because the override replaces the default `transactions` wholesale, and
@@ -2319,7 +2288,6 @@ describe('MidenClientInterface', () => {
       jest.doMock('./miden-client', () => {
         const { WasmClientPoisonedError } = jest.requireActual('./wasm-client-poison');
         return {
-          ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
           withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: { label?: string }) => {
             held.count++;
             held.labels.push(options?.label ?? '');
@@ -2488,7 +2456,6 @@ describe('MidenClientInterface', () => {
         }
       }));
       jest.doMock('./miden-client', () => ({
-        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => fn({}),
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
@@ -3181,7 +3148,6 @@ describe('MidenClientInterface', () => {
         proveViaOffscreen
       }));
       jest.doMock('./miden-client', () => ({
-        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
         getCurrentWasmLockHold: () => null
@@ -3286,7 +3252,6 @@ describe('MidenClientInterface', () => {
       // The write still owns the hold it took, so its leaf reads the evidence.
       const hold = {};
       jest.doMock('./miden-client', () => ({
-        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
         getCurrentWasmLockHold: () => hold
@@ -3322,7 +3287,7 @@ describe('MidenClientInterface', () => {
       expect(order).toEqual(['stamp:executing', 'stamp:proving', 'stamp:submitting', 'submit']);
     });
 
-    it("refuses submit without yielding a disposed client's mutex", async () => {
+    it('skips the mutex yield once the client is disposed — an evicted corpse must not release a lock it no longer owns', async () => {
       const fakeWasm = buildWasmStub();
       const inner = {
         executeTransaction: jest.fn(async () => fakeTransactionResult),
@@ -3343,7 +3308,6 @@ describe('MidenClientInterface', () => {
       // back a lock that now belongs to the next holder.
       const yieldMock = jest.fn(async (op: () => Promise<unknown>) => op());
       jest.doMock('./miden-client', () => ({
-        ensureWalletAccessOutsideWasmLock: ensureFixtureSubmissionAccess,
         yieldWasmClientLock: yieldMock,
         withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
         getCurrentWasmLockHold: () => null
@@ -3353,21 +3317,17 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await expect(
-        client.sendTransaction({
-          accountId: 'sender',
-          secondaryAccountId: 'recip',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(100),
-          extraInputs: {}
-        } as any)
-      ).rejects.toThrow('WASM client poisoned');
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any);
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
-      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
-      expect(inner.applyTransaction).not.toHaveBeenCalled();
     });
 
     it.each([

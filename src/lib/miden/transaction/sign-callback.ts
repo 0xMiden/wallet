@@ -1,6 +1,6 @@
 // Sign-callback classification (issue #260, slice 5).
 //
-// This module has no runtime or store dependency. It exists to break an
+// This is a LEAF module: it depends only on `Buffer`. It exists to break an
 // import cycle that Slice 5
 // would otherwise introduce. The reverse-IPC sign handler (SW-side, in
 // `back/miden-client-proxy.ts`) must classify a failed sign the SAME way the
@@ -15,9 +15,6 @@
 
 import { Buffer } from 'buffer';
 
-import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
-import { isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
-
 /**
  * Stable tags attached to errors the sign callback throws. Only the message
  * crosses the SDK boundary, so the tag reaches the transaction loop two ways:
@@ -26,7 +23,7 @@ import { isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
  * `withWasmClientLock` tags the hold's rejection. `isLockedError` then defers a
  * `locked` failure until the wallet unlocks instead of marking the tx Failed.
  */
-export type SignCallbackReason = 'locked' | 'wallet_access_denied' | 'rejected' | 'not_found' | 'internal';
+export type SignCallbackReason = 'locked' | 'rejected' | 'not_found' | 'internal';
 
 export interface SignCallbackError extends Error {
   reason: SignCallbackReason;
@@ -43,16 +40,13 @@ export function buildSignCallbackError(err: unknown): SignCallbackError {
   const underlying = err instanceof Error ? err : new Error(String(err));
   let reason: SignCallbackReason = 'internal';
   const msg = underlying.message || '';
-  if (isWalletAccessDeniedError(err)) {
-    reason = 'wallet_access_denied';
-  } else if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
+  if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
     reason = 'locked';
   }
   const wrapped = Object.assign(new Error(`Sign callback failed (${reason}): ${msg}`), {
     reason,
     cause: underlying
   }) as SignCallbackError;
-  if (reason === 'wallet_access_denied') Object.assign(wrapped, { code: 'WALLET_ACCESS_DENIED' });
   return wrapped;
 }
 
@@ -83,17 +77,13 @@ export function buildSdkSignCallback(
 }
 
 /**
- * Carry an authority refusal onto the operation's own error so the transaction
- * loop defers a known pre-submit write instead of failing it. The
+ * Carry a locked sign onto the operation's own error, so `isLockedError` in the
+ * transaction loop DEFERS the write instead of failing it (issue #313). Only
+ * 'locked' matters there; any other reason leaves a genuine failure to Fail. The
  * offscreen path calls this from its op-keyed record, `withWasmClientLock` from
  * the record keyed by the hold (sdk/miden-client.ts).
  */
 export function tagLockedSignReason(err: unknown, reason: SignCallbackReason | undefined): void {
-  if (reason === 'wallet_access_denied' && err && typeof err === 'object') {
-    Object.assign(err, { code: 'WALLET_ACCESS_DENIED' });
-    markErrorBeforeSubmit(err);
-    return;
-  }
   if (reason === 'locked' && err && typeof err === 'object' && (err as { reason?: unknown }).reason === undefined) {
     (err as { reason?: SignCallbackReason }).reason = reason;
   }

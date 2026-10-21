@@ -198,7 +198,7 @@ Please read these Terms carefully. They describe what Bread Wallet does, what we
 
 ## 11. Geographic restrictions
 
-**11.1 Blocked jurisdictions.** The network's sequencer is geoblocked for the comprehensively sanctioned jurisdictions listed in the Sanctions Compliance Statement. Bread Wallet additionally applies the broader application access policy in that Statement: all wallet access, including withdrawals, is blocked for connections from Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts of Ukraine. Without a current successful eligibility decision, wallet access stays closed.
+**11.1 Blocked jurisdictions.** The network's sequencer is geoblocked for the comprehensively sanctioned jurisdictions listed in the Sanctions Compliance Statement. Bread Wallet additionally applies the broader application access policy in that Statement: all wallet access, including withdrawals, is blocked for connections from Cuba, Iran, North Korea, Russia, Belarus, Crimea, Sevastopol and the whole Donetsk, Luhansk, Kherson and Zaporizhzhia oblasts of Ukraine. The App checks eligibility once at startup and keeps the decision for the page session; a failed startup check keeps wallet access closed.
 
 **11.2 Feature-level restrictions.** Individual features may be unavailable in further jurisdictions. Current restrictions: new Earn deposits are not available in the United Kingdom or the State of New York and are blocked for connections from those places, while withdrawals remain available where wallet access is permitted (5.9); Transak on-ramp and off-ramp are available only in the countries Transak supports (7.8). We may change these at any time.
 

@@ -1,6 +1,5 @@
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
-import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { getEarnMarket } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
@@ -9,12 +8,7 @@ import { createEarnP2IDENote } from './earn-note';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
-import {
-  TEST_BRIDGE_CONFIG_SNAPSHOT,
-  TEST_EARN_MARKET,
-  TEST_EVM_CHAIN_ID,
-  TEST_MIDEN_USDC
-} from './testing/bridge-config';
+import { TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
@@ -35,12 +29,6 @@ jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: j
 jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
 );
-
-let mockEligibilitySnapshot: BridgeConfigSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () => mockEligibilitySnapshot,
-  initBridgeConfig: async () => mockEligibilitySnapshot
-}));
 
 const SEPOLIA = TEST_EVM_CHAIN_ID;
 const MIDEN_CHAIN = 999;
@@ -524,7 +512,6 @@ describe('openEarnPosition guards', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetBlock.mockResolvedValue(1000);
-    mockEligibilitySnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
   });
 
   it('rejects a non-positive deposit amount before any SDK work', async () => {
@@ -542,37 +529,6 @@ describe('openEarnPosition guards', () => {
 
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
-
-  it.each(['blocked', 'loading', 'failed', 'off'])(
-    'rejects a stale review confirmation before SDK setup when current Earn eligibility is %s',
-    async state => {
-      const accepted = TEST_BRIDGE_CONFIG_SNAPSHOT.config;
-      if (!accepted) throw new Error('Missing test configuration');
-      mockEligibilitySnapshot = {
-        ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-        config: {
-          ...accepted,
-          features: { ...accepted.features, earn: state !== 'off' },
-          geo: { earn: [{ country: 'GB' }] }
-        },
-        geo:
-          state === 'blocked' || state === 'off'
-            ? {
-                state: 'ready',
-                network: 'testnet',
-                version: accepted.version,
-                allowed: { wallet: true, earn: false, swap: true }
-              }
-            : state === 'failed'
-              ? { state: 'failed' }
-              : { state: 'loading' }
-      };
-      mockGetSdk.mockRejectedValue(new Error('SDK setup must not start'));
-      await expect(openEarnPosition(baseArgs())).rejects.toThrow();
-      expect(mockGetSdk).not.toHaveBeenCalled();
-      expect(mockCreateEarnP2IDENote).not.toHaveBeenCalled();
-    }
-  );
 
   it('lets a valid deposit past the guards and into SDK setup', async () => {
     const args = baseArgs();

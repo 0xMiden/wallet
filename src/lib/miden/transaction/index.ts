@@ -22,10 +22,6 @@ import {
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
 import {
-  bindCommittedGuardianEvidence,
-  committedGuardianOperationBinding
-} from 'lib/miden/guardian/committed-completion';
-import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   GuardianWriteDiscardedError,
@@ -58,11 +54,6 @@ import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
-import {
-  assertWalletAccessAllowed,
-  ensureWalletAccessAllowed,
-  isWalletAccessDeniedError
-} from 'lib/remote-config/wallet-access';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -100,7 +91,6 @@ import {
   RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
-import { assertTransactionFeatureAllowed } from './feature-access';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   type AttemptContext,
@@ -166,7 +156,6 @@ import {
 } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
-  ensureWalletAccessOutsideWasmLock,
   getCurrentWasmLockHold,
   getMidenClient,
   type WasmClientLockOptions,
@@ -182,7 +171,6 @@ import {
   extractLanded,
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
-  markErrorBeforeSubmit,
   isApplyAfterSubmitError,
   isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
@@ -195,7 +183,7 @@ import {
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
-import { isSyncWatchdogEviction, wasmClientGeneration, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { isRecoveredReturnOrder } from '../swap/recovered-order';
 
 export * from './cancel';
@@ -520,8 +508,6 @@ const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: num
   };
 };
 
-const guardianCompletionBindings = new WeakMap<ITransaction, string>();
-
 /**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
  * `stage => setTransactionStage(txId, stage)`, unfailable except for one write.
@@ -546,8 +532,7 @@ const guardianCompletionBindings = new WeakMap<ITransaction, string>();
 const stageStampFor =
   (
     txId: string,
-    attempt: AttemptContext | undefined,
-    completionBinding?: string
+    attempt: AttemptContext | undefined
   ): ((stage: ITransactionStage, detail?: StageDetail) => Promise<void>) =>
   async (stage, detail) => {
     // 'submitting' is stamped immediately before the submit call, so it is the exact crossing the double-send guard
@@ -555,7 +540,6 @@ const stageStampFor =
     // row terminal without stopping the pipeline. The crossing is recorded per attempt with the evidence the leaf
     // read (#1081). Without an attempt (see the Guardian leaf) only the flag can be recorded.
     if (stage === 'submitting') {
-      if (attempt) bindCommittedGuardianEvidence(txId, attempt.attemptId, completionBinding, detail?.evidence);
       try {
         await (attempt === undefined
           ? markMayHaveSubmitted(txId)
@@ -1088,12 +1072,6 @@ async function reconcileStructuralApplyFailure(
   guardianProvider: GuardianAccountProvider,
   landed: LandedWithoutResult
 ): Promise<void> {
-  if (tx.attemptId) {
-    bindCommittedGuardianEvidence(tx.id, tx.attemptId, guardianCompletionBindings.get(tx), {
-      transactionId: landed.transactionId,
-      finalCommitment: landed.finalAccountCommitment
-    });
-  }
   if (tx.type === 'replace-hot-key') {
     await requireLandedCommit(tx, guardianProvider, landed);
     await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider, landed);
@@ -1147,20 +1125,8 @@ async function reconcileStructuralApplyFailure(
       // with. Completion handles the undefined service by registering on the new
       // guardian directly, which is exactly what a released operator leaves us
       // needing.
-      // The write already reached submit. Private service reads remain gated;
-      // denial or locking makes this optional service unavailable to completion.
-      if (
-        !isGuardianUnreachableError(error) &&
-        !isGuardianAccountUnusable(error) &&
-        !isWalletAccessDeniedError(error) &&
-        !isLockedError(error)
-      ) {
-        throw error;
-      }
-      console.warn(
-        '[Guardian] outgoing service unavailable during landed switch reconcile - completing without it',
-        error
-      );
+      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
+      console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
@@ -1355,32 +1321,15 @@ const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void
   if (!(await claimBridgeSubmit(transaction.id))) throw new Error(EPOCH_BRIDGE_ABANDONED_ERROR);
 };
 
-// Only a caller that cannot submit may give an access refusal this retry proof.
-const beforeSubmitAccess = async <T>(prepare: () => Promise<T>): Promise<T> => {
-  try {
-    return await prepare();
-  } catch (error) {
-    throw isWalletAccessDeniedError(error) ? markErrorBeforeSubmit(error) : error;
-  }
-};
-
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
-  try {
-    await ensureWalletAccessAllowed();
-  } catch (error) {
-    throw markErrorBeforeSubmit(error);
-  }
   let getAccounts = guardianProvider.getAccounts;
-  const prepareRecoveryTransaction = guardianProvider.prepareRecoveryTransaction;
-  if (prepareRecoveryTransaction) {
-    const preparation = await beforeSubmitAccess(() =>
-      prepareRecoveryTransaction.call(guardianProvider, transaction.id)
-    );
+  if (guardianProvider.prepareRecoveryTransaction) {
+    const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
     if (!preparation.ready) return;
     const { coldPublicKey } = preparation;
     if (coldPublicKey) {
@@ -1445,7 +1394,7 @@ const generateTransactionWithProvider = async (
   });
 
   // Route Guardian accounts through Guardian service
-  if (await beforeSubmitAccess(() => isGuardianAccount(transaction.accountId, guardianProvider))) {
+  if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
     try {
       // Serialize guardian transactions per account: the guardian co-signs one
       // delta per account at a time, and concurrent same-account txs make its
@@ -1462,7 +1411,7 @@ const generateTransactionWithProvider = async (
       // don't cancel. Re-throw so generateTransactionsLoop's locked-requeue path
       // leaves the tx Queued for retry after unlock instead of marking it Failed
       // and losing the note-claim (issue #313).
-      if (isLockedError(error) || isWalletAccessDeniedError(error)) {
+      if (isLockedError(error)) {
         throw error;
       }
       // A structural op whose submit landed and whose local apply then failed never ran its
@@ -1981,8 +1930,7 @@ const generateTransactionWithProvider = async (
             requestBytes,
             transaction.delegateTransaction,
             signCallback,
-            attempt && stageStampFor(transaction.id, attempt),
-            transaction.type
+            attempt && stageStampFor(transaction.id, attempt)
           )
         );
       } else {
@@ -2345,20 +2293,12 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  _chainAnchorB64?: string,
-  transactionType: ITransactionType = 'execute'
+  _chainAnchorB64?: string
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
   return withWasmClientLock(async hold => {
-    const generation = wasmClientGeneration();
     const midenClient = await getMidenClient();
-    const assertSubmissionCurrent = () => {
-      assertStillHoldingLock(hold, 'before submit');
-      if (midenClient.isDisposed || wasmClientGeneration() !== generation) {
-        throw new WasmClientPoisonedError('watchdog', new Error('guardian client replaced before submit'));
-      }
-    };
     // The client build can be the LONGEST parking await in this hold - a first
     // build's genesis fetch goes to the same node everything else here is waiting
     // on. The offscreen copy of this pipeline checks the hold right after its own
@@ -2488,14 +2428,7 @@ const runGuardianPipeline = async (
     await setStage('submitting', {
       evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
     });
-    try {
-      await ensureWalletAccessOutsideWasmLock(hold, assertSubmissionCurrent);
-      assertSubmissionCurrent();
-      assertWalletAccessAllowed();
-      assertTransactionFeatureAllowed(transactionType);
-    } catch (error) {
-      throw markErrorBeforeSubmit(error);
-    }
+    assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
     // does, so a failed local apply is retried in this hold while that is safe, and one that
@@ -2834,7 +2767,7 @@ const generateDirectSwitchGuardianTransaction = async (
   guardianProvider: GuardianAccountProvider,
   reason: string
 ): Promise<void> => {
-  const walletAccount = (await beforeSubmitAccess(() => guardianProvider.getAccounts())).find(a =>
+  const walletAccount = (await guardianProvider.getAccounts()).find(a =>
     sameWalletAccountId(a.publicKey, transaction.accountId)
   );
   if (!walletAccount) {
@@ -2876,15 +2809,11 @@ const generateDirectSwitchGuardianTransaction = async (
   // copy tells the user their guardian is signing — on this path no operator is
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
-  const directEndpoint = transaction.extraInputs.newGuardianEndpoint;
-  const completionBinding = committedGuardianOperationBinding(transaction);
-  if (completionBinding) guardianCompletionBindings.set(transaction, completionBinding);
-  await beforeSubmitAccess(async () => {
-    await guardianProvider.prepareCommittedGuardianCompletion?.(transaction.id);
-  });
   await setTransactionStage(transaction.id, 'signing-locally');
-  const tr = await beforeSubmitAccess(() =>
-    createDirectSwitchGuardianRequest(walletAccount, directEndpoint, guardianProvider.signWord)
+  const tr = await createDirectSwitchGuardianRequest(
+    walletAccount,
+    transaction.extraInputs.newGuardianEndpoint,
+    guardianProvider.signWord
   );
 
   await setTransactionStage(transaction.id, 'sending');
@@ -2899,7 +2828,7 @@ const generateDirectSwitchGuardianTransaction = async (
         requestBytes,
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id, attempt, completionBinding)
+        stageStampFor(transaction.id, attempt)
       )
     );
   } else {
@@ -2907,7 +2836,7 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id, attempt, completionBinding)
+      stageStampFor(transaction.id, attempt)
     );
   }
 
@@ -3261,7 +3190,7 @@ const generateGuardianTransaction = async (
   // and never route through this function, so exempting switch-guardian here only
   // affects the deliberate Settings-driven switch flow, not account recovery.
   if (transaction.type !== 'switch-guardian') {
-    const walletAccount = (await beforeSubmitAccess(() => guardianProvider.getAccounts())).find(a =>
+    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
       sameWalletAccountId(a.publicKey, transaction.accountId)
     );
     if (walletAccount) {
@@ -3297,7 +3226,7 @@ const generateGuardianTransaction = async (
   switch (transaction.type) {
     case 'send': {
       const sendTx = transaction as SendTransaction;
-      service = await beforeSubmitAccess(() => getOrCreateMultisigService(transaction.accountId, guardianProvider));
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       const recallBlocks = sendTx.extraInputs?.recallBlocks;
@@ -3332,8 +3261,12 @@ const generateGuardianTransaction = async (
           recallBlocks,
           GUARDIAN_EXPIRATION_DELTA_BLOCKS
         );
-        proposalResult = await beforeSubmitAccess(() =>
-          proposeRebased(service, transaction, requestBytes, 'recallable_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+        proposalResult = await proposeRebased(
+          service,
+          transaction,
+          requestBytes,
+          'recallable_send',
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS
         );
       } else {
         // Same coercion as the recallable branch above. This used to be
@@ -3343,13 +3276,11 @@ const generateGuardianTransaction = async (
         // `completeSendTransaction` skipped the private-note relay — so the
         // recipient was never handed the note file and could not see or consume
         // it, on a plain P2ID with no reclaim window for the sender either.
-        proposalResult = await beforeSubmitAccess(() =>
-          service.createSendProposal(
-            sendTx.secondaryAccountId,
-            sendTx.faucetId,
-            BigInt(sendTx.amount),
-            isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public
-          )
+        proposalResult = await service.createSendProposal(
+          sendTx.secondaryAccountId,
+          sendTx.faucetId,
+          BigInt(sendTx.amount),
+          isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public
         );
       }
       break;
@@ -3357,7 +3288,7 @@ const generateGuardianTransaction = async (
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
       if (preparedPswapReclaimBytes(transaction)) {
-        service = await beforeSubmitAccess(() => getOrCreateMultisigService(transaction.accountId, guardianProvider));
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
         await releaseUnabandonedCandidate(transaction, service);
         await assertPriorCandidateSettled(transaction, service);
         // Settlement's bytes are bound to the block it built them at, so the cancel is rebuilt in the proposal's hold,
@@ -3367,32 +3298,27 @@ const generateGuardianTransaction = async (
         // Only a Guardian-recovered order's tip is a note this client never tracked, read on the node (#1487).
         const swapOrderTxId = transaction.extraInputs?.swapOrderTxId;
         const swapOrder = swapOrderTxId ? await Repo.transactions.where({ id: swapOrderTxId }).first() : undefined;
-        proposalResult = await beforeSubmitAccess(() =>
-          service.createPswapCancelProposal(
-            consumeTx.noteId,
-            async requestBytes => {
-              transaction.requestBytes = requestBytes;
-              await Repo.transactions.where({ id: transaction.id }).modify(t => {
-                t.requestBytes = requestBytes;
-              });
-            },
-            { allowNodeNote: swapOrder !== undefined && isRecoveredReturnOrder(swapOrder) }
-          )
+        proposalResult = await service.createPswapCancelProposal(
+          consumeTx.noteId,
+          async requestBytes => {
+            transaction.requestBytes = requestBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = requestBytes;
+            });
+          },
+          { allowNodeNote: swapOrder !== undefined && isRecoveredReturnOrder(swapOrder) }
         );
       } else {
         const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
-        service = await beforeSubmitAccess(() => consumeServiceFor(transaction, consumeNoteIds, guardianProvider));
+        service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
         await releaseUnabandonedCandidate(transaction, service);
         await assertPriorCandidateSettled(transaction, service);
-        proposalResult = await beforeSubmitAccess(() => service.createConsumeNotesProposal(consumeNoteIds));
+        proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
       }
       break;
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
-      const targetEndpoint = sgTx.extraInputs.newGuardianEndpoint;
-      const completionBinding = committedGuardianOperationBinding(sgTx);
-      if (completionBinding) guardianCompletionBindings.set(transaction, completionBinding);
       // WHICH guardian an unreachability verdict here implicates depends on
       // where in the block it failed, and this row's audit trail is the only
       // record of it. The service load touches the OUTGOING operator alone. The
@@ -3406,24 +3332,20 @@ const generateGuardianTransaction = async (
       let unreachableSubject = 'outgoing guardian';
       let syncPhase: ProposalSyncPhase | undefined;
       try {
-        service = await beforeSubmitAccess(() =>
-          withOutgoingGuardianDeadline(
-            () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
-            'loading the outgoing guardian service'
-          )
+        service = await withOutgoingGuardianDeadline(
+          () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
+          'loading the outgoing guardian service'
         );
         await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
-        const { proposal } = await beforeSubmitAccess(() =>
-          withGuardianConflictRetry(() => {
-            const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
-            syncPhase = phase;
-            return withOutgoingGuardianDeadline(
-              () => service.createSwitchGuardianProposal(targetEndpoint, phase),
-              'pushing the switch-guardian proposal'
-            );
-          })
-        );
+        const { proposal } = await withGuardianConflictRetry(() => {
+          const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+          syncPhase = phase;
+          return withOutgoingGuardianDeadline(
+            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint, phase),
+            'pushing the switch-guardian proposal'
+          );
+        });
         proposalResult = proposal;
       } catch (error) {
         // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
@@ -3486,7 +3408,7 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'replace-hot-key': {
-      const walletAccount = (await beforeSubmitAccess(() => guardianProvider.getAccounts())).find(a =>
+      const walletAccount = (await guardianProvider.getAccounts()).find(a =>
         sameWalletAccountId(a.publicKey, transaction.accountId)
       );
       if (!walletAccount) {
@@ -3496,9 +3418,7 @@ const generateGuardianTransaction = async (
       if (!sdkAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
-      service = await beforeSubmitAccess(() =>
-        MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
-      );
+      service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
       // Stamp the guardian this rotation runs under before anything below can fail: a switch that
       // completed after initiation moved the account's endpoint, and the row must name this one.
       const rTx = transaction as ReplaceHotKeyTransaction;
@@ -3511,18 +3431,12 @@ const generateGuardianTransaction = async (
       // the same one. After a seed recovery the 409 this waits out is usually the old
       // device's last transaction still settling (#904).
       const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
-      const completionBinding = committedGuardianOperationBinding({
-        ...rTx,
-        extraInputs: { ...rTx.extraInputs, newHotPublicKey: mintedKey?.publicKeyHex ?? rTx.extraInputs.newHotPublicKey }
-      });
-      if (completionBinding) guardianCompletionBindings.set(transaction, completionBinding);
-      proposalResult = await beforeSubmitAccess(() =>
-        withGuardianConflictRetry(() => service.createReplaceHotKeyProposal(sdkAccount, commitmentHex))
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createReplaceHotKeyProposal(sdkAccount, commitmentHex)
       );
       // An earlier run of this row already persisted and stamped the key.
       if (mintedKey === undefined) break;
-      const persistNewHotKey = guardianProvider.persistNewHotKey;
-      if (!persistNewHotKey) {
+      if (!guardianProvider.persistNewHotKey) {
         throw new Error('persistNewHotKey not implemented in this provider');
       }
       // Persist the new hot ciphertext BEFORE submitting. Old hot stays valid
@@ -3545,9 +3459,7 @@ const generateGuardianTransaction = async (
       // the locked-vault requeue runs, still ahead of any persist, so the next
       // run of the row mints again. A stale-state rebuild, or any run after
       // the persist, reads the persisted key back instead.
-      await beforeSubmitAccess(() =>
-        persistNewHotKey.call(guardianProvider, mintedKey.publicKeyHex, mintedKey.ciphertext)
-      );
+      await guardianProvider.persistNewHotKey(mintedKey.publicKeyHex, mintedKey.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
       rTx.extraInputs = { ...(rTx.extraInputs ?? {}), newHotPublicKey: mintedKey.publicKeyHex };
@@ -3558,7 +3470,7 @@ const generateGuardianTransaction = async (
     }
     case 'bridged-send': {
       const bridgeTx = transaction as BridgedSendTransaction;
-      service = await beforeSubmitAccess(() => getOrCreateMultisigService(transaction.accountId, guardianProvider));
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       // Discriminate on the provider, NOT on `requestBytes` presence: the Epoch
       // branch persists the P2IDE bytes it builds, so a retry would otherwise be
@@ -3591,10 +3503,8 @@ const generateGuardianTransaction = async (
           // fresh chain head.
           { freshSync: true }
         );
-        proposalResult = await beforeSubmitAccess(() =>
-          withGuardianConflictRetry(() =>
-            proposeRebased(service, transaction, requestBytes, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
-          )
+        proposalResult = await withGuardianConflictRetry(() =>
+          proposeRebased(service, transaction, requestBytes, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
@@ -3606,10 +3516,8 @@ const generateGuardianTransaction = async (
             t.requestBytes = aggBytes;
           });
         }
-        proposalResult = await beforeSubmitAccess(() =>
-          withGuardianConflictRetry(() =>
-            proposeRebased(service, transaction, aggBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
-          )
+        proposalResult = await withGuardianConflictRetry(() =>
+          proposeRebased(service, transaction, aggBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       }
       break;
@@ -3636,16 +3544,14 @@ const generateGuardianTransaction = async (
       // are proposed as they are, with the fee conversion salt declared when they
       // were built. Checked before the service load, which can reach the guardian.
       const requestBytes = await requireEarnDepositRequestBytes(transaction);
-      service = await beforeSubmitAccess(() => getOrCreateMultisigService(transaction.accountId, guardianProvider));
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      proposalResult = await beforeSubmitAccess(() =>
-        proposeRebased(service, transaction, requestBytes, 'earn_deposit')
-      );
+      proposalResult = await proposeRebased(service, transaction, requestBytes, 'earn_deposit');
       break;
     }
     case 'swap': {
-      service = await beforeSubmitAccess(() => getOrCreateMultisigService(transaction.accountId, guardianProvider));
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       const swapTx = transaction as SwapTransaction;
@@ -3734,21 +3640,17 @@ const generateGuardianTransaction = async (
           t.requestBytes = swapBytes;
         });
       }
-      proposalResult = await beforeSubmitAccess(() =>
-        proposeRebased(service, transaction, swapBytes, 'swap', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
-      );
+      proposalResult = await proposeRebased(service, transaction, swapBytes, 'swap', GUARDIAN_EXPIRATION_DELTA_BLOCKS);
       break;
     }
     case 'update-procedure-threshold': {
       // Cold-routed structural change (same class as switch-guardian /
       // replace-hot-key): cold + guardian satisfies it on-chain.
       const uptTx = transaction as UpdateProcedureThresholdTransaction;
-      service = await beforeSubmitAccess(() => buildColdServiceForAccount(transaction.accountId, guardianProvider));
+      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
-      proposalResult = await beforeSubmitAccess(() =>
-        withGuardianConflictRetry(() =>
-          service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
-        )
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
       );
       break;
     }
@@ -3764,7 +3666,7 @@ const generateGuardianTransaction = async (
       if (!requestBytes) {
         throw new Error('Request Bytes not available for custom transaction');
       }
-      service = await beforeSubmitAccess(() => getOrCreateMultisigService(transaction.accountId, guardianProvider));
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       let preparedBytes: Uint8Array;
@@ -3799,7 +3701,7 @@ const generateGuardianTransaction = async (
         });
         transaction.requestBytes = preparedBytes;
       }
-      proposalResult = await beforeSubmitAccess(() => service.createCustomProposal(preparedBytes));
+      proposalResult = await service.createCustomProposal(preparedBytes);
       break;
     }
   }
@@ -3813,7 +3715,7 @@ const generateGuardianTransaction = async (
   // Guardian server keyed by proposal id so order doesn't matter, and the
   // transient cold service is dropped at scope exit.
   if (transaction.type === 'switch-guardian') {
-    const walletAccount = (await beforeSubmitAccess(() => guardianProvider.getAccounts())).find(a =>
+    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
       sameWalletAccountId(a.publicKey, transaction.accountId)
     );
     if (!walletAccount) {
@@ -3827,27 +3729,23 @@ const generateGuardianTransaction = async (
       // Bounded for the same reason as the two arms above: this loads state from
       // the OUTGOING guardian, and a silent operator here would otherwise hold the
       // lock until the fetch boundary's cut-off before reaching the fallback below.
-      const coldService = await beforeSubmitAccess(() =>
-        withOutgoingGuardianDeadline(
-          () =>
-            MultisigService.buildColdMultisigService(
-              sdkAccount,
-              walletAccount,
-              guardianProvider.signWord,
-              outgoingGuardianHold('switch-guardian cold service load')
-            ),
-          'loading the cold co-signing service from the outgoing guardian'
-        )
+      const coldService = await withOutgoingGuardianDeadline(
+        () =>
+          MultisigService.buildColdMultisigService(
+            sdkAccount,
+            walletAccount,
+            guardianProvider.signWord,
+            outgoingGuardianHold('switch-guardian cold service load')
+          ),
+        'loading the cold co-signing service from the outgoing guardian'
       );
       // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
       // otherwise a prior delta mid-canonicalization fails the whole switch even
       // though the hot proposal already landed.
-      await beforeSubmitAccess(() =>
-        withGuardianConflictRetry(() =>
-          withOutgoingGuardianDeadline(
-            () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
-            'cold co-signing the switch-guardian proposal'
-          )
+      await withGuardianConflictRetry(() =>
+        withOutgoingGuardianDeadline(
+          () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
+          'cold co-signing the switch-guardian proposal'
         )
       );
     } catch (error) {
@@ -3945,19 +3843,13 @@ const generateGuardianTransaction = async (
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
   const stampStage = stageStampFor(
     transaction.id,
-    transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce),
-    guardianCompletionBindings.get(transaction)
+    transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     await stampStage(stage, detail);
     if (stage === 'submitting') submitCrossed = true;
   };
   try {
-    if (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian') {
-      await beforeSubmitAccess(async () => {
-        await guardianProvider.prepareCommittedGuardianCompletion?.(transaction.id);
-      });
-    }
     // The LAST outgoing-guardian round trip. The three calls above it carry the
     // 30s outgoing deadline precisely because a silent operator wedges the row at
     // `signing-proposal`, and this call reaches the same operator over the same
@@ -3987,20 +3879,16 @@ const generateGuardianTransaction = async (
     // matters, and the hold's deadline ceiling evicts it at about 30s.
     const tr =
       transaction.type === 'switch-guardian'
-        ? await beforeSubmitAccess(() =>
-            withOutgoingGuardianDeadline(
-              () =>
-                service.signAndCreateTransactionRequest(
-                  proposalResult.id,
-                  transaction.requestBytes,
-                  outgoingGuardianHold('switch-guardian hot co-sign')
-                ),
-              'co-signing the switch-guardian request with the outgoing guardian'
-            )
+        ? await withOutgoingGuardianDeadline(
+            () =>
+              service.signAndCreateTransactionRequest(
+                proposalResult.id,
+                transaction.requestBytes,
+                outgoingGuardianHold('switch-guardian hot co-sign')
+              ),
+            'co-signing the switch-guardian request with the outgoing guardian'
           )
-        : await beforeSubmitAccess(() =>
-            service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes)
-          );
+        : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
     // Past the guardian round trip. Everything below can reach the chain, so the
     // direct-switch escape in the catch is closed from here on.
     guardianCoSignReturned = true;
@@ -4062,8 +3950,7 @@ const generateGuardianTransaction = async (
           transaction.delegateTransaction,
           signCallback,
           stampStage,
-          chainAnchorB64,
-          transaction.type
+          chainAnchorB64
         )
       );
     } else {
@@ -4072,8 +3959,7 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         stampAttemptStage,
-        chainAnchorB64,
-        transaction.type
+        chainAnchorB64
       );
     }
   } catch (error) {
@@ -4096,13 +3982,18 @@ const generateGuardianTransaction = async (
     if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
-    // A killed pipeline may still submit. Otherwise, definitive pre-submit evidence overrides
-    // the earlier submitting stamp and offscreen dispatch, so an unsubmitted candidate can retire.
-    // Without that evidence, preserve this attempt's candidate for the node's verdict (#1081).
+    // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
+    // or once this attempt may have crossed its submit, abandoning would retract a co-signature the chain may be about
+    // to consume. The crossing is this attempt's own, as for the mark below: the inline leaf awaits its 'submitting'
+    // stamp before it submits, and the offscreen leaf tags every error it raises before its submit call. Never the
+    // row's `mayHaveSubmitted`, which an earlier attempt or the pre-dispatch pin may have raised: it would keep a
+    // candidate that can never land, and the entry recorded for it would keep the row from ever being proven safe. A
+    // refusal after the crossing is kept too, since no classifier tells it from a lost response; a resolved submit is
+    // the landed path's.
     const keptForVerdict =
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
-      (isKilledPipeline(error) || (!hasErrorBeforeSubmit(error) && (submitCrossed || offscreenDispatched)));
+      (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
       // it, and the release dates it and abandons its nonce only while the record is still this attempt's
@@ -4170,13 +4061,22 @@ const generateGuardianTransaction = async (
           'abandoning the guardian candidate after a failed submission'
         );
       } catch (abandonError) {
-        // Retry idempotent cleanup only for a definite pre-submit end or an attempt that never
-        // reached its submitting boundary. A killed pipeline may still submit despite that tag.
+        // Cleanup must never mask the transaction failure. The abandonment call
+        // is idempotent, so the account's next proposal retries it (#1317), but
+        // only after a failure that provably preceded the submit: an inline
+        // attempt whose ordered stamp never reported 'submitting', or an
+        // offscreen-routed one whose request never reached its leaf. A kill may
+        // have submitted (a realm killed between submit and its stamp reaching
+        // here surfaces as one), and so may an inline attempt that reported
+        // 'submitting'; each keeps this one abandon and leaves no mark. The
+        // offscreen leaf's stamps can be lost, so an attempt dispatched offscreen
+        // never marks, and the retry never adds an abandon to a write the chain
+        // may still consume.
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (!isKilledPipeline(error) && (hasErrorBeforeSubmit(error) || (!offscreenDispatched && !submitCrossed))) {
+        if (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
         }
       }
@@ -4359,7 +4259,6 @@ export const generateTransactionsLoop = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ): Promise<boolean | 'requeued' | void> => {
-  await ensureWalletAccessAllowed();
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
 
@@ -4500,11 +4399,6 @@ export const generateTransactionsLoop = async (
       } catch (requeueError) {
         logger.warning('Failed to requeue transaction after pre-send sync failure', requeueError);
       }
-      return false;
-    }
-
-    if (!abandoned && isWalletAccessDeniedError(e) && hasErrorBeforeSubmit(e)) {
-      await requeueTransactionForRetry(nextTransaction.id, nextTransaction.type, 'syncing', 60, 'wallet_access_denied');
       return false;
     }
 

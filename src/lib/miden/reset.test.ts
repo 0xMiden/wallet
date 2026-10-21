@@ -1,7 +1,5 @@
 /* eslint-disable import/first */
 
-jest.unmock('lib/remote-config/wallet-access');
-
 const _g = globalThis as any;
 _g.__resetTest = {
   prefStub: { keys: jest.fn(), remove: jest.fn(), clear: jest.fn(), set: jest.fn() }
@@ -73,12 +71,6 @@ jest.mock(
 import { CARRIED_MAINNET_CODE_STORAGE_KEY } from 'lib/carried-mainnet-code';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
-import {
-  assertWalletAccessAllowed,
-  getWalletAccessGeneration,
-  publishWalletAccessDecision,
-  registerWalletAccessRuntime
-} from 'lib/remote-config/wallet-access';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 import { onStorageCleared } from 'lib/storage-cleared';
 
@@ -755,24 +747,5 @@ describe('the Explore catalog version floor', () => {
     await clearClientStorage();
 
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_explore_config_floor_v1']);
-  });
-});
-
-describe('wallet access after a reset', () => {
-  it.each<[string, () => Promise<void>]>([
-    ['wallet setup', () => clearStorage(false)],
-    ['destructive reset', () => resetStorageDestructive()],
-    ['recovery page', () => clearClientStorage()]
-  ])('retires a live permission synchronously before the %s wipe awaits storage', async (_name, wipe) => {
-    const scope = () => `testnet:13:${getWalletAccessGeneration()}`;
-    registerWalletAccessRuntime({ scope, refresh: async () => undefined });
-    const before = scope();
-    publishWalletAccessDecision(before, true);
-    expect(() => assertWalletAccessAllowed()).not.toThrow();
-    const pending = wipe();
-    expect(() => assertWalletAccessAllowed()).toThrow();
-    publishWalletAccessDecision(before, true);
-    expect(() => assertWalletAccessAllowed()).toThrow();
-    await pending;
   });
 });

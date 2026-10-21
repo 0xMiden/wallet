@@ -1,6 +1,6 @@
 import { MultisigService } from 'lib/miden/guardian';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
-import { GuardianHotKeySwapScope, RecoveryPreparation, WalletAccount } from 'lib/shared/types';
+import { RecoveryPreparation, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -66,8 +66,6 @@ let serviceClearGeneration = 0;
 export interface GuardianAccountProvider {
   prepareRecoveryTransaction?: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
-  prepareCommittedGuardianCompletion?: (transactionId: string) => Promise<void>;
-  completeCommittedGuardianRow?: (transactionId: string, deadlineMs?: number) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
@@ -76,12 +74,7 @@ export interface GuardianAccountProvider {
   // path runs only inside the SW-side transaction processor where the
   // vault-backed provider implements them.
   persistNewHotKey?: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey?: (
-    accountPublicKey: string,
-    newHotPubKey: string,
-    expectedHotPubKey?: string | null,
-    expectedScope?: GuardianHotKeySwapScope
-  ) => Promise<void>;
+  swapHotKey?: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   // Persist a per-account guardian endpoint after a switch-guardian lands.
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.

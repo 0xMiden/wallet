@@ -1,8 +1,6 @@
-import { getMessage } from 'lib/i18n/core';
-
 import type { Probe } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
-import { type GeoFeature, geoFeatureEnabled, type GeoLookup } from './geo';
+import type { GeoFeature, GeoLookup } from './geo';
 import type { BridgeConfig, SupportedEvmChainConfig } from './schema';
 
 export const BRIDGE_FEATURES: readonly BridgeFeature[] = [
@@ -32,7 +30,7 @@ export interface AvailabilityInput {
   status: 'loading' | 'ready';
   config: BridgeConfig | null;
   derived: import('./derive').DerivedBridgeConfig | null;
-  /** Absent until a document with place rules starts the lookup. */
+  /** The page startup decision; absent in backend-only snapshots. */
   geo?: GeoLookup;
 }
 
@@ -40,18 +38,11 @@ function unavailable(reason: UnavailableReason, detail: string): FeatureAvailabi
   return { state: 'unavailable', reason, detail };
 }
 
-/** A configured rule needs an allow decision for this exact network and document version. */
-export function geoFeatureGate(
-  feature: GeoFeature,
-  config: BridgeConfig | null,
-  geo: GeoLookup | undefined
-): FeatureAvailability | null {
-  const blocks = config?.geo?.[feature];
-  if (!config || !blocks || blocks.length === 0 || !geoFeatureEnabled(feature, config)) return null;
-  if (!geo || geo.state === 'loading') return { state: 'loading' };
-  if (geo.state === 'failed' || geo.network !== config.network || geo.version !== config.version) {
-    return unavailable('service-down', 'feature eligibility is unavailable for the accepted policy');
-  }
+/** Reads the startup feature decision without renewing it. */
+export function geoFeatureGate(feature: GeoFeature, geo: GeoLookup | undefined): FeatureAvailability | null {
+  if (!geo) return null;
+  if (geo.state === 'loading') return { state: 'loading' };
+  if (geo.state === 'failed') return unavailable('service-down', 'startup feature eligibility is unavailable');
   return geo.allowed[feature] ? null : unavailable('restricted', 'blocked by a geo rule');
 }
 
@@ -182,7 +173,7 @@ export function featureAvailability(
   if (!snapshot.config) return unavailable('not-configured', 'no accepted document');
   if (!globalEnabled(feature, snapshot.config)) return unavailable('off', 'global feature switch is off');
   if (feature === 'earnDeposit') {
-    const gated = geoFeatureGate('earn', snapshot.config, snapshot.geo);
+    const gated = geoFeatureGate('earn', snapshot.geo);
     if (gated) return gated;
   }
   const chains = Object.values(snapshot.config.supportedEvmChains).filter(
@@ -200,11 +191,4 @@ export function featureAvailability(
     if (failed) return failed;
   }
   return unavailable('not-configured', 'no listed route');
-}
-
-/** Refuses new deposits while the accepted policy or its live prerequisites do not permit Earn. */
-export function assertEarnDepositAvailable(snapshot: AvailabilityInput): void {
-  if (featureAvailability('earnDeposit', snapshot).state !== 'available') {
-    throw new Error(getMessage('earnUnavailableOnNetwork'));
-  }
 }

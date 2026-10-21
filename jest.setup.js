@@ -6,41 +6,6 @@
 // via `jest.isolateModules`.
 process.env.MIDEN_NETWORK = 'testnet';
 
-// Unit suites replace the external access boundary; dedicated policy tests unmock it.
-jest.mock(
-  'lib/remote-config/wallet-access',
-  () => {
-    class WalletAccessDeniedError extends Error {
-      constructor() {
-        super('Wallet access denied');
-        this.code = 'WALLET_ACCESS_DENIED';
-      }
-    }
-    const snapshot = { status: 'allowed', expiresAt: Number.MAX_SAFE_INTEGER };
-    const actual = jest.requireActual('lib/remote-config/wallet-access');
-    return {
-      WalletAccessDeniedError,
-      isWalletAccessDeniedError: actual.isWalletAccessDeniedError,
-      assertWalletAccessAllowed: jest.fn(),
-      ensureWalletAccessAllowed: jest.fn(async () => undefined),
-      registerWalletAccessRuntime: jest.fn(),
-      publishWalletAccessDecision: jest.fn(),
-      invalidateWalletAccess: jest.fn(),
-      getWalletAccessGeneration: () => 0,
-      getWalletAccessSnapshot: jest.fn(() => snapshot),
-      subscribeWalletAccess: jest.fn(() => () => {})
-    };
-  },
-  { virtual: true }
-);
-
-beforeEach(() => {
-  const access = jest.requireMock('lib/remote-config/wallet-access');
-  if (jest.isMockFunction(access.assertWalletAccessAllowed)) access.assertWalletAccessAllowed.mockReset();
-  if (jest.isMockFunction(access.ensureWalletAccessAllowed))
-    access.ensureWalletAccessAllowed.mockReset().mockResolvedValue(undefined);
-});
-
 require('@testing-library/jest-dom');
 const { Crypto, CryptoKey } = require('@peculiar/webcrypto');
 const { TextEncoder, TextDecoder } = require('util');

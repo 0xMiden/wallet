@@ -1,21 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { StrictMode, useEffect, useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import Portal from 'lib/ui/Portal';
-import {
-  getWalletAccessGeneration,
-  invalidateWalletAccess,
-  publishWalletAccessDecision,
-  registerWalletAccessRuntime
-} from 'lib/remote-config/wallet-access';
+import type { GeoLookup } from 'lib/remote-config/geo';
 
 import { WalletAccessGate } from './WalletAccessGate';
 
-jest.unmock('lib/remote-config/wallet-access');
+const mockLoadEndpoints = jest.fn<Promise<void>, []>();
+const mockInitEligibility = jest.fn<Promise<GeoLookup>, []>();
+
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: async () => undefined }));
-jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: async () => undefined }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: () => mockLoadEndpoints() }));
+jest.mock('lib/remote-config/runtime', () => ({ initFeatureEligibility: () => mockInitEligibility() }));
 jest.mock('components/ui/Spinner', () => ({ Spinner: () => <div /> }));
 jest.mock('components/ui/Button', () => ({
   ButtonVariant: { Secondary: 'secondary' },
@@ -24,160 +20,114 @@ jest.mock('components/ui/Button', () => ({
     onClick,
     'data-testid': testId
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & { 'data-testid'?: string }) => (
-    <button onClick={onClick} data-testid={testId}>
-      {children}
-    </button>
+    <button onClick={onClick} data-testid={testId}>{children}</button>
   )
 }));
 
-const scope = () => `gate-regression:${getWalletAccessGeneration()}`;
-
-function deferred() {
-  let finish: () => void = () => undefined;
-  const promise = new Promise<void>(resolve => {
-    finish = resolve;
-  });
+function deferred<T>() {
+  let finish: (value: T) => void = () => {};
+  const promise = new Promise<T>(resolve => { finish = resolve; });
   return { promise, finish };
 }
+
+const allowed: GeoLookup = {
+  state: 'ready', network: 'testnet', version: 13,
+  allowed: { wallet: true, earn: false, swap: true }
+};
 
 function RecoveryForm({ completion, onMount }: { completion: Promise<void>; onMount: () => void }) {
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => onMount(), [onMount]);
-
   return (
     <section data-testid="recovery-state">
-      <label>
-        Recovery progress
-        <input value={progress} onChange={event => setProgress(event.target.value)} />
-      </label>
+      <label>Recovery progress<input value={progress} onChange={event => setProgress(event.target.value)} /></label>
       <button onClick={() => void completion.then(() => setError('Recovery request failed'))}>Recover</button>
       {error && <p role="alert">{error}</p>}
     </section>
   );
 }
 
-function RecoveryDialog({ onMount }: { onMount: () => void }) {
-  const [attempts, setAttempts] = useState(0);
-  useEffect(() => onMount(), [onMount]);
-  return (
-    <Portal>
-      <button onClick={() => setAttempts(value => value + 1)} aria-label="Recovery dialog action">
-        Attempt {attempts}
-      </button>
-    </Portal>
-  );
-}
-
 beforeEach(() => {
-  registerWalletAccessRuntime({ scope, refresh: async () => undefined });
+  mockLoadEndpoints.mockReset().mockResolvedValue(undefined);
+  mockInitEligibility.mockReset().mockResolvedValue(allowed);
 });
 
-afterEach(() => {
-  invalidateWalletAccess();
-});
+const deniedCases: Array<{ decision: GeoLookup; status: string }> = [
+  { decision: { state: 'ready', network: 'testnet', version: 13, allowed: { wallet: false, earn: false, swap: false } }, status: 'restricted' },
+  { decision: { state: 'failed' }, status: 'unavailable' }
+];
 
-describe('WalletAccessGate recovery lifetime', () => {
-  it('never mounts private content before the first allowed decision', async () => {
-    const onMount = jest.fn();
-    const completion = deferred();
-    render(
-      <WalletAccessGate>
-        <RecoveryForm completion={completion.promise} onMount={onMount} />
-      </WalletAccessGate>
-    );
-
-    await act(async () => undefined);
-
+describe('WalletAccessGate startup only', () => {
+  it('waits for endpoint loading and the startup decision before mounting the wallet', async () => {
+    const endpoints = deferred<void>();
+    const decision = deferred<GeoLookup>();
+    mockLoadEndpoints.mockReturnValue(endpoints.promise);
+    mockInitEligibility.mockReturnValue(decision.promise);
+    render(<WalletAccessGate><p>Private wallet</p></WalletAccessGate>);
     expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'loading');
-    expect(screen.queryByTestId('recovery-state')).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: 'Recovery progress' })).toBeNull();
-    expect(onMount).not.toHaveBeenCalled();
+    expect(screen.queryByText('Private wallet')).toBeNull();
+    expect(mockInitEligibility).not.toHaveBeenCalled();
+    await act(async () => { endpoints.finish(); await endpoints.promise; });
+    expect(mockInitEligibility).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Private wallet')).toBeNull();
+    await act(async () => { decision.finish(allowed); await decision.promise; });
+    expect(screen.getByText('Private wallet')).toBeVisible();
+    expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
   });
 
-  it('preserves recovery state and its pending result across an inaccessible loading interval', async () => {
-    publishWalletAccessDecision(scope(), true);
-    const onMount = jest.fn();
-    const completion = deferred();
-    render(
-      <WalletAccessGate>
-        <RecoveryForm completion={completion.promise} onMount={onMount} />
-      </WalletAccessGate>
-    );
-    const input = await screen.findByRole('textbox', { name: 'Recovery progress' });
-    fireEvent.change(input, { target: { value: 'saved recovery progress' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Recover' }));
-
-    await act(async () => {
-      invalidateWalletAccess();
-    });
-
-    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'loading');
-    expect(input).not.toBeVisible();
-    expect(screen.queryByRole('textbox', { name: 'Recovery progress' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Recover' })).toBeNull();
-
-    await act(async () => {
-      completion.finish();
-      await completion.promise;
-      publishWalletAccessDecision(scope(), true);
-    });
-
-    expect(await screen.findByRole('textbox', { name: 'Recovery progress' })).toHaveValue('saved recovery progress');
-    expect(screen.getByRole('alert')).toHaveTextContent('Recovery request failed');
-    expect(onMount).toHaveBeenCalledTimes(1);
+  it.each(deniedCases)('keeps the wallet unmounted after a $status startup result', async ({ decision, status }) => {
+    mockInitEligibility.mockResolvedValue(decision);
+    render(<WalletAccessGate><p>Private wallet</p></WalletAccessGate>);
+    await act(async () => {});
+    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', status);
+    expect(screen.queryByText('Private wallet')).toBeNull();
+    expect(screen.getByTestId('wallet-access-retry')).toBeVisible();
+    expect(mockInitEligibility).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps portal recovery actions mounted but inaccessible during a loading interval', async () => {
-    publishWalletAccessDecision(scope(), true);
-    const onMount = jest.fn();
-    render(
-      <WalletAccessGate>
-        <RecoveryDialog onMount={onMount} />
-      </WalletAccessGate>
-    );
-    const action = await screen.findByRole('button', { name: 'Recovery dialog action' });
-    fireEvent.click(action);
-    expect(action).toHaveTextContent('Attempt 1');
-
-    await act(async () => {
-      invalidateWalletAccess();
-    });
-
-    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'loading');
-    expect(action).toBeInTheDocument();
-    expect(action).not.toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Recovery dialog action' })).toBeNull();
-
-    await act(async () => {
-      publishWalletAccessDecision(scope(), true);
-    });
-
-    expect(await screen.findByRole('button', { name: 'Recovery dialog action' })).toBe(action);
-    expect(action).toHaveTextContent('Attempt 1');
-    expect(onMount).toHaveBeenCalledTimes(1);
+  it('shows startup unavailability when endpoint bootstrap fails', async () => {
+    mockLoadEndpoints.mockRejectedValueOnce(new Error('storage unavailable'));
+    render(<WalletAccessGate><p>Private wallet</p></WalletAccessGate>);
+    await act(async () => {});
+    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'unavailable');
+    expect(screen.queryByText('Private wallet')).toBeNull();
+    expect(mockInitEligibility).not.toHaveBeenCalled();
   });
 
-  it.each([false, null])('removes private content when the authoritative decision is %s', async allowed => {
-    publishWalletAccessDecision(scope(), true);
-    const completion = deferred();
-    render(
-      <WalletAccessGate>
-        <RecoveryForm completion={completion.promise} onMount={jest.fn()} />
-      </WalletAccessGate>
-    );
-    await screen.findByRole('textbox', { name: 'Recovery progress' });
+  it('handles StrictMode effect replay without changing the startup decision', async () => {
+    render(<StrictMode><WalletAccessGate><p>Private wallet</p></WalletAccessGate></StrictMode>);
+    await act(async () => {});
+    expect(screen.getByText('Private wallet')).toBeVisible();
+    expect(mockInitEligibility).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
+  });
 
-    await act(async () => {
-      publishWalletAccessDecision(scope(), allowed);
-    });
-
-    expect(screen.getByTestId('wallet-access-gate')).toHaveAttribute(
-      'data-access-state',
-      allowed === false ? 'restricted' : 'unavailable'
-    );
-    expect(screen.queryByTestId('recovery-state')).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: 'Recovery progress' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Recover' })).toBeNull();
+  it('keeps recovery input, mount and pending completion stable through time, foreground and rerenders', async () => {
+    jest.useFakeTimers();
+    const completion = deferred<void>();
+    const onMount = jest.fn();
+    const content = <RecoveryForm completion={completion.promise} onMount={onMount} />;
+    const { rerender } = render(<WalletAccessGate>{content}</WalletAccessGate>);
+    try {
+      await act(async () => {});
+      const input = screen.getByRole('textbox', { name: 'Recovery progress' });
+      fireEvent.change(input, { target: { value: 'saved recovery progress' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Recover' }));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(7_200_000);
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+        window.dispatchEvent(new Event('storage'));
+      });
+      rerender(<WalletAccessGate>{content}</WalletAccessGate>);
+      await act(async () => { completion.finish(); await completion.promise; });
+      expect(screen.getByRole('textbox', { name: 'Recovery progress' })).toBe(input);
+      expect(input).toHaveValue('saved recovery progress');
+      expect(screen.getByRole('alert')).toHaveTextContent('Recovery request failed');
+      expect(screen.queryByTestId('wallet-access-gate')).toBeNull();
+      expect(onMount).toHaveBeenCalledTimes(1);
+      expect(mockInitEligibility).toHaveBeenCalledTimes(1);
+    } finally { jest.useRealTimers(); }
   });
 });

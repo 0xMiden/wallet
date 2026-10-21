@@ -246,8 +246,6 @@ function retireStatedDecimals(faucetIds: string[]): void {
   }
 }
 
-const guardianCompletionTokens = new Map<string, string>();
-
 export const useWalletStore = create<WalletStore>()(
   subscribeWithSelector((set, get) => ({
     // Initial wallet state
@@ -468,7 +466,6 @@ export const useWalletStore = create<WalletStore>()(
       return { ready: res.ready, coldPublicKey: res.coldPublicKey };
     },
     releaseRecoveryAuthorization: async transactionId => {
-      guardianCompletionTokens.delete(transactionId);
       const res = await request({ type: WalletMessageType.ReleaseRecoveryRequest, transactionId });
       assertResponse(res.type === WalletMessageType.ReleaseRecoveryResponse);
     },
@@ -656,31 +653,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
     },
 
-    prepareCommittedGuardianCompletion: async transactionId => {
-      const res = await request({ type: WalletMessageType.PrepareCommittedGuardianCompletionRequest, transactionId });
-      assertResponse(res.type === WalletMessageType.PrepareCommittedGuardianCompletionResponse);
-      guardianCompletionTokens.set(transactionId, res.token);
-    },
-
-    completeCommittedGuardianRow: async (transactionId, deadlineMs) => {
-      const token = guardianCompletionTokens.get(transactionId);
-      guardianCompletionTokens.delete(transactionId);
-      if (!token) throw new Error('No admitted Guardian completion');
-      const res = await request({
-        type: WalletMessageType.CompleteCommittedGuardianCompletionRequest,
-        token,
-        deadlineMs
-      });
-      assertResponse(res.type === WalletMessageType.CompleteCommittedGuardianCompletionResponse);
-    },
-
-    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey, expectedScope) => {
+    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey) => {
       const res = await request({
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey,
         newHotPubKey,
-        expectedHotPubKey,
-        expectedScope
+        expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },

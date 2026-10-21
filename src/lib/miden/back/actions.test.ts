@@ -10,11 +10,9 @@ import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import {
   EstimateUsdcxBurnFeeRequest,
   type UsdcxBurnFeeEstimate,
-  type WalletAccount,
   WalletMessageType,
   WalletStatus
 } from 'lib/shared/types';
@@ -1582,48 +1580,22 @@ describe('actions', () => {
   });
 
   describe('swapHotKey', () => {
-    const realm = jest.requireActual<typeof import('lib/miden/sdk/miden-client')>('lib/miden/sdk/miden-client');
-    const admittedAccount = (): WalletAccount => ({
-      publicKey: 'pk1',
-      type: WalletType.Guardian,
-      authScheme: 'ecdsa',
-      name: 'Guardian account',
-      isPublic: true,
-      hdIndex: 0,
-      hotPublicKey: 'old-pub',
-      coldPublicKey: 'cold-pub',
-      guardianEndpoint: 'https://guardian.example',
-      guardianEpoch: 2
-    });
-
-    beforeEach(() => {
-      const account = admittedAccount();
-      Object.assign(mockStoreState, { vault: mockVault, accounts: [account], currentAccount: account });
-      realm.installRealmKeystore({ insertKey: mockVault.insertKeySink });
-    });
-
-    afterEach(() => {
-      realm.uninstallRealmKeystore({ insertKey: mockVault.insertKeySink });
-    });
-
     it('passes the expectation to the vault and fires accountsUpdated (#1233)', async () => {
-      const currentAccount = { ...admittedAccount(), hotPublicKey: 'new-pub' };
-      const updated = { accounts: [currentAccount], currentAccount };
+      const updated = { accounts: [], currentAccount: undefined };
       mockVault.swapHotKey.mockResolvedValueOnce(updated);
 
       await swapHotKey('pk1', 'new-pub', 'old-pub');
 
-      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', 'old-pub', expect.any(Function));
-      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts: updated.accounts });
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', 'old-pub');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
     });
 
     it('passes no expectation when the caller passes none (#1233)', async () => {
-      const currentAccount = { ...admittedAccount(), hotPublicKey: 'new-pub' };
-      mockVault.swapHotKey.mockResolvedValueOnce({ accounts: [currentAccount], currentAccount });
+      mockVault.swapHotKey.mockResolvedValueOnce({ accounts: [], currentAccount: undefined });
 
       await swapHotKey('pk1', 'new-pub');
 
-      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', undefined, expect.any(Function));
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', undefined);
     });
   });
 
@@ -1883,37 +1855,6 @@ describe('actions', () => {
       const result = await getAllDAppSessions();
 
       expect(result).toEqual({ 'https://example.com': [] });
-    });
-  });
-
-  it('can retire a vault while wallet access is unavailable', async () => {
-    Object.assign(mockStoreState, { vault: mockVault });
-    jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(new Error('Wallet access denied'));
-    jest.mocked(assertWalletAccessAllowed).mockImplementation(() => {
-      throw new Error('Wallet access denied');
-    });
-    await expect(lock()).resolves.toBeUndefined();
-    expect(mockVault.retire).toHaveBeenCalled();
-  });
-
-  describe('wallet-wide private action boundary', () => {
-    it('refuses mnemonic export even with a valid password while access is denied', async () => {
-      const { Vault } = jest.requireMock('lib/miden/back/vault');
-      const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
-      jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
-      jest.mocked(assertWalletAccessAllowed).mockImplementation(() => {
-        throw denied;
-      });
-      await expect(revealMnemonic('password123')).rejects.toBe(denied);
-      expect(Vault.revealMnemonic).not.toHaveBeenCalled();
-    });
-
-    it('refuses a direct WebView permission request before dApp dispatch', async () => {
-      const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
-      jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
-      await expect(
-        processDApp('https://app.example', { type: MidenDAppMessageType.GetCurrentPermissionRequest })
-      ).rejects.toBe(denied);
     });
   });
 
@@ -2785,202 +2726,5 @@ describe('handleReportTelemetryEvent', () => {
       platform: expect.any(String),
       network: expect.any(String)
     });
-  });
-});
-
-describe('GEO022 hot-key mutation publication authority', () => {
-  const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
-    'lib/remote-config/wallet-access'
-  );
-  const realm = jest.requireActual<typeof import('lib/miden/sdk/miden-client')>('lib/miden/sdk/miden-client');
-  const writes = jest.requireActual<typeof import('lib/miden/sync-backoff')>('lib/miden/sync-backoff');
-  const scope = () => `geo022-actions:${access.getWalletAccessGeneration()}`;
-  const original = (): WalletAccount => ({
-    publicKey: 'geo022-account',
-    type: WalletType.Guardian,
-    authScheme: 'ecdsa',
-    name: 'Guardian account',
-    isPublic: true,
-    hdIndex: 0,
-    hotPublicKey: 'old-hot',
-    guardianEndpoint: 'https://original.guardian.example',
-    guardianEpoch: 2
-  });
-  const expectedScope = () => ({
-    guardianEndpoint: 'https://original.guardian.example',
-    guardianEpoch: 2,
-    network: MIDEN_NETWORK_NAME.TESTNET,
-    rpcUrl: 'https://geo022-rpc.example'
-  });
-  let now = 0;
-
-  beforeEach(() => {
-    now = 0;
-    jest.spyOn(performance, 'now').mockImplementation(() => now);
-    jest.spyOn(console, 'log').mockImplementation(() => undefined);
-    mockAccountsUpdated.mockClear();
-    mockVault.swapHotKey.mockReset();
-    const backend = jest.requireMock<{
-      store: { getState: jest.Mock<typeof mockStoreState, []> };
-      withUnlocked: jest.Mock<Promise<unknown>, [(state: { vault: typeof mockVault }) => unknown]>;
-      accountsUpdated: jest.Mock<unknown, [unknown]>;
-    }>('./store');
-    backend.store.getState.mockReset().mockImplementation(() => mockStoreState);
-    backend.withUnlocked.mockReset().mockImplementation(async action => action({ vault: mockVault }));
-    backend.accountsUpdated.mockReset().mockImplementation(updated => mockAccountsUpdated(updated));
-    mockEndpointOverride = { rpcUrl: 'https://geo022-rpc.example', networkName: MIDEN_NETWORK_NAME.TESTNET };
-    const account = original();
-    Object.assign(mockStoreState, {
-      inited: true,
-      status: WalletStatus.Ready,
-      vault: mockVault,
-      accounts: [account],
-      currentAccount: account
-    });
-    realm.installRealmKeystore({ insertKey: mockVault.insertKeySink });
-    access.registerWalletAccessRuntime({
-      scope,
-      refresh: async () => access.publishWalletAccessDecision(scope(), false)
-    });
-    access.publishWalletAccessDecision(scope(), true);
-    jest.mocked(ensureWalletAccessAllowed).mockReset().mockImplementation(access.ensureWalletAccessAllowed);
-    jest.mocked(assertWalletAccessAllowed).mockReset().mockImplementation(access.assertWalletAccessAllowed);
-  });
-
-  afterEach(async () => {
-    realm.uninstallRealmKeystore({ insertKey: mockVault.insertKeySink });
-    access.invalidateWalletAccess();
-    await getAccountsWriteQueue().onIdle();
-    jest.restoreAllMocks();
-  });
-
-  const outcomeOf = (operation: Promise<unknown>) =>
-    operation.then(
-      () => ({ ok: true }),
-      () => ({ ok: false })
-    );
-
-  it.each([
-    'restricted',
-    'unavailable',
-    'expired',
-    'realm',
-    'network',
-    'rpc',
-    'generation',
-    'epoch',
-    'endpoint',
-    'vault',
-    'removed-account'
-  ])('GEO022 Actions refuses publication after %s changes during the vault await', async changed => {
-    const updated = { accounts: [{ ...original(), hotPublicKey: 'new-hot' }], currentAccount: undefined };
-    mockVault.swapHotKey.mockImplementationOnce(async () => {
-      if (changed === 'restricted') access.publishWalletAccessDecision(scope(), false);
-      if (changed === 'unavailable') access.publishWalletAccessDecision(scope(), null);
-      if (changed === 'expired') now = 60_001;
-      if (changed === 'realm') realm.uninstallRealmKeystore({ insertKey: mockVault.insertKeySink });
-      if (changed === 'network')
-        mockEndpointOverride = { rpcUrl: 'https://geo022-rpc.example', networkName: MIDEN_NETWORK_NAME.DEVNET };
-      if (changed === 'rpc')
-        mockEndpointOverride = { rpcUrl: 'https://changed-rpc.example', networkName: MIDEN_NETWORK_NAME.TESTNET };
-      if (changed === 'generation') writes.retireGuardianWritesForEndpointChange();
-      if (changed === 'epoch') Object.assign(mockStoreState, { accounts: [{ ...original(), guardianEpoch: 3 }] });
-      if (changed === 'endpoint')
-        Object.assign(mockStoreState, {
-          accounts: [{ ...original(), guardianEndpoint: 'https://replacement.guardian.example' }]
-        });
-      if (changed === 'vault') Object.assign(mockStoreState, { vault: { insertKeySink: jest.fn() } });
-      if (changed === 'removed-account') Object.assign(mockStoreState, { accounts: [] });
-      return updated;
-    });
-    const outcome = await outcomeOf(
-      Reflect.apply(swapHotKey, undefined, ['geo022-account', 'new-hot', 'old-hot', expectedScope()])
-    );
-    expect(outcome.ok).toBe(false);
-    expect(mockAccountsUpdated).not.toHaveBeenCalled();
-  });
-
-  it.each(['guardianEndpoint', 'guardianEpoch', 'network', 'rpcUrl'])(
-    'GEO022 Actions refuses an admitted %s mismatch before invoking the vault',
-    async changed => {
-      const expected = expectedScope();
-      if (changed === 'guardianEndpoint') expected.guardianEndpoint = 'https://other.guardian.example';
-      if (changed === 'guardianEpoch') expected.guardianEpoch = 1;
-      if (changed === 'network') expected.network = MIDEN_NETWORK_NAME.DEVNET;
-      if (changed === 'rpcUrl') expected.rpcUrl = 'https://other-rpc.example';
-      mockVault.swapHotKey.mockResolvedValueOnce({ accounts: [], currentAccount: undefined });
-      const outcome = await outcomeOf(
-        Reflect.apply(swapHotKey, undefined, ['geo022-account', 'new-hot', 'old-hot', expected])
-      );
-      expect(outcome.ok).toBe(false);
-      expect(mockVault.swapHotKey).not.toHaveBeenCalled();
-      expect(mockAccountsUpdated).not.toHaveBeenCalled();
-    }
-  );
-
-  it.each(['epoch', 'endpoint'])(
-    'GEO022 Actions refuses a stored %s mismatch returned by the awaited Vault account read',
-    async changed => {
-      const updated = { accounts: [{ ...original(), hotPublicKey: 'new-hot' }], currentAccount: undefined };
-      mockVault.swapHotKey.mockImplementationOnce(
-        async (
-          _accountPublicKey: string,
-          _newHotPubKey: string,
-          _expectedHotPubKey?: string | null,
-          assertCurrent?: (account?: WalletAccount) => void
-        ) => {
-          const stored = {
-            ...original(),
-            ...(changed === 'epoch'
-              ? { guardianEpoch: 3 }
-              : { guardianEndpoint: 'https://replacement.guardian.example' })
-          };
-          assertCurrent?.(stored);
-          return updated;
-        }
-      );
-      const outcome = await outcomeOf(
-        Reflect.apply(swapHotKey, undefined, ['geo022-account', 'new-hot', 'old-hot', expectedScope()])
-      );
-      expect(mockVault.swapHotKey).toHaveBeenCalledTimes(1);
-      expect(outcome.ok).toBe(false);
-      expect(mockAccountsUpdated).not.toHaveBeenCalled();
-    }
-  );
-
-  it.each([
-    { storedHot: 'new-hot', allowed: true },
-    { storedHot: 'unrelated-hot', allowed: false }
-  ])(
-    'GEO022 Actions compares already-applied stored hot $storedHot against its exact requested target',
-    async ({ storedHot, allowed }) => {
-      const updated = { accounts: [{ ...original(), hotPublicKey: 'new-hot' }], currentAccount: undefined };
-      mockVault.swapHotKey.mockImplementationOnce(
-        async (
-          _accountPublicKey: string,
-          _newHotPubKey: string,
-          _expectedHotPubKey?: string | null,
-          assertCurrent?: (account?: WalletAccount) => void
-        ) => {
-          assertCurrent?.({ ...original(), hotPublicKey: storedHot });
-          return updated;
-        }
-      );
-      const outcome = await outcomeOf(
-        Reflect.apply(swapHotKey, undefined, ['geo022-account', 'new-hot', 'new-hot', expectedScope()])
-      );
-      expect(outcome.ok).toBe(allowed);
-      expect(mockAccountsUpdated).toHaveBeenCalledTimes(allowed ? 1 : 0);
-    }
-  );
-
-  it('GEO022 Actions publishes the exact allowed ordinary swap result', async () => {
-    const updated = { accounts: [{ ...original(), hotPublicKey: 'new-hot' }], currentAccount: undefined };
-    mockVault.swapHotKey.mockResolvedValueOnce(updated);
-    await expect(
-      Reflect.apply(swapHotKey, undefined, ['geo022-account', 'new-hot', 'old-hot', expectedScope()])
-    ).resolves.toBeUndefined();
-    expect(mockAccountsUpdated).toHaveBeenCalledTimes(1);
-    expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
   });
 });

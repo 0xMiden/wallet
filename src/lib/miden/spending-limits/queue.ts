@@ -1,8 +1,3 @@
-import { getMessage } from 'lib/i18n/core';
-import { assertEarnDepositAvailable, geoFeatureGate } from 'lib/remote-config/availability';
-import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { assertWalletAccessAllowed, ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
-
 import { assessSpendingLimit, MAX_WINDOW_SECONDS } from './policy';
 import {
   SpendingLimitAssessment,
@@ -139,19 +134,6 @@ const authorizationMatches = async (
   return uses === 0;
 };
 
-// Policy and price reads can outlive a review's permission; check at the actual new-row boundary.
-function addOutgoingTransaction(transaction: ITransaction): Promise<string> {
-  assertWalletAccessAllowed();
-  if (transaction.type === 'earn-deposit') assertEarnDepositAvailable(getBridgeConfigSnapshot());
-  if (transaction.type === 'swap') {
-    const current = getBridgeConfigSnapshot();
-    if (geoFeatureGate('swap', current.config, current.geo) !== null) {
-      throw new Error(getMessage('swapUnavailableTitle'));
-    }
-  }
-  return Repo.transactions.add(transaction);
-}
-
 /**
  * Rechecks policy, values the spend, assesses, and inserts under one Dexie write lock.
  * Splitting any of those steps lets concurrent callers overspend the same remaining allowance or
@@ -167,14 +149,13 @@ export const queueOutgoingTransaction = async (
   authorization?: SpendingLimitAuthorization,
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<void> => {
-  await ensureWalletAccessAllowed();
   // An account with no cap must pay for neither a price lookup nor a window scan - but the insert
   // itself still has to happen inside a write lock, or a saveSpendingLimit committing between this
   // probe and the add admits a row that is never assessed and never stamped with spentUsd.
   if ((await readPolicy(transaction.accountId)) === undefined) {
     const inserted = await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
       if ((await readPolicy(transaction.accountId)) !== undefined) return false;
-      await addOutgoingTransaction(transaction);
+      await Repo.transactions.add(transaction);
       return true;
     });
     if (inserted) return;
@@ -196,7 +177,7 @@ export const queueOutgoingTransaction = async (
   await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
     const persisted = await readPolicy(transaction.accountId);
     if (persisted === undefined) {
-      await addOutgoingTransaction(transaction);
+      await Repo.transactions.add(transaction);
       return;
     }
     const config = parsePersistedSpendingLimit(persisted);
@@ -212,7 +193,7 @@ export const queueOutgoingTransaction = async (
       if (!matches) throw priceFailure;
       // No `spentUsd` here: the wallet does not know what this row was worth, and inventing a
       // figure to stamp would be worse than leaving it uncounted by every future assessment.
-      await addOutgoingTransaction({ ...transaction, spendingLimitAuthorizationId: authorization!.id });
+      await Repo.transactions.add({ ...transaction, spendingLimitAuthorizationId: authorization!.id });
       return;
     }
 
@@ -223,7 +204,7 @@ export const queueOutgoingTransaction = async (
     });
     const stamped = { ...transaction, spentUsd: spentUsd! };
     if (assessment.breach === undefined) {
-      await addOutgoingTransaction(stamped);
+      await Repo.transactions.add(stamped);
       return;
     }
     const matches = await authorizationMatches(
@@ -233,7 +214,7 @@ export const queueOutgoingTransaction = async (
       now
     );
     if (!matches) throw new SpendingLimitAuthorizationRequiredError(assessment);
-    await addOutgoingTransaction({ ...stamped, spendingLimitAuthorizationId: authorization!.id });
+    await Repo.transactions.add({ ...stamped, spendingLimitAuthorizationId: authorization!.id });
   });
 };
 

@@ -68,14 +68,6 @@ import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../d
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
-jest.mock('lib/remote-config/runtime', () => ({
-  __esModule: true,
-  ...jest.requireActual('lib/remote-config/runtime'),
-  getBridgeConfigSnapshot: () =>
-    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-      .TEST_BRIDGE_CONFIG_SNAPSHOT
-}));
-
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf
 // — that is the §4.0 precondition (Rust `Serializable for TransactionRequest` writes
@@ -309,10 +301,6 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
-  ensureWalletAccessOutsideWasmLock: (_hold: unknown, assertCurrent: () => void): Promise<void> =>
-    jest
-      .requireActual<typeof import('../sdk/miden-client')>('../sdk/miden-client')
-      .ensureWalletAccessOutsideWasmLock(null, assertCurrent),
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
   getCurrentWasmLockHold: () => currentHold,
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
@@ -4125,43 +4113,6 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       expect(service.abandonCandidate).not.toHaveBeenCalled();
       expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
       expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
-    }
-  );
-});
-
-describe('GEO014 feature-kind forwarding to the offscreen Guardian leaf', () => {
-  it.each<{ kind: 'earn-deposit' | 'swap' }>([{ kind: 'earn-deposit' }, { kind: 'swap' }])(
-    'GEO014 forwards the original $kind row kind with its co-signed bytes',
-    async ({ kind }) => {
-      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-      const transaction: ITransaction = {
-        id: `geo014-forward-${kind}`,
-        type: kind,
-        accountId: 'guardian-acc',
-        status: ITransactionStatus.Queued,
-        displayIcon: 'DEFAULT',
-        initiatedAt: Math.floor(Date.now() / 1000),
-        delegateTransaction: false,
-        secondaryAccountId: 'recipient',
-        faucetId: 'faucet',
-        amount: 5n,
-        requestBytes: new Uint8Array([11, 12]),
-        extraInputs:
-          kind === 'swap'
-            ? { requestedFaucetId: 'requested-faucet', requestedAmount: 7n }
-            : { recallBlocks: 25, epochStatus: 'pending' }
-      };
-      arrange(transaction.id, { ...transaction });
-      mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
-      const accountProvider: GuardianAccountProvider = {
-        getAccounts: async () => [],
-        getPublicKeyForCommitment: async () => 'pk',
-        signWord: async () => 'sig'
-      };
-      await generateTransaction(transaction, signCallback, false, accountProvider);
-      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      expect(mockDispatchGuardianPipeline.mock.calls[0]?.[1]).toEqual(new Uint8Array(TR_BYTES));
-      expect(mockDispatchGuardianPipeline.mock.calls[0]?.[6]).toBe(kind);
     }
   );
 });

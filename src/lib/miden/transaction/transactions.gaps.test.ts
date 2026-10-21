@@ -124,10 +124,6 @@ jest.mock('../sdk/miden-client', () => {
   // same shape production throws.
   const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
   return {
-    ensureWalletAccessOutsideWasmLock: (_hold: unknown, assertCurrent: () => void): Promise<void> =>
-      jest
-        .requireActual<typeof import('../sdk/miden-client')>('../sdk/miden-client')
-        .ensureWalletAccessOutsideWasmLock(null, assertCurrent),
     getMidenClient: async () => ({
       syncState: mockSyncState,
       waitForTransactionCommit: mockWaitForCommit,

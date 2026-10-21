@@ -72,7 +72,6 @@ import {
 import type {
   ConsumeTransaction,
   ITransactionStage,
-  ITransactionType,
   SendTransaction,
   SubmitEvidenceFields,
   SwapTransaction
@@ -92,7 +91,6 @@ import {
 import {
   type WasmLockHold,
   assertWasmHoldCurrent,
-  ensureWalletAccessOutsideWasmLock,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
   tryWithWasmClientLock,
@@ -116,11 +114,9 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
-import { assertTransactionFeatureAllowed } from 'lib/miden/transaction/feature-access';
 import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
-import { assertWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
@@ -425,11 +421,7 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
     // Throw so the SDK's WebKeyStore captures it (offscreen `lastAuthError`) and
     // the execute fails; the SW-side handler already recorded the classified
     // reason authoritatively for the locked-defer path (design §2.6).
-    const error = new Error(`offscreen sign failed: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
-    if (resp && !resp.ok && resp.reason === 'wallet_access_denied') {
-      Object.assign(error, { code: 'WALLET_ACCESS_DENIED', reason: resp.reason });
-    }
-    throw error;
+    throw new Error(`offscreen sign failed: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
   }
   return b64ToBytes(resp.signatureB64);
 }
@@ -515,9 +507,9 @@ type DispatchFn = (
 
 /**
  * One dispatch's own identity: the op it serves and the WASM lock hold it runs
- * under, the client generation it admitted, and whether it has settled.
+ * under, plus whether it has settled.
  *
- * It exists because this identity cannot be read safely later. `currentOpId` is
+ * It exists because none of the three can be read safely later. `currentOpId` is
  * overwritten by the next op, and `getCurrentWasmLockHold()` returns whoever
  * holds the mutex NOW — which for an evicted dispatch that kept running is the
  * successor. Anything read at that point silently belongs to somebody else: a
@@ -535,24 +527,9 @@ type DispatchContext = {
    * runtime; this makes it a compile error instead.
    */
   readonly hold: WasmLockHold;
-  readonly generation: number;
   /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
   settled: boolean;
 };
-
-function assertDispatchCurrent(context: DispatchContext, client: MidenClientInterface, where: string): void {
-  assertWasmHoldCurrent(context.hold, where);
-  if (client.isDisposed || wasmClientGeneration() !== context.generation) {
-    throw new WasmClientPoisonedError('watchdog', new Error(`offscreen client replaced ${where}`));
-  }
-}
-
-function restoreDispatchIdentity(context: DispatchContext): void {
-  currentOpId = context.op_id;
-  reassertCurrentOpId = () => {
-    currentOpId = context.op_id;
-  };
-}
 
 // A write's arguments decoded before its leaf runs: a failure here is before the submit by construction (#1081).
 function decodeBeforeSubmit<T>(decode: () => T): T {
@@ -919,10 +896,8 @@ const DISPATCH: Record<string, DispatchFn> = {
           }
         }) as unknown as SwapTransaction
     );
-    const result = await client.swapTransaction(
-      tx,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
-      () => assertTransactionFeatureAllowed('swap')
+    const result = await client.swapTransaction(tx, (stage, detail) =>
+      postStageEvent(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
@@ -940,15 +915,13 @@ const DISPATCH: Record<string, DispatchFn> = {
     client,
     accountId: string,
     requestBytes: Uint8Array,
-    delegateTransaction?: boolean,
-    transactionType: ITransactionType = 'execute'
+    delegateTransaction?: boolean
   ) => {
     const result = await client.newTransaction(
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
-      () => assertTransactionFeatureAllowed(transactionType)
+      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
@@ -987,7 +960,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // than re-declared here, so this list and the SW-side packer cannot drift.
   // The historical anchor slot remains on the wire; execution uses the request's bound block at the tip.
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
-    const [accountId, trBytes, delegateTransaction, , transactionType = 'execute'] = args;
+    const [accountId, trBytes, delegateTransaction] = args;
     // This op's own id and lock hold, threaded in by `handleCall` before any
     // await so both are provably ours (issue #775). The hold is what keeps a pause from
     // silencing the watchdog of whichever holder took the lock after an
@@ -1119,13 +1092,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       // The prove is the longest await in the pipeline - delegated over the network or
       // local under a relaxed ceiling - so the same question has to be asked again.
       // Still pre-submit: nothing has been broadcast at this point.
-      await ensureWalletAccessOutsideWasmLock(hold, () =>
-        assertDispatchCurrent(context, client, 'in the guardian pipeline before submit')
-      );
-      assertDispatchCurrent(context, client, 'in the guardian pipeline before submit');
-      assertWalletAccessAllowed();
-      assertTransactionFeatureAllowed(transactionType);
-      restoreDispatchIdentity(context);
+      assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
     } catch (preSubmitError) {
       // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
       // own shape: markErrorBeforeSubmit never tags one.
@@ -1365,15 +1332,6 @@ onWasmClientPoisoned(() => {
   // nothing to mark.
   void poisoned?.then(client => client.markPoisoned()).catch(() => {});
 });
-async function initializeWalletAccess(): Promise<void> {
-  try {
-    assertWalletAccessAllowed();
-  } catch {
-    const { initBridgeConfig } = await import('lib/remote-config/runtime');
-    await initBridgeConfig();
-  }
-}
-
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
     // Fail closed: a client built before any state arrived would run on the build's network.
@@ -1495,11 +1453,6 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       });
       return;
     }
-    await stepBeforeSubmit(initializeWalletAccess);
-    const requiresWalletAccess =
-      msg.method !== 'waitForTransactionCommit' &&
-      msg.method !== 'getTransactionCommitState' &&
-      msg.method !== 'isOutputNoteConsumed';
     // NOTE: the client is deliberately NOT resolved here — it is resolved inside
     // the lock below, at execution start (issue #775).
     recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
@@ -1521,22 +1474,6 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     const lockOptions =
       msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
     const execute = async (hold: WasmLockHold) => {
-      const generation = wasmClientGeneration();
-      const assertEntryCurrent = () => {
-        assertWasmHoldCurrent(hold, 'before offscreen dispatch admission');
-        if (wasmClientGeneration() !== generation) {
-          throw new WasmClientPoisonedError('watchdog', new Error('offscreen client replaced during admission'));
-        }
-      };
-      if (requiresWalletAccess) {
-        await stepBeforeSubmit(() => ensureWalletAccessOutsideWasmLock(hold, assertEntryCurrent));
-        try {
-          assertEntryCurrent();
-          assertWalletAccessAllowed();
-        } catch (error) {
-          throw markErrorBeforeSubmit(error);
-        }
-      }
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
       // the ops most likely to be queued are the ones waiting behind the holder
@@ -1554,11 +1491,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // successor's mid-execute sign to the corpse's callbacks and deadline, and then
       // clear the id on its own way out. Same guard, same reason, as the confirmation
       // poll's — placed before the first ambient write, not just before the dispatch.
-      if (
-        getCurrentWasmLockHold() !== hold ||
-        (requiresWalletAccess && (client.isDisposed || wasmClientGeneration() !== generation))
-      ) {
-        console.warn(`${TAG} abandoning call '${msg.method}' whose lock or client changed (after the client build)`);
+      if (getCurrentWasmLockHold() !== hold) {
+        console.warn(`${TAG} abandoning call '${msg.method}' whose lock hold is gone (after the client build)`);
         throw new WasmClientPoisonedError('watchdog', new Error(`offscreen call abandoned for ${msg.op_id}`));
       }
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
@@ -1568,8 +1502,10 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // (the commit-wait, follow-up #1) sleeps, which is why it re-asserts via the
       // per-op closure below (follow-up #2). No `await` separates these two
       // assignments, so the closure is always bound to the same op as `currentOpId`.
-      const context: DispatchContext = { op_id: msg.op_id, hold, generation, settled: false };
-      restoreDispatchIdentity(context);
+      currentOpId = msg.op_id;
+      reassertCurrentOpId = () => {
+        currentOpId = msg.op_id;
+      };
       // Now that this op has WON the WASM mutex and is about to execute, tell the
       // SW to arm its write deadline at EXECUTION START (issue #260 flip-prep #3).
       // Fire-and-forget: queue-wait behind other ops was off-budget; the clock
@@ -1580,15 +1516,13 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
       void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
       recordProveTiming(`call '${msg.method}' client ready; dispatching`);
+      // The dispatch's own identity, built from the hold the lock handed THIS
+      // callback — the only point at which "the op that owns this hold" is
+      // knowable (issue #775) — and threaded in as the dispatch's first
+      // parameter (#788), so every dispatch can re-check ownership after its
+      // parking awaits without opting in.
+      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
       try {
-        if (requiresWalletAccess) {
-          try {
-            assertDispatchCurrent(context, client, 'after the offscreen wallet access check');
-            assertWalletAccessAllowed();
-          } catch (error) {
-            throw markErrorBeforeSubmit(error);
-          }
-        }
         return await dispatch(context, client, ...args);
       } finally {
         // Closes the window for late stage stamps: whatever the dispatch does

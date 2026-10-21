@@ -778,8 +778,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 };
 
 /**
- * The pane while the network's document names no swap pair: a notice in the pane's own shell, so
- * the tab keeps its frame. Nothing while the document is still being read, like a bridge control.
+ * Keeps the tab frame when startup eligibility or the token registry disables Swap.
+ * Loading shows no notice while the initial decision or registry is being read.
  */
 const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailability> }> = ({ availability }) => {
   const { t } = useTranslation();

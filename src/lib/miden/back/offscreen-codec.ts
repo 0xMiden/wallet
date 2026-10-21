@@ -16,7 +16,7 @@
 
 import type { EndpointState } from '../../miden-chain/effective-endpoints';
 import type { ConnectivityCategory } from '../activity/connectivity-state';
-import type { ITransactionStage, ITransactionType, SubmitEvidenceFields } from '../db/types';
+import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
 import type { LandedTransaction } from '../sdk/sdk-error-code';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
@@ -269,7 +269,7 @@ export interface OffscreenTelemetryEvent {
  * `stage` is the canonical {@link ITransactionStage} union, pulled in by a
  * TYPE-ONLY import that the compiler erases — so this module keeps its
  * zero-runtime-dependency role while staying pinned to the single source of
- * truth. (Contrast {@link OffscreenSignResponse}'s `reason`, whose literals
+ * truth. (Contrast {@link OffscreenSignResponse}'s `reason`, whose four literals
  * were cheap enough to inline; duplicating the thirteen stage literals here
  * would just invite drift.)
  */
@@ -331,12 +331,7 @@ export interface OffscreenProveMarkerEvent {
  */
 export type OffscreenSignResponse =
   | { ok: true; sign_id: string; signatureB64: string }
-  | {
-      ok: false;
-      sign_id: string;
-      error: string;
-      reason?: 'locked' | 'wallet_access_denied' | 'rejected' | 'not_found' | 'internal';
-    };
+  | { ok: false; sign_id: string; error: string; reason?: 'locked' | 'rejected' | 'not_found' | 'internal' };
 
 /**
  * Chunked base64 encoder for binary payloads. Chunked to stay under the
@@ -406,8 +401,7 @@ export type GuardianPipelineArgs = [
   accountId: string,
   trBytes: Uint8Array,
   delegateTransaction: boolean | null,
-  chainAnchorB64: string | null,
-  transactionType?: ITransactionType
+  chainAnchorB64: string | null
 ];
 
 /** Inverse of {@link encodeArg}. */

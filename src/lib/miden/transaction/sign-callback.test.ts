@@ -1,4 +1,4 @@
-import { buildSdkSignCallback, buildSignCallbackError, tagLockedSignReason } from './sign-callback';
+import { buildSdkSignCallback, buildSignCallbackError } from './sign-callback';
 
 describe('buildSdkSignCallback', () => {
   const publicKey = new Uint8Array([0x01, 0x02]);
@@ -33,23 +33,4 @@ describe('buildSdkSignCallback', () => {
       message: 'Sign callback failed (internal): plain string'
     });
   });
-});
-
-it('preserves a global access refusal through the SDK signer classification', async () => {
-  const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
-  await expect(
-    buildSdkSignCallback(async () => {
-      throw denied;
-    })(new Uint8Array(), new Uint8Array())
-  ).rejects.toMatchObject({
-    reason: 'wallet_access_denied',
-    code: 'WALLET_ACCESS_DENIED',
-    cause: denied
-  });
-});
-
-it('restores the operation-scoped access refusal after an SDK or offscreen crossing', () => {
-  const error = new Error('SDK execute failed');
-  Reflect.apply(tagLockedSignReason, undefined, [error, 'wallet_access_denied']);
-  expect(error).toMatchObject({ code: 'WALLET_ACCESS_DENIED', errorBeforeSubmit: true });
 });

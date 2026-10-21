@@ -13,7 +13,6 @@ import * as Repo from 'lib/miden/repo';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
-import { ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -3403,7 +3402,7 @@ describe('Vault hardware branches', () => {
       false,
       'https://picked-guardian.example'
     );
-    expect(mockFetchGuardianCreateKey).toHaveBeenCalledWith('https://picked-guardian.example', expect.any(Function));
+    expect(mockFetchGuardianCreateKey).toHaveBeenCalledWith('https://picked-guardian.example');
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ guardianEndpoint: 'https://picked-guardian.example' }),
@@ -4903,11 +4902,4 @@ describe('a setup spawn and the pending-admission marker', () => {
 
     expect(memoryStore[PENDING_ADMISSION_STORAGE_KEY]).toBeUndefined();
   });
-});
-
-it('does not reveal a seeded vault mnemonic to a direct caller while wallet access is denied', async () => {
-  await seedVault('pw');
-  const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
-  jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
-  await expect(Vault.revealMnemonic('pw')).rejects.toBe(denied);
 });

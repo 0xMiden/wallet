@@ -2,9 +2,7 @@
  * Coverage tests for `lib/miden/back/store.ts`.
  * Tests effector store event handlers and helper functions.
  */
-
 import { isLockedError } from 'lib/miden/transaction/helper';
-import { assertWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -235,18 +233,5 @@ describe('back/store', () => {
       expect(() => withUnlocked(factory)).toThrow('Wallet is locked');
       expect(factory).not.toHaveBeenCalled();
     });
-  });
-});
-
-describe('wallet-wide access authority', () => {
-  it.each(['loading', 'unavailable', 'restricted'])('does not run an unlocked private-data reader while %s', state => {
-    inited(true);
-    unlocked({ vault: {} as never, accounts: [], currentAccount: null as never, settings: {}, ownMnemonic: false });
-    jest.mocked(assertWalletAccessAllowed).mockImplementation(() => {
-      throw new Error(`Wallet access ${state}`);
-    });
-    const privateReader = jest.fn(() => 'private notes');
-    expect(() => withUnlocked(privateReader)).toThrow(`Wallet access ${state}`);
-    expect(privateReader).not.toHaveBeenCalled();
   });
 });

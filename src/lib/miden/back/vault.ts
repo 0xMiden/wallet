@@ -39,17 +39,8 @@ import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
-import {
-  getEffectiveDefaultGuardianEndpoint,
-  getEffectiveNetworkName,
-  getEffectiveRpcUrl
-} from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
-import {
-  assertWalletAccessAllowed,
-  ensureWalletAccessAllowed,
-  isWalletAccessDeniedError
-} from 'lib/remote-config/wallet-access';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex, commitmentToHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
@@ -107,7 +98,6 @@ import {
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isAccountNotFoundOnChainError } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { currentGuardianWriteGeneration } from '../sync-backoff';
 
 // AUTH SCHEME POLICY
 // ============================================================================
@@ -266,14 +256,25 @@ const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
  * Storage keys use the unprefixed signer-commitment hex (matching the
  * WalletSigner convention everywhere else in the codebase).
  */
-function guardianKeyStorageItems(keys: CreatedGuardianKeys): [string, string][] {
-  return [
-    [accAuthPubKeyStrgKey(keys.hotPublicKey), keys.hotPublicKey],
-    [accAuthSecretKeyStrgKey(keys.hotPublicKey), keys.hotCiphertext],
-    [accColdSecretKeyStrgKey(keys.coldPublicKey), keys.coldSecretKeyHex]
-  ];
+async function persistGuardianKeys(vaultKey: CryptoKey, keys: CreatedGuardianKeys) {
+  await encryptAndSaveMany(
+    [
+      [accAuthPubKeyStrgKey(keys.hotPublicKey), keys.hotPublicKey],
+      [accAuthSecretKeyStrgKey(keys.hotPublicKey), keys.hotCiphertext],
+      [accColdSecretKeyStrgKey(keys.coldPublicKey), keys.coldSecretKeyHex]
+    ],
+    vaultKey
+  );
 }
 
+/**
+ * Persist only the cold mirror for a recovered Guardian account. No hot key
+ * is generated at recovery time — the user activates one explicitly via the
+ * post-recovery banner, which fires `initiateReplaceHotKeyTransaction`.
+ */
+async function persistRecoveredGuardianColdKey(vaultKey: CryptoKey, coldPublicKey: string, coldSecretKeyHex: string) {
+  await encryptAndSaveMany([[accColdSecretKeyStrgKey(coldPublicKey), coldSecretKeyHex]], vaultKey);
+}
 /**
  * Persist a wallet-derived EVM private key under the vault key, mirroring the
  * guardian cold-key blob pattern. Idempotent: re-deriving the same account
@@ -347,26 +348,9 @@ export class Vault {
    * (#878).
    */
   private assertRealmSinkIsMine(): void {
-    assertWalletAccessAllowed();
     if (!isRealmKeystoreInstalled({ insertKey: this.insertKeySink })) {
       throw Object.assign(new PublicError('Wallet is locked'), { reason: 'locked' as const });
     }
-  }
-
-  private createHotKeyMutationGuard(): (account?: WalletAccount) => void {
-    const network = getEffectiveNetworkName();
-    const rpcUrl = getEffectiveRpcUrl();
-    const generation = currentGuardianWriteGeneration();
-    return () => {
-      this.assertRealmSinkIsMine();
-      if (
-        network !== getEffectiveNetworkName() ||
-        rpcUrl !== getEffectiveRpcUrl() ||
-        generation !== currentGuardianWriteGeneration()
-      ) {
-        throw new PublicError('The hot-key update belongs to a retired network');
-      }
-    };
   }
 
   async fetchSeedPhraseStatus(): Promise<SeedPhraseStatus> {
@@ -384,7 +368,6 @@ export class Vault {
   }
 
   async removeSeedPhrase(onStarted?: () => void): Promise<void> {
-    await ensureWalletAccessAllowed();
     const status = await this.fetchSeedPhraseStatus();
     let record: SeedRemovalRecord;
     switch (status) {
@@ -474,7 +457,6 @@ export class Vault {
   }
 
   async prepareRecoveryTransaction(transactionId: string): Promise<RecoveryPreparation> {
-    await ensureWalletAccessAllowed();
     const transaction = await Repo.transactions.get(transactionId);
     if (!transaction || !isRecoveryTransaction(transaction)) return { ready: true };
     if ((await this.fetchSeedPhraseStatus()) === 'stored') return { ready: true };
@@ -494,7 +476,6 @@ export class Vault {
   }
 
   async provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction): Promise<void> {
-    await ensureWalletAccessAllowed();
     const phrase = mnemonic.trim().toLowerCase().split(/\s+/).join(' ');
     if (!validateMnemonic(phrase)) throw new PublicError(getMessage('invalidRecoverySeed'));
     const transaction = await Repo.transactions.get(transactionId);
@@ -627,14 +608,12 @@ export class Vault {
    * @returns Vault instance if successful, null if hardware unlock not available/failed
    */
   static async tryHardwareUnlock(): Promise<Vault | null> {
-    return withWalletAuthority(async () => {
-      try {
-        const vaultKey = await Vault.getHardwareVaultKey();
-        return new Vault(vaultKey);
-      } catch {
-        return null;
-      }
-    });
+    try {
+      const vaultKey = await Vault.getHardwareVaultKey();
+      return new Vault(vaultKey);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -671,161 +650,154 @@ export class Vault {
    * inside the try it compensates.
    */
   static async setup(password?: string): Promise<Vault> {
-    return withWalletAuthority(async () => {
-      return withError('Failed to unlock wallet', async () => {
-        // If password is not provided, try hardware unlock first
-        if (!password) {
-          const vault = await Vault.tryHardwareUnlock();
-          if (vault) {
-            return vault;
-          }
-          throw new PublicError('Password required');
+    return withError('Failed to unlock wallet', async () => {
+      // If password is not provided, try hardware unlock first
+      if (!password) {
+        const vault = await Vault.tryHardwareUnlock();
+        if (vault) {
+          return vault;
         }
+        throw new PublicError('Password required');
+      }
 
-        // Password-based unlock
-        const vaultKey = await Vault.unlockWithPassword(password);
-        return new Vault(vaultKey);
-      });
+      // Password-based unlock
+      const vaultKey = await Vault.unlockWithPassword(password);
+      return new Vault(vaultKey);
     });
   }
 
   static async exportWalletBackupMaterial(password?: string): Promise<WalletBackupMaterial> {
-    return withWalletAuthority(async () => {
-      // Authentication is not serialized work, and on mobile and desktop it is a
-      // hardware prompt the user answers in their own time. Taking the accounts
-      // write queue around it would stall unlock and every account write behind a
-      // dialog. The queue is taken below, around the reads that need it.
-      const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+    // Authentication is not serialized work, and on mobile and desktop it is a
+    // hardware prompt the user answers in their own time. Taking the accounts
+    // write queue around it would stall unlock and every account write behind a
+    // dialog. The queue is taken below, around the reads that need it.
+    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
 
-      return withError('Failed to prepare encrypted wallet backup', async () => {
-        // Every member of the file comes from one turn of the single-writer queue,
-        // so an account write cannot land between the accounts read and either
-        // database dump and leave the file describing two different wallets. The
-        // queue is taken before the WASM lock because createHDAccount and
-        // importAccount take them in that order; inverting here would deadlock.
-        const snapshot = await getAccountsWriteQueue().add(async () => {
-          // Read the seed tolerantly: local seed-phrase removal deletes this key
-          // outright, and fetching an absent key throws. Such a wallet still holds
-          // imported secrets worth backing up, so it gets a file with no phrase
-          // rather than a dead end.
-          const hasStoredMnemonic = await isStored(mnemonicStrgKey);
-          const [seedPhrase, accounts] = await Promise.all([
-            hasStoredMnemonic ? fetchAndDecryptOne<string>(mnemonicStrgKey, vaultKey) : Promise.resolve(''),
-            fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey)
-          ]);
-          if (!Array.isArray(accounts)) {
-            throw new PublicError('Accounts not found');
-          }
-          // A phrase that exists has to be a real one: the old exporter read it
-          // through revealMnemonic, so this pattern gated every file ever written.
-          if (seedPhrase !== '' && !MNEMONIC_PATTERN.test(seedPhrase)) {
-            throw new PublicError('Mnemonic does not match the expected pattern');
-          }
-          // With no phrase, an HD account cannot be restored at all: its key is
-          // re-derived from the seed and is not carried in the file. Refuse by name
-          // rather than write a backup this wallet would later reject.
-          // The reader refuses a record that fails this predicate, so a file carrying
-          // one decrypts and is then rejected as invalid or damaged: a backup that
-          // silently is not one, which is the defect this whole change exists to end.
-          if (!accounts.every(isWalletAccount)) {
-            console.error('[walletBackup] refused: a stored account record is not one this wallet can restore');
-            throw new PublicError('Wallet account records cannot be written to a backup file');
-          }
-          if (seedPhrase === '' && accounts.some(account => account.hdIndex >= 0)) {
-            console.error('[walletBackup] refused: no seed phrase, and an account still needs one');
-            throw new PublicError('Wallet has no recovery phrase to back up its derived accounts');
-          }
-          // The record goes with the key: the restore refuses a whole file holding an imported
-          // record without its secret. Its SDK row stays in the dump, and the restore skips it.
-          const fileAccounts = accounts.filter(account => !isExcludedFromWalletFile(account));
-          if (fileAccounts.length === 0) {
-            console.error('[walletBackup] refused: every account is restored from its own keys, not a file');
-            throw new PublicError('Wallet has no accounts an encrypted file can restore');
-          }
+    return withError('Failed to prepare encrypted wallet backup', async () => {
+      // Every member of the file comes from one turn of the single-writer queue,
+      // so an account write cannot land between the accounts read and either
+      // database dump and leave the file describing two different wallets. The
+      // queue is taken before the WASM lock because createHDAccount and
+      // importAccount take them in that order; inverting here would deadlock.
+      const snapshot = await getAccountsWriteQueue().add(async () => {
+        // Read the seed tolerantly: local seed-phrase removal deletes this key
+        // outright, and fetching an absent key throws. Such a wallet still holds
+        // imported secrets worth backing up, so it gets a file with no phrase
+        // rather than a dead end.
+        const hasStoredMnemonic = await isStored(mnemonicStrgKey);
+        const [seedPhrase, accounts] = await Promise.all([
+          hasStoredMnemonic ? fetchAndDecryptOne<string>(mnemonicStrgKey, vaultKey) : Promise.resolve(''),
+          fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey)
+        ]);
+        if (!Array.isArray(accounts)) {
+          throw new PublicError('Accounts not found');
+        }
+        // A phrase that exists has to be a real one: the old exporter read it
+        // through revealMnemonic, so this pattern gated every file ever written.
+        if (seedPhrase !== '' && !MNEMONIC_PATTERN.test(seedPhrase)) {
+          throw new PublicError('Mnemonic does not match the expected pattern');
+        }
+        // With no phrase, an HD account cannot be restored at all: its key is
+        // re-derived from the seed and is not carried in the file. Refuse by name
+        // rather than write a backup this wallet would later reject.
+        // The reader refuses a record that fails this predicate, so a file carrying
+        // one decrypts and is then rejected as invalid or damaged: a backup that
+        // silently is not one, which is the defect this whole change exists to end.
+        if (!accounts.every(isWalletAccount)) {
+          console.error('[walletBackup] refused: a stored account record is not one this wallet can restore');
+          throw new PublicError('Wallet account records cannot be written to a backup file');
+        }
+        if (seedPhrase === '' && accounts.some(account => account.hdIndex >= 0)) {
+          console.error('[walletBackup] refused: no seed phrase, and an account still needs one');
+          throw new PublicError('Wallet has no recovery phrase to back up its derived accounts');
+        }
+        // The record goes with the key: the restore refuses a whole file holding an imported
+        // record without its secret. Its SDK row stays in the dump, and the restore skips it.
+        const fileAccounts = accounts.filter(account => !isExcludedFromWalletFile(account));
+        if (fileAccounts.length === 0) {
+          console.error('[walletBackup] refused: every account is restored from its own keys, not a file');
+          throw new PublicError('Wallet has no accounts an encrypted file can restore');
+        }
 
-          const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
-            async hold => {
-              const midenClient = await getMidenClient();
-              assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the client build');
-              const backups: ImportedAccountBackup[] = [];
+        const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
+          async hold => {
+            const midenClient = await getMidenClient();
+            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the client build');
+            const backups: ImportedAccountBackup[] = [];
 
-              for (const walletAccount of fileAccounts.filter(account => account.hdIndex < 0)) {
-                // Every abort reads the same to the user, so the reason is logged
-                // here or the failure cannot be diagnosed from a report. The name is
-                // the only account detail that travels; no secret or commitment does.
-                const fail = (reason: ExportAbortReason, cause?: unknown): never => {
-                  console.error('[walletBackup] imported account cannot be backed up:', reason, cause ?? '');
-                  throw new PublicError(importedAccountBackupFailure(walletAccount.name));
-                };
-                if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain) fail('not-public-onchain');
+            for (const walletAccount of fileAccounts.filter(account => account.hdIndex < 0)) {
+              // Every abort reads the same to the user, so the reason is logged
+              // here or the failure cannot be diagnosed from a report. The name is
+              // the only account detail that travels; no secret or commitment does.
+              const fail = (reason: ExportAbortReason, cause?: unknown): never => {
+                console.error('[walletBackup] imported account cannot be backed up:', reason, cause ?? '');
+                throw new PublicError(importedAccountBackupFailure(walletAccount.name));
+              };
+              if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain) fail('not-public-onchain');
 
-                const account = await midenClient.getAccount(walletAccount.publicKey);
-                assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the account read');
-                const sdkAccount = account ?? fail('missing-sdk-account');
-                if (!sameWalletAccountId(getBech32AddressFromAccountId(sdkAccount.id()), walletAccount.publicKey)) {
-                  fail('account-id-mismatch');
-                }
-
-                const commitments = resolvePublicKeyCommitments(sdkAccount);
-                if (commitments.length !== 1) fail('commitment-count');
-                const publicKeyCommitment = normalizeBackupHex(commitments[0]!.toHex());
-
-                let secretKeyHex: string;
-                try {
-                  secretKeyHex = await fetchAndDecryptOne<string>(
-                    accAuthSecretKeyStrgKey(publicKeyCommitment),
-                    vaultKey
-                  );
-                } catch (cause) {
-                  fail('secret-read', cause);
-                }
-                assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the secret read');
-
-                let secretKey: AuthSecretKey;
-                try {
-                  secretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKeyHex!, 'hex')));
-                } catch (cause) {
-                  fail('secret-deserialize', cause);
-                }
-                if (
-                  detectAuthScheme(secretKey!) !== walletAccount.authScheme ||
-                  normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
-                  !sameWalletAccountId(
-                    getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
-                    walletAccount.publicKey
-                  )
-                ) {
-                  fail('binding-mismatch');
-                }
-
-                backups.push({
-                  accountId: walletAccount.publicKey,
-                  publicKeyCommitment,
-                  authScheme: walletAccount.authScheme,
-                  secretKeyHex: secretKeyHex!
-                });
+              const account = await midenClient.getAccount(walletAccount.publicKey);
+              assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the account read');
+              const sdkAccount = account ?? fail('missing-sdk-account');
+              if (!sameWalletAccountId(getBech32AddressFromAccountId(sdkAccount.id()), walletAccount.publicKey)) {
+                fail('account-id-mismatch');
               }
 
-              const database = await midenClient.exportDb();
-              assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the database export');
-              return { importedAccounts: backups, midenClientDbContent: database };
-            },
-            { label: 'vault-export-wallet-backup' }
-          );
+              const commitments = resolvePublicKeyCommitments(sdkAccount);
+              if (commitments.length !== 1) fail('commitment-count');
+              const publicKeyCommitment = normalizeBackupHex(commitments[0]!.toHex());
 
-          return { seedPhrase, accounts: fileAccounts, midenClientDbContent, importedAccounts };
-        });
+              let secretKeyHex: string;
+              try {
+                secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKeyCommitment), vaultKey);
+              } catch (cause) {
+                fail('secret-read', cause);
+              }
+              assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the secret read');
 
-        if (!snapshot) throw new PublicError('Failed to prepare encrypted wallet backup');
+              let secretKey: AuthSecretKey;
+              try {
+                secretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKeyHex!, 'hex')));
+              } catch (cause) {
+                fail('secret-deserialize', cause);
+              }
+              if (
+                detectAuthScheme(secretKey!) !== walletAccount.authScheme ||
+                normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
+                !sameWalletAccountId(
+                  getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
+                  walletAccount.publicKey
+                )
+              ) {
+                fail('binding-mismatch');
+              }
 
-        // Outside the turn on purpose. The queue is also the unlock queue, so every
-        // turn of it costs an unlock and every account write, and nothing in the
-        // restore cross-checks transactions against the accounts: this dump is
-        // display history, not part of what the turn keeps mutually consistent.
-        const walletDbContent = await Repo.exportDb();
+              backups.push({
+                accountId: walletAccount.publicKey,
+                publicKeyCommitment,
+                authScheme: walletAccount.authScheme,
+                secretKeyHex: secretKeyHex!
+              });
+            }
 
-        return { ...snapshot, walletDbContent };
+            const database = await midenClient.exportDb();
+            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the database export');
+            return { importedAccounts: backups, midenClientDbContent: database };
+          },
+          { label: 'vault-export-wallet-backup' }
+        );
+
+        return { seedPhrase, accounts: fileAccounts, midenClientDbContent, importedAccounts };
       });
+
+      if (!snapshot) throw new PublicError('Failed to prepare encrypted wallet backup');
+
+      // Outside the turn on purpose. The queue is also the unlock queue, so every
+      // turn of it costs an unlock and every account write, and nothing in the
+      // restore cross-checks transactions against the accounts: this dump is
+      // display history, not part of what the turn keeps mutually consistent.
+      const walletDbContent = await Repo.exportDb();
+
+      return { ...snapshot, walletDbContent };
     });
   }
 
@@ -860,7 +832,6 @@ export class Vault {
     ownMnemonic?: boolean,
     guardianEndpoint?: string
   ): Promise<Vault> {
-    await ensureWalletAccessAllowed();
     console.log('Spawning new vault with wallet type', walletType);
     let spawned: Vault | undefined;
     // Set once the opening wipe is done: from there a rejection has a protector, and possibly more, to undo.
@@ -873,9 +844,7 @@ export class Vault {
       console.log('[Vault.spawn] Step 2: vault key generated');
       // Constructed as soon as the key exists: the constructor installs the realm's
       // insert-key sink, and the recovery and creation below already insert secrets (#878).
-      const candidate = new Vault(vaultKey);
-      spawned = candidate;
-      const assertCreationCurrent = () => candidate.assertRealmSinkIsMine();
+      spawned = new Vault(vaultKey);
 
       if (!mnemonic) {
         mnemonic = generateMnemonic();
@@ -888,7 +857,6 @@ export class Vault {
       // survives it, so a realm that stops inside this spawn leaves it for init.
       console.log('[Vault.spawn] Step 3: clearing storage...');
       await clearStorage(true, SETUP_WIPE_KEPT_KEYS);
-      await ensureWalletAccessAllowed();
       console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
@@ -1025,9 +993,7 @@ export class Vault {
         // waits must not block the realm's other client work (#1207). The picked endpoint
         // (stage 1 of #408) is the override; undefined falls back to the network default.
         const guardianCreateKey =
-          walletType === WalletType.Guardian
-            ? await fetchGuardianCreateKey(guardianEndpoint, assertCreationCurrent)
-            : undefined;
+          walletType === WalletType.Guardian ? await fetchGuardianCreateKey(guardianEndpoint) : undefined;
         console.log('[Vault.spawn] Step 7b: acquiring WASM client lock for create/import path...');
         const created = await withWasmClientLock(
           async (
@@ -1051,20 +1017,17 @@ export class Vault {
             // it provably pre-write: no account exists until the create/import
             // calls, and the vault writes happen after the lock releases.
             assertWasmHoldCurrent(hold, 'in Vault.spawn after the client build');
-            assertCreationCurrent();
             if (guardianCreateKey) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await client.syncState();
               // The sync parks on the network; an abandoned flow must not go on
               // to mint a guardian account nobody is waiting for.
               assertWasmHoldCurrent(hold, 'in Vault.spawn after the guardian-path sync');
-              assertCreationCurrent();
               // Creation parks inside this hold (the hot key, the account build,
               // its sync), so it re-checks ownership after each of those awaits.
-              const result = await client.createGuardianMidenWallet(walletSeed, guardianCreateKey, step => {
-                assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step);
-                assertCreationCurrent();
-              });
+              const result = await client.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
+                assertWasmHoldCurrent(hold, 'in Vault.spawn during Guardian creation', step)
+              );
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
                 accountId: result.accountId,
@@ -1148,25 +1111,16 @@ export class Vault {
               console.warn('[Vault.spawn] mock sync failed; creating the account anyway', error);
             }
             assertWasmHoldCurrent(hold, 'in Vault.spawn before the wallet create');
-            assertCreationCurrent();
             console.log('[Vault.spawn] Step 9: creating miden wallet...');
             const id = await client.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
-            return {
-              accountId: id,
-              accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME,
-              keyDerivation: NEW_ACCOUNT_KEY_DERIVATION
-            };
+            return { accountId: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };
           },
           { label: 'vault-spawn' }
         );
         // Before the account writes: a failed registration leaves the account in the SDK store and its
         // cold key where the insert-key sink stored it, but no entry in the vault's account list
         // (harmless: the cold key is HD-derived and a retry rewrites it).
-        if (created.guardianRegistration) {
-          await ensureWalletAccessAllowed();
-          assertCreationCurrent();
-          await registerGuardianAccount(created.guardianRegistration);
-        }
+        if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
         createdAccounts = [
           {
             accountId: created.accountId,
@@ -1181,9 +1135,7 @@ export class Vault {
 
       // Wallet-derived EVM identity per HD account, derived while the mnemonic
       // is in scope. Only the address is stamped on the record; the key is
-      // persisted with the account records below.
-      await ensureWalletAccessAllowed();
-      assertCreationCurrent();
+      // persisted encrypted in the loop below.
       const evmKeys = new Map<number, { address: Hex; privateKeyHex: Hex }>();
       for (const c of createdAccounts) {
         evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, walletType, c.hdIndex));
@@ -1212,31 +1164,33 @@ export class Vault {
         })
       );
 
-      const keyItems: [string, string][] = [];
-      for (const c of createdAccounts) {
-        const evmKey = evmKeys.get(c.hdIndex);
-        if (evmKey) keyItems.push([accEvmSecretKeyStrgKey(evmKey.address.toLowerCase()), evmKey.privateKeyHex]);
-        if (c.guardianKeys) keyItems.push(...guardianKeyStorageItems(c.guardianKeys));
-        if (c.recoveredCold)
-          keyItems.push([accColdSecretKeyStrgKey(c.recoveredCold.coldPublicKey), c.recoveredCold.coldSecretKeyHex]);
-      }
-      // Keep each new account and the keys it needs in the same guarded storage write.
       await encryptAndSaveMany(
         [
-          ...keyItems,
           [checkStrgKey, generateCheck()],
           [mnemonicStrgKey, mnemonic],
           ...createdAccounts.map(c => [accPubKeyStrgKey(c.accountId), c.accountId] as [string, string]),
           [accountsStrgKey, initialAccounts]
         ],
-        vaultKey,
-        assertCreationCurrent
+        vaultKey
       );
-      assertCreationCurrent();
+      for (const c of createdAccounts) {
+        const evmKey = evmKeys.get(c.hdIndex);
+        if (evmKey) {
+          await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
+        }
+        if (c.guardianKeys) {
+          await persistGuardianKeys(vaultKey, c.guardianKeys);
+        }
+        if (c.recoveredCold) {
+          await persistRecoveredGuardianColdKey(
+            vaultKey,
+            c.recoveredCold.coldPublicKey,
+            c.recoveredCold.coldSecretKeyHex
+          );
+        }
+      }
       await savePlain(currentAccPubKeyStrgKey, initialAccounts[0]!.publicKey);
-      assertCreationCurrent();
       await savePlain(ownMnemonicStrgKey, ownMnemonic ?? false);
-      assertCreationCurrent();
 
       // The instance constructed when its key was made, so the caller need not unlock() separately.
       return spawned;
@@ -1265,7 +1219,6 @@ export class Vault {
     keyPairPayload: string,
     guardianEndpoint?: string
   ): Promise<Vault> {
-    await ensureWalletAccessAllowed();
     let spawned: Vault | undefined;
     // As in `spawn`: set once the opening wipe is done, so a paste refused before it wipes nothing.
     let protectorInstalled = false;
@@ -1326,7 +1279,6 @@ export class Vault {
 
       // Same wipe as `spawn` (see the comments there).
       await clearStorage(true, SETUP_WIPE_KEPT_KEYS);
-      await ensureWalletAccessAllowed();
 
       // Same security-model branch as `spawn`: hardware-only when the user
       // chose biometrics, password otherwise — and fail loudly rather than
@@ -1347,9 +1299,7 @@ export class Vault {
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
-      let midenClient = await withWasmClientLock(async () => getMidenClient(), {
-        label: 'spawn-hot-key-client-build'
-      });
+      let midenClient = await withWasmClientLock(async () => getMidenClient(), { label: 'spawn-hot-key-client-build' });
       // Same re-resolve pattern as `spawn` (#775): the guardian lookup parks on
       // the network and lock recovery can dispose the singleton meanwhile.
       const liveClient = async () => {
@@ -1365,7 +1315,7 @@ export class Vault {
       const recovered = await (await liveClient())
         .recoverGuardianAccountByHotKey(hotSecretKeyHex, resolvedGuardianEndpoint)
         .catch((err: unknown) => {
-          if (isWasmClientPoisonedError(err) || isWalletAccessDeniedError(err)) throw err;
+          if (isWasmClientPoisonedError(err)) throw err;
           if (err instanceof PublicError) throw err;
           throw toPublicError(err);
         });
@@ -1424,7 +1374,6 @@ export class Vault {
     walletAccounts: WalletAccount[],
     importedAccounts: ImportedAccountBackup[]
   ): Promise<Vault> {
-    await ensureWalletAccessAllowed();
     let spawned: Vault | undefined;
     // The protector has to exist before the keystore inserts, but everything else
     // that makes the vault real is written only after the validation below. This
@@ -1507,7 +1456,6 @@ export class Vault {
 
       // Keeps a mainnet setup's pending-admission marker, as `spawn`'s wipe does.
       await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
-      await ensureWalletAccessAllowed();
 
       // Determine security model: hardware-only or password-based
       // If password is provided (user opted out of biometrics), use password protection
@@ -1708,7 +1656,6 @@ export class Vault {
   }
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
-    await ensureWalletAccessAllowed();
     return withError('Failed to create account', async () => {
       // TODO: Accept temporary seed input when account creation is available.
       // Load-bearing for the encrypted-file restore too: a file whose accounts are
@@ -1793,16 +1740,14 @@ export class Vault {
           // the import, where the disposed/poisoned client reference is the
           // observable signal.)
           assertWasmHoldCurrent(hold, 'in createHDAccount after the client build');
-          this.assertRealmSinkIsMine();
           console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
 
           if (guardianCreateKey) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
             // Same re-check as Vault.spawn's: creation parks inside this hold.
-            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianCreateKey, step => {
-              assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step);
-              this.assertRealmSinkIsMine();
-            });
+            const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianCreateKey, step =>
+              assertWasmHoldCurrent(hold, 'in createHDAccount during Guardian creation', step)
+            );
             return {
               accountId: result.accountId,
               keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
@@ -1855,7 +1800,6 @@ export class Vault {
             }
             console.warn('Seed not found on chain; creating a new wallet instead');
             assertWasmHoldCurrent(hold, 'in createHDAccount before the fresh create');
-            this.assertRealmSinkIsMine();
             const accountId = await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
             return { accountId, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };
           }
@@ -1869,13 +1813,7 @@ export class Vault {
       // Before the account writes, as in Vault.spawn: a failed registration leaves the SDK account and
       // its cold key, but no entry in the vault's account list (harmless: the cold key is HD-derived
       // and a retry rewrites it).
-      await ensureWalletAccessAllowed();
-      this.assertRealmSinkIsMine();
-      if (created.guardianRegistration) {
-        await registerGuardianAccount(created.guardianRegistration);
-        await ensureWalletAccessAllowed();
-        this.assertRealmSinkIsMine();
-      }
+      if (created.guardianRegistration) await registerGuardianAccount(created.guardianRegistration);
       const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
@@ -1907,15 +1845,16 @@ export class Vault {
 
       await encryptAndSaveMany(
         [
-          ...(created.guardianKeys ? guardianKeyStorageItems(created.guardianKeys) : []),
-          [accEvmSecretKeyStrgKey(evmKey.address.toLowerCase()), evmKey.privateKeyHex],
           [accPubKeyStrgKey(walletId), walletId],
           // Miden stores no private key or view key here (we dont store a pk, and a vk isnt a thing yet)
           [accountsStrgKey, newAllAcounts]
         ],
-        this.vaultKey,
-        () => this.assertRealmSinkIsMine()
+        this.vaultKey
       );
+      if (created.guardianKeys) {
+        await persistGuardianKeys(this.vaultKey, created.guardianKeys);
+      }
+      await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
 
       return newAllAcounts;
     });
@@ -1938,7 +1877,6 @@ export class Vault {
    * otherwise both pass the check and race the final save.
    */
   async importAccountFromPrivateKey(privateKeyHex: string, name?: string): Promise<WalletAccount[]> {
-    await ensureWalletAccessAllowed();
     return withError('Failed to import account from private key', async () => {
       const trimmed = privateKeyHex.trim();
       if (!isValidHex(trimmed) || trimmed.length > MAX_PRIVATE_KEY_HEX_LEN) {
@@ -2081,24 +2019,15 @@ export class Vault {
    * `expectedHotPubKey` is the hot key the caller read before it decided to swap. Omitted, nothing is
    * checked. A string must equal the stored `hotPublicKey`, and null requires a record with none (a
    * keyless pending activation). Any other record is refused with a `PublicError` coded
-   * `HOT_KEY_CHANGED`, and nothing is written or released. Expecting the requested target
-   * itself confirms an already-applied swap without rewriting storage or cleaning up keys.
+   * `HOT_KEY_CHANGED`, and nothing is written or released.
    */
-  async swapHotKey(
-    accountPublicKey: string,
-    newHotPubKey: string,
-    expectedHotPubKey?: string | null,
-    assertCurrent?: (account?: WalletAccount) => void
-  ) {
+  async swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
     return withError('Failed to swap hot key', async () => {
-      const guard = assertCurrent ?? this.createHotKeyMutationGuard();
-      guard();
       const allAccounts = await this.fetchAccounts();
       const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
       }
-      guard(account);
       // Checked here, inside the caller's accounts-write-queue turn, because a background heal in
       // another realm shares no lock with the rotation pipeline. Ahead of the stored-key check, whose
       // code closes the heal's budget for good, so a moved pointer is never reported as a missing key.
@@ -2107,28 +2036,13 @@ export class Vault {
       }
       // Before the pointer: a swap to a key this vault lacks points the account at nothing, and an
       // encrypted-file restore keeps the rotation rows without necessarily keeping their keys.
-      const hasNewHotKey = await isStored(accAuthSecretKeyStrgKey(newHotPubKey));
-      guard();
-      if (!hasNewHotKey) {
+      if (!(await isStored(accAuthSecretKeyStrgKey(newHotPubKey)))) {
         throw Object.assign(new PublicError('The new hot key is not stored in this wallet'), {
           code: HOT_KEY_NOT_STORED
         });
       }
 
       const oldHotPubKey = account.hotPublicKey;
-      const currentAccountPublicKey = await Vault.getCurrentAccountPublicKey();
-      guard();
-      if (expectedHotPubKey === newHotPubKey) {
-        if (account.requiresHotKeyRotation !== undefined && account.requiresHotKeyRotation !== false) {
-          throw Object.assign(new PublicError('The hot-key rotation metadata is incomplete'), {
-            code: HOT_KEY_CHANGED
-          });
-        }
-        return {
-          accounts: allAccounts,
-          currentAccount: allAccounts.find(acc => acc.publicKey === currentAccountPublicKey) ?? allAccounts[0]
-        };
-      }
 
       // Update the account pointer FIRST, so the new hot key is durable before we
       // release the old one. The inverse order has a lockout window: if removing
@@ -2137,23 +2051,21 @@ export class Vault {
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false } : acc
       );
-      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey, guard);
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
 
-      // The pointer is durable. Retired authority may only leave inert old key
-      // material behind; cleanup failure must not turn that commit into a rollback.
+      // Now best-effort release the old hot key. A crash here only orphans the
+      // old blobs (inert) — never a broken pointer.
       if (oldHotPubKey && oldHotPubKey !== newHotPubKey) {
         try {
-          guard();
           const oldCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(oldHotPubKey), this.vaultKey);
-          guard();
           await secureHotKey.deleteHotKey(oldCiphertext);
-          await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)], guard);
         } catch (e) {
           console.warn('swapHotKey: failed to release old native key (non-fatal):', e);
         }
+        await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)]);
       }
 
-      const currentAccount = newAllAccounts.find(acc => acc.publicKey === currentAccountPublicKey) ?? newAllAccounts[0];
+      const currentAccount = await this.getCurrentAccount();
       return { accounts: newAllAccounts, currentAccount };
     });
   }
@@ -2181,20 +2093,17 @@ export class Vault {
   updateGuardianBinding(
     accountPublicKey: string,
     expectedEpoch: 'force',
-    patch: GuardianBindingPatch,
-    assertCurrent?: (account?: WalletAccount) => void
+    patch: GuardianBindingPatch
   ): Promise<AppliedGuardianBinding>;
   updateGuardianBinding(
     accountPublicKey: string,
     expectedEpoch: number,
-    patch: GuardianBindingPatch,
-    assertCurrent?: (account?: WalletAccount) => void
+    patch: GuardianBindingPatch
   ): Promise<AppliedGuardianBinding | { outcome: 'stale' }>;
   async updateGuardianBinding(
     accountPublicKey: string,
     expectedEpoch: number | 'force',
-    patch: GuardianBindingPatch,
-    assertCurrent?: (account?: WalletAccount) => void
+    patch: GuardianBindingPatch
   ): Promise<AppliedGuardianBinding | { outcome: 'stale' }> {
     return withError('Failed to update guardian binding', async () => {
       const allAccounts = await this.fetchAccounts();
@@ -2202,7 +2111,6 @@ export class Vault {
       if (!account) {
         throw new PublicError('Account not found');
       }
-      assertCurrent?.(account);
       const currentEpoch = account.guardianEpoch ?? 0;
       if (expectedEpoch !== 'force' && currentEpoch !== expectedEpoch) {
         return { outcome: 'stale' as const };
@@ -2232,7 +2140,7 @@ export class Vault {
         guardianEpoch: currentEpoch + 1
       });
       const accounts = allAccounts.map(acc => (acc.publicKey === accountPublicKey ? applyPatch(acc) : acc));
-      await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey, assertCurrent);
+      await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
       return { outcome: 'applied' as const, accounts, currentAccount: await this.getCurrentAccount() };
     });
   }
@@ -2248,18 +2156,11 @@ export class Vault {
    * and its bump turns that repair's write `stale`. A writer that reasons from a
    * snapshot calls `updateGuardianBinding` with that snapshot's epoch instead.
    */
-  async setGuardianEndpoint(
-    accountPublicKey: string,
-    guardianEndpoint: string,
-    assertCurrent?: (account?: WalletAccount) => void,
-    expectedEpoch?: number
-  ) {
-    const result =
-      expectedEpoch === undefined
-        ? await this.updateGuardianBinding(accountPublicKey, 'force', { guardianEndpoint }, assertCurrent)
-        : await this.updateGuardianBinding(accountPublicKey, expectedEpoch, { guardianEndpoint }, assertCurrent);
-    if (result.outcome !== 'applied') throw new PublicError('The account Guardian binding changed');
-    return { accounts: result.accounts, currentAccount: result.currentAccount };
+  async setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
+    const { accounts, currentAccount } = await this.updateGuardianBinding(accountPublicKey, 'force', {
+      guardianEndpoint
+    });
+    return { accounts, currentAccount };
   }
 
   /**
@@ -2330,38 +2231,36 @@ export class Vault {
   async authorize(_sendTransaction: SendTransaction) {}
 
   async signData(publicKey: string, data: string, signKind: SignKind, accountId?: string): Promise<string> {
-    return withWalletAuthority(async () => {
-      // A Guardian account's signing key is its hot key, stored by `hotPublicKey` under the secure-hot-key
-      // facade, while the dApp holds the hot key's COMMITMENT from connect. The default path below reads
-      // accAuthSecretKeyStrgKey(<commitment>), which for a Guardian account holds the cold (recovery) key under
-      // the cold commitment, so a Guardian request is signed by the hot key or refused, never sent there.
-      // Keyed off `accountId` (the request's sourceAccountId): the commitment cannot be mapped back to the account.
-      const account = accountId
-        ? (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId))
-        : undefined;
-      if (account?.type === WalletType.Guardian) return this.signDataWithHotKey(account, publicKey, data, signKind);
+    // A Guardian account's signing key is its hot key, stored by `hotPublicKey` under the secure-hot-key
+    // facade, while the dApp holds the hot key's COMMITMENT from connect. The default path below reads
+    // accAuthSecretKeyStrgKey(<commitment>), which for a Guardian account holds the cold (recovery) key under
+    // the cold commitment, so a Guardian request is signed by the hot key or refused, never sent there.
+    // Keyed off `accountId` (the request's sourceAccountId): the commitment cannot be mapped back to the account.
+    const account = accountId
+      ? (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId))
+      : undefined;
+    if (account?.type === WalletType.Guardian) return this.signDataWithHotKey(account, publicKey, data, signKind);
 
-      const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
-      const secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
-      const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+    const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
+    const secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
+    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
 
-      const dataAsUint8Array = b64ToU8(data);
+    const dataAsUint8Array = b64ToU8(data);
 
-      let signature = null;
-      switch (signKind) {
-        case 'word':
-          let word = Word.deserialize(dataAsUint8Array);
-          signature = wasmSecretKey.sign(word);
-          break;
-        case 'signingInputs':
-          let signingInputs = SigningInputs.deserialize(dataAsUint8Array);
-          signature = wasmSecretKey.signData(signingInputs);
-          break;
-      }
+    let signature = null;
+    switch (signKind) {
+      case 'word':
+        let word = Word.deserialize(dataAsUint8Array);
+        signature = wasmSecretKey.sign(word);
+        break;
+      case 'signingInputs':
+        let signingInputs = SigningInputs.deserialize(dataAsUint8Array);
+        signature = wasmSecretKey.signData(signingInputs);
+        break;
+    }
 
-      let signatureAsBytes = signature.serialize();
-      return u8ToB64(signatureAsBytes);
-    });
+    let signatureAsBytes = signature.serialize();
+    return u8ToB64(signatureAsBytes);
   }
 
   private async signDataWithHotKey(
@@ -2404,23 +2303,21 @@ export class Vault {
    * commitment.
    */
   async loginKeyCommitment(accountId: string, domain: string): Promise<string> {
-    return withWalletAuthority(async () => {
-      return withError('Failed to derive the login key', () =>
-        this.withLoginKey(accountId, domain, secretKey => {
-          const publicKey = secretKey.publicKey();
+    return withError('Failed to derive the login key', () =>
+      this.withLoginKey(accountId, domain, secretKey => {
+        const publicKey = secretKey.publicKey();
+        try {
+          const commitment = publicKey.toCommitment();
           try {
-            const commitment = publicKey.toCommitment();
-            try {
-              return u8ToB64(commitment.serialize());
-            } finally {
-              commitment.free();
-            }
+            return u8ToB64(commitment.serialize());
           } finally {
-            publicKey.free();
+            commitment.free();
           }
-        })
-      );
-    });
+        } finally {
+          publicKey.free();
+        }
+      })
+    );
   }
 
   /**
@@ -2428,34 +2325,32 @@ export class Vault {
    * of the login tag and the word, never the word itself. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
    */
   async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string> {
-    return withWalletAuthority(async () => {
-      return withError('Failed to sign with the login key', async () => {
-        const wordBytes = loginWordBytes(word);
-        return this.withLoginKey(accountId, domain, secretKey => {
-          let loginWord: Word;
+    return withError('Failed to sign with the login key', async () => {
+      const wordBytes = loginWordBytes(word);
+      return this.withLoginKey(accountId, domain, secretKey => {
+        let loginWord: Word;
+        try {
+          loginWord = Word.deserialize(wordBytes);
+        } catch {
+          // Not the SDK's error: `withError` logs it, and it can quote the word.
+          throw notAWordToSign();
+        }
+        let message: Word;
+        try {
+          message = loginMessage(loginWord);
+        } finally {
+          loginWord.free();
+        }
+        try {
+          const signature = secretKey.sign(message);
           try {
-            loginWord = Word.deserialize(wordBytes);
-          } catch {
-            // Not the SDK's error: `withError` logs it, and it can quote the word.
-            throw notAWordToSign();
-          }
-          let message: Word;
-          try {
-            message = loginMessage(loginWord);
+            return u8ToB64(signature.serialize());
           } finally {
-            loginWord.free();
+            signature.free();
           }
-          try {
-            const signature = secretKey.sign(message);
-            try {
-              return u8ToB64(signature.serialize());
-            } finally {
-              signature.free();
-            }
-          } finally {
-            message.free();
-          }
-        });
+        } finally {
+          message.free();
+        }
       });
     });
   }
@@ -2473,7 +2368,6 @@ export class Vault {
       try {
         const secretKey = deserializeHotSecretKey(bytesToHex(scalar));
         try {
-          assertWalletAccessAllowed();
           return use(secretKey);
         } finally {
           secretKey.free();
@@ -2511,15 +2405,12 @@ export class Vault {
   }
 
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
-    return withWalletAuthority(async () => {
-      const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
-      let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
-      const wasmSigningInputs = SigningInputs.deserialize(new Uint8Array(Buffer.from(signingInputs, 'hex')));
-      const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
-      assertWalletAccessAllowed();
-      const signature = wasmSecretKey.signData(wasmSigningInputs);
-      return Buffer.from(signature.serialize()).toString('hex');
-    });
+    const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
+    let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
+    const wasmSigningInputs = SigningInputs.deserialize(new Uint8Array(Buffer.from(signingInputs, 'hex')));
+    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+    const signature = wasmSecretKey.signData(wasmSigningInputs);
+    return Buffer.from(signature.serialize()).toString('hex');
   }
 
   /**
@@ -2533,61 +2424,56 @@ export class Vault {
    * fallback's deserialize+sign is identical to the previous implementation.
    */
   async signWord(publicKey: string, wordHex: string, transactionId?: string): Promise<string> {
-    return withWalletAuthority(async () => {
-      const accounts = await this.fetchAccounts();
-      let account = accounts.find(acc => acc.coldPublicKey === publicKey);
-      let transaction: ITransaction | undefined;
-      if (!account && transactionId) {
-        // A hot-key-only import stores no cold public key. The key the seed
-        // prompt authorized for this transaction is that account's cold key.
-        transaction = await Repo.transactions.get(transactionId);
-        if (transaction && isRecoveryTransaction(transaction) && getRecoveryAuthorization(transaction, publicKey)) {
-          const recoveryAccountId = transaction.accountId;
-          account = accounts.find(acc => sameWalletAccountId(recoveryAccountId, acc.publicKey));
-        }
+    const accounts = await this.fetchAccounts();
+    let account = accounts.find(acc => acc.coldPublicKey === publicKey);
+    let transaction: ITransaction | undefined;
+    if (!account && transactionId) {
+      // A hot-key-only import stores no cold public key. The key the seed
+      // prompt authorized for this transaction is that account's cold key.
+      transaction = await Repo.transactions.get(transactionId);
+      if (transaction && isRecoveryTransaction(transaction) && getRecoveryAuthorization(transaction, publicKey)) {
+        const recoveryAccountId = transaction.accountId;
+        account = accounts.find(acc => sameWalletAccountId(recoveryAccountId, acc.publicKey));
       }
-      const isCold = account !== undefined;
-      if (isCold && (await this.fetchSeedPhraseStatus()) !== 'stored') {
-        if (!transactionId) throw new PublicError(getMessage('recoverySeedRequired'));
-        transaction ??= await Repo.transactions.get(transactionId);
-        if (
-          !transaction ||
-          !account ||
-          !sameWalletAccountId(transaction.accountId, account.publicKey) ||
-          !isRecoveryTransaction(transaction) ||
-          transaction.status !== ITransactionStatus.GeneratingTransaction
-        ) {
-          throw new PublicError(getMessage('recoverySeedRequired'));
-        }
-        const secret = getRecoveryAuthorization(transaction, publicKey);
-        if (!secret) throw new PublicError(getMessage('recoverySeedRequired'));
-        const key = AuthSecretKey.deserialize(secret);
-        const word = Word.fromHex(wordHex);
+    }
+    const isCold = account !== undefined;
+    if (isCold && (await this.fetchSeedPhraseStatus()) !== 'stored') {
+      if (!transactionId) throw new PublicError(getMessage('recoverySeedRequired'));
+      transaction ??= await Repo.transactions.get(transactionId);
+      if (
+        !transaction ||
+        !account ||
+        !sameWalletAccountId(transaction.accountId, account.publicKey) ||
+        !isRecoveryTransaction(transaction) ||
+        transaction.status !== ITransactionStatus.GeneratingTransaction
+      ) {
+        throw new PublicError(getMessage('recoverySeedRequired'));
+      }
+      const secret = getRecoveryAuthorization(transaction, publicKey);
+      if (!secret) throw new PublicError(getMessage('recoverySeedRequired'));
+      const key = AuthSecretKey.deserialize(secret);
+      const word = Word.fromHex(wordHex);
+      try {
+        const signature = key.sign(word);
         try {
-          assertWalletAccessAllowed();
-          const signature = key.sign(word);
-          try {
-            return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
-          } finally {
-            signature.free();
-          }
+          return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
         } finally {
-          key.free();
-          word.free();
+          signature.free();
         }
+      } finally {
+        key.free();
+        word.free();
       }
-      if (isCold) {
-        const coldHex = await fetchAndDecryptOne<string>(accColdSecretKeyStrgKey(publicKey), this.vaultKey);
-        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
-        assertWalletAccessAllowed();
-        const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
-        return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
-      }
+    }
+    if (isCold) {
+      const coldHex = await fetchAndDecryptOne<string>(accColdSecretKeyStrgKey(publicKey), this.vaultKey);
+      const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
+      const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
+      return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+    }
 
-      const hotCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
-      assertWalletAccessAllowed();
-      return secureHotKey.signHotDigest(hotCiphertext, wordHex);
-    });
+    const hotCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
+    return secureHotKey.signHotDigest(hotCiphertext, wordHex);
   }
 
   /**
@@ -2598,31 +2484,28 @@ export class Vault {
    * (never the mnemonic), signs, and lets every reference fall out of scope.
    */
   async signEvm(accountPublicKey: string, operation: SignEvmOperation): Promise<Hex> {
-    return withWalletAuthority(async () => {
-      return withError('Failed to sign EVM payload', async () => {
-        const accounts = await this.fetchAccounts();
-        const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
-        if (!account?.evmAddress) {
-          throw new PublicError('Account has no EVM key');
-        }
-        const privateKeyHex = await fetchAndDecryptOne<Hex>(
-          accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()),
-          this.vaultKey
-        );
-        if (!privateKeyHex) {
-          throw new PublicError('EVM key not found');
-        }
-        assertWalletAccessAllowed();
-        const evmAccount = privateKeyToAccount(privateKeyHex);
-        switch (operation.op) {
-          case 'transaction':
-            return evmAccount.signTransaction(parseTransaction(operation.serializedTransaction));
-          case 'typed-data':
-            return evmAccount.sign({ hash: operation.digest });
-          case 'message':
-            return evmAccount.signMessage({ message: { raw: operation.messageHex } });
-        }
-      });
+    return withError('Failed to sign EVM payload', async () => {
+      const accounts = await this.fetchAccounts();
+      const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
+      if (!account?.evmAddress) {
+        throw new PublicError('Account has no EVM key');
+      }
+      const privateKeyHex = await fetchAndDecryptOne<Hex>(
+        accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()),
+        this.vaultKey
+      );
+      if (!privateKeyHex) {
+        throw new PublicError('EVM key not found');
+      }
+      const evmAccount = privateKeyToAccount(privateKeyHex);
+      switch (operation.op) {
+        case 'transaction':
+          return evmAccount.signTransaction(parseTransaction(operation.serializedTransaction));
+        case 'typed-data':
+          return evmAccount.sign({ hash: operation.digest });
+        case 'message':
+          return evmAccount.signMessage({ message: { raw: operation.messageHex } });
+      }
     });
   }
 
@@ -2640,10 +2523,8 @@ export class Vault {
   }
 
   async getAuthSecretKey(key: string) {
-    return withWalletAuthority(async () => {
-      const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
-      return secretKey;
-    });
+    const secretKey = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
+    return secretKey;
   }
 
   async decrypt(_accPublicKey: string, _cipherTexts: string[]) {}
@@ -2655,24 +2536,22 @@ export class Vault {
   async revealViewKey(_accPublicKey: string) {}
 
   static async revealMnemonic(password?: string) {
-    return withWalletAuthority(async () => {
-      let vaultKey: CryptoKey;
+    let vaultKey: CryptoKey;
 
-      if (password) {
-        vaultKey = await Vault.unlockWithPassword(password);
-      } else {
-        vaultKey = await Vault.getHardwareVaultKey();
+    if (password) {
+      vaultKey = await Vault.unlockWithPassword(password);
+    } else {
+      vaultKey = await Vault.getHardwareVaultKey();
+    }
+
+    return withError('Failed to reveal recovery phrase', async () => {
+      if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
+        throw new PublicError(getMessage('seedPhraseRemoved'));
+      const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, vaultKey);
+      if (!MNEMONIC_PATTERN.test(mnemonic)) {
+        throw new PublicError('Mnemonic does not match the expected pattern');
       }
-
-      return withError('Failed to reveal recovery phrase', async () => {
-        if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
-          throw new PublicError(getMessage('seedPhraseRemoved'));
-        const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, vaultKey);
-        if (!MNEMONIC_PATTERN.test(mnemonic)) {
-          throw new PublicError('Mnemonic does not match the expected pattern');
-        }
-        return mnemonic;
-      });
+      return mnemonic;
     });
   }
 
@@ -2684,28 +2563,23 @@ export class Vault {
    * (see `getAccountPublicKeyCommitment` in `RevealSecret.tsx`).
    */
   static async revealPrivateKey(accountPubKeyCommitment: string, password?: string) {
-    return withWalletAuthority(async () => {
-      let vaultKey: CryptoKey;
+    let vaultKey: CryptoKey;
 
-      if (password) {
-        vaultKey = await Vault.unlockWithPassword(password);
-      } else {
-        vaultKey = await Vault.getHardwareVaultKey();
+    if (password) {
+      vaultKey = await Vault.unlockWithPassword(password);
+    } else {
+      vaultKey = await Vault.getHardwareVaultKey();
+    }
+
+    return withError('Failed to reveal private key', async () => {
+      // The private key comes from the seed phrase. Refuse after removal, as the mnemonic reveal does.
+      if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
+        throw new PublicError(getMessage('recoverySeedRequired'));
+      const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(accountPubKeyCommitment), vaultKey);
+      if (!secretKeyHex) {
+        throw new PublicError('Private key not found for this account');
       }
-
-      return withError('Failed to reveal private key', async () => {
-        // The private key comes from the seed phrase. Refuse after removal, as the mnemonic reveal does.
-        if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
-          throw new PublicError(getMessage('recoverySeedRequired'));
-        const secretKeyHex = await fetchAndDecryptOne<string>(
-          accAuthSecretKeyStrgKey(accountPubKeyCommitment),
-          vaultKey
-        );
-        if (!secretKeyHex) {
-          throw new PublicError('Private key not found for this account');
-        }
-        return secretKeyHex;
-      });
+      return secretKeyHex;
     });
   }
 
@@ -2714,95 +2588,93 @@ export class Vault {
     password: string | undefined,
     operation: (getKey: GetKeyCallback) => Promise<T>
   ): Promise<T> {
-    return withWalletAuthority(async () => {
-      return withError('Failed to export account file', async () => {
-        // An empty string is not a credential, it is a caller that lost track of its own branch.
-        // Letting it fall through would decide the AUTHENTICATION METHOD from a falsy check and
-        // answer a passcode wallet with 'Hardware protector is not configured'.
-        if (password === '') {
-          throw new PublicError('A password or passcode is required to export this account');
-        }
-        const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-        // The invariant is about the ACCOUNT, not about the key the SDK happens to ask for, so it is
-        // decided here, once, before any key is served. Keying it on the requested commitment cannot
-        // work: accAuthSecretKeyStrgKey is polymorphic - insertKeyCallbackWrapper stores a serialized
-        // AuthSecretKey there, persistGuardianKeys stores a Guardian's PLATFORM-WRAPPED hot ciphertext
-        // under the same shape, and a Guardian's COLD secret is under it too (see persistGuardianKeys:
-        // cold also reaches the SDK keystore through the standard insertKeyCallback path). A Guardian
-        // whose hot key is not yet activated has no hot commitment to recognize at all. `type` is the
-        // one signal that holds in every one of those states, and it is what revealHotKey uses.
-        // No `.catch` here on purpose: a guard built from stored state fails CLOSED, so an unreadable
-        // accounts record aborts the export instead of silently disabling the refusal.
-        const accounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey);
-        const account = (Array.isArray(accounts) ? accounts : []).find(acc =>
-          sameWalletAccountId(acc.publicKey, accountPublicKey)
-        );
-        if (!account) {
-          throw new PublicError('Account not found');
-        }
-        if (account.type === WalletType.Guardian) {
-          throw new PublicError('A Guardian account cannot be exported to an account file');
-        }
+    return withError('Failed to export account file', async () => {
+      // An empty string is not a credential, it is a caller that lost track of its own branch.
+      // Letting it fall through would decide the AUTHENTICATION METHOD from a falsy check and
+      // answer a passcode wallet with 'Hardware protector is not configured'.
+      if (password === '') {
+        throw new PublicError('A password or passcode is required to export this account');
+      }
+      const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+      // The invariant is about the ACCOUNT, not about the key the SDK happens to ask for, so it is
+      // decided here, once, before any key is served. Keying it on the requested commitment cannot
+      // work: accAuthSecretKeyStrgKey is polymorphic - insertKeyCallbackWrapper stores a serialized
+      // AuthSecretKey there, persistGuardianKeys stores a Guardian's PLATFORM-WRAPPED hot ciphertext
+      // under the same shape, and a Guardian's COLD secret is under it too (see persistGuardianKeys:
+      // cold also reaches the SDK keystore through the standard insertKeyCallback path). A Guardian
+      // whose hot key is not yet activated has no hot commitment to recognize at all. `type` is the
+      // one signal that holds in every one of those states, and it is what revealHotKey uses.
+      // No `.catch` here on purpose: a guard built from stored state fails CLOSED, so an unreadable
+      // accounts record aborts the export instead of silently disabling the refusal.
+      const accounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey);
+      const account = (Array.isArray(accounts) ? accounts : []).find(acc =>
+        sameWalletAccountId(acc.publicKey, accountPublicKey)
+      );
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      if (account.type === WalletType.Guardian) {
+        throw new PublicError('A Guardian account cannot be exported to an account file');
+      }
 
-        // Defence in depth for the keys we CAN name. A non-Guardian account's own auth commitment is
-        // not recorded on WalletAccount, so this cannot be a whitelist of one; it is a denylist of
-        // every other account's known key material, so a future SDK change that asks for the wrong
-        // commitment mid-export cannot fold a second account's secret into this file.
-        const otherAccountKeys = new Set(
-          (Array.isArray(accounts) ? accounts : [])
-            .filter(acc => acc !== account)
-            .flatMap(acc => [acc.hotPublicKey, acc.coldPublicKey])
-            .filter((key): key is string => Boolean(key))
-            .map(key => key.replace(/^0x/i, '').toLowerCase())
-        );
+      // Defence in depth for the keys we CAN name. A non-Guardian account's own auth commitment is
+      // not recorded on WalletAccount, so this cannot be a whitelist of one; it is a denylist of
+      // every other account's known key material, so a future SDK change that asks for the wrong
+      // commitment mid-export cannot fold a second account's secret into this file.
+      const otherAccountKeys = new Set(
+        (Array.isArray(accounts) ? accounts : [])
+          .filter(acc => acc !== account)
+          .flatMap(acc => [acc.hotPublicKey, acc.coldPublicKey])
+          .filter((key): key is string => Boolean(key))
+          .map(key => key.replace(/^0x/i, '').toLowerCase())
+      );
 
-        // The SDK reduces a keystore callback's throw to its message text, so a PublicError raised
-        // inside getKey loses its identity crossing back and `withError` below flattens it to the
-        // generic verdict. Record the classification here and restore it on the near side of that
-        // boundary, or the reason the export failed reaches the user as "something went wrong".
-        let readerFailure: PublicError | null = null;
+      // The SDK reduces a keystore callback's throw to its message text, so a PublicError raised
+      // inside getKey loses its identity crossing back and `withError` below flattens it to the
+      // generic verdict. Record the classification here and restore it on the near side of that
+      // boundary, or the reason the export failed reaches the user as "something went wrong".
+      let readerFailure: PublicError | null = null;
 
-        const getKey: GetKeyCallback = async publicKey => {
-          // Cleared per call: a stale classification from an earlier key must never describe why a
-          // later one ended.
-          readerFailure = null;
-          const commitment = Buffer.from(publicKey).toString('hex');
-          if (otherAccountKeys.has(commitment.replace(/^0x/i, '').toLowerCase())) {
-            console.error('[accountFileExport] refused: this key belongs to a different account');
-            readerFailure = new PublicError('The export asked for a key that belongs to a different account');
-            throw readerFailure;
-          }
-          const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(commitment), vaultKey).catch(
-            cause => {
-              // A keystore callback's throw crosses the SDK boundary as its message alone, so this is
-              // the whole diagnostic a failed export will ever have. Only an ABSENT key may be reported
-              // as an absent key - safe-storage signals that with STORAGE_ITEM_NOT_FOUND - while a
-              // decrypt or storage failure keeps its own cause instead of being mislabelled.
-              if (cause instanceof Error && cause.message === STORAGE_ITEM_NOT_FOUND) {
-                readerFailure = new PublicError('Authentication key not found for account export');
-                throw readerFailure;
-              }
-              console.error('[accountFileExport] could not read the authentication key:', cause);
-              throw cause;
+      const getKey: GetKeyCallback = async publicKey => {
+        // Cleared per call: a stale classification from an earlier key must never describe why a
+        // later one ended.
+        readerFailure = null;
+        const commitment = Buffer.from(publicKey).toString('hex');
+        if (otherAccountKeys.has(commitment.replace(/^0x/i, '').toLowerCase())) {
+          console.error('[accountFileExport] refused: this key belongs to a different account');
+          readerFailure = new PublicError('The export asked for a key that belongs to a different account');
+          throw readerFailure;
+        }
+        const secretKeyHex = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(commitment), vaultKey).catch(
+          cause => {
+            // A keystore callback's throw crosses the SDK boundary as its message alone, so this is
+            // the whole diagnostic a failed export will ever have. Only an ABSENT key may be reported
+            // as an absent key - safe-storage signals that with STORAGE_ITEM_NOT_FOUND - while a
+            // decrypt or storage failure keeps its own cause instead of being mislabelled.
+            if (cause instanceof Error && cause.message === STORAGE_ITEM_NOT_FOUND) {
+              readerFailure = new PublicError('Authentication key not found for account export');
+              throw readerFailure;
             }
-          );
-          if (!secretKeyHex) {
-            readerFailure = new PublicError('Authentication key not found for account export');
-            throw readerFailure;
+            console.error('[accountFileExport] could not read the authentication key:', cause);
+            throw cause;
           }
-          return new Uint8Array(Buffer.from(secretKeyHex, 'hex'));
-        };
-
-        try {
-          return await operation(getKey);
-        } catch (cause: unknown) {
-          // An abandonment keeps its identity: `isWasmClientPoisonedError` is what kill classifiers
-          // read, and a rewrap would report an operation that may still be in flight as a flat
-          // failure. Only a non-abandonment failure may be re-labelled with what getKey classified.
-          if (readerFailure && !isWasmClientPoisonedError(cause)) throw readerFailure;
-          throw cause;
+        );
+        if (!secretKeyHex) {
+          readerFailure = new PublicError('Authentication key not found for account export');
+          throw readerFailure;
         }
-      });
+        return new Uint8Array(Buffer.from(secretKeyHex, 'hex'));
+      };
+
+      try {
+        return await operation(getKey);
+      } catch (cause: unknown) {
+        // An abandonment keeps its identity: `isWasmClientPoisonedError` is what kill classifiers
+        // read, and a rewrap would report an operation that may still be in flight as a flat
+        // failure. Only a non-abandonment failure may be re-labelled with what getKey classified.
+        if (readerFailure && !isWasmClientPoisonedError(cause)) throw readerFailure;
+        throw cause;
+      }
     });
   }
 
@@ -2817,31 +2689,29 @@ export class Vault {
    * `hotPublicKey` is not yet set (post-recovery, pre-banner-activation).
    */
   static async revealHotKey(accountPublicKey: string, password?: string): Promise<string> {
-    return withWalletAuthority(async () => {
-      const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-      return withError('Failed to reveal everyday key', async () => {
-        const allAccounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey);
-        const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
-        if (!account) {
-          throw new PublicError('Account not found');
-        }
-        if (account.type !== WalletType.Guardian || !account.hotPublicKey) {
-          throw new PublicError('Everyday key is only available for activated Guardian accounts');
-        }
-        const ciphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(account.hotPublicKey), vaultKey);
-        if (!ciphertext) {
-          throw new PublicError('Everyday key ciphertext not found');
-        }
-        if (!account.evmAddress) throw new PublicError(getMessage('evmPrivateKeyMissing'));
-        const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
-        if (!(await isStored(evmStorageKey))) throw new PublicError(getMessage('evmPrivateKeyMissing'));
-        const evmPrivateKey = await fetchAndDecryptOne<string>(evmStorageKey, vaultKey);
-        if (!evmPrivateKey) throw new PublicError(getMessage('evmPrivateKeyMissing'));
-        const hotPrivateKey = await secureHotKey.revealHotKey(ciphertext);
-        const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
-        if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
-        return encodePrivateKeyPair(pair);
-      });
+    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+    return withError('Failed to reveal everyday key', async () => {
+      const allAccounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey);
+      const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      if (account.type !== WalletType.Guardian || !account.hotPublicKey) {
+        throw new PublicError('Everyday key is only available for activated Guardian accounts');
+      }
+      const ciphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(account.hotPublicKey), vaultKey);
+      if (!ciphertext) {
+        throw new PublicError('Everyday key ciphertext not found');
+      }
+      if (!account.evmAddress) throw new PublicError(getMessage('evmPrivateKeyMissing'));
+      const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
+      if (!(await isStored(evmStorageKey))) throw new PublicError(getMessage('evmPrivateKeyMissing'));
+      const evmPrivateKey = await fetchAndDecryptOne<string>(evmStorageKey, vaultKey);
+      if (!evmPrivateKey) throw new PublicError(getMessage('evmPrivateKeyMissing'));
+      const hotPrivateKey = await secureHotKey.revealHotKey(ciphertext);
+      const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
+      if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
+      return encodePrivateKeyPair(pair);
     });
   }
 
@@ -3034,13 +2904,6 @@ function toPublicError(err: unknown): PublicError {
   return publicError;
 }
 
-async function withWalletAuthority<T>(action: () => Promise<T>): Promise<T> {
-  await ensureWalletAccessAllowed();
-  const result = await action();
-  assertWalletAccessAllowed();
-  return result;
-}
-
 async function withError<T>(errMessage: string, factory: (doThrow: () => void) => Promise<T>) {
   try {
     return await factory(() => {
@@ -3055,7 +2918,7 @@ async function withError<T>(errMessage: string, factory: (doThrow: () => void) =
     // account create or import reported as a flat failure invites the retry that
     // makes a duplicate. Callers tell the two apart with
     // `isWasmClientPoisonedError`, which a rewrap destroys.
-    if (isWasmClientPoisonedError(err) || isWalletAccessDeniedError(err)) throw err;
+    if (isWasmClientPoisonedError(err)) throw err;
     throw err instanceof PublicError ? err : new PublicError(errMessage);
   }
 }

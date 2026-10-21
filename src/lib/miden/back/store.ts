@@ -3,7 +3,6 @@ import { createStore, createEvent } from 'effector';
 import { PublicError } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { NETWORKS } from 'lib/miden/networks';
-import { assertWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { SeedPhraseStatus, WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
 
 export interface StoreState extends WalletState {
@@ -109,10 +108,7 @@ export const store = createStore<StoreState>({
   .on(accountsUpdated, (state, { accounts, currentAccount }) => ({
     ...state,
     accounts,
-    currentAccount:
-      currentAccount ||
-      accounts.find(account => account.publicKey === state.currentAccount?.publicKey) ||
-      state.currentAccount
+    currentAccount: currentAccount || state.currentAccount
   }))
   .on(currentAccountUpdated, (state, currentAccount) => ({
     ...state,
@@ -131,14 +127,12 @@ export const store = createStore<StoreState>({
 export function withUnlocked<T>(factory: (state: UnlockedStoreState) => T) {
   const state = store.getState();
   assertUnlocked(state);
-  assertWalletAccessAllowed();
   return factory(state);
 }
 
-export function withInited<T>(factory: (state: StoreState) => T, allowWithoutAccess = false) {
+export function withInited<T>(factory: (state: StoreState) => T) {
   const state = store.getState();
   assertInited(state);
-  if (!allowWithoutAccess) assertWalletAccessAllowed();
   return factory(state);
 }
 

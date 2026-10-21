@@ -11,7 +11,6 @@ import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -240,31 +239,6 @@ afterEach(() => {
 });
 
 describe('maybeStartGuardianRecovery gating', () => {
-  it('defers a direct recovery before private transport access while wallet access is denied', async () => {
-    jest
-      .mocked(ensureWalletAccessAllowed)
-      .mockRejectedValue(Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' }));
-    await expect(recoverPendingNotes(pendingAccount(), 'gen-1')).resolves.toMatchObject({
-      deferred: true,
-      sourceFailures: 0
-    });
-    expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
-  });
-
-  it('stops a recovery whose access is revoked after its transport drain', async () => {
-    mockProxy.drainPrivateNoteTransport.mockImplementationOnce(async () => {
-      jest
-        .mocked(ensureWalletAccessAllowed)
-        .mockRejectedValue(Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' }));
-    });
-    await expect(recoverPendingNotes(pendingAccount(), 'gen-1')).resolves.toMatchObject({
-      deferred: true,
-      sourceFailures: 0
-    });
-    expect(mockProxy.getAccount).not.toHaveBeenCalled();
-    expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
-  });
-
   it('does not start recovery for an account without the pending marker', async () => {
     await expect(maybeStartGuardianRecovery(pendingAccount({ guardianNoteRecoveryPending: false }))).resolves.toBe(
       false

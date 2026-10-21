@@ -1,6 +1,5 @@
 import { Runtime } from 'webextension-polyfill';
 
-import { withWalletRequestAccess } from 'lib/intercom/wallet-request-access';
 import { queueNoteImport } from 'lib/miden/activity';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
@@ -11,10 +10,6 @@ import {
 } from 'lib/miden/activity/connectivity-state';
 import * as Actions from 'lib/miden/back/actions';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
-import {
-  prepareCommittedGuardianCompletion,
-  completeCommittedGuardianCompletion
-} from 'lib/miden/back/committed-guardian-completion';
 import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
@@ -367,10 +362,7 @@ function registerOffscreenSignHandler(): void {
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
-    handleOffscreenSignRequest(msg as OffscreenSignRequest, async (publicKey, signingInputs) => {
-      await startupHydration;
-      return swSignCallback(publicKey, signingInputs);
-    }).then(sendResponse, (err: unknown) => {
+    handleOffscreenSignRequest(msg as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {
       // The handler already classifies vault errors; a throw here is an
       // unexpected internal fault. Respond ok:false so the offscreen sign stub
       // rejects (failing the write) rather than hanging on a dropped response.
@@ -400,7 +392,7 @@ function confirmationRequestNotFound(req: unknown): Error | undefined {
 
 async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
   await startupHydration;
-  return withWalletRequestAccess(req, () => processRequest(req, port));
+  return processRequest(req, port);
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
@@ -731,16 +723,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.PersistNewHotKeyResponse
       };
-    case WalletMessageType.PrepareCommittedGuardianCompletionRequest:
-      return {
-        type: WalletMessageType.PrepareCommittedGuardianCompletionResponse,
-        token: await prepareCommittedGuardianCompletion(req.transactionId)
-      };
-    case WalletMessageType.CompleteCommittedGuardianCompletionRequest:
-      await completeCommittedGuardianCompletion(req.token, req.deadlineMs);
-      return { type: WalletMessageType.CompleteCommittedGuardianCompletionResponse };
     case WalletMessageType.SwapHotKeyRequest:
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey, req.expectedScope);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };

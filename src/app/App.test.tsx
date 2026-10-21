@@ -21,10 +21,10 @@
 
 import React from 'react';
 
-import { act, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
 import { type AppEnvironment, WindowType } from 'app/env';
-import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { initFeatureEligibility } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 import { initCrashReporting } from 'lib/telemetry/crash';
@@ -81,34 +81,11 @@ jest.mock('lib/walletconnect/appkit', () => ({
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({
-  initBridgeConfig: jest.fn(() => Promise.resolve()),
+  initFeatureEligibility: jest.fn(async () => ({ state: 'ready', network: 'testnet', version: 1, allowed: { wallet: true, earn: true, swap: true } })),
   subscribeBridgeConfig: () => () => undefined,
   getBridgeConfigSnapshot: () => ({ network: 'testnet', config: null })
 }));
 
-type MockWalletAccessSnapshot = {
-  status: 'loading' | 'allowed' | 'restricted' | 'unavailable';
-  expiresAt: number | null;
-};
-let mockWalletAccessSnapshot: MockWalletAccessSnapshot = { status: 'allowed', expiresAt: 60_000 };
-const mockWalletAccessListeners = new Set<() => void>();
-const mockEnsureWalletAccess = jest.fn<Promise<void>, []>(async () => undefined);
-jest.mock(
-  'lib/remote-config/wallet-access',
-  () => ({
-    getWalletAccessSnapshot: () => mockWalletAccessSnapshot,
-    subscribeWalletAccess: (listener: () => void) => {
-      mockWalletAccessListeners.add(listener);
-      return () => mockWalletAccessListeners.delete(listener);
-    },
-    ensureWalletAccessAllowed: () => mockEnsureWalletAccess(),
-    assertWalletAccessAllowed: () => undefined,
-    registerWalletAccessRuntime: () => undefined,
-    publishWalletAccessDecision: () => undefined,
-    invalidateWalletAccess: () => undefined
-  }),
-  { virtual: true }
-);
 const mockLoadEndpointOverrides = jest.fn<Promise<void>, []>(async () => undefined);
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   loadEndpointOverrides: () => mockLoadEndpointOverrides(),
@@ -297,9 +274,6 @@ describe('app/App', () => {
     // Consent is off until the user opts in — the baseline for the startup
     // telemetry assertions below.
     mockIsTelemetryEnabled.mockReturnValue(false);
-    mockWalletAccessSnapshot = { status: 'allowed', expiresAt: performance.now() + 60_000 };
-    mockWalletAccessListeners.clear();
-    mockEnsureWalletAccess.mockReset().mockResolvedValue(undefined);
     mockLoadEndpointOverrides.mockReset().mockResolvedValue(undefined);
   });
 
@@ -493,12 +467,12 @@ describe('app/App', () => {
     });
   });
 
-  describe('remote bridge config', () => {
-    it('loads the config once per mount, whatever screen opens first', async () => {
+  describe('startup eligibility', () => {
+    it('initializes eligibility once per mount, whatever screen opens first', async () => {
       const { rerender } = await renderApp({ windowType: WindowType.FullPage, confirmWindow: false });
       rerender(<App env={{ windowType: WindowType.FullPage, confirmWindow: false }} />);
 
-      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(initFeatureEligibility)).toHaveBeenCalledTimes(1);
     });
 
     it('loads it on the mobile and confirm-window surfaces too', async () => {
@@ -509,106 +483,8 @@ describe('app/App', () => {
 
       await renderApp({ windowType: WindowType.Popup, confirmWindow: true });
 
-      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(2);
+      expect(jest.mocked(initFeatureEligibility)).toHaveBeenCalledTimes(2);
     });
-  });
-
-  describe('wallet-wide access boundary', () => {
-    it('offers a retry when endpoint bootstrap fails before any protected provider mounts', async () => {
-      mockLoadEndpointOverrides.mockRejectedValueOnce(new Error('storage unavailable'));
-      const view = await renderApp({ windowType: WindowType.FullPage });
-      expect(view.queryByTestId('page-router')).toBeNull();
-      expect(view.getByTestId('wallet-access-gate')).toHaveAttribute('data-access-state', 'unavailable');
-      await act(async () => {
-        fireEvent.click(view.getByTestId('wallet-access-retry'));
-      });
-      expect(view.getByTestId('page-router')).toBeInTheDocument();
-    });
-
-    it('checks permission again when an unavailable gate is retried', async () => {
-      mockWalletAccessSnapshot = { status: 'unavailable', expiresAt: null };
-      const view = await renderApp({ windowType: WindowType.FullPage });
-      expect(mockEnsureWalletAccess).not.toHaveBeenCalled();
-      await act(async () => {
-        fireEvent.click(view.getByTestId('wallet-access-retry'));
-      });
-      expect(mockEnsureWalletAccess).toHaveBeenCalledTimes(1);
-      expect(view.queryByTestId('page-router')).toBeNull();
-    });
-
-    it('waits for endpoint overrides before initializing permission or mounting wallet providers', async () => {
-      let finish!: () => void;
-      mockLoadEndpointOverrides.mockImplementationOnce(
-        () =>
-          new Promise<void>(resolve => {
-            finish = resolve;
-          })
-      );
-      jest.mocked(initBridgeConfig).mockClear();
-      const view = render(<App env={{ windowType: WindowType.FullPage }} />);
-      expect(view.queryByTestId('page-router')).toBeNull();
-      expect(jest.mocked(initBridgeConfig)).not.toHaveBeenCalled();
-      await act(async () => {
-        finish();
-      });
-      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(1);
-      expect(view.getByTestId('page-router')).toBeInTheDocument();
-    });
-
-    it('preserves the mounted wallet subtree when an allowed lease is renewed', async () => {
-      const view = await renderApp({ windowType: WindowType.FullPage });
-      const router = view.getByTestId('page-router');
-      await act(async () => {
-        mockWalletAccessSnapshot = { status: 'allowed', expiresAt: performance.now() + 110_000 };
-        mockWalletAccessListeners.forEach(listener => listener());
-      });
-      expect(view.getByTestId('page-router')).toBe(router);
-    });
-
-    it.each<[string, WindowType, boolean, boolean, boolean]>([
-      ['popup', WindowType.Popup, false, false, false],
-      ['full page', WindowType.FullPage, false, false, false],
-      ['side panel', WindowType.SidePanel, false, false, false],
-      ['confirmation', WindowType.Popup, true, false, false],
-      ['mobile', WindowType.FullPage, false, true, false],
-      ['desktop', WindowType.FullPage, false, false, true]
-    ])(
-      'does not mount wallet surfaces or handlers on the %s surface while permission is loading',
-      async (_name, windowType, confirmWindow, mobile, desktop) => {
-        mockIsMobile.mockReturnValue(mobile);
-        mockIsDesktop.mockReturnValue(desktop);
-        mockIsExtension.mockReturnValue(!mobile && !desktop);
-        mockWalletAccessSnapshot = { status: 'loading', expiresAt: null };
-        const view = render(<App env={{ windowType, confirmWindow }} />);
-        await act(async () => undefined);
-        for (const id of [
-          'page-router',
-          'confirm-page',
-          'desktop-dapp-handler',
-          'desktop-confirm-modal',
-          'open-link-prompt',
-          'bread-connect-prompt',
-          'dialogs',
-          'pin-extension-prompt'
-        ]) {
-          expect(view.queryByTestId(id)).toBeNull();
-        }
-      }
-    );
-
-    it.each<MockWalletAccessSnapshot['status']>(['restricted', 'unavailable'])(
-      'removes already-open wallet surfaces when permission becomes %s',
-      async status => {
-        const view = await renderApp({ windowType: WindowType.FullPage });
-        expect(view.getByTestId('page-router')).toBeInTheDocument();
-        await act(async () => {
-          mockWalletAccessSnapshot = { status, expiresAt: null };
-          mockWalletAccessListeners.forEach(listener => listener());
-        });
-        expect(view.queryByTestId('page-router')).toBeNull();
-        expect(view.queryByTestId('dialogs')).toBeNull();
-      }
-    );
   });
 
   describe('module-load lock-up check', () => {

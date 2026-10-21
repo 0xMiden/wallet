@@ -15,16 +15,10 @@ import {
 } from 'lib/miden/transaction';
 import { reconcileUnconfirmedTransactions } from 'lib/miden/transaction/reconcile-unconfirmed';
 import { isExtension } from 'lib/platform';
-import { ensureWalletAccessAllowed, isWalletAccessDeniedError } from 'lib/remote-config/wallet-access';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
-import {
-  prepareCommittedGuardianCompletion,
-  completeCommittedGuardianCompletion
-} from './committed-guardian-completion';
 import { getIntercom } from './defaults';
-import { createHotKeySwapGuard } from './hot-key-swap-guard';
 import { clearRecoveryAuthorization } from './recovery-authorization';
 import { accountsUpdated, isUnlocked, store, withUnlocked } from './store';
 
@@ -96,7 +90,6 @@ let processingRequested = false;
  * every caller — including the dApp private-data readers.
  */
 export async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
-  await ensureWalletAccessAllowed();
   return withUnlocked(async ({ vault }) => {
     const signatureHex = await vault.signTransaction(publicKey, signingInputs);
     return new Uint8Array(Buffer.from(signatureHex, 'hex'));
@@ -109,21 +102,9 @@ export async function swSignCallback(publicKey: string, signingInputs: string): 
  * dApp confirmation (dapp.ts startDappBackgroundProcessing) starts.
  * Uses the Vault directly instead of the Zustand store.
  */
-const guardianCompletionTokens = new Map<string, string>();
-
 export const vaultGuardianProvider: GuardianAccountProvider = {
-  prepareCommittedGuardianCompletion: async id => {
-    guardianCompletionTokens.set(id, await prepareCommittedGuardianCompletion(id));
-  },
-  completeCommittedGuardianRow: async (id, deadlineMs) => {
-    const token = guardianCompletionTokens.get(id);
-    guardianCompletionTokens.delete(id);
-    if (!token) throw new Error('No admitted Guardian completion');
-    await completeCommittedGuardianCompletion(token, deadlineMs);
-  },
   prepareRecoveryTransaction: id => withUnlocked(({ vault }) => vault.prepareRecoveryTransaction(id)),
   releaseRecoveryAuthorization: async id => {
-    guardianCompletionTokens.delete(id);
     clearRecoveryAuthorization(id);
   },
   getAccounts: async () => {
@@ -162,15 +143,12 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // are: this is a read-modify-write of the whole accounts array, and a
     // concurrent one (an account create, or the detached Guardian recovery
     // clearing its flag) would drop one of the two writes.
-    return withUnlocked(({ vault }) => {
-      const assertCurrent = createHotKeySwapGuard(vault, accountPublicKey, newHotPubKey);
-      return getAccountsWriteQueue().add(async () => {
-        assertCurrent();
-        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey, assertCurrent);
-        assertCurrent();
-        accountsUpdated({ accounts: updated.accounts });
-      });
-    });
+    return withUnlocked(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
+        accountsUpdated(updated);
+      })
+    );
   },
   setGuardianEndpoint: async (accountPublicKey: string, guardianEndpoint: string) => {
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
@@ -206,7 +184,6 @@ export async function startTransactionProcessing(): Promise<void> {
 
   let browser: BrowserPolyfill | null = null;
   try {
-    await ensureWalletAccessAllowed();
     // In the Vite SW build, the activity module's re-export of lib/miden/transaction
     // doesn't await the async transaction module init (Rolldown treats
     // `export * from '../transaction'` as synchronous). Wait up to 60s for the
@@ -279,7 +256,7 @@ export async function startTransactionProcessing(): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   } catch (e) {
-    if (!isWalletAccessDeniedError(e)) console.error('[TransactionProcessor] Error:', e);
+    console.error('[TransactionProcessor] Error:', e);
   } finally {
     try {
       browser?.alarms.clear(ALARM_NAME);

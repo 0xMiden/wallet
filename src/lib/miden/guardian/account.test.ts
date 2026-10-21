@@ -614,10 +614,7 @@ describe('createGuardianAccount', () => {
 
     await registerGuardianAccount(created.registration);
     expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
-    expect(multisig.registerOnGuardian).toHaveBeenCalledWith(
-      Buffer.from([7, 8, 9]).toString('base64'),
-      expect.any(Function)
-    );
+    expect(multisig.registerOnGuardian).toHaveBeenCalledWith(Buffer.from([7, 8, 9]).toString('base64'));
     expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
     expect(multisig.account.id.mock.calls.length - idCalls).toBe(0);
   });
@@ -753,8 +750,8 @@ describe('createGuardianAccount', () => {
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
       // Serialized once, before the retry loop, and the same state goes out on each attempt.
       expect(multisig.account.serialize).toHaveBeenCalledTimes(1);
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, u8ToB64(ACCOUNT_STATE), expect.any(Function));
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, u8ToB64(ACCOUNT_STATE), expect.any(Function));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, u8ToB64(ACCOUNT_STATE));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, u8ToB64(ACCOUNT_STATE));
     });
 
     it('waits out a 429 on the guardian pubkey fetch and creates the account', async () => {
@@ -1027,8 +1024,8 @@ describe('createGuardianAccount', () => {
 
       expect(registration.outcome).toBe('resolved');
       expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, state, expect.any(Function));
-      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, state, expect.any(Function));
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(1, state);
+      expect(multisig.registerOnGuardian).toHaveBeenNthCalledWith(2, state);
     });
 
     // Timeouts at 30, 61 and 93 s, with backoffs of 1 s and 2 s between them and none after the last.
@@ -1093,148 +1090,6 @@ describe('createGuardianAccount', () => {
         multisig.registerOnGuardian.mock.invocationCallOrder[1] ?? 0
       );
     });
-  });
-
-  describe('GEO020 current permission at registration', () => {
-    const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>(
-      'lib/remote-config/wallet-access'
-    );
-    const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>(
-      'lib/remote-config/wallet-access'
-    );
-    const scope = () => `geo020-registration:${access.getWalletAccessGeneration()}`;
-    let decision: boolean | null = true;
-    let refreshes = 0;
-    beforeEach(() => {
-      jest.useFakeTimers();
-      decision = true;
-      refreshes = 0;
-      access.registerWalletAccessRuntime({
-        scope,
-        refresh: async () => {
-          refreshes += 1;
-          access.publishWalletAccessDecision(scope(), decision);
-        }
-      });
-      access.publishWalletAccessDecision(scope(), true);
-      jest.mocked(boundary.ensureWalletAccessAllowed).mockImplementation(access.ensureWalletAccessAllowed);
-      jest.mocked(boundary.assertWalletAccessAllowed).mockImplementation(access.assertWalletAccessAllowed);
-    });
-    afterEach(() => {
-      access.invalidateWalletAccess();
-      jest.useRealTimers();
-    });
-    const registration = async () => {
-      const multisig = makeMultisig();
-      multisigClientConfig.create.mockResolvedValueOnce(multisig);
-      const created = await createAndRegister(makeWebClient(), new Uint8Array(32));
-      multisig.registerOnGuardian.mockClear();
-      return { multisig, pending: created.registration };
-    };
-    const track = (pending: Promise<void>) =>
-      pending.then(
-        () => 'resolved',
-        (error: unknown) => error
-      );
-    const code = (outcome: unknown) =>
-      typeof outcome === 'object' && outcome !== null ? Reflect.get(outcome, 'code') : undefined;
-
-    it.each([false, null])('refuses decision %s before the first registration request', async next => {
-      const fixture = await registration();
-      decision = next;
-      access.publishWalletAccessDecision(scope(), next);
-      expect(code(await track(registerGuardianAccount(fixture.pending)))).toBe('WALLET_ACCESS_DENIED');
-      expect(fixture.multisig.registerOnGuardian).not.toHaveBeenCalled();
-    });
-
-    describe.each(['429', 'timeout'])('%s retry', phase => {
-      it.each([true, false, null])('checks decision %s after its backoff before another request', async next => {
-        const fixture = await registration();
-        if (phase === '429') fixture.multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited());
-        else fixture.multisig.registerOnGuardian.mockImplementationOnce(() => new Promise<void>(() => {}));
-        const outcome = track(registerGuardianAccount(fixture.pending));
-        await jest.advanceTimersByTimeAsync(phase === '429' ? 0 : 30_000);
-        expect(fixture.multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
-        decision = next;
-        access.publishWalletAccessDecision(scope(), next);
-        await jest.advanceTimersByTimeAsync(1000);
-        const result = await outcome;
-        expect(result === 'resolved').toBe(next === true);
-        expect(code(result)).toBe(next === true ? undefined : 'WALLET_ACCESS_DENIED');
-        expect(fixture.multisig.registerOnGuardian).toHaveBeenCalledTimes(next === true ? 2 : 1);
-      });
-    });
-
-    it.each([true, false, null])('renews an expired retry lease with decision %s', async next => {
-      const fixture = await registration();
-      fixture.multisig.registerOnGuardian.mockRejectedValueOnce(rateLimited(60));
-      const outcome = track(registerGuardianAccount(fixture.pending));
-      await jest.advanceTimersByTimeAsync(0);
-      decision = next;
-      await jest.advanceTimersByTimeAsync(60_001);
-      const result = await outcome;
-      expect(refreshes).toBe(1);
-      expect(result === 'resolved').toBe(next === true);
-      expect(code(result)).toBe(next === true ? undefined : 'WALLET_ACCESS_DENIED');
-      expect(fixture.multisig.registerOnGuardian).toHaveBeenCalledTimes(next === true ? 2 : 1);
-    });
-
-    it.each(['denied', 'unavailable', 'expired', 'allowed'])(
-      'GEO020 final transport refuses %s permission after authentication without another attempt',
-      async change => {
-        const fixture = await registration();
-        const entered = (() => {
-          let resolve: () => void = () => {
-            throw new Error('Fixture gate not initialized');
-          };
-          const promise = new Promise<void>(done => {
-            resolve = done;
-          });
-          return { promise, resolve };
-        })();
-        const release = (() => {
-          let resolve: () => void = () => {
-            throw new Error('Fixture gate not initialized');
-          };
-          const promise = new Promise<void>(done => {
-            resolve = done;
-          });
-          return { promise, resolve };
-        })();
-        const sent = jest.fn();
-        fixture.multisig.registerOnGuardian.mockImplementationOnce(async () => {
-          entered.resolve();
-          await release.promise;
-          const call = fixture.multisig.registerOnGuardian.mock.calls[0];
-          const beforeSend: unknown = call ? Reflect.get(call, '1') : undefined;
-          if (typeof beforeSend === 'function') beforeSend();
-          sent();
-        });
-        const clock = jest.spyOn(performance, 'now');
-        const startedAt = performance.now();
-        const outcome = track(registerGuardianAccount(fixture.pending));
-        try {
-          expect(
-            await Promise.race([entered.promise.then(() => 'authenticating'), outcome.then(() => 'finished')])
-          ).toBe('authenticating');
-          if (change === 'denied' || change === 'unavailable') {
-            decision = change === 'denied' ? false : null;
-            access.publishWalletAccessDecision(scope(), decision);
-          }
-          if (change === 'expired') clock.mockReturnValue(startedAt + 60_001);
-          release.resolve();
-          const result = await outcome;
-          expect(result === 'resolved').toBe(change === 'allowed');
-          expect(code(result)).toBe(change === 'allowed' ? undefined : 'WALLET_ACCESS_DENIED');
-          expect(sent).toHaveBeenCalledTimes(change === 'allowed' ? 1 : 0);
-          expect(fixture.multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
-        } finally {
-          release.resolve();
-          await outcome;
-          clock.mockRestore();
-        }
-      }
-    );
   });
 });
 

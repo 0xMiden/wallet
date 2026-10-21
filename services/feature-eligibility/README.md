@@ -53,7 +53,7 @@ Use Wrangler **4.151.3** with `services/feature-eligibility/wrangler.jsonc`. The
 | `DEPLOYMENT_REVISION`        | Worker variable        | Source commit verified by release readiness checks           |
 | `ELIGIBILITY_GUARD`          | Durable Object binding | Atomic persisted spending and caller state                   |
 
-The public wallet build receives only the full HTTPS `/v1/eligibility` URL. Clients use a 60-second permission lease, refresh on foreground and before protected use of an expired lease, and reject mismatched network or policy decisions. MaxMind and caller-hashing secrets must never enter wallet build variables, artifacts, source maps, or public config.
+The public wallet build receives only the full HTTPS `/v1/eligibility` URL. The wallet checks eligibility once at startup against its accepted network and policy version, then keeps the wallet, Earn and Swap decisions in memory until the page restarts. It does not refresh permissions during recovery, signing or transactions. MaxMind and caller-hashing secrets must never enter wallet build variables, artifacts, source maps, or public config.
 
 ## GitHub release deployment
 

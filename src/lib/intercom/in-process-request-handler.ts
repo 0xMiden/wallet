@@ -1,13 +1,7 @@
 import * as Actions from 'lib/miden/back/actions';
-import {
-  prepareCommittedGuardianCompletion,
-  completeCommittedGuardianCompletion
-} from 'lib/miden/back/committed-guardian-completion';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
-
-import { withWalletRequestAccess } from './wallet-request-access';
 
 /**
  * The ONE request switch shared by both in-process intercom adapters (mobile via
@@ -27,10 +21,6 @@ import { withWalletRequestAccess } from './wallet-request-access';
  * `label` only names the adapter in the unknown-type warning; behavior is identical.
  */
 export async function processInProcessRequest(req: WalletRequest, label: string): Promise<WalletResponse | void> {
-  return withWalletRequestAccess(req, () => dispatchRequest(req, label));
-}
-
-async function dispatchRequest(req: WalletRequest, label: string): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.GetStateRequest: {
       const state = await Actions.getFrontState();
@@ -228,16 +218,8 @@ async function dispatchRequest(req: WalletRequest, label: string): Promise<Walle
       };
     }
 
-    case WalletMessageType.PrepareCommittedGuardianCompletionRequest:
-      return {
-        type: WalletMessageType.PrepareCommittedGuardianCompletionResponse,
-        token: await prepareCommittedGuardianCompletion(req.transactionId)
-      };
-    case WalletMessageType.CompleteCommittedGuardianCompletionRequest:
-      await completeCommittedGuardianCompletion(req.token, req.deadlineMs);
-      return { type: WalletMessageType.CompleteCommittedGuardianCompletionResponse };
     case WalletMessageType.SwapHotKeyRequest: {
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey, req.expectedScope);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };

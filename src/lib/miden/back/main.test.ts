@@ -223,7 +223,6 @@ const Actions: any = jest.requireMock('lib/miden/back/actions');
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { ensureWalletAccessAllowed } from 'lib/remote-config/wallet-access';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { CONNECTIVITY_CATEGORIES } from '../activity/connectivity-state';
@@ -854,7 +853,7 @@ describe('processRequest', () => {
       expectedHotPubKey: 'old-pub'
     });
     expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
-    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub', undefined);
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
   });
 
   it('forwards a SwapHotKeyRequest without an expectation as none (#1233)', async () => {
@@ -864,7 +863,7 @@ describe('processRequest', () => {
       newHotPubKey: 'new-pub'
     });
     expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
-    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined, undefined);
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
   });
 
   it('SetGuardianSyncStatusRequest forwards to Actions', async () => {
@@ -1623,11 +1622,4 @@ describe('scoped offscreen native identity relay', () => {
     expect(reply).toHaveBeenCalledWith({ ok: false });
     warn.mockRestore();
   });
-});
-
-it('refuses a private extension request before the mocked action can expose its result', async () => {
-  const denied = Object.assign(new Error('Wallet access denied'), { code: 'WALLET_ACCESS_DENIED' });
-  jest.mocked(ensureWalletAccessAllowed).mockRejectedValue(denied);
-  await expect(dispatch({ type: WalletMessageType.RevealMnemonicRequest, password: 'pw' })).rejects.toBe(denied);
-  expect(Actions.revealMnemonic).not.toHaveBeenCalled();
 });

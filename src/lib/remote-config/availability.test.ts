@@ -259,47 +259,47 @@ describe('the E2E collateral faucet', () => {
   });
 });
 
-describe('feature eligibility gates', () => {
-  function withGeo(geo: NonNullable<BridgeConfigSnapshot['config']>['geo'], lookup: BridgeConfigSnapshot['geo']) {
-    const snapshot = ready();
-    if (!snapshot.config) throw new Error('The test document is missing');
-    snapshot.config.geo = geo;
-    snapshot.geo = lookup;
-    return snapshot;
+describe('startup feature eligibility', () => {
+  function withDecision(geo: BridgeConfigSnapshot['geo']) {
+    return { ...ready(), geo };
   }
-
-  const blocked = { earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }] };
-  const decision = (earn: boolean, version = 1, network = 'testnet'): BridgeConfigSnapshot['geo'] => ({
+  const decision = (earn: boolean): BridgeConfigSnapshot['geo'] => ({
     state: 'ready',
-    network,
-    version,
+    network: 'testnet',
+    version: 1,
     allowed: { wallet: true, earn, swap: true }
   });
 
-  it('keeps Earn loading until the policy decision answers, then uses its strict allow decision', () => {
-    expect(featureAvailability('earnDeposit', withGeo(blocked, undefined))).toEqual({ state: 'loading' });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'loading' }))).toEqual({ state: 'loading' });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(false)))).toMatchObject({
-      reason: 'restricted'
-    });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(true)))).toEqual(AVAILABLE);
+  it('keeps legacy availability when the backend snapshot has no startup decision', () => {
+    expect(featureAvailability('earnDeposit', withDecision(undefined))).toEqual(AVAILABLE);
   });
 
-  it('fails closed for failed, wrong-network and wrong-policy decisions', () => {
-    expect(featureAvailability('earnDeposit', withGeo(blocked, { state: 'failed' }))).toMatchObject({
-      reason: 'service-down'
-    });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(true, 2)))).toMatchObject({
-      reason: 'service-down'
-    });
-    expect(featureAvailability('earnDeposit', withGeo(blocked, decision(true, 1, 'mainnet')))).toMatchObject({
+  it('waits for the startup decision and reports a failed lookup', () => {
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'loading' }))).toEqual({ state: 'loading' });
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'failed' }))).toMatchObject({
       reason: 'service-down'
     });
   });
 
-  it('does not gate withdrawals or features with no geo rule', () => {
-    expect(featureAvailability('fastBridgeOut', withGeo(blocked, decision(false)))).toEqual(AVAILABLE);
-    expect(featureAvailability('fastBridgeOut', withGeo(blocked, { state: 'failed' }))).toEqual(AVAILABLE);
-    expect(featureAvailability('earnDeposit', withGeo(undefined, { state: 'failed' }))).toEqual(AVAILABLE);
+  it('uses the startup Earn boolean without requiring local block rules', () => {
+    const denied = withDecision(decision(false));
+    expect(denied.config?.geo).toBeUndefined();
+    expect(featureAvailability('earnDeposit', denied)).toMatchObject({ reason: 'restricted' });
+    expect(featureAvailability('earnDeposit', withDecision(decision(true)))).toEqual(AVAILABLE);
+  });
+
+  it('keeps the startup decision when the accepted config version changes', () => {
+    const snapshot = withDecision(decision(false));
+    if (!snapshot.config || !snapshot.derived) throw new Error('Missing test configuration');
+    snapshot.config.version += 1;
+    snapshot.derived.version = snapshot.config.version;
+    expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'restricted' });
+    snapshot.geo = decision(true);
+    expect(featureAvailability('earnDeposit', snapshot)).toEqual(AVAILABLE);
+  });
+
+  it('does not apply the Earn decision to withdrawals or other features', () => {
+    expect(featureAvailability('fastBridgeOut', withDecision(decision(false)))).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeOut', withDecision({ state: 'failed' }))).toEqual(AVAILABLE);
   });
 });
