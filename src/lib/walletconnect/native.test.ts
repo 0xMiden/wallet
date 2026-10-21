@@ -1,7 +1,7 @@
 import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
-import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
+import { bridgeReceiveIdentity, bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
 
 import { type NativeFeeFields, readNativeFeeFields } from './fees';
 import {
@@ -716,6 +716,207 @@ describe('waiting for the session to approve an added chain', () => {
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
     expect(rawNativeRequest).toHaveBeenCalledTimes(2);
     expect(NativeReown.addListener).not.toHaveBeenCalled();
+  });
+});
+
+describe('native session precheck reasons', () => {
+  const chainId = String(ARC);
+  const chainHex = '0x4cef52';
+  const topic = 'topic-secret';
+  const amount = '1.25';
+  const rpcUrl = 'https://rpc.example/secret';
+  const address = `0x${'ab'.repeat(20)}`;
+  const secrets = [
+    chainId,
+    chainHex,
+    '4cef52',
+    'eip155',
+    'Arc Testnet',
+    'WalletConnect',
+    '0x',
+    topic,
+    'topic-1',
+    amount,
+    rpcUrl,
+    address
+  ];
+
+  const expectReason = (cause: unknown, failure: string, attempt: string, evm: string) => {
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause });
+    expect(report).toBe(
+      `via usdcx; failed at precheck_session_chain; precheck ${failure}; attempt ${attempt}; evm error ${evm}`
+    );
+    for (const secret of secrets) expect(report).not.toContain(secret);
+  };
+
+  const watch = (pending: Promise<void>) => {
+    const watched: { settled: boolean; error?: unknown } = { settled: false };
+    pending.then(
+      () => {
+        watched.settled = true;
+      },
+      (error: unknown) => {
+        watched.settled = true;
+        watched.error = error;
+      }
+    );
+    return watched;
+  };
+
+  const updateSession = (state: ReownState) => mockStateListeners.forEach(listener => listener(state));
+
+  it('names a state read that threw, and keeps the plugin error', async () => {
+    const leaked = `plugin down ${topic} ${address} amount ${amount} ${rpcUrl} eip155:${chainId} ${chainHex}`;
+    const cause = new Error(leaked);
+    rawNativeReown.getState.mockRejectedValueOnce(cause);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBe(cause);
+    expect(cause.message).toBe(leaked);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'state_unread', 'not_attempted', 'other');
+  });
+
+  it('names a missing session when no add or switch was sent', async () => {
+    rawNativeReown.getState.mockResolvedValueOnce({
+      configured: true,
+      connected: false,
+      accounts: [address],
+      address,
+      topic
+    });
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect((error as Error).message).toContain('Arc Testnet');
+    expect((error as Error).message).toContain(chainId);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'session_missing', 'not_attempted', 'none');
+  });
+
+  it('names an unapproved chain that cannot be proposed', async () => {
+    rawNativeReown.getState.mockResolvedValueOnce(sessionState([SEPOLIA]));
+
+    const missingRpc = await rejectionOf(prepareNativeSessionChain(NO_PUBLIC_RPC));
+
+    expect(missingRpc.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect((missingRpc.error as Error).message).toContain('No Public RPC');
+    expect((missingRpc.error as Error).message).toContain(String(NO_PUBLIC_RPC));
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    const missingRpcReport = bridgeReceiveIdentity({
+      route: 'usdcx',
+      step: 'precheck_session_chain',
+      cause: missingRpc.error
+    });
+    expect(missingRpcReport).toBe(
+      'via usdcx; failed at precheck_session_chain; precheck chain_unapproved; attempt unsupported; evm error none'
+    );
+    for (const secret of ['990001', 'No Public RPC', 'eip155', 'WalletConnect', rpcUrl, topic, amount, address]) {
+      expect(missingRpcReport).not.toContain(secret);
+    }
+
+    rawNativeRequest.mockClear();
+    rawNativeReown.getState.mockResolvedValueOnce(sessionState([]));
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'chain_unapproved', 'unsupported', 'none');
+  });
+
+  it('names a refused add and keeps the native rejection snapshot off the report text', async () => {
+    jest.mocked(isAndroid).mockReturnValue(true);
+    const rejection = Object.assign(new Error(`User rejected ${amount} ${rpcUrl} ${topic}`), {
+      code: nativeFailureCode
+    });
+    rawNativeRequest.mockRejectedValueOnce(rejection);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(error).not.toHaveProperty('cause');
+    expect((error as Error).message).toContain(chainId);
+    expect(String(error)).not.toContain('User rejected');
+    expect(readReownNativeFailure(error)).toEqual(expectedSnapshot);
+    expect(rawNativeRequest).toHaveBeenCalledTimes(1);
+    expectReason(error, 'chain_unapproved', 'rejected', 'none');
+  });
+
+  it('names a refused add whose session state could not be read again', async () => {
+    const reread = new Error(`reread down ${topic} ${address} amount ${amount} ${rpcUrl} ${chainHex}`);
+    rawNativeRequest.mockRejectedValueOnce(new Error(`User rejected ${amount}`));
+    rawNativeReown.getState.mockResolvedValueOnce(sessionState([SEPOLIA])).mockRejectedValueOnce(reread);
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(error).not.toBe(reread);
+    expect(error).not.toHaveProperty('cause');
+    expect((error as Error).message).toContain('Arc Testnet');
+    expect(rawNativeRequest).toHaveBeenCalledTimes(1);
+    expectReason(error, 'chain_unapproved', 'rejected_unread', 'none');
+  });
+
+  it('names a switch that returned while the session still had not approved the chain', async () => {
+    jest.useFakeTimers();
+    try {
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(4999);
+      expect(watched.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(rawNativeRequest).toHaveBeenCalledTimes(2);
+      expect((watched.error as Error).message).toContain(chainId);
+      expectReason(watched.error, 'chain_unapproved', 'unconfirmed', 'none');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('names a session that disappeared while waiting for the chain', async () => {
+    jest.useFakeTimers();
+    try {
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(1000);
+      const deleted: ReownState = { configured: true, connected: false, accounts: [address], address, topic };
+      rawNativeReown.getState.mockResolvedValue(deleted);
+      updateSession(deleted);
+      await jest.advanceTimersByTimeAsync(4000);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect((watched.error as Error).message).toContain('eip155');
+      expectReason(watched.error, 'session_missing', 'unconfirmed', 'none');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('names a switch that returned when the session state could not be read again', async () => {
+    jest.useFakeTimers();
+    try {
+      rawNativeReown.getState.mockReset();
+      rawNativeReown.getState.mockRejectedValue(
+        new Error(`read failed ${rpcUrl} ${chainHex} amount ${amount} ${topic} ${address}`)
+      );
+      rawNativeReown.getState.mockResolvedValueOnce(sessionState([SEPOLIA]));
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(4999);
+      expect(watched.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(rawNativeRequest).toHaveBeenCalledTimes(2);
+      expect((watched.error as Error).message).toContain(chainId);
+      expectReason(watched.error, 'chain_unapproved', 'unconfirmed_unread', 'none');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

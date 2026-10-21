@@ -335,6 +335,23 @@ it.each([
   }
 );
 
+it('the privacy policy lists every native session precheck failure and add-and-switch attempt', () => {
+  const failures = bridgePolicyClause('that failed condition', '; and what the add-and-switch attempt');
+  const attempts = bridgePolicyClause('; and what the add-and-switch attempt', '. The answer');
+
+  expect(failures).not.toBe('');
+  expect(attempts).not.toBe('');
+  expect(listedIn(failures)).toEqual(['chain_unapproved', 'other', 'session_missing', 'state_unread']);
+  expect(listedIn(attempts)).toEqual([
+    'not_attempted',
+    'other',
+    'rejected',
+    'rejected_unread',
+    'unconfirmed',
+    'unconfirmed_unread'
+  ]);
+});
+
 it('policyClauseRejectsMissingOrExtraSentinels', () => {
   const clause = bridgePolicyClause('; request age', '; publication observation');
   expect(listedIn(clause)).toEqual([...REOWN_REQUEST_AGES].sort());
