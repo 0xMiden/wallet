@@ -6977,8 +6977,8 @@ describe('generateTransaction — Guardian routing', () => {
         await run(queueRow('next-send', SEND));
         expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
         expect(service.abandonCandidate).toHaveBeenCalledWith(8);
-        expect(service.abandonCandidate.mock.invocationCallOrder[0]).toBeLessThan(
-          service.createSendProposal.mock.invocationCallOrder[0]
+        expect(service.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+          service.createSendProposal.mock.invocationCallOrder[0]!
         );
       });
 
