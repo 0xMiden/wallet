@@ -9,7 +9,7 @@ import {
   REOWN_BACKGROUND_ANSWERS
 } from 'lib/walletconnect/native-request-failure';
 
-import { CONFIRMATION_HANDLER_STATES } from './crash-diagnostics';
+import { CONFIRMATION_HANDLER_STATES, PAGE_VISIBILITY, STORAGE_OPERATIONS, STORAGE_OWNERS } from './crash-diagnostics';
 import {
   RELAY_CONNECTIVITY,
   RELAY_FAILURE_BUCKETS,
@@ -18,6 +18,7 @@ import {
   RELAY_TRIGGERS,
   RELAY_VISIBILITY
 } from './relay-diagnostics';
+import { USER_ERROR_IDS, USER_ERROR_SURFACES } from './user-visible-error';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
 
 const crashReportPolicy = (): string => {
@@ -38,6 +39,11 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['storage owner', STORAGE_OWNERS],
+  ['storage operation', STORAGE_OPERATIONS],
+  ['page visibility', PAGE_VISIBILITY],
+  ['which message it was', USER_ERROR_IDS],
+  ['which kind of display showed it', USER_ERROR_SURFACES],
   ['shared memory could still grow', SHARED_MEMORY_PROBES],
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],
@@ -59,6 +65,31 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
 it.each(FIELDS)('the privacy policy lists exactly the values a crash report can carry after "%s"', (phrase, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), phrase))).toEqual(new Set(values));
 });
+
+const mutationCases = FIELDS.flatMap(([phrase, values]) => values.map(value => ({ phrase, value })));
+
+it.each(mutationCases)(
+  'detects a missing $value or an extra value only in the list for "$phrase"',
+  ({ phrase, value }) => {
+    const policy = crashReportPolicy();
+    const at = policy.indexOf(phrase);
+    const open = at === -1 ? -1 : policy.indexOf('(', at + phrase.length);
+    const close = open === -1 ? -1 : policy.indexOf(')', open);
+    const list = policy.slice(open, close);
+    const missing = policy.slice(0, open) + list.replace(`\`${value}\``, '') + policy.slice(close);
+    const extra = policy.slice(0, close) + ', `unlisted_storage_value`' + policy.slice(close);
+    expect(missing).not.toBe(policy);
+    expect(extra).not.toBe(policy);
+    for (const [registered, values] of FIELDS) {
+      expect(new Set(listedAfter(missing, registered))).toEqual(
+        new Set(registered === phrase ? values.filter(listed => listed !== value) : values)
+      );
+      expect(new Set(listedAfter(extra, registered))).toEqual(
+        new Set(registered === phrase ? [...values, 'unlisted_storage_value'] : values)
+      );
+    }
+  }
+);
 
 it("tells a value missing from one field's list, or listed but never sent, from a correct list", () => {
   const policy = crashReportPolicy();

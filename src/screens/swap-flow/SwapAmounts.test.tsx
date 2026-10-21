@@ -1,12 +1,13 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import fs from 'fs';
 import path from 'path';
 
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { SwapAmounts, SwapAmountsProps } from './SwapAmounts';
@@ -89,8 +90,15 @@ jest.mock('components/Button', () => ({
 //     mapped UIToken is serialized to `data-token` so we can assert the
 //     swapTokenToUIToken transformation, and two buttons surface the
 //     onAmountChange / onSelectToken callbacks.
+let mockRealAmountDisplay = false;
 jest.mock('../send-flow/SelectAmount', () => ({
   SelectAmount: (props: any) => {
+    if (mockRealAmountDisplay) {
+      const { SelectAmount } = jest.requireActual<typeof import('screens/send-flow/SelectAmount')>(
+        'screens/send-flow/SelectAmount'
+      );
+      return <SelectAmount {...props} />;
+    }
     // The label is a styled node now; its text is still 'youPay' / 'youReceive'.
     const key = typeof props.label === 'string' ? props.label : props.label?.props?.children;
     return (
@@ -533,3 +541,37 @@ describe('SwapAmounts — CTA', () => {
     expect(quoteStatus()).toBeNull();
   });
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible swap amount reports', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockRealAmountDisplay = true;
+  });
+  afterEach(() => {
+    mockRealAmountDisplay = false;
+    jest.useRealTimers();
+  });
+  it('reports an over-balance offer on the real amount field', () => {
+    renderComponent({ offerAmount: '150', offerBalance: 100 });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['amountMustBeLessThanBalance', 'field']]);
+  });
+  it('reports the visible fee line once rather than its hidden field error', () => {
+    renderComponent({ feeAssetMissing: true, offerAmount: '' });
+    expect(screen.getByTestId('swap-fee-notice')).toHaveTextContent('insufficientFeeAssetShort');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['insufficientFeeAssetShort', 'inline']]);
+  });
+  it('does not report calculating status copy', () => {
+    renderComponent({ offerAmount: '1', offerBalance: 100, statusMessage: 'swapCalculating', statusIsError: false });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+jest.mock('components/ui/AnimatedNumber', () => ({
+  AnimatedNumber: ({ value }: { value: number }) => <span>{value}</span>
+}));

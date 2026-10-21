@@ -11,6 +11,7 @@ import { ListRow } from 'components/ui/ListRow';
 import { Pill } from 'components/ui/Pill';
 import { SubPageSection } from 'components/ui/SubPageLayout';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -88,6 +89,8 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
       ? { key: 'verifyStepCorrect', tone: 'success' }
       : { key: 'verifyStepWrong', tone: 'error' };
   }, [firstSelectedWordIndex, secondSelectedWordIndex, isCorrectWordSelected]);
+
+  useUserVisibleError(stepPrompt.tone === 'error' ? 'verifyStepWrong' : null, 'inline');
 
   const quiz = (
     <>

@@ -130,3 +130,185 @@ describe('UsdcxExecuteAction', () => {
     expect(screen.getByTestId('usdcx-execute-submitted')).toHaveTextContent('usdcxExecuteSubmitted:Arc Testnet');
   });
 });
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible USDCx execution errors', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    execute.mockResolvedValue('synthetic-hash');
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    [
+      'raw rejection',
+      new Error('private execute 42 https://synthetic.invalid/0xabc'),
+      'private execute 42 https://synthetic.invalid/0xabc',
+      'raw_usdcx_execute_failed'
+    ],
+    [
+      'wrapped session refusal',
+      new Error('private wrapper', { cause: new NativeSessionChainNotApprovedError(5042002, 'Arc Testnet') }),
+      'evmChainNotApproved:Arc Testnet',
+      'evmChainNotApproved'
+    ]
+  ])('reports the %s by its producer identity once', async (_label, cause, copy, id) => {
+    execute.mockRejectedValueOnce(cause);
+    render(<UsdcxExecuteAction txId="private-row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(String(copy));
+    await expectErrorAfterDwell(String(id), 'inline');
+  });
+
+  it('clears a failed episode while the retry is pending and after success', async () => {
+    execute.mockRejectedValueOnce(new Error('temporary execute failure'));
+    const view = render(<UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    let finish: (hash: string) => void = () => undefined;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finish = resolve;
+        })
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('usdcx-execute-button')).toBeDisabled();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+      finish('synthetic-hash');
+    });
+    view.rerender(<UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="ready" cctp={LEG} />);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it.each(['settled', 'row change', 'unmount'])('cancels an execution failure on %s before dwell', async action => {
+    execute.mockRejectedValueOnce(new Error('old execution failure'));
+    const view = render(
+      <UsdcxExecuteAction txId="old-row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (action === 'unmount') view.unmount();
+    else
+      view.rerender(
+        <UsdcxExecuteAction
+          txId={action === 'row change' ? 'new-row' : 'old-row'}
+          sourceChainId={BASE_SEPOLIA}
+          phase={action === 'settled' ? 'ready' : 'delivering'}
+          cctp={LEG}
+        />
+      );
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('ignores a late execution rejection belonging to the previously selected row', async () => {
+    let refuse: (cause: Error) => void = () => undefined;
+    execute.mockImplementationOnce(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          refuse = reject;
+        })
+    );
+    const view = render(
+      <UsdcxExecuteAction txId="old-row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+    expect(screen.getByTestId('usdcx-execute-button')).toBeDisabled();
+    view.rerender(<UsdcxExecuteAction txId="new-row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+    await act(async () => {
+      refuse(new Error('previous row execution failed'));
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps waiting, forwarding, submitted and manual execute guidance quiet', async () => {
+    const view = render(
+      <UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={{ sourceDomain: 6 }} />
+    );
+    expect(screen.getByTestId('usdcx-execute-waiting')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    view.rerender(
+      <UsdcxExecuteAction
+        txId="row"
+        sourceChainId={BASE_SEPOLIA}
+        phase="delivering"
+        cctp={{ sourceDomain: 6, forwarded: true }}
+      />
+    );
+    expect(screen.getByTestId('usdcx-execute-forwarding')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    view.rerender(<UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+    expect(screen.getByTestId('usdcx-execute-ready')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    view.rerender(
+      <UsdcxExecuteAction
+        txId="row"
+        sourceChainId={BASE_SEPOLIA}
+        phase="delivering"
+        cctp={{ ...LEG, executeTxHash: 'synthetic-hash' }}
+      />
+    );
+    expect(screen.getByTestId('usdcx-execute-submitted')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});

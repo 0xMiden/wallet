@@ -214,6 +214,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         # E2E_NETWORK=localhost bakes MIDEN_NETWORK=localhost AND (always, per
         # test:e2e:blockchain:build) MIDEN_E2E_TEST=true -- required both for the

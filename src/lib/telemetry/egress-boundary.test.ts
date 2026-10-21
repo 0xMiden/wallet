@@ -1,13 +1,20 @@
+import { createElement } from 'react';
+
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { act, renderHook } from '@testing-library/react';
+import { Scope } from '@sentry/browser';
+import { act, render, renderHook } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
+import { englishWordlist } from '@miden/hd-key';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { deserializeInternalError } from 'lib/intercom/helpers';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
+import { createSchemaFor, Table } from 'lib/miden/repo';
 import { MidenMessageType } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
@@ -19,8 +26,10 @@ import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry'
 
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
+import { getCrashBuildIdentity } from './crash-build';
 import { annotateCrash } from './crash-diagnostics';
 import { encodingVariantsOf } from './egress-guard';
+import { containsSeedMaterial } from './redact';
 import { __resetRelayDiagnosticsForTest, recordRelaySurface } from './relay-diagnostics';
 import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
@@ -35,6 +44,7 @@ import {
   TelemetryResult,
   TelemetryStep
 } from './types';
+import { USER_ERROR_SURFACES, _resetUserVisibleErrorLimitsForTest, reportUserVisibleError } from './user-visible-error';
 import packageJson from '../../../package.json';
 
 jest.mock('./crash-artifacts', () => ({
@@ -349,6 +359,150 @@ function parsePayload(text: string): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed)) payload[key] = value;
   return payload;
+}
+
+function sentryEvents(): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = [];
+  for (const entry of captured) {
+    if (!new URL(entry.url).pathname.endsWith('/envelope/')) continue;
+    const lines = entry.body.split('\n');
+    for (let index = 1; index < lines.length; index += 2) {
+      const header = lines[index];
+      const payload = lines[index + 1];
+      if (header === undefined || payload === undefined) throw new Error('incomplete Sentry envelope item');
+      if (parsePayload(header).type === 'event') events.push(parsePayload(payload));
+    }
+  }
+  return events;
+}
+
+function storageWireIncrement(): {
+  event: Record<string, unknown>;
+  baseline: Record<string, unknown>;
+  increment: number;
+} {
+  expect(captured).toHaveLength(1);
+  const request = captured[0];
+  if (request === undefined) throw new Error('missing wire report');
+  expect(new URL(request.url).pathname.endsWith('/envelope/')).toBe(true);
+  const lines = request.body.split('\n');
+  const eventIndexes: number[] = [];
+  for (let index = 1; index < lines.length; index += 2) {
+    const header = lines[index];
+    if (header === undefined) throw new Error('missing envelope item header');
+    if (parsePayload(header).type === 'event') eventIndexes.push(index + 1);
+  }
+  expect(eventIndexes).toHaveLength(1);
+  const eventIndex = eventIndexes[0];
+  if (eventIndex === undefined) throw new Error('missing event item');
+  const payload = lines[eventIndex];
+  if (payload === undefined) throw new Error('missing event payload');
+  const event = parsePayload(payload);
+  expect(JSON.stringify(event)).toBe(payload);
+
+  const baseline = parsePayload(payload);
+  const extra = objectAt(baseline, 'extra');
+  const diagnostics = objectAt(extra, 'walletDiagnostics');
+  const tags = objectAt(baseline, 'tags');
+  for (const key of ['storageOwner', 'storageOperation', 'pageVisibility']) delete diagnostics[key];
+  for (const key of ['storage_owner', 'storage_operation', 'page_visibility']) delete tags[key];
+  extra.walletDiagnostics = diagnostics;
+  baseline.extra = extra;
+  baseline.tags = tags;
+  expect(Object.keys(diagnostics).length).toBeGreaterThan(0);
+  expect(Object.keys(tags).length).toBeGreaterThan(0);
+  expect(baseline.fingerprint).toEqual(event.fingerprint);
+  const actualDiagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+  const actualTags = objectAt(event, 'tags');
+  expect([
+    diagnostics.userErrorId,
+    diagnostics.userErrorSurface,
+    tags['user_error.id'],
+    tags['user_error.surface']
+  ]).toEqual([
+    actualDiagnostics.userErrorId,
+    actualDiagnostics.userErrorSurface,
+    actualTags['user_error.id'],
+    actualTags['user_error.surface']
+  ]);
+  expect({ ...baseline, extra: event.extra, tags: event.tags }).toEqual(event);
+
+  // Replace only the event payload so all actual envelope headers and unrelated items keep their wire bytes.
+  const baselineLines = [...lines];
+  baselineLines[eventIndex] = JSON.stringify(baseline);
+  expect(baselineLines.filter((_, index) => index !== eventIndex)).toEqual(
+    lines.filter((_, index) => index !== eventIndex)
+  );
+  expect(leaksIn(wireText())).toEqual([]);
+  const encoder = new TextEncoder();
+  return {
+    event,
+    baseline,
+    increment: encoder.encode(request.body).byteLength - encoder.encode(baselineLines.join('\n')).byteLength
+  };
+}
+
+interface CursorFaultEvidence {
+  opened: number;
+  requestErrors: number;
+}
+
+async function withCursorRequestFailure(
+  target: Dexie,
+  failure: Error,
+  run: (evidence: CursorFaultEvidence) => Promise<void>
+): Promise<void> {
+  const evidence: CursorFaultEvidence = { opened: 0, requestErrors: 0 };
+  const backend = target.backendDB();
+  const restores: Array<() => void> = [];
+  const openCursor = IDBObjectStore.prototype.openCursor;
+  const spy = jest.spyOn(IDBObjectStore.prototype, 'openCursor').mockImplementation(function (
+    this: IDBObjectStore,
+    query?: IDBValidKey | IDBKeyRange | null,
+    direction?: IDBCursorDirection
+  ) {
+    const request = openCursor.call(this, query, direction);
+    if (this.transaction.db !== backend) return request;
+    const onSuccess = () => {
+      const cursor: unknown = request.result;
+      if (!(cursor instanceof IDBCursor)) throw new Error('fault fixture did not open a real cursor');
+      const iterate: unknown = Reflect.get(cursor, '_iterate');
+      if (typeof iterate !== 'function') throw new Error('fault fixture cannot find cursor iteration');
+      evidence.opened++;
+      const own = Object.getOwnPropertyDescriptor(cursor, '_iterate');
+      // fake-indexeddb schedules this private method for the next real request, after open has succeeded.
+      Object.defineProperty(cursor, '_iterate', {
+        configurable: true,
+        writable: true,
+        value: () => {
+          throw failure;
+        }
+      });
+      restores.push(() => {
+        if (own === undefined) Reflect.deleteProperty(cursor, '_iterate');
+        else Object.defineProperty(cursor, '_iterate', own);
+      });
+    };
+    const onError = () => {
+      if (evidence.opened === 0 || request.error !== failure) {
+        throw new Error('fault fixture did not observe the post-open request failure');
+      }
+      evidence.requestErrors++;
+    };
+    request.addEventListener('success', onSuccess);
+    request.addEventListener('error', onError);
+    restores.push(() => {
+      request.removeEventListener('success', onSuccess);
+      request.removeEventListener('error', onError);
+    });
+    return request;
+  });
+  try {
+    await run(evidence);
+  } finally {
+    for (const restore of restores.reverse()) restore();
+    spy.mockRestore();
+  }
 }
 
 /** Every Aptabase envelope that reached the wire, parsed. */
@@ -1454,6 +1608,341 @@ describe('crash-report egress', () => {
     expect(text).not.toContain('"payload"');
   });
 
+  describe('storage rejection egress', () => {
+    const poison = {
+      database: 'wire-poison-database-hazel',
+      firstPrimaryKey: 'wire-poison-primary-a',
+      secondPrimaryKey: 'wire-poison-primary-b',
+      indexedQueryKey: 'wire-poison-primary-',
+      accountId: 'wire-poison-account-opaque',
+      transactionId: HIGH_ENTROPY_POISON.transactionId,
+      noteId: HIGH_ENTROPY_POISON.noteId,
+      address: HIGH_ENTROPY_POISON.addressTestnet,
+      amount: '715326498217',
+      fieldName: 'wirePoisonOpaqueField',
+      fieldValue: 'wire-poison-row-field-value',
+      nestedFieldName: 'wirePoisonNestedField',
+      nestedFieldValue: 'wire-poison-nested-field-value',
+      errorCredential: 'wire-poison-credential',
+      causeCredential: 'wire-poison-cause',
+      invalidOwner: 'wire-poison-owner',
+      invalidOperation: 'wire-poison-operation'
+    };
+    let target: Dexie;
+    let injectedFailure: Error;
+    let visibility: PropertyDescriptor | undefined;
+
+    beforeEach(async () => {
+      visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      target = createSchemaFor(poison.database);
+      await target.open();
+      const rows: Array<ITransaction & Record<string, unknown>> = [poison.firstPrimaryKey, poison.secondPrimaryKey].map(
+        id => ({
+          id,
+          type: 'send',
+          accountId: poison.accountId,
+          transactionId: poison.transactionId,
+          noteId: poison.noteId,
+          secondaryAccountId: poison.address,
+          amount: BigInt(poison.amount),
+          status: ITransactionStatus.Queued,
+          initiatedAt: 1,
+          displayIcon: 'SEND',
+          [poison.fieldName]: poison.fieldValue,
+          extraInputs: { [poison.nestedFieldName]: poison.nestedFieldValue }
+        })
+      );
+      await target.table<ITransaction, string>(Table.Transactions).bulkAdd(rows);
+      // An existing Dexie class preserves this exact Error and its cause through request-error mapping.
+      injectedFailure = new Dexie.UnknownError('cursor request failed password=wire-poison-credential');
+      injectedFailure.cause = new Error('continuation failed password=wire-poison-cause');
+    });
+
+    afterEach(async () => {
+      stopCrashReporting();
+      target.close();
+      try {
+        await target.delete();
+      } finally {
+        if (visibility === undefined) Reflect.deleteProperty(document, 'visibilityState');
+        else Object.defineProperty(document, 'visibilityState', visibility);
+      }
+    });
+
+    function scanFailure(): Promise<unknown> {
+      // A filter forces cursor iteration instead of Dexie's getAll fast path; the range poisons an actual query key.
+      return target
+        .table<ITransaction, string>(Table.Transactions)
+        .where(':id')
+        .aboveOrEqual(poison.indexedQueryKey)
+        .filter(() => true)
+        .toArray()
+        .then(
+          () => undefined,
+          (failure: unknown) => failure
+        );
+    }
+
+    function expectNoStoragePoison(text: string): void {
+      for (const sentinel of Object.values(poison)) {
+        for (const variant of encodingVariantsOf(sentinel)) expect(text).not.toContain(variant);
+      }
+      expect(leaksIn(text)).toEqual([]);
+    }
+
+    function expectOriginalExceptions(event: Record<string, unknown>): void {
+      expect(objectAt(event, 'exception').values).toEqual([
+        expect.objectContaining({ type: 'Error', value: expect.stringContaining('continuation failed') }),
+        expect.objectContaining({ type: 'UnknownError', value: expect.stringContaining('cursor request failed') })
+      ]);
+      expect(event).not.toHaveProperty('title');
+      expect(event).not.toHaveProperty('message');
+      expect(event).not.toHaveProperty('fingerprint');
+      expect(JSON.stringify(objectAt(event, 'exception'))).not.toMatch(
+        /wallet_transactions|storageOwner|storageOperation/
+      );
+    }
+
+    it('keeps the maximum storage diagnostic increment within192 wire bytes', async () => {
+      const previousTarget = process.env.WALLET_BUILD_TARGET;
+      process.env.WALLET_BUILD_TARGET = 'mobile';
+      try {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'prerender' });
+        consentOn();
+        initCrashReporting();
+        const failure = new Error(`storage operation failed password=${POISON.password}`);
+        failure.name = 'WalletUserVisibleError';
+        annotateCrash(failure, {
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'transaction',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        captureCrash(failure);
+        await flushEgress();
+
+        const { event, baseline, increment } = storageWireIncrement();
+        expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+          appVersion: packageJson.version,
+          network: 'testnet',
+          target: 'mobile',
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'transaction',
+          pageVisibility: 'unknown',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        expect(objectAt(event, 'exception').values).toEqual([
+          expect.objectContaining({
+            type: 'WalletUserVisibleError',
+            value: expect.stringContaining('storage operation failed')
+          })
+        ]);
+        expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
+        expect(objectAt(objectAt(baseline, 'extra'), 'walletDiagnostics')).toMatchObject({
+          appVersion: packageJson.version,
+          network: 'testnet',
+          target: 'mobile',
+          userErrorId: 'usdcxFaucetUnavailable',
+          userErrorSurface: 'review'
+        });
+        expect(increment).toBeLessThanOrEqual(192);
+        expect(event.tags).toEqual({
+          network: 'testnet',
+          storage_owner: 'wallet_transactions',
+          storage_operation: 'transaction',
+          'user_error.id': 'usdcxFaucetUnavailable',
+          'user_error.surface': 'review'
+        });
+        expect(event.tags).not.toHaveProperty('page_visibility');
+      } finally {
+        if (previousTarget === undefined) delete process.env.WALLET_BUILD_TARGET;
+        else process.env.WALLET_BUILD_TARGET = previousTarget;
+      }
+    });
+
+    it('keeps a real cursor diagnostic increment within192 wire bytes', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+
+        const { event, increment } = storageWireIncrement();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toMatchObject({
+          storageOwner: 'wallet_transactions',
+          storageOperation: 'cursor',
+          pageVisibility: 'hidden'
+        });
+        expect(event.tags).toEqual({
+          network: 'testnet',
+          storage_owner: 'wallet_transactions',
+          storage_operation: 'cursor'
+        });
+        expect(event.tags).not.toHaveProperty('page_visibility');
+        expect(increment).toBeGreaterThan(0);
+        expect(increment).toBeLessThanOrEqual(192);
+      });
+    });
+
+    it('keeps an unannotated report within192 added wire bytes without storage attribution', async () => {
+      consentOn();
+      initCrashReporting();
+      captureCrash(new Error('unannotated wire budget control'));
+      await flushEgress();
+
+      const { event, increment } = storageWireIncrement();
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).not.toHaveProperty('storageOwner');
+      expect(diagnostics).not.toHaveProperty('storageOperation');
+      expect(diagnostics.pageVisibility).toBe('hidden');
+      expect(event.tags).toEqual({ network: 'testnet' });
+      expect(event.tags).not.toHaveProperty('page_visibility');
+      expect(event).not.toHaveProperty('fingerprint');
+      expect(increment).toBeGreaterThan(0);
+      expect(increment).toBeLessThanOrEqual(192);
+    });
+
+    it('sends only closed storage values from a real post-open cursor rejection', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        if (!(publicFailure instanceof Error)) throw new Error('cursor scan did not reject with an Error');
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(publicFailure).toBe(injectedFailure);
+        expect(publicFailure.name).toBe('UnknownError');
+        expect(captured).toHaveLength(1);
+        expect(sentryEvents()).toHaveLength(1);
+        expect(wireText()).toContain('continuation failed');
+        expect(wireText()).toContain('"type":"onunhandledrejection","handled":false');
+        expect(wireText()).toContain('"pageVisibility":"hidden"');
+        expect(wireText()).not.toContain('"page_visibility"');
+        expect(wireText()).toContain('"storageOwner":"wallet_transactions"');
+        expect(wireText()).toContain('"storageOperation":"cursor"');
+        expect(wireText()).toContain('"storage_owner":"wallet_transactions"');
+        expect(wireText()).toContain('"storage_operation":"cursor"');
+        expectNoStoragePoison(wireText());
+        const event = sentryEvents()[0];
+        if (event === undefined) throw new Error('missing cursor report');
+        expectOriginalExceptions(event);
+      });
+    });
+
+    it('keeps poisoned cursor contents and scrubbed credentials off the real wire', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(1);
+        const events = sentryEvents();
+        expect(events).toHaveLength(1);
+        const event = events[0];
+        if (event === undefined) throw new Error('missing cursor report');
+        expectOriginalExceptions(event);
+        expectNoStoragePoison(wireText());
+      });
+    });
+
+    it('sends nothing when the same cursor failure is consumed', async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        expect(await scanFailure()).toBe(injectedFailure);
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(0);
+      });
+    });
+
+    it('sends nothing for a real cursor failure when consent is denied', async () => {
+      consentOff();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        expect(captured).toHaveLength(0);
+      });
+    });
+
+    it('drops unlisted storage labels on the real wire', async () => {
+      consentOn();
+      initCrashReporting();
+      const publicFailure = new Error('unlisted storage annotation');
+      // This adversarial annotation is separate from every genuine cursor rejection above.
+      annotateCrash(publicFailure, { storageOwner: poison.invalidOwner, storageOperation: poison.invalidOperation });
+      globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      const events = sentryEvents();
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      if (event === undefined) throw new Error('missing adversarial report');
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).not.toHaveProperty('storageOwner');
+      expect(diagnostics).not.toHaveProperty('storageOperation');
+      expect(diagnostics.pageVisibility).toBe('hidden');
+      const tags = objectAt(event, 'tags');
+      expect(tags).not.toHaveProperty('storage_owner');
+      expect(tags).not.toHaveProperty('storage_operation');
+      expect(tags).not.toHaveProperty('page_visibility');
+      expectNoStoragePoison(wireText());
+    });
+
+    it("does not attach a cursor failure's storage labels to the next event", async () => {
+      consentOn();
+      initCrashReporting();
+      await withCursorRequestFailure(target, injectedFailure, async evidence => {
+        const publicFailure = await scanFailure();
+        expect(publicFailure).toBe(injectedFailure);
+        globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: publicFailure }));
+        await flushEgress();
+        expect(evidence.opened).toBeGreaterThan(0);
+        expect(evidence.requestErrors).toBe(1);
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        globalThis.dispatchEvent(
+          Object.assign(new Event('unhandledrejection'), { reason: new Error('unrelated storage control') })
+        );
+        await flushEgress();
+        expect(captured).toHaveLength(2);
+        const events = sentryEvents();
+        expect(events).toHaveLength(2);
+        const [first, second] = events;
+        if (first === undefined || second === undefined) throw new Error('missing sequential reports');
+        expect(objectAt(objectAt(first, 'extra'), 'walletDiagnostics').pageVisibility).toBe('hidden');
+        expect(objectAt(first, 'tags')).not.toHaveProperty('page_visibility');
+        const diagnostics = objectAt(objectAt(second, 'extra'), 'walletDiagnostics');
+        expect(diagnostics).not.toHaveProperty('storageOwner');
+        expect(diagnostics).not.toHaveProperty('storageOperation');
+        expect(diagnostics.pageVisibility).toBe('visible');
+        const tags = objectAt(second, 'tags');
+        expect(tags).not.toHaveProperty('storage_owner');
+        expect(tags).not.toHaveProperty('storage_operation');
+        expect(tags).not.toHaveProperty('page_visibility');
+        expectNoStoragePoison(wireText());
+      });
+    });
+  });
+
   it('retains exact validated local compiled positions and source build identity only', async () => {
     process.env.WALLET_BUILD_TARGET = 'mobile';
     process.env.WALLET_BUILD_REVISION = '0123456789abcdef0123456789abcdef01234567';
@@ -1757,6 +2246,7 @@ describe('crash-report egress', () => {
     const text = wireText();
     expect(captured.length).toBeGreaterThan(0);
     expect(text).toContain('"tags":{"network":"mainnet"}');
+    expect(text).not.toContain('"page_visibility"');
     expect(text).toMatch(/"walletDiagnostics":\{[^}]*"network":"mainnet"/);
     expect(leaksIn(text)).toEqual([]);
   });
@@ -1769,6 +2259,239 @@ describe('crash-report egress', () => {
 
     const hosts = new Set(captured.map(entry => new URL(entry.url).host));
     expect(hosts).toEqual(new Set(['o0.ingest.de.sentry.io']));
+  });
+});
+
+describe('user-visible error reports', () => {
+  beforeEach(() => {
+    _resetUserVisibleErrorLimitsForTest();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('a raw display leaks none of its text', async () => {
+    consentOn();
+    jest.useFakeTimers();
+    try {
+      render(
+        createElement(
+          ErrorLine,
+          { errorId: 'raw_send_submit_failed' },
+          `Unable to send ${POISON.amount} to ${POISON.addressTestnet}: ${PHRASE_12}`
+        )
+      );
+      act(() => jest.advanceTimersByTime(1000));
+    } finally {
+      jest.useRealTimers();
+    }
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'raw_send_submit_failed',
+      'user_error.surface': 'inline'
+    });
+    expect(event.tags).not.toHaveProperty('page_visibility');
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_send_submit_failed', 'inline']);
+    expect(wireText()).toContain('raw_send_submit_failed');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('puts only the closed id and surface on the wire', async () => {
+    consentOn();
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({
+        type: 'WalletUserVisibleError',
+        value: 'User-visible error: usdcxFaucetUnavailable; surface review',
+        stacktrace: { frames: [] },
+        mechanism: expect.objectContaining({ handled: true })
+      })
+    ]);
+    expect(event.level).toBe('warning');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'usdcxFaucetUnavailable',
+      'user_error.surface': 'review'
+    });
+    expect(event.tags).not.toHaveProperty('page_visibility');
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', 'review']);
+    expect(objectAt(objectAt(event, 'extra'), 'walletDiagnostics')).toEqual({
+      ...resolveTelemetryContext(),
+      ...getCrashBuildIdentity(),
+      pageVisibility: 'visible',
+      userErrorId: 'usdcxFaucetUnavailable',
+      userErrorSurface: 'review'
+    });
+    expect(wireText()).not.toContain('"filename"');
+    expect(wireText()).not.toContain('"cause"');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('preserves every closed surface through crash scrubbing', async () => {
+    consentOn();
+    for (const surface of USER_ERROR_SURFACES) {
+      reportUserVisibleError('usdcxFaucetUnavailable', surface);
+      await flushEgress();
+    }
+    expect(captured).toHaveLength(12);
+    for (const [index, surface] of USER_ERROR_SURFACES.entries()) {
+      const event = parsePayload(captured[index]?.body.split('\n')[2] ?? '');
+      expect(objectAt(event, 'tags')['user_error.surface']).toBe(surface);
+      expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', surface]);
+    }
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each([
+    ['identifier fragments in a breadcrumb', 'breadcrumb', 'account', 'key', 'seed'],
+    ['identifier fragments in extra data', 'extra', 'account', 'key', 'seed'],
+    ['a closed surface in a breadcrumb', 'breadcrumb', 'review', 'review', 'review'],
+    ['a closed surface in extra data', 'extra', 'review', 'review', 'review']
+  ] as const)('drops a contaminated report despite %s', async (_name, location, first, second, third) => {
+    const syntheticWords = [
+      'abandon',
+      'ability',
+      'able',
+      first,
+      'about',
+      'above',
+      'absent',
+      second,
+      'absorb',
+      'abstract',
+      'absurd',
+      third
+    ];
+    const text = syntheticWords.join(' ');
+    expect(syntheticWords.every(word => englishWordlist.includes(word))).toBe(true);
+    expect(containsSeedMaterial(text, englishWordlist)).toBe(true);
+    consentOn();
+    const policyInputs: unknown[] = [];
+    const stopObservers: Array<() => void> = [];
+    const captureException = Scope.prototype.captureException;
+    const capture = jest.spyOn(Scope.prototype, 'captureException').mockImplementationOnce(function (
+      this: Scope,
+      error,
+      hint
+    ) {
+      if (location === 'breadcrumb') this.addBreadcrumb({ category: 'fixture', message: text });
+      else this.setExtra('fixture', text);
+      const reportingClient = this.getClient();
+      if (!reportingClient) throw new Error('Missing reporting client');
+      stopObservers.push(
+        reportingClient.on('postprocessEvent', event => {
+          policyInputs.push(
+            location === 'breadcrumb'
+              ? event.breadcrumbs?.find(breadcrumb => breadcrumb.category === 'fixture')?.message
+              : event.extra?.fixture
+          );
+        })
+      );
+      return captureException.call(this, error, hint);
+    });
+
+    try {
+      reportUserVisibleError('raw_account_export_failed', 'review');
+      await flushEgress();
+    } finally {
+      stopObservers.forEach(stop => stop());
+    }
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(policyInputs).toEqual([text]);
+    expect(captured).toHaveLength(0);
+    expect(wireText()).not.toContain(text);
+  });
+
+  it('preserves canonical closed data with harmless free-text fields', async () => {
+    consentOn();
+    const captureException = Scope.prototype.captureException;
+    const capture = jest.spyOn(Scope.prototype, 'captureException').mockImplementationOnce(function (
+      this: Scope,
+      error,
+      hint
+    ) {
+      this.addBreadcrumb({ category: 'fixture', message: 'fallback unavailable' });
+      this.setExtra('fixture', 'fallback unavailable');
+      return captureException.call(this, error, hint);
+    });
+
+    reportUserVisibleError('raw_account_export_failed', 'review');
+    await flushEgress();
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'raw_account_export_failed',
+      'user_error.surface': 'review'
+    });
+    expect(event.tags).not.toHaveProperty('page_visibility');
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_account_export_failed', 'review']);
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({
+        type: 'WalletUserVisibleError',
+        value: 'User-visible error: raw_account_export_failed; surface review'
+      })
+    ]);
+    expect(event.breadcrumbs).toEqual([
+      expect.objectContaining({ category: 'fixture', message: 'fallback unavailable' })
+    ]);
+    expect(objectAt(event, 'extra')).toEqual({
+      walletDiagnostics: {
+        ...resolveTelemetryContext(),
+        ...getCrashBuildIdentity(),
+        pageVisibility: 'visible',
+        userErrorId: 'raw_account_export_failed',
+        userErrorSurface: 'review'
+      }
+    });
+  });
+
+  it('retains a repeated report after the minute instead of letting Sentry deduplicate it', async () => {
+    consentOn();
+    const clock = jest.spyOn(performance, 'now').mockReturnValue(0);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    clock.mockReturnValue(59_999);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    clock.mockReturnValue(60_000);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(2);
+  });
+
+  it('drops raw text containing an address, amount and recovery phrase before capture', async () => {
+    consentOn();
+    const report: unknown = reportUserVisibleError;
+    if (typeof report !== 'function') throw new Error('Missing reporter');
+    report(`Unable to send ${POISON.amount} to ${POISON.addressTestnet}: ${PHRASE_12}`, 'review');
+    report('usdcxFaucetUnavailable', `toast ${POISON.addressTestnet}`);
+    await flushEgress();
+    expect(captured).toHaveLength(0);
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('sends nothing without crash-report permission', async () => {
+    consentOff();
+    reportUserVisibleError('usdcxFaucetUnavailable', 'review');
+    await flushEgress();
+    expect(captured).toEqual([]);
   });
 });
 
@@ -1846,11 +2569,13 @@ describe('WalletConnect relay failure reports', () => {
       network: resolveTelemetryContext().network,
       service: 'walletconnect_relay'
     });
+    expect(objectAt(event, 'tags')).not.toHaveProperty('page_visibility');
     const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
     expect(Object.fromEntries(Object.entries(diagnostics).filter(([key]) => !EVERY_REPORT_KEYS.includes(key)))).toEqual(
       {
         service: 'walletconnect_relay',
         connectivity: 'steady',
+        pageVisibility: 'visible',
         visibility: 'visible',
         surface: 'confirm',
         relayTrigger: 'no_connect_modal',

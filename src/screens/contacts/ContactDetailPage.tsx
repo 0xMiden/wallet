@@ -16,6 +16,7 @@ import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletContact } from 'lib/shared/types';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
 import useIsMounted from 'lib/ui/useIsMounted';
 import { navigate, Redirect } from 'lib/woozie';
@@ -62,7 +63,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
   const [saving, setSaving] = useState(false);
   // Only cleared on failure: a success unmounts this page via `onDeleted`.
   const [removing, setRemoving] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<{ text: string; id: UserErrorId }>();
 
   // `updateContact` and `removeContact` each rewrite the ENTIRE contact list from the same
   // render-time snapshot, so two overlapping writers is last-writer-wins: saving during an
@@ -124,7 +125,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
       setEditing(false);
     } catch (err: unknown) {
       failed = err instanceof Error ? err.message : String(err);
-      setError(failed);
+      setError({ text: failed, id: 'raw_contact_save_failed' });
     }
     setSaving(false);
     // Lower to what is still true. Clearing unconditionally here would drop the row while the
@@ -153,7 +154,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
       await removeContact(contact.address);
       onDeleted();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError({ text: err instanceof Error ? err.message : String(err), id: 'raw_contact_delete_failed' });
       setRemoving(false);
       // Stay retained: the row is already gone from the store and this error is the only thing
       // left explaining why the contact is still on screen.
@@ -212,7 +213,9 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
           onSelect={setNetwork}
           testIdPrefix="contact"
         />
-        <ErrorLine className="-mt-2">{error}</ErrorLine>
+        <ErrorLine className="-mt-2" errorId={error?.id}>
+          {error?.text}
+        </ErrorLine>
         {/* The shared destructive button: `fill` with the negative ink, the one shape a
             destructive action takes anywhere in the wallet. */}
         <Button

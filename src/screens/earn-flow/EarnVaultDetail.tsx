@@ -65,10 +65,17 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       {/* A failed load never draws the placeholder vault as if it were real; with the vault in
           hand from an earlier load, it is still shown, under a notice that it may be stale. */}
       {loadFailed && !found ? (
-        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
+        <EarnLoadError
+          onRetry={refetch}
+          message={t('earnVaultLoadError')}
+          errorId="earnVaultLoadError"
+          className="mt-10"
+        />
       ) : pending ? null : (
         <>
-          {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
+          {loadFailed && (
+            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} errorId="earnVaultLoadError" />
+          )}
           <FeatureUnavailableNotice availability={earnDeposit} />
           <EarnHero
             layout="label-first"

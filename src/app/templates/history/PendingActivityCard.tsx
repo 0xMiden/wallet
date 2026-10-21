@@ -17,6 +17,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
 import { pendingNoteUnreadKey } from './activityUnread';
@@ -32,6 +33,8 @@ export interface PendingActivityItem {
   held?: boolean;
   /** The refusal its last Retry met, shown in place of the hint. */
   retryError?: string;
+  /** Stable for one producer failure, including when the note's details refresh. */
+  failure?: { id: UserErrorId };
   /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
   cannotPayFee?: boolean;
 }
@@ -120,6 +123,27 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   else if (held) hint = t('transactionNotConfirmedHint');
   else if (status === 'failed') hint = t('noteClaimFailedRetry');
   const negative = status === 'failed' || item.retryError !== undefined;
+  const failureId =
+    item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
+  const [observedFailure, setObservedFailure] = useState<{
+    noteId: string;
+    status: PendingActivityStatus;
+    failure: PendingActivityItem['failure'];
+    errorId: UserErrorId | null;
+  }>({ noteId: note.id, status, failure: item.failure, errorId: null });
+  // A restored failure is a baseline; only a transition or a new producer failure is live on this mount.
+  if (
+    observedFailure.noteId !== note.id ||
+    observedFailure.status !== status ||
+    observedFailure.failure !== item.failure
+  ) {
+    setObservedFailure({
+      noteId: note.id,
+      status,
+      failure: item.failure,
+      errorId: observedFailure.noteId === note.id ? failureId : null
+    });
+  }
 
   // A refusal's message lives in the folded section, so it opens with it (#1081).
   useEffect(() => {
@@ -229,6 +253,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                 an edge with the buttons under it. */}
                 <div className="px-4 py-3">
                   <Notice
+                    errorId={observedFailure.errorId}
+                    errorOccurrence={observedFailure.failure}
                     data-testid="pending-activity-hint"
                     tone={negative ? 'negative' : 'neutral'}
                     role={negative ? 'alert' : 'status'}

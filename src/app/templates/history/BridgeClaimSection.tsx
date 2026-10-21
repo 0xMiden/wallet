@@ -28,6 +28,8 @@ import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
@@ -100,9 +102,11 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // focus moves to the EVM wallet) leaves the row `claiming` with nothing in flight, and its deposit stays claimable.
   const [claimInFlight, setClaimInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const [currentBlock, setCurrentBlock] = useState<number | null>(null);
   const [reclaiming, setReclaiming] = useState(false);
   const [reclaimError, setReclaimError] = useState<string | null>(null);
+  const [reclaimErrorId, setReclaimErrorId] = useState<UserErrorId | null>(null);
 
   // Epoch (Fast) auto-settles on the destination chain — poll the allocator for
   // the receiving-chain fill (status + tx hash) only while the detail is open.
@@ -154,6 +158,14 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     ((transactionFailed && noteMayExist) || intentNeverRecorded || fillFailed);
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
+  useUserVisibleError(
+    isAgglayer && mayStillClaim && status !== 'claimed' && exitTxHash && error ? errorId : null,
+    'inline'
+  );
+  useUserVisibleError(
+    canShowReclaim && (reclaimReached || transactionFailed || fillFailed) && reclaimError ? reclaimErrorId : null,
+    'inline'
+  );
 
   // Poll the bridge indexer for THIS row's own exit deposit. Stateless and
   // indexer-driven, so it surfaces deposits from a previous session too. The
@@ -264,6 +276,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     if (!claimable || !evmProvider || !entry.txId || !exitTxHash || restoredFromBackup) return;
     hapticMedium();
     setError(null);
+    setErrorId(null);
     setClaimInFlight(true);
     setStatus('claiming');
     const pin = { agglayerDepositCnt: claimable.deposit_cnt };
@@ -297,7 +310,13 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         console.error('[bridge-claim] claim failed', err);
         setStatus('failed');
         await updateBridgeClaimStatus(entry.txId, 'failed');
-        setError(nativeSigningErrorMessage(err, t, e => (e instanceof Error ? e.message : 'Claim failed')));
+        let id: UserErrorId = 'evmChainNotApproved';
+        const message = nativeSigningErrorMessage(err, t, e => {
+          id = 'raw_bridge_claim_failed';
+          return e instanceof Error ? e.message : 'Claim failed';
+        });
+        setError(message);
+        setErrorId(id);
       }
     } finally {
       setClaimInFlight(false);
@@ -322,6 +341,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     if (!reclaimNoteId) return;
     hapticMedium();
     setReclaimError(null);
+    setReclaimErrorId(null);
     setReclaiming(true);
     try {
       // Reclaim = the sender consuming their own recallable P2IDE note by id.
@@ -341,9 +361,11 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     } catch (err) {
       if (err instanceof ClaimFeeRefusedError) {
         setReclaimError(t('insufficientFeeAsset'));
+        setReclaimErrorId('insufficientFeeAsset');
       } else {
         console.error('[bridge-claim] reclaim failed', err);
         setReclaimError(err instanceof Error ? err.message : 'Reclaim failed');
+        setReclaimErrorId('raw_bridge_reclaim_failed');
       }
       setReclaiming(false);
     }

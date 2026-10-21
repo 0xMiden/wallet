@@ -1,9 +1,10 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { TEST_MIDEN_USDC } from 'lib/epoch/testing/bridge-config';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
@@ -54,44 +55,55 @@ jest.mock('./components', () => ({
 // AmountInput, i18n Button). Stub it to a probe that mirrors every prop the page
 // wires through as data-attributes and exposes controls to drive the callbacks
 // (`onAmountChange`, `onConfirm`, `onSelectToken`).
+let mockRealAmountDisplay = false;
 jest.mock('screens/send-flow/SelectAmount', () => ({
-  SelectAmount: (props: {
-    accent?: string;
-    token?: { id: string; name: string; decimals: number; balance: number; fiatPrice: number };
-    amount: string;
-    isValidAmount: boolean;
-    label?: React.ReactNode;
-    confirmTitle?: string;
-    showNetworkPill?: boolean;
-    showBalanceHelper?: boolean;
-    pageInset?: boolean;
-    showAmountDivider?: boolean;
-    onAmountChange: (amount: string) => void;
-    onSelectToken: () => void;
-    onConfirm?: () => void;
-  }) => (
-    <div
-      data-testid="select-amount"
-      data-accent={props.accent}
-      data-amount={props.amount}
-      data-valid={String(props.isValidAmount)}
-      data-label={String(props.label)}
-      data-confirm-title={props.confirmTitle}
-      data-show-network-pill={String(props.showNetworkPill)}
-      data-show-balance-helper={String(props.showBalanceHelper)}
-      data-page-inset={String(props.pageInset)}
-      data-show-amount-divider={String(props.showAmountDivider)}
-      data-token-id={props.token?.id}
-      data-token-name={props.token?.name}
-      data-token-decimals={String(props.token?.decimals)}
-      data-token-balance={String(props.token?.balance)}
-      data-token-fiat={String(props.token?.fiatPrice)}
-    >
-      <input data-testid="amount-input" onChange={e => props.onAmountChange(e.target.value)} />
-      <button data-testid="confirm" onClick={() => props.onConfirm?.()} />
-      <button data-testid="select-token" onClick={() => props.onSelectToken()} />
-    </div>
-  )
+  SelectAmount: (
+    props: React.ComponentProps<typeof import('screens/send-flow/SelectAmount').SelectAmount> & {
+      accent?: string;
+      token?: { id: string; name: string; decimals: number; balance: number; fiatPrice: number };
+      amount: string;
+      isValidAmount: boolean;
+      label?: React.ReactNode;
+      confirmTitle?: string;
+      showNetworkPill?: boolean;
+      showBalanceHelper?: boolean;
+      pageInset?: boolean;
+      showAmountDivider?: boolean;
+      onAmountChange: (amount: string) => void;
+      onSelectToken: () => void;
+      onConfirm?: () => void;
+    }
+  ) => {
+    if (mockRealAmountDisplay) {
+      const { SelectAmount } = jest.requireActual<typeof import('screens/send-flow/SelectAmount')>(
+        'screens/send-flow/SelectAmount'
+      );
+      return <SelectAmount {...props} />;
+    }
+    return (
+      <div
+        data-testid="select-amount"
+        data-accent={props.accent}
+        data-amount={props.amount}
+        data-valid={String(props.isValidAmount)}
+        data-label={String(props.label)}
+        data-confirm-title={props.confirmTitle}
+        data-show-network-pill={String(props.showNetworkPill)}
+        data-show-balance-helper={String(props.showBalanceHelper)}
+        data-page-inset={String(props.pageInset)}
+        data-show-amount-divider={String(props.showAmountDivider)}
+        data-token-id={props.token?.id}
+        data-token-name={props.token?.name}
+        data-token-decimals={String(props.token?.decimals)}
+        data-token-balance={String(props.token?.balance)}
+        data-token-fiat={String(props.token?.fiatPrice)}
+      >
+        <input data-testid="amount-input" onChange={e => props.onAmountChange(e.target.value)} />
+        <button data-testid="confirm" onClick={() => props.onConfirm?.()} />
+        <button data-testid="select-token" onClick={() => props.onSelectToken()} />
+      </div>
+    );
+  }
 }));
 
 // The page resolves its vault from live Epoch data via `useEarnPositions`
@@ -517,4 +529,56 @@ it('cannot fund a USDCx Earn deposit from an account holding only legacy Epoch U
   expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
   fireEvent.click(screen.getByTestId('confirm'));
   expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible deposit amount reports', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockRealAmountDisplay = true;
+  });
+  afterEach(() => {
+    mockRealAmountDisplay = false;
+    jest.useRealTimers();
+  });
+  it('reports missing native fees from the real amount field', () => {
+    mockBaseFee = 7;
+    mockBalanceRows = [USDC_ROW, { tokenId: 'MIDEN-ID', balance: 0 }];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['insufficientFeeAsset', 'field']]);
+  });
+  it('does not report collateral loading cautions', () => {
+    mockCollateral = null;
+    mockCollateralWait = 'loading';
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralLoading');
+    expect(screen.queryByText('unknownTokenScale')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+  it('reports settled unavailable collateral as a displayed failure', () => {
+    mockCollateral = null;
+    mockCollateralWait = 'unavailable';
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralUnavailable');
+    expect(screen.queryByText('unknownTokenScale')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnCollateralUnavailable', 'notice']]);
+  });
+  it('reports the visible unknown-scale helper for resolved collateral with unknown metadata', () => {
+    mockBalanceRows = [{ ...USDC_ROW, metadata: { ...USDC_ROW.metadata, scaleIsUnknown: true } }];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    expect(screen.queryByTestId('earn-collateral-notice')).not.toBeInTheDocument();
+    expect(screen.getByText('unknownTokenScale')).toBeVisible();
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['unknownTokenScale', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
 });

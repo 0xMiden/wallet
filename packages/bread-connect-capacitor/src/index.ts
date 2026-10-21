@@ -1,7 +1,7 @@
 import { App } from '@capacitor/app';
-
 import { callbackOrigin } from '@miden-sdk/bread-connect';
 
+import { openManagedWallet } from './native-opener.js';
 import { BreadConnectNative } from './plugin.js';
 import { KeyValueStorage } from './storage.js';
 import { AppSwitchTransport, LinkSource } from './transport.js';
@@ -54,12 +54,17 @@ export function installBreadConnect(options: BreadConnectOptions): BreadConnectW
   if (callbackOrigin(options.callback) === null) {
     throw new Error('The callback must be a canonical https link on a domain the app owns, with no query or fragment');
   }
-  const transport = new AppSwitchTransport({
+  const transportOptions = {
     callback: options.callback,
     storage: options.storage ?? window.localStorage,
-    links: options.links ?? capacitorLinks(),
-    openWallet: options.openWallet ?? openWithPlugin
-  });
+    links: options.links ?? capacitorLinks()
+  };
+  const openWallet = options.openWallet;
+  const transport = new AppSwitchTransport(
+    openWallet === undefined || openWallet === openWithPlugin
+      ? { ...transportOptions, managedOpener: openManagedWallet }
+      : { ...transportOptions, openWallet }
+  );
   void transport.start();
   const wallet = new BreadConnectWallet(transport, options.appName);
   Object.defineProperty(window, 'midenWallet', { value: wallet, configurable: true, writable: true });

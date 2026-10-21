@@ -1,5 +1,6 @@
 import type { FlowAccent } from 'components/flow/accent';
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import type { TransactionStepDef } from './constants';
 
@@ -50,6 +51,8 @@ export interface GeneratingTransactionProps {
   isRetrying?: boolean;
   /** Error message from a failed retry attempt, shown under the buttons. */
   retryError?: string | null;
+  /** Closed identity for the displayed retry error; null marks a non-error display. */
+  retryErrorId?: UserErrorId | null;
 }
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';

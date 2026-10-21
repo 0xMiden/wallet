@@ -54,6 +54,8 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
@@ -269,6 +271,11 @@ const AccountDisplay: FC<{
   return <AddressChip address={address} className="ml-2" displayName={getDisplayName(address)} />;
 });
 
+const HistoryError: FC<React.ComponentProps<'p'> & { errorId: UserErrorId | null }> = ({ errorId, ...props }) => {
+  useUserVisibleError(errorId, 'inline');
+  return <p {...props} />;
+};
+
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
   // This page draws its own header instead of PageLayout's toolbar, so it opts out of the
@@ -298,6 +305,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const usdcxDestinationTxHash = useUsdcxDestinationTransaction(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
+  const [deriveErrorId, setDeriveErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
@@ -341,6 +349,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const derive = async () => {
       try {
         setDeriveError(null);
+        setDeriveErrorId(null);
         const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
         const tokenMetadata = !offeredSwapToken && tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
         if (cancelled) return;
@@ -502,6 +511,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         console.error('[HistoryDetails] Failed to derive transaction view:', { transactionId, error });
         if (!cancelled) {
           setDeriveError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
+          setDeriveErrorId({
+            id: error instanceof Error ? 'raw_history_details_load_failed' : 'historyDetailsLoadError',
+            transactionId
+          });
         }
       }
     };
@@ -707,7 +720,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
-            <p className="text-text-muted text-sm text-center select-text">{loadError}</p>
+            <HistoryError
+              errorId={
+                deriveError
+                  ? deriveErrorId?.transactionId === transactionId
+                    ? deriveErrorId.id
+                    : null
+                  : 'historyDetailsLoadError'
+              }
+              className="text-text-muted text-sm text-center select-text"
+            >
+              {loadError}
+            </HistoryError>
             <p className="text-text-muted text-xs text-center mt-2 select-text">
               {t('historyDetailsIdLabel', { id: transactionId })}
             </p>
@@ -743,6 +767,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             offerCancelOrder={receipt.offerCancel}
             isCancellingOrder={actions.isCancellingOrder}
             cancelOrderError={actions.cancelOrderError}
+            cancelOrderErrorId={actions.cancelOrderErrorId}
             onCancelOrder={actions.onCancelOrder}
           />
         ) : (
@@ -1254,7 +1279,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
             {actions.cancelError && (
-              <p className="mb-2 text-center text-sm text-status-negative">{actions.cancelError}</p>
+              <HistoryError errorId={actions.cancelErrorId} className="mb-2 text-center text-sm text-status-negative">
+                {actions.cancelError}
+              </HistoryError>
             )}
             <Button
               data-testid="history-cancel-button"
@@ -1277,9 +1304,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
             {actions.retryError && (
-              <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
+              <HistoryError
+                errorId={actions.retryErrorId}
+                data-testid="history-retry-error"
+                className="mb-2 text-center text-sm text-status-negative"
+              >
                 {actions.retryError}
-              </p>
+              </HistoryError>
             )}
             {maxNetworkFee && !isEarnWithdraw && (
               // Requeues as a NEW transaction paying a NEW fee, on one tap with no

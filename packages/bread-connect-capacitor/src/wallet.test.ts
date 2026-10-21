@@ -281,6 +281,21 @@ describe('BreadConnectWallet', () => {
       payload: 'AQID',
       kind: 'word'
     });
+
+    request.mockResolvedValueOnce({ type: 'LOGIN_KEY_RESPONSE', loginKey: 'AQID' });
+    await expect(wallet.requestLoginKey()).resolves.toEqual({ loginKey: new Uint8Array([1, 2, 3]) });
+    expect(request).toHaveBeenLastCalledWith({ type: 'LOGIN_KEY_REQUEST', sourceAccountId: 'mtst1account' });
+
+    request.mockResolvedValueOnce({ type: 'LOGIN_SIGN_RESPONSE', signature: 'BAUG' });
+    await expect(wallet.signLoginBytes(new Uint8Array([1, 2, 3]), 'word')).resolves.toEqual({
+      signature: new Uint8Array([4, 5, 6])
+    });
+    expect(request).toHaveBeenLastCalledWith({
+      type: 'LOGIN_SIGN_REQUEST',
+      sourceAccountId: 'mtst1account',
+      payload: 'AQID',
+      kind: 'word'
+    });
   });
 
   it('refuses answers of the wrong shape', async () => {
@@ -302,6 +317,8 @@ describe('BreadConnectWallet', () => {
     await expect(wallet.requestSend(SEND)).rejects.toBeInstanceOf(WalletError);
     await expect(wallet.requestAssets()).rejects.toBeInstanceOf(WalletError);
     await expect(wallet.signBytes(new Uint8Array([1]), 'word')).rejects.toBeInstanceOf(WalletError);
+    await expect(wallet.requestLoginKey()).rejects.toBeInstanceOf(WalletError);
+    await expect(wallet.signLoginBytes(new Uint8Array([1]), 'word')).rejects.toBeInstanceOf(WalletError);
     expect(request).not.toHaveBeenCalled();
   });
 

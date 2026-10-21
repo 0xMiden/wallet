@@ -9,6 +9,12 @@ import {
   type ReownBackgroundAnswer
 } from 'lib/walletconnect/native-request-failure';
 
+import {
+  USER_ERROR_SURFACES,
+  isUserErrorId,
+  type UserErrorId,
+  type UserErrorSurface
+} from './user-visible-error-contract';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES, type WasmStartupEvidence } from './wasm-startup';
 
 /** The background's state for a dApp approval no handler answered; its Not Found code is `confirmation_<state>`. */
@@ -21,6 +27,22 @@ export const CONFIRMATION_HANDLER_STATES = [
   'unknown'
 ] as const;
 export type ConfirmationHandlerState = (typeof CONFIRMATION_HANDLER_STATES)[number];
+
+export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
+export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
+export type PageVisibility = 'visible' | 'hidden' | 'unknown';
+
+export const STORAGE_OWNERS: readonly StorageOwner[] = ['wallet_transactions', 'wallet_limits', 'wallet_database'];
+export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
+  'get',
+  'query',
+  'count',
+  'cursor',
+  'mutate',
+  'transaction',
+  'open'
+];
+export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
 
 export type CrashDiagnostics = WasmStartupEvidence & {
   operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
@@ -35,7 +57,13 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   reownRequestAge?: ReownRequestAge;
   reownPublished?: ReownPublication;
   reownBackgrounded?: ReownBackgroundAnswer;
+  storageOwner?: StorageOwner;
+  storageOperation?: StorageOperation;
+  userErrorId?: UserErrorId;
+  userErrorSurface?: UserErrorSurface;
 };
+
+export type StorageCrashDiagnostics = Pick<CrashDiagnostics, 'storageOwner' | 'storageOperation'>;
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
   'reownNativeOrigin',
@@ -101,7 +129,11 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       sharedMemoryProbe: suppliedProbe,
       extensionViews: suppliedViews,
       confirmationHandler: suppliedCode,
-      portReconnected
+      portReconnected,
+      storageOwner: suppliedOwner,
+      storageOperation: suppliedStorageOperation,
+      userErrorId,
+      userErrorSurface: suppliedSurface
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -119,7 +151,24 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     const confirmationHandler = CONFIRMATION_HANDLER_STATES.find(state => `confirmation_${state}` === suppliedCode);
     if (confirmationHandler !== undefined) safe.confirmationHandler = confirmationHandler;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
+    if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
+    const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
+    if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
+    const storageOwner = STORAGE_OWNERS.find(value => value === suppliedOwner);
+    const storageOperation = STORAGE_OPERATIONS.find(value => value === suppliedStorageOperation);
     const previous = { ...diagnosticsByError.get(error) };
+    if (
+      storageOperation !== undefined &&
+      ((storageOwner !== undefined &&
+        (storageOwner !== 'wallet_database' || storageOperation === 'transaction' || storageOperation === 'open')) ||
+        (suppliedOwner === undefined && storageOperation === 'open'))
+    ) {
+      // Do not join a new operation to a stale owner.
+      delete previous.storageOwner;
+      delete previous.storageOperation;
+      if (storageOwner !== undefined) safe.storageOwner = storageOwner;
+      safe.storageOperation = storageOperation;
+    }
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
     diagnosticsByError.set(error, { ...previous, ...safe, ...nativeDiagnostics(diagnostics) });
@@ -144,19 +193,96 @@ export function errorChain(error: unknown): Error[] {
   return chain;
 }
 
+function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined {
+  const seen = new Set<Error>();
+  const visiting = new Set<Error>();
+  let failureEntries = 0;
+  const visit = (link: unknown, depth: number): StorageCrashDiagnostics | undefined => {
+    if (!(link instanceof Error) || depth > 3 || visiting.has(link)) return {};
+    seen.add(link);
+    if (seen.size > 32) return {};
+    const explicit = diagnosticsByError.get(link);
+    if (explicit?.storageOperation !== undefined) {
+      return explicit.storageOwner === undefined
+        ? { storageOperation: explicit.storageOperation }
+        : { storageOwner: explicit.storageOwner, storageOperation: explicit.storageOperation };
+    }
+    visiting.add(link);
+    const inner: unknown = 'inner' in link ? link.inner : undefined;
+    const failures: unknown = 'failures' in link ? link.failures : undefined;
+    let candidate: StorageCrashDiagnostics | undefined;
+    let missingCandidate = false;
+    if (inner !== undefined && inner !== null) {
+      candidate = visit(inner, depth + 1);
+      if (candidate !== undefined && candidate.storageOperation === undefined) return {};
+      missingCandidate = candidate === undefined;
+    }
+    if (failures !== undefined) {
+      if (!Array.isArray(failures)) return {};
+      const length: unknown = failures.length;
+      if (typeof length !== 'number' || !Number.isInteger(length) || length <= 0 || length > 32) return {};
+      failureEntries += length;
+      // Count entries even when several slots reference the same Error.
+      if (failureEntries > 32) return {};
+      for (let index = 0; index < length; index++) {
+        const entry: unknown = failures[index];
+        const promoted = visit(entry, depth + 1);
+        if (promoted === undefined) {
+          missingCandidate = true;
+          continue;
+        }
+        if (promoted.storageOwner === undefined || promoted.storageOperation === undefined) return {};
+        if (
+          candidate !== undefined &&
+          (candidate.storageOwner !== promoted.storageOwner || candidate.storageOperation !== promoted.storageOperation)
+        )
+          return {};
+        candidate = promoted;
+      }
+    }
+    visiting.delete(link);
+    return missingCandidate && candidate !== undefined ? {} : candidate;
+  };
+  try {
+    // Undefined permits cause inheritance; an empty result rejects uncertain attribution.
+    return visit(error, 0);
+  } catch {
+    // Inaccessible fixed links make attribution uncertain, never the failure itself.
+    return {};
+  }
+}
+
 export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   const snapshot: CrashDiagnostics = {};
   for (const link of errorChain(error).reverse()) {
     const stored = diagnosticsByError.get(link);
-    if (stored === undefined) continue;
-    const unrelated = { ...stored };
-    clearNativeDiagnostics(unrelated);
-    Object.assign(snapshot, unrelated);
-    const native = nativeDiagnostics(stored);
-    if (native.reownNativeOrigin !== undefined) {
-      clearNativeDiagnostics(snapshot);
-      Object.assign(snapshot, native);
+    const { storageOwner, storageOperation, ...other } = stored ?? {};
+    clearNativeDiagnostics(other);
+    Object.assign(snapshot, other);
+    if (stored !== undefined) {
+      const native = nativeDiagnostics(stored);
+      if (native.reownNativeOrigin !== undefined) {
+        clearNativeDiagnostics(snapshot);
+        Object.assign(snapshot, native);
+      }
+    }
+    const storage = storageDiagnosticsAt(link);
+    if (storage !== undefined) {
+      // Rejected promotion and ownerless annotations must clear inherited storage fields.
+      delete snapshot.storageOwner;
+      delete snapshot.storageOperation;
+      Object.assign(snapshot, storage);
     }
   }
   return snapshot;
+}
+
+export function readPageVisibility(): PageVisibility {
+  try {
+    if (typeof document === 'undefined') return 'unknown';
+    const visibility = document.visibilityState;
+    return visibility === 'visible' || visibility === 'hidden' ? visibility : 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }

@@ -503,19 +503,21 @@ describe("the clients' copies of Bread's identity", () => {
   // The Capacitor plugin's native code and the Swift and Kotlin SDKs cannot import these constants, so each keeps a
   // copy, and a copy that drifts sends requests elsewhere or refuses the real Bread only on a device.
   const read = (file: string) => readFileSync(join(__dirname, '../..', file), 'utf8');
-  const CAPACITOR_IOS = 'bread-connect-capacitor/ios/Sources/BreadConnectPlugin/BreadConnectPlugin.swift';
+  const CAPACITOR_IOS = 'bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift';
   const CAPACITOR_ANDROID =
     'bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/BreadConnectPlugin.java';
+  const CAPACITOR_ANDROID_OPENER =
+    'bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/NativeOpenAttempt.java';
   const SWIFT = 'bread-connect-swift/Sources/BreadConnect/Envelope.swift';
   const KOTLIN = 'bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Envelope.kt';
 
   it.each([
     [CAPACITOR_IOS, 'requestPrefix', `${BREAD_REQUEST_URL}#`],
     [CAPACITOR_IOS, 'appStoreURL', APP_STORE_URL],
-    [CAPACITOR_ANDROID, 'BREAD_PACKAGE', BREAD_ANDROID_PACKAGE],
-    [CAPACITOR_ANDROID, 'REQUEST_PREFIX', `${BREAD_REQUEST_URL}#`],
-    [CAPACITOR_ANDROID, 'MARKET_URL', PLAY_STORE_MARKET_URL],
-    [CAPACITOR_ANDROID, 'PLAY_URL', PLAY_STORE_URL],
+    [CAPACITOR_ANDROID_OPENER, 'BREAD_PACKAGE', BREAD_ANDROID_PACKAGE],
+    [CAPACITOR_ANDROID_OPENER, 'REQUEST_PREFIX', `${BREAD_REQUEST_URL}#`],
+    [CAPACITOR_ANDROID_OPENER, 'MARKET_URL', PLAY_STORE_MARKET_URL],
+    [CAPACITOR_ANDROID_OPENER, 'PLAY_URL', PLAY_STORE_URL],
     [SWIFT, 'requestURL', BREAD_REQUEST_URL],
     [SWIFT, 'appStoreURL', APP_STORE_URL],
     [KOTLIN, 'REQUEST_URL', BREAD_REQUEST_URL],

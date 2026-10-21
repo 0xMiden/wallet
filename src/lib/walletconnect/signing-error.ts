@@ -14,6 +14,10 @@ function findChainNotApproved(err: unknown): NativeSessionChainNotApprovedError 
   return undefined;
 }
 
+export function nativeSigningErrorId(err: unknown): 'evmChainNotApproved' | undefined {
+  return findChainNotApproved(err) ? 'evmChainNotApproved' : undefined;
+}
+
 /**
  * A native signing failure as the screen shows it: a chain that the connected session did not
  * approve, found anywhere in the cause chain, gets the localized reconnect message, and every other

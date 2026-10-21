@@ -203,6 +203,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
             onKeyDown={handleEnterKey}
             autoFocus={!isMobile()}
             error={errors.password?.message}
+            errorId="raw_encrypted_file_unlock_failed"
             data-testid="encrypted-file-wallet-password-input"
           />
         )}
@@ -229,12 +230,12 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
       </CheckboxConsent>
 
       {!hasHardwareProtector && isDisabled && (
-        <Notice tone="negative" role="alert" title={t('error')}>
+        <Notice errorId="unlockPasswordErrorDelay" tone="negative" role="alert" title={t('error')}>
           {`${t('unlockPasswordErrorDelay')} ${timeleft}`}
         </Notice>
       )}
       {hasHardwareProtector && errors.password && (
-        <Notice tone="negative" role="alert" title={t('error')}>
+        <Notice errorId="raw_encrypted_file_unlock_failed" tone="negative" role="alert" title={t('error')}>
           {errors.password.message || ''}
         </Notice>
       )}
@@ -247,6 +248,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
             clearErrors('password');
           }}
           error={errors.password?.message ?? null}
+          errorId="raw_encrypted_file_unlock_failed"
           disabled={isDisabled || !confirmed}
           isSubmitting={isSubmitting}
           className="mt-auto pb-2"

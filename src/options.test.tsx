@@ -33,6 +33,17 @@ const mockResetStorage = jest.fn();
 // or heavy child providers run.
 jest.mock('./main.css', () => ({}));
 jest.mock('lib/lock-up/run-checks', () => ({}));
+jest.mock('./i18n', () => ({}));
+jest.mock('app/a11y/AwaitI18N', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ loadEndpointOverrides: async () => undefined }));
+jest.mock('lib/remote-config/runtime', () => ({
+  initFeatureEligibility: async () => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn: true, swap: true }
+  })
+}));
 
 jest.mock('app/a11y/DisableOutlinesForClick', () => ({
   __esModule: true,
@@ -159,7 +170,11 @@ describe('src/options.tsx', () => {
       });
 
       await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
-      expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+      expect(mockAlert).toHaveBeenCalledWith({
+        title: 'error',
+        children: 'resetDidNotFinish',
+        errorId: 'resetDidNotFinish'
+      });
       // While the alert is open nothing reloads, and a second Reset is ignored.
       await act(async () => {
         fireEvent.click(getResetButton());
@@ -321,8 +336,48 @@ describe('src/options.tsx', () => {
     });
 
     await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
-    expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'reload failed' });
+    expect(mockAlert).toHaveBeenCalledWith({
+      title: 'error',
+      children: 'reload failed',
+      errorId: 'raw_options_reload_failed'
+    });
     expect(reloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards resetDidNotFinish from the actual options wipe catch', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockRejectedValue(new Error('private wipe detail'));
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: 'resetDidNotFinish', errorId: 'resetDidNotFinish' }]
+    ]);
+  });
+
+  it.each([
+    ['Error', new Error('private reload detail'), 'private reload detail'],
+    ['non-Error', { message: 'not an Error', toString: (): string => 'raw reload detail' }, 'raw reload detail']
+  ])('forwards raw_options_reload_failed while preserving the %s reload display', async (_kind, failure, display) => {
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockResolvedValue(undefined);
+    reloadMock.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+
+    await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1));
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: display, errorId: 'raw_options_reload_failed' }]
+    ]);
   });
 
   it('ignores a second Reset pressed while the wipe is still running', async () => {
