@@ -140,14 +140,11 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   if (matchingRow && firstLoadedRow.current.failed === undefined) {
     firstLoadedRow.current.failed = inputs.phase === 'failed';
   }
-  const failureId =
-    inputs?.error == null
-      ? 'transactionErrorDescription'
-      : inputs.error
-        ? isUserErrorId(inputs.errorId)
-          ? inputs.errorId
-          : 'raw_bridge_deposit_failed'
-        : null;
+  const failureId = !inputs?.error
+    ? 'transactionErrorDescription'
+    : isUserErrorId(inputs.errorId)
+      ? inputs.errorId
+      : 'raw_bridge_deposit_failed';
   useUserVisibleError(
     matchingRow && inputs.phase === 'failed' && firstLoadedRow.current.failed === false ? failureId : null,
     'status_screen'
@@ -285,7 +282,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
             data-testid="bridge-deposit-processing-description"
           >
             {failed
-              ? (inputs.error ?? t('transactionErrorDescription'))
+              ? inputs.error || t('transactionErrorDescription')
               : waiting
                 ? t('bridgeDepositAwaitingNextConfirmationDescription')
                 : t('bridgeDepositProcessingDescription')}
