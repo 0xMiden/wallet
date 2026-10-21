@@ -1,5 +1,7 @@
 import { createElement } from 'react';
 
+import { englishWordlist } from '@miden/hd-key';
+import { Scope } from '@sentry/browser';
 import { act, render, renderHook } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -23,6 +25,7 @@ import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { getCrashBuildIdentity } from './crash-build';
 import { annotateCrash } from './crash-diagnostics';
 import { encodingVariantsOf } from './egress-guard';
+import { containsSeedMaterial } from './redact';
 import { __resetRelayDiagnosticsForTest, recordRelaySurface } from './relay-diagnostics';
 import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
@@ -1633,6 +1636,82 @@ describe('user-visible error reports', () => {
       expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'usdcxFaucetUnavailable', surface]);
     }
     expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each([
+    ['identifier fragments in a breadcrumb', 'breadcrumb', 'account', 'key', 'seed'],
+    ['identifier fragments in extra data', 'extra', 'account', 'key', 'seed'],
+    ['a closed surface in a breadcrumb', 'breadcrumb', 'review', 'review', 'review'],
+    ['a closed surface in extra data', 'extra', 'review', 'review', 'review']
+  ] as const)('drops a contaminated report despite %s', async (_name, location, first, second, third) => {
+    const syntheticWords = [
+      'abandon',
+      'ability',
+      'able',
+      first,
+      'about',
+      'above',
+      'absent',
+      second,
+      'absorb',
+      'abstract',
+      'absurd',
+      third
+    ];
+    const text = syntheticWords.join(' ');
+    expect(syntheticWords.every(word => englishWordlist.includes(word))).toBe(true);
+    expect(containsSeedMaterial(text, englishWordlist)).toBe(true);
+    consentOn();
+    const captureException = Scope.prototype.captureException;
+    const capture = jest
+      .spyOn(Scope.prototype, 'captureException')
+      .mockImplementationOnce(function (this: Scope, error, hint) {
+        if (location === 'breadcrumb') this.addBreadcrumb({ category: 'fixture', message: text });
+        else this.setExtra('fixture', text);
+        return captureException.call(this, error, hint);
+      });
+
+    reportUserVisibleError('raw_account_export_failed', 'review');
+    await flushEgress();
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(captured).toHaveLength(0);
+    expect(wireText()).not.toContain(text);
+  });
+
+  it('preserves canonical closed data with harmless free-text fields', async () => {
+    consentOn();
+    const captureException = Scope.prototype.captureException;
+    const capture = jest
+      .spyOn(Scope.prototype, 'captureException')
+      .mockImplementationOnce(function (this: Scope, error, hint) {
+        this.addBreadcrumb({ category: 'fixture', message: 'fallback unavailable' });
+        this.setExtra('fixture', 'fallback unavailable');
+        return captureException.call(this, error, hint);
+      });
+
+    reportUserVisibleError('raw_account_export_failed', 'review');
+    await flushEgress();
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    expect(event.tags).toEqual({
+      network: 'testnet',
+      'user_error.id': 'raw_account_export_failed',
+      'user_error.surface': 'review'
+    });
+    expect(event.fingerprint).toEqual(['WalletUserVisibleError', 'raw_account_export_failed', 'review']);
+    expect(objectAt(event, 'exception').values).toEqual([
+      expect.objectContaining({
+        type: 'WalletUserVisibleError',
+        value: 'User-visible error: raw_account_export_failed; surface review'
+      })
+    ]);
+    expect(event.breadcrumbs).toEqual([
+      expect.objectContaining({ category: 'fixture', message: 'fallback unavailable' })
+    ]);
+    expect(objectAt(event, 'extra').fixture).toBe('fallback unavailable');
   });
 
   it('retains a repeated report after the minute instead of letting Sentry deduplicate it', async () => {
