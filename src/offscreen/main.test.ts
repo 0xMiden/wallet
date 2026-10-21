@@ -6252,3 +6252,72 @@ describe('GEO014 offscreen Guardian feature authorization at final submit', () =
     }
   );
 });
+
+
+describe('offscreen runtime-only policy bootstrap', () => {
+  it('authorizes a healthy accepted policy through real runtime without extension storage', async () => {
+    const savedEndpoint = process.env.FEATURE_ELIGIBILITY_URL;
+    const savedE2e = process.env.MIDEN_E2E_TEST;
+    const savedFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+    process.env.FEATURE_ELIGIBILITY_URL = 'https://eligibility.example/v1/eligibility';
+    process.env.MIDEN_E2E_TEST = 'false';
+    jest.dontMock('lib/remote-config/runtime');
+    jest.dontMock('lib/remote-config/wallet-access');
+    const config: import('lib/remote-config/schema').BridgeConfig = {
+      network: 'testnet', version: 13,
+      'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+      supportedEvmChains: {}, features: { earn: false }, swap: {},
+      geo: { wallet: [{ country: 'RU' }] }
+    };
+    const fetchResponse = jest.fn(async (url: string): Promise<import('lib/remote-json').JsonResponse> => ({
+      ok: true,
+      json: async () => url.includes('/v1/eligibility')
+        ? { network: config.network, version: config.version, allowed: { wallet: true, earn: false, swap: false } }
+        : config
+    }));
+    Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: fetchResponse });
+    await loadModule();
+    const access = jest.requireActual<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
+    const boundary = jest.requireMock<typeof import('lib/remote-config/wallet-access')>('lib/remote-config/wallet-access');
+    const originalBoundary = { ...boundary };
+    Object.assign(boundary, access);
+    const runtime = jest.requireActual<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime');
+    const { failedDerivation } = jest.requireActual<typeof import('lib/remote-config/derived-snapshot')>('lib/remote-config/derived-snapshot');
+    const snapshot = {
+      network: config.network, config,
+      derived: failedDerivation(config, 'Feature providers are not configured in this fixture', Date.now())
+    };
+    const reply = jest.fn();
+    try {
+      if (!capturedListener) throw new Error('Offscreen request listener did not initialize');
+      capturedListener({
+        target: 'offscreen', type: 'OFFSCREEN_CALL', op_id: 'storage-less-policy',
+        method: 'getAccount', argsB64: [encodeArg('account')], deadline_ms: 1000,
+        endpoints: SW_ENDPOINTS, bridgeConfig: snapshot
+      }, {}, reply);
+      await flush();
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true, op_id: 'storage-less-policy' }));
+      expect(G.__off.clientGetAccount).toHaveBeenCalledWith('account');
+      expect(G.__off.storageCalls).toBe(0);
+      expect(runtime.getBridgeConfigSnapshot()).toMatchObject({
+        network: config.network, config,
+        derived: snapshot.derived,
+        geo: { state: 'ready', network: config.network, version: config.version,
+          allowed: { wallet: true, earn: false, swap: false } }
+      });
+      expect(fetchResponse.mock.calls.map(([url]) => url)).toEqual([
+        'https://eligibility.example/v1/eligibility?network=testnet'
+      ]);
+    } finally {
+      runtime._resetBridgeConfigRuntimeForTest();
+      access.invalidateWalletAccess();
+      Object.assign(boundary, originalBoundary);
+      if (savedFetch) Object.defineProperty(globalThis, 'fetch', savedFetch);
+      else Reflect.deleteProperty(globalThis, 'fetch');
+      if (savedEndpoint === undefined) delete process.env.FEATURE_ELIGIBILITY_URL;
+      else process.env.FEATURE_ELIGIBILITY_URL = savedEndpoint;
+      if (savedE2e === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = savedE2e;
+    }
+  });
+});
