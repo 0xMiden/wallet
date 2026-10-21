@@ -1,0 +1,65 @@
+name: NEVER-MERGE 1616 startup eligibility expected red
+on:
+  push:
+    branches: [ci/1616-startup-eligibility-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GIT_OPTIONAL_LOCKS: '0'
+      CI: 'true'
+      FORCE_COLOR: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Bind signed regression source
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/1616-startup-red"
+          test ! -e "$proof"
+          mkdir "$proof"
+          echo "PROOF_DIR=$proof" >> "$GITHUB_ENV"
+          test "$(git rev-parse HEAD^)" = '95e383a01b5522ec5a6e5de7ee1eaca5421b36ee'
+          git rev-parse HEAD > "$proof/transport.txt"
+          git diff --name-status HEAD^ HEAD > "$proof/transport-paths.txt"
+          cp .github/ci/1616-startup-red.py "$proof/capture.py"
+          cp .github/workflows/ci-1616-startup-red.yml "$proof/workflow.yml"
+          git checkout --detach '95e383a01b5522ec5a6e5de7ee1eaca5421b36ee'
+      - name: Install frozen dependencies
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          node --version | tee "$PROOF_DIR/node-version.txt"
+          yarn --version | tee "$PROOF_DIR/yarn-version.txt"
+          yarn install --frozen-lockfile --network-timeout 600000 2>&1 | tee "$PROOF_DIR/install.log"
+      - name: Run both complete suites and retain natural expected failure
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" snapshot before
+          set +e
+          yarn jest --runTestsByPath src/components/FeatureUnavailable.test.tsx src/app/WalletAccessGate.test.tsx --maxWorkers=2 --coverage=false --watch=false --json --outputFile="$PROOF_DIR/jest.json" 2>&1 | tee "$PROOF_DIR/jest.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$PROOF_DIR/jest.exit"
+          printf '%s\n' "${codes[1]}" > "$PROOF_DIR/jest.tee.exit"
+          python3 "$PROOF_DIR/capture.py" snapshot after
+          python3 "$PROOF_DIR/capture.py" classify
+      - name: Seal raw proof
+        if: always()
+        run: python3 "$PROOF_DIR/capture.py" seal
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 1616-startup-eligibility-red
+          path: ${{ env.PROOF_DIR }}/
+          include-hidden-files: true
+          if-no-files-found: error
