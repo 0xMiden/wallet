@@ -8,7 +8,7 @@ import {
   type RelayDiagnostics
 } from 'lib/telemetry/relay-diagnostics';
 
-import { type AppKitInstance, modal } from './appkit';
+import { type AppKitInstance, CONNECT_VIEW, modal } from './appkit';
 import { EVM_CHAIN_DEFINITIONS, getChain } from './config';
 
 jest.mock('lib/remote-config/runtime', () => ({
@@ -35,13 +35,42 @@ describe('external-wallet picker', () => {
     expect(options?.features?.connectMethodsOrder).toEqual(['wallet']);
   });
 
-  it.each(['enableWallets', 'enableWalletConnect', 'enableInjected', 'enableEIP6963', 'enableCoinbase'] as const)(
+  it.each(['enableWallets', 'enableWalletConnect'] as const)(
     'keeps external-wallet connections available through %s',
     flag => {
       expect(options).toBeDefined();
       expect(options?.[flag]).not.toBe(false);
     }
   );
+
+  // The Jest realm carries an extension runtime, so this module built the extension's modal.
+  it.each(['enableInjected', 'enableEIP6963', 'enableCoinbase'] as const)(
+    'hides browser-extension wallets on the extension through %s',
+    flag => {
+      expect(options?.[flag]).toBe(false);
+    }
+  );
+
+  it('hides the "All Wallets" grid and opens on the QR code on the extension', () => {
+    expect(options?.allWallets).toBe('HIDE');
+    expect(CONNECT_VIEW).toBe('ConnectingWalletConnectBasic');
+  });
+
+  it('keeps every wallet connector and the wallet list off the extension', () => {
+    jest.isolateModules(() => {
+      jest.doMock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => false }));
+      // The isolated registry maps the SDK to a fresh copy of its mock; read the one this realm's module sees.
+      const { createAppKit: createAppKitInRealm } =
+        jest.requireActual<typeof import('@reown/appkit/react')>('@reown/appkit/react');
+      const appkit = jest.requireActual<typeof import('./appkit')>('./appkit');
+      const realmOptions = jest.mocked(createAppKitInRealm).mock.calls[0]?.[0];
+      expect(realmOptions?.enableInjected).toBe(true);
+      expect(realmOptions?.enableEIP6963).toBe(true);
+      expect(realmOptions?.enableCoinbase).toBe(true);
+      expect(realmOptions?.allWallets).toBe('SHOW');
+      expect(appkit.CONNECT_VIEW).toBe('Connect');
+    });
+  });
 });
 
 function nestedObjects(value: object): object[] {

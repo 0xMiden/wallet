@@ -33,7 +33,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
       }
       const appkit = await import('lib/walletconnect/appkit');
       await appkit.prepareAppKitConnection();
-      await connect({ view: 'Connect', namespace: 'eip155' });
+      await connect({ view: appkit.CONNECT_VIEW, namespace: 'eip155' });
     } catch (err) {
       console.error('[EvmConnectModal] connect failed', err);
     }

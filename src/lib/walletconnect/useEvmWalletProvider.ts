@@ -47,9 +47,9 @@ export function useEvmWalletProvider(): EvmWallet {
 
   const connectWeb = useCallback(
     async (recoveryChainId?: number) => {
-      const { prepareAppKitConnection } = await import('./appkit');
+      const { CONNECT_VIEW, prepareAppKitConnection } = await import('./appkit');
       await prepareAppKitConnection(recoveryChainId);
-      await open({ view: 'Connect', namespace: 'eip155' });
+      await open({ view: CONNECT_VIEW, namespace: 'eip155' });
     },
     [open]
   );
