@@ -46,6 +46,13 @@ export type ProposalStep = (typeof PROPOSAL_STEPS)[number];
 export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing'] as const;
 export type ProposalGuard = (typeof PROPOSAL_GUARDS)[number];
 
+/**
+ * The account's own security changes. These are the names in `STRUCTURAL_GUARDIAN_TYPES` and nothing else: a
+ * proposal failure for one of them otherwise looks the same as the other two.
+ */
+export const SECURITY_CHANGE_ACTIONS = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const;
+export type SecurityChangeAction = (typeof SECURITY_CHANGE_ACTIONS)[number];
+
 export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
 export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
 export type PageVisibility = 'visible' | 'hidden' | 'unknown';
@@ -81,6 +88,7 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   userErrorSurface?: UserErrorSurface;
   proposalStep?: ProposalStep;
   proposalGuard?: ProposalGuard;
+  securityChange?: SecurityChangeAction;
 };
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
@@ -155,7 +163,8 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       userErrorId,
       userErrorSurface: suppliedSurface,
       proposalStep: suppliedStep,
-      proposalGuard: suppliedGuard
+      proposalGuard: suppliedGuard,
+      securityChange: suppliedChange
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -196,6 +205,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       safe.proposalStep = proposalStep;
       const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
       if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
+      // Only beside the step this annotation is allowed to name, and only a listed change. Anything else is dropped.
+      const securityChange = SECURITY_CHANGE_ACTIONS.find(action => action === suppliedChange);
+      if (securityChange !== undefined) safe.securityChange = securityChange;
     }
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
@@ -205,12 +217,22 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
-/** Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did. */
-export async function withProposalStep<T>(step: ProposalStep, operation: () => Promise<T>): Promise<T> {
+/**
+ * Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did.
+ * `securityChange` is recorded with that step when this boundary is one of the account's own security changes.
+ */
+export async function withProposalStep<T>(
+  step: ProposalStep,
+  operation: () => Promise<T>,
+  securityChange?: SecurityChangeAction
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    annotateCrash(error, { proposalStep: step });
+    annotateCrash(
+      error,
+      securityChange === undefined ? { proposalStep: step } : { proposalStep: step, securityChange }
+    );
     throw error;
   }
 }

@@ -14,6 +14,7 @@ import {
   PAGE_VISIBILITY,
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
+  SECURITY_CHANGE_ACTIONS,
   STORAGE_OPERATIONS,
   STORAGE_OWNERS
 } from './crash-diagnostics';
@@ -57,6 +58,7 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['reconnected to the background', ['true', 'false']],
   ['the preparation step that failed', PROPOSAL_STEPS],
   ['which check refused it', PROPOSAL_GUARDS],
+  ['which security change failed', SECURITY_CHANGE_ACTIONS],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],

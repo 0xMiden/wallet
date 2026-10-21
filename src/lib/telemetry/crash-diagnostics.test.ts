@@ -1,11 +1,13 @@
 import { runInNewContext } from 'node:vm';
 
+import { STRUCTURAL_GUARDIAN_TYPES } from 'lib/miden/db/types';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
 import {
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
+  SECURITY_CHANGE_ACTIONS,
   annotateCrash,
   snapshotCrashDiagnostics,
   withProposalStep
@@ -669,6 +671,10 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
     Object.defineProperty(cause, 'cause', { value: outer });
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
+  });
+
+  it('reports the structural guardian actions and no fourth name', () => {
+    expect(SECURITY_CHANGE_ACTIONS).toEqual(STRUCTURAL_GUARDIAN_TYPES);
   });
 
   it('names only a closed security change beside the proposal step it records', () => {
