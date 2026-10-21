@@ -573,17 +573,6 @@ describe('EarnDepositReview', () => {
     });
 
     it('shows a real Error rejection from the pre-check by its own message', async () => {
-      // Not price-unavailable and not an authorization-required breach - a genuine pre-check
-      // failure, which must surface as itself rather than the generic fallback copy.
-      mockWalletStoreState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
-
-      fireEvent.click(screen.getByTestId('open-position-btn'));
-
-      expect(await screen.findByText('assessment backend down')).toBeInTheDocument();
-    });
-
-    it('reports user-visible error: shows a real Error rejection from the pre-check by its own message', async () => {
       jest.useFakeTimers();
       jest.mocked(reportUserVisibleError).mockClear();
       // Not price-unavailable and not an authorization-required breach - a genuine pre-check
@@ -686,16 +675,6 @@ describe('EarnDepositReview', () => {
     });
 
     it('surfaces an error and never calls the SDK when the account has no EVM address', async () => {
-      mockAccount.evmAddress = undefined;
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
-
-      fireEvent.click(screen.getByTestId('open-position-btn'));
-
-      expect(await screen.findByText('earnNoEvmAddress')).toBeInTheDocument();
-      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
-    });
-
-    it('reports user-visible error: surfaces an error and never calls the SDK when the account has no EVM address', async () => {
       jest.useFakeTimers();
       jest.mocked(reportUserVisibleError).mockClear();
       mockAccount.evmAddress = undefined;
@@ -752,15 +731,6 @@ describe('EarnDepositReview', () => {
     });
 
     it('falls back to a generic message when the rejection is not an Error', async () => {
-      mockOpenEarnPosition.mockRejectedValue('nope');
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
-
-      fireEvent.click(screen.getByTestId('open-position-btn'));
-
-      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
-    });
-
-    it('reports user-visible error: falls back to a generic message when the rejection is not an Error', async () => {
       jest.useFakeTimers();
       jest.mocked(reportUserVisibleError).mockClear();
       mockOpenEarnPosition.mockRejectedValue('nope');
