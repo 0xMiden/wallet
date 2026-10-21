@@ -1,7 +1,15 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 import { fetchTokenPrices } from './feed';
-import { getPriceMicro, isCoveredSymbol, toPriceMicro, writeUsdPriceCache, __resetUsdPriceCacheForTests } from './usd';
+import type { TokenPrices } from './binance';
+import {
+  getPriceMicro,
+  isCoveredSymbol,
+  prefetchUsdPrices,
+  toPriceMicro,
+  writeUsdPriceCache,
+  __resetUsdPriceCacheForTests
+} from './usd';
 
 jest.mock('lib/miden/swap/tokens', () => ({ getPriceSymbols: () => ['ARB'] }));
 jest.mock('./feed', () => ({ fetchTokenPrices: jest.fn() }));
@@ -245,5 +253,44 @@ it('allows a later cache write after an earlier write fails', async () => {
   ).resolves.toBeUndefined();
   expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
     ETH: { priceMicro: '1000000000', fetchedAt: 101 }
+  });
+});
+
+describe('prefetchUsdPrices', () => {
+  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+
+  it('fetches every cold covered symbol in one request and leaves them cached', async () => {
+    let stored: unknown = null;
+    mockedRead.mockImplementation(async () => stored);
+    mockedWrite.mockImplementation(async (_key, value) => {
+      stored = value;
+    });
+    mockedFetch.mockResolvedValue({ ETH: quote(4100), BTC: quote(90000) });
+
+    await prefetchUsdPrices(['ETH', 'USDCX', 'BTC', 'ETH'], 1_000);
+
+    expect(mockedFetch.mock.calls).toEqual([[['ETH', 'BTC']]]);
+    await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
+    await expect(getPriceMicro('BTC', 1_000)).resolves.toBe(90_000_000_000n);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares a symbol already in flight with an overlapping call', async () => {
+    let release: (prices: TokenPrices) => void = () => undefined;
+    mockedFetch.mockImplementationOnce(
+      () =>
+        new Promise<TokenPrices>(resolve => {
+          release = resolve;
+        })
+    );
+    const first = prefetchUsdPrices(['ETH', 'BTC'], 1_000);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    mockedFetch.mockResolvedValueOnce({ USDC: quote(1) });
+    const second = prefetchUsdPrices(['BTC', 'USDC'], 1_000);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release({ ETH: quote(4100), BTC: quote(90000) });
+    await Promise.all([first, second]);
+
+    expect(mockedFetch.mock.calls).toEqual([[['ETH', 'BTC']], [['USDC']]]);
   });
 });

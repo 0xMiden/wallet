@@ -19,7 +19,7 @@ import {
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
 import { hasNoUsdMarket } from 'lib/prices/feed';
-import { getPriceMicro } from 'lib/prices/usd';
+import { getPriceMicro, prefetchUsdPrices } from 'lib/prices/usd';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { loadTokenPriceAssets, peekTokenPriceAssets } from 'lib/token-list/runtime';
 
@@ -55,7 +55,8 @@ jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: jest.fn(() => Promise.resolve()) }));
 jest.mock('lib/prices/usd', () => ({
   ...jest.requireActual('lib/prices/usd'),
-  getPriceMicro: jest.fn()
+  getPriceMicro: jest.fn(),
+  prefetchUsdPrices: jest.fn(async () => undefined)
 }));
 jest.mock('../metadata', () => ({ fetchTokenMetadata: jest.fn() }));
 // The shared SDK mock has no MidenClient, so the real readiness call would throw.
@@ -188,6 +189,8 @@ describe('resolveSpendsUsd', () => {
     );
 
     expect(total).toBe(4_010_000_000n);
+    expect(prefetchUsdPrices).toHaveBeenCalledTimes(1);
+    expect(prefetchUsdPrices).toHaveBeenCalledWith(['ETH', 'USDC'], 10);
   });
 
   it('fails closed when a covered asset has no fresh price', async () => {
