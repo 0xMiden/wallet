@@ -53,7 +53,7 @@ class MemoryStorage : BreadConnectStorage {
     }
 }
 
-class FakeOpener : BreadOpener {
+internal class FakeOpener : ManagedBreadOpener {
     var installed = true
     val opened = mutableListOf<String>()
     var onOpen: ((String) -> Unit)? = null
@@ -68,7 +68,7 @@ class FakeOpener : BreadOpener {
     }
 }
 
-internal class HeldAttemptOpener : BreadOpener {
+internal class HeldAttemptOpener : ManagedBreadOpener {
     class Call(val link: String) {
         val launches = AtomicInteger()
         val passedAttempt = CompletableDeferred<Unit>()

@@ -279,7 +279,7 @@ class ClientTest {
 
     @Test
     fun aRequestWhoseOpenerHasNotReturnedStillEndsOnACancelOrANewerRequest() = runTest {
-        val opening = object : BreadOpener {
+        val opening = object : ManagedBreadOpener {
             override suspend fun open(link: String, attempt: OpenAttempt): Boolean = awaitCancellation()
         }
         val client = BreadConnect(callback, storage, opening) { now }
@@ -329,7 +329,7 @@ class ClientTest {
     fun aCancelFromAnotherThreadBetweenTheCheckAndTheOpenNeverOpensBread() = runBlocking {
         val opened = AtomicBoolean(false)
         lateinit var client: BreadConnect
-        val opener = object : BreadOpener {
+        val opener = object : ManagedBreadOpener {
             override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
                 val cancelling = Thread { client.cancelPending() }
                 cancelling.start()
@@ -349,7 +349,7 @@ class ClientTest {
         val inside = CountDownLatch(1)
         val release = CountDownLatch(1)
         val opened = AtomicBoolean(false)
-        val opener = object : BreadOpener {
+        val opener = object : ManagedBreadOpener {
             override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
                 inside.countDown()
                 release.await()
@@ -524,7 +524,7 @@ class ClientTest {
         val cancelReturned = CountDownLatch(1)
         val admittedLaunches = AtomicInteger()
         val laterLaunches = AtomicInteger()
-        val opening = object : BreadOpener {
+        val opening = object : ManagedBreadOpener {
             override suspend fun open(link: String, attempt: OpenAttempt): Boolean {
                 attempt.run {
                     inside.countDown()
@@ -640,7 +640,7 @@ class ClientTest {
         val client = BreadConnect(
             callback,
             storage,
-            object : BreadOpener {
+            object : ManagedBreadOpener {
                 override suspend fun open(link: String, attempt: OpenAttempt): Boolean = awaitCancellation()
             },
         ) { now }

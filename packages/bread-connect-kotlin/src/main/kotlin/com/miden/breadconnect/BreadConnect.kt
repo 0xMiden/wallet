@@ -38,12 +38,14 @@ class OpenAttempt internal constructor(private val lock: Any, private val waitin
     }
 }
 
-/**
- * Opens Bread's link in Bread only. The actual open goes through [attempt], and work that waits stays outside it.
- * Returns false when Bread is not installed and its store page opened instead. When [attempt] returns null the
- * request can no longer open, so return true without opening anything.
- */
+/** Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead. */
 interface BreadOpener {
+    suspend fun open(link: String): Boolean
+}
+
+internal interface ManagedBreadOpener : BreadOpener {
+    override suspend fun open(link: String): Boolean = open(link, OpenAttempt(Any()) { true })
+
     suspend fun open(link: String, attempt: OpenAttempt): Boolean
 }
 
@@ -287,7 +289,11 @@ class BreadConnect(
                                 timeoutJob.isActive && openingJob.isActive
                         }
                         val opened = try {
-                            opener.open(link, attempt)
+                            when (val openingOpener = opener) {
+                                is PackageOpener -> openingOpener.open(link, attempt)
+                                is ManagedBreadOpener -> openingOpener.open(link, attempt)
+                                else -> openingOpener.open(link)
+                            }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {

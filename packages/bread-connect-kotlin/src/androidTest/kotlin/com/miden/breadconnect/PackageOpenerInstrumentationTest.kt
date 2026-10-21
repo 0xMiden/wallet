@@ -128,6 +128,52 @@ class PackageOpenerInstrumentationTest : InstrumentationTestCase() {
         }
     }
 
+    fun testOwnedConcreteDispatchKeepsItsGuardWhilePublicDirectOpenStaysUnowned() = runBlocking {
+        withTimeout(5_000) {
+            val context = RecordingContext(instrumentation.targetContext)
+            val storage = TestStorage()
+            val opener = PackageOpener(context, listOf("00".repeat(32)))
+            val client = BreadConnect("https://example.com/callback", storage, opener)
+            val owner = async(start = CoroutineStart.LAZY) { client.connect("Synthetic app") }
+            context.onStart = { intent ->
+                if (intent.data?.scheme == "market") owner.cancel()
+                if (intent.`package` != null || intent.data?.scheme == "market") throw ActivityNotFoundException()
+            }
+
+            owner.start()
+            owner.join()
+
+            assertTrue(owner.isCancelled)
+            assertEquals(1, context.certificateChecks)
+            assertNull(storage.read(BreadConnect.PENDING_KEY))
+            assertEquals(
+                listOf("com.miden.wallet", "market://details?id=com.miden.wallet"),
+                context.destinations(),
+            )
+
+            val directStart = context.activities.size
+            val direct = async(start = CoroutineStart.LAZY) { opener.open("https://example.com/direct") }
+            context.onStart = { intent ->
+                if (intent.data?.scheme == "market") direct.cancel()
+                if (intent.`package` != null || intent.data?.scheme == "market") throw ActivityNotFoundException()
+            }
+
+            direct.start()
+            direct.join()
+
+            assertTrue(direct.isCancelled)
+            assertEquals(2, context.certificateChecks)
+            assertEquals(
+                listOf(
+                    "com.miden.wallet",
+                    "market://details?id=com.miden.wallet",
+                    "https://play.google.com/store/apps/details?id=com.miden.wallet",
+                ),
+                context.destinations().drop(directStart),
+            )
+        }
+    }
+
     private class TestStorage : BreadConnectStorage {
         private val values = mutableMapOf<String, String>()
 
