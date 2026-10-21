@@ -494,9 +494,9 @@ describe('route availability report', () => {
   });
 });
 
-// The provider Continue labels advance the bridge flow; a translation that reads "continue reading" or "on the
-// website" tells the user something else.
-describe('provider Continue labels', () => {
+// The route cards and Continue name their provider; a translation that renames the brand, or reads "continue
+// reading" or "on the website", tells the user something else.
+describe('provider route labels', () => {
   const LOCALES_DIR = path.join(__dirname, '../../../public/_locales');
   const locales = fs
     .readdirSync(LOCALES_DIR)
@@ -506,15 +506,21 @@ describe('provider Continue labels', () => {
     expect(locales).toHaveLength(14);
   });
 
-  it.each(locales)('%s says continue via the provider', locale => {
-    const messages = JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, 'messages.json'), 'utf8'));
+  it.each(locales)('%s names each provider on its route label and Continue', locale => {
+    const dir = path.join(LOCALES_DIR, locale);
+    const messages = JSON.parse(fs.readFileSync(path.join(dir, 'messages.json'), 'utf8'));
+    // The app renders the flat bundle; the translation job keeps messages.json. Both must agree.
+    const bundle = JSON.parse(fs.readFileSync(path.join(dir, `${locale}.json`), 'utf8'));
     for (const [key, provider] of [
-      ['bridgeContinueAgglayer', 'Agglayer'],
-      ['bridgeContinueEpoch', 'Epoch']
+      ['bridgeRouteEpoch', 'Epoch'],
+      ['bridgeRouteAgglayer', 'Agglayer'],
+      ['bridgeContinueEpoch', 'Epoch'],
+      ['bridgeContinueAgglayer', 'Agglayer']
     ]) {
-      const label: string = messages[key].message;
-      expect(label).toContain(provider);
-      expect(label).not.toMatch(/読|읽|阅读|閱讀|stronie|serwisie/);
+      for (const label of [messages[key].message as string, bundle[key] as string]) {
+        expect(label).toContain(provider);
+        expect(label).not.toMatch(/読|읽|阅读|閱讀|stronie|serwisie/);
+      }
     }
   });
 });
