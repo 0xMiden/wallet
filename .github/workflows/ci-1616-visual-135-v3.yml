@@ -1,0 +1,166 @@
+name: NEVER-MERGE 1616 display acceptance at 135
+on:
+  push:
+    branches: [ci/1616-visual-135-v3]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  component-display:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+      GIT_OPTIONAL_LOCKS: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: Bind exact source and nine inert transport files
+        run: |
+          set -euo pipefail
+          export VISUAL_PROOF_OUTPUT="$RUNNER_TEMP/1616-display-135"
+          test ! -e "$VISUAL_PROOF_OUTPUT"
+          mkdir "$VISUAL_PROOF_OUTPUT"
+          echo "VISUAL_PROOF_OUTPUT=$VISUAL_PROOF_OUTPUT" >> "$GITHUB_ENV"
+          source='135949ab445af8553daf89917f27db0b3b4a338c'
+          test "$(git rev-parse HEAD^)" = "$source"
+          test "$(git cat-file commit HEAD | awk '$1 == "parent" {count++} END {print count}')" = '1'
+          git rev-parse HEAD > "$VISUAL_PROOF_OUTPUT/transport.txt"
+          git rev-parse HEAD^{tree} > "$VISUAL_PROOF_OUTPUT/transport-tree.txt"
+          git cat-file commit HEAD > "$VISUAL_PROOF_OUTPUT/transport-commit.txt"
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          out = Path(os.environ['VISUAL_PROOF_OUTPUT'])
+          prefix = '.github/ci/1616-visual-135/'
+          files = ['capture.py', 'source-spec.json', 'harness/data.tsx', 'harness/index.html',
+                   'harness/main.tsx', 'harness/vite.config.mts', 'harness/playwright.config.ts', 'harness/visual.spec.ts']
+          expected = {prefix + name: name for name in files}
+          expected['.github/workflows/ci-1616-visual-135-v3.yml'] = 'workflow.yml'
+          changes = subprocess.check_output(['git', 'diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD', '-z']).split(b'\0')
+          assert changes[-1] == b'' and len(changes[:-1]) == 2 * len(expected)
+          actual = {}
+          for status, name in zip(changes[0:-1:2], changes[1:-1:2]):
+              assert status == b'A'
+              actual[name.decode()] = status.decode()
+          assert set(actual) == set(expected)
+          rows = []
+          for source, target in expected.items():
+              path = Path(source)
+              assert path.is_file() and not path.is_symlink()
+              data = path.read_bytes()
+              destination = out / 'inputs' / target
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(data)
+              rows.append({'path': source, 'artifact': str(destination.relative_to(out)), 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+          (out / 'transport-inputs.json').write_text(json.dumps(rows, indent=2) + '\n')
+          spec = json.loads((out / 'inputs/source-spec.json').read_text())
+          for row in spec['fixture_files']:
+              data = (out / 'inputs' / row['path']).read_bytes()
+              assert len(data) == row['bytes'] and hashlib.sha256(data).hexdigest() == row['sha256']
+          PY
+          git checkout --detach "$source"
+          test "$(git rev-parse HEAD^{tree})" = '35eee92233fc6b65228fba3e595b5708e76dafcd'
+          test ! -e .ci-proof/1616-visual
+          mkdir -p .ci-proof/1616-visual
+          cp -R "$VISUAL_PROOF_OUTPUT/inputs/harness" .ci-proof/1616-visual/harness
+          python3 "$VISUAL_PROOF_OUTPUT/inputs/capture.py" snapshot before-install
+      - name: Install exact locked dependencies and browser
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          node --version > "$VISUAL_PROOF_OUTPUT/node-version.txt"
+          yarn --version > "$VISUAL_PROOF_OUTPUT/yarn-version.txt"
+          python3 --version > "$VISUAL_PROOF_OUTPUT/python-version.txt"
+          for step in install browser-install; do
+            case "$step" in
+              install) command=(yarn install --frozen-lockfile --network-timeout 600000) ;;
+              browser-install) command=(yarn playwright install --with-deps chromium) ;;
+            esac
+            printf '%s\0' "${command[@]}" > "$VISUAL_PROOF_OUTPUT/$step.argv.bin"
+            set +e
+            "${command[@]}" 2>&1 | tee "$VISUAL_PROOF_OUTPUT/$step.log"
+            codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$VISUAL_PROOF_OUTPUT/$step.exit"
+            printf '%s\n' "${codes[1]}" > "$VISUAL_PROOF_OUTPUT/$step.tee.exit"
+            test "${codes[0]}" = 0
+            test "${codes[1]}" = 0
+          done
+      - name: Build actual production component fixture
+        run: |
+          set -euo pipefail
+          python3 "$VISUAL_PROOF_OUTPUT/inputs/capture.py" snapshot before-build
+          format=(yarn prettier --check .ci-proof/1616-visual/harness/data.tsx .ci-proof/1616-visual/harness/main.tsx .ci-proof/1616-visual/harness/vite.config.mts .ci-proof/1616-visual/harness/playwright.config.ts .ci-proof/1616-visual/harness/visual.spec.ts .ci-proof/1616-visual/harness/index.html)
+          printf '%s\0' "${format[@]}" > "$VISUAL_PROOF_OUTPUT/format.argv.bin"
+          set +e
+          "${format[@]}" 2>&1 | tee "$VISUAL_PROOF_OUTPUT/format.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$VISUAL_PROOF_OUTPUT/format.exit"
+          printf '%s\n' "${codes[1]}" > "$VISUAL_PROOF_OUTPUT/format.tee.exit"
+          test "${codes[0]}" = 0
+          test "${codes[1]}" = 0
+          command=(yarn vite build --config .ci-proof/1616-visual/harness/vite.config.mts)
+          printf '%s\0' "${command[@]}" > "$VISUAL_PROOF_OUTPUT/build.argv.bin"
+          set +e
+          "${command[@]}" 2>&1 | tee "$VISUAL_PROOF_OUTPUT/build.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$VISUAL_PROOF_OUTPUT/build.exit"
+          printf '%s\n' "${codes[1]}" > "$VISUAL_PROOF_OUTPUT/build.tee.exit"
+          test "${codes[0]}" = 0
+          test "${codes[1]}" = 0
+          test -s .ci-proof/1616-visual/bundle/index.html
+          test -s .ci-proof/1616-visual/bundle/module-inventory.json
+          cp .ci-proof/1616-visual/bundle/module-inventory.json "$VISUAL_PROOF_OUTPUT/module-inventory.json"
+          python3 "$VISUAL_PROOF_OUTPUT/inputs/capture.py" framework before-browser
+      - name: Retain ten natural screenshot outcomes
+        run: |
+          set -euo pipefail
+          command=(yarn playwright test --config .ci-proof/1616-visual/harness/playwright.config.ts --workers=1 --retries=0)
+          printf '%s\0' "${command[@]}" > "$VISUAL_PROOF_OUTPUT/browser.argv.bin"
+          set +e
+          "${command[@]}" 2>&1 | tee "$VISUAL_PROOF_OUTPUT/browser.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$VISUAL_PROOF_OUTPUT/browser.exit"
+          printf '%s\n' "${codes[1]}" > "$VISUAL_PROOF_OUTPUT/browser.tee.exit"
+          test "${codes[0]}" = 0
+          test "${codes[1]}" = 0
+      - name: Preserve final source and actual compiled module inputs
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$VISUAL_PROOF_OUTPUT/inputs/capture.py" snapshot after-browser
+          if test -s .ci-proof/1616-visual/bundle/module-inventory.json; then
+            python3 "$VISUAL_PROOF_OUTPUT/inputs/capture.py" framework after-browser
+          fi
+      - name: Validate retained evidence without visual completion credit
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$VISUAL_PROOF_OUTPUT/inputs/capture.py" classify
+      - name: Seal every retained file
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 "$VISUAL_PROOF_OUTPUT/inputs/capture.py" seal
+      - name: Upload raw component proof including hidden files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1616-display-135
+          path: ${{ runner.temp }}/1616-display-135
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

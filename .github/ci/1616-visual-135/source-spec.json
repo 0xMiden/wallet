@@ -1,0 +1,63 @@
+{
+  "expected_case_titles": [
+    "bridge-empty-failure / light",
+    "amount-helper-without-error / light",
+    "amount-visible-error / light",
+    "earn-no-collateral / light",
+    "earn-selected-unknown-metadata / light",
+    "bridge-empty-failure / dark",
+    "amount-helper-without-error / dark",
+    "amount-visible-error / dark",
+    "earn-no-collateral / dark",
+    "earn-selected-unknown-metadata / dark"
+  ],
+  "fixture_files": [
+    {
+      "bytes": 10623,
+      "path": "capture.py",
+      "sha256": "8265efe255d1257ed73c188285bb833380bc2d5283c234d36b5efdcf3999ac38"
+    },
+    {
+      "bytes": 5224,
+      "path": "harness/data.tsx",
+      "sha256": "9418bb07baaf2f5646e79abbed52dea8617cce64350e59327e93027e16d1cb45"
+    },
+    {
+      "bytes": 332,
+      "path": "harness/index.html",
+      "sha256": "8f9206d62ebcdb169ba38c9058d1fab4268f6fcc6b673a52633ca4ba54991691"
+    },
+    {
+      "bytes": 3369,
+      "path": "harness/main.tsx",
+      "sha256": "82f82b80fa6902a46fa5b2572f436bddf30dfa69bcbc26464b33e8bd1985353e"
+    },
+    {
+      "bytes": 832,
+      "path": "harness/playwright.config.ts",
+      "sha256": "737d5cc807e4abbc1e219ae1d07bdcfee017e2de8de966f1c318a7ebb59b3c68"
+    },
+    {
+      "bytes": 6552,
+      "path": "harness/visual.spec.ts",
+      "sha256": "8148d7ef5688d558e81eb57b0312e9494140b1435a2adf16f97f67aba98c8d9e"
+    },
+    {
+      "bytes": 4717,
+      "path": "harness/vite.config.mts",
+      "sha256": "63efc03d039e2fe6812fd4b6fcbf3ba8341efae438bc3c64bf45eac56b3cdc0e"
+    }
+  ],
+  "required_component_modules": [
+    "src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.tsx",
+    "src/components/AmountInput.tsx",
+    "src/screens/send-flow/SelectAmount.tsx",
+    "src/screens/earn-flow/EarnDepositAmount.tsx",
+    "src/lib/settings/theme.ts",
+    "src/main.css",
+    "src/i18n.ts"
+  ],
+  "runtime_scope": "ten component display checks; visual readback mandatory",
+  "source": "135949ab445af8553daf89917f27db0b3b4a338c",
+  "tree": "35eee92233fc6b65228fba3e595b5708e76dafcd"
+}
