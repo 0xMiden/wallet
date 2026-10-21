@@ -275,6 +275,24 @@ describe('prefetchUsdPrices', () => {
     expect(mockedFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('caches a requested symbol that the current network does not cover', async () => {
+    let stored: unknown = null;
+    mockedRead.mockImplementation(async () => stored);
+    mockedWrite.mockImplementation(async (_key, value) => {
+      stored = value;
+    });
+    mockedFetch.mockResolvedValue({ OP: quote(2), USDT: quote(1) });
+
+    await prefetchUsdPrices(['OP'], 1_000);
+
+    await expect(getPriceMicro('OP', 1_000)).resolves.toBe(2_000_000n);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(stored).not.toHaveProperty('USDT');
+    stored = null;
+    await writeUsdPriceCache({ OP: quote(2) }, 1_000);
+    expect(stored).toEqual({});
+  });
+
   it('shares a symbol already in flight with an overlapping call', async () => {
     let release: (prices: TokenPrices) => void = () => undefined;
     mockedFetch.mockImplementationOnce(

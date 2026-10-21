@@ -50,16 +50,21 @@ const readCache = async (): Promise<UsdPriceCache> => {
 
 let cacheWrite: Promise<UsdPriceCache> = Promise.resolve({});
 
-const mergeIntoCache = (prices: TokenPrices, now: number): Promise<UsdPriceCache> => {
-  const run = () => mergePrices(prices, now);
+// `requested` are symbols whose coverage the caller already decided, possibly for another network.
+const mergeIntoCache = (
+  prices: TokenPrices,
+  now: number,
+  requested: readonly string[] = []
+): Promise<UsdPriceCache> => {
+  const run = () => mergePrices(prices, now, requested);
   cacheWrite = cacheWrite.then(run, run);
   return cacheWrite;
 };
 
-const mergePrices = async (prices: TokenPrices, now: number): Promise<UsdPriceCache> => {
+const mergePrices = async (prices: TokenPrices, now: number, requested: readonly string[]): Promise<UsdPriceCache> => {
   const cache = await readCache();
   for (const [symbol, info] of Object.entries(prices)) {
-    if (!isCoveredSymbol(symbol)) continue;
+    if (!requested.includes(symbol) && !isCoveredSymbol(symbol)) continue;
     const priceMicro = toPriceMicro(info.price);
     if (priceMicro === undefined) continue;
     cache[symbol] = { priceMicro: priceMicro.toString(), fetchedAt: now };
@@ -100,7 +105,7 @@ const refresh = (now: number, symbols: readonly string[]): Promise<UsdPriceCache
   if (missing.length > 0) {
     const pending = (async () => {
       try {
-        return await mergeIntoCache(await fetchTokenPrices(missing), now);
+        return await mergeIntoCache(await fetchTokenPrices(missing), now, missing);
       } catch {
         return await readCache();
       } finally {
