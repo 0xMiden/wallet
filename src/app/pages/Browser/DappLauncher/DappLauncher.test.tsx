@@ -11,8 +11,6 @@ import { BrowserScreen } from '../BrowserScreen';
 import { DappLauncher } from './index';
 import { markRevealed, resetRevealed } from './reveal-once';
 
-jest.mock('app/templates/ArcadeAllowance', () => ({ ArcadeAllowance: () => <div data-testid="arcade-allowance" /> }));
-
 const originalResizeObserver = globalThis.ResizeObserver;
 it('reveals the Arcade landing on explicit Home entry while retaining ordinary tab searches', async () => {
   const onOpen = jest.fn();

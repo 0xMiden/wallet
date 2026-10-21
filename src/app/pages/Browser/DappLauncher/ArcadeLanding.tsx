@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { ArcadeAllowance } from 'app/templates/ArcadeAllowance';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
@@ -79,7 +78,6 @@ export const ArcadeLanding: React.FC<{ catalog: ExploreView; pending: boolean; o
   };
   return (
     <div className="flex flex-col gap-5 px-4" data-testid="arcade-landing">
-      <ArcadeAllowance />
       {featured.length > 0 && (
         <section aria-label={t('arcadeFeatured')} data-testid="arcade-featured">
           <SectionHeader size="xl" className="px-0 pb-3">

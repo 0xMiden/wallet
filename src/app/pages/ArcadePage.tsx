@@ -4,14 +4,14 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Icon, IconName } from 'app/icons/v2';
+import { ArcadeAllowance } from 'app/templates/ArcadeAllowance';
 import { Button } from 'components/ui/Button';
-import { EmptyState } from 'components/ui/EmptyState';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { ARCADE_PATH } from 'lib/arcade';
 import { navigate } from 'lib/woozie';
 
-/** Preserve the Coins destination's dashed state and pinned Browse games footer. No snapshot ranking flow. */
+/** GC allowance belongs to Coins; preserve its native header and pinned Browse games footer. */
 export const ArcadePage: React.FC = () => {
   const { t } = useTranslation();
   const back = useBackWithFallback(ARCADE_PATH);
@@ -37,12 +37,7 @@ export const ArcadePage: React.FC = () => {
         </>
       }
     >
-      <EmptyState
-        surface="dashed"
-        icon={IconName.Coins}
-        title={t('arcadeCoinsUnavailable')}
-        description={t('arcadeCoinsDescription')}
-      />
+      <ArcadeAllowance />
     </SubPageLayout>
   );
 };

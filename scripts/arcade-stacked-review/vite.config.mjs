@@ -38,6 +38,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
+      { find: 'app/hooks/useBackWithFallback', replacement: resolve('scripts/arcade-stacked-review/back-fixture.ts') },
       { find: /^components\/ui$/, replacement: resolve('scripts/arcade-stacked-review/ui-barrel.ts') },
       { find: /^lib\/dapp-browser$/, replacement: resolve('src/lib/dapp-browser/explore-catalog.ts') },
       {

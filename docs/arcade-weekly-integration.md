@@ -4,7 +4,7 @@
 
 This PR is stacked directly on `arcade-design-polish` at `32855c21090234decc4d59bc17259d2bc9e42d71` (wallet #1650), whose base is `brian/native-bread-arcade` at `b09b93074a72c75d82d039a7ae52a821ce7e63c7` (#1512). Neither branch is changed by this work. The alternative main-based #1692 was closed after the stacked replacement #1693 was verified, with an explicit superseded link and no comment. Its competing catalog layout is not carried over.
 
-The new card sits above the existing featured carousel. Featured artwork, Details/Open footer, details drawer, Coins/Activity pills, suggested-game list, dashed Coins empty state and pinned Browse games footer retain #1650's components and styling. Only the global Rankings shortcut/route and the old balance-snapshot/sample-ranking flow are removed. GC is transferable; there is no transfer restriction or game allowlist.
+The allowance and claim card live only in the Coins subpage reached through the Coins shortcut; game discovery contains no balance or allowance section. Featured artwork, Details/Open footer, details drawer, Coins/Activity pills, suggested-game list, Coins page header and pinned Browse games footer retain #1650's components and styling. Only the global Rankings shortcut/route and the old balance-snapshot/sample-ranking flow are removed. GC is transferable; there is no transfer restriction or game allowlist.
 
 At inspection, main was `7ad5865c599ea4c1f54063673d01069db02e9c12`, and main/design had 150 main-only and 13 design-only commits since common ancestor `99222f2eec702b5e5fd562f2d8b92fc9b00e0f74`. The old stack still needs coordinated reconciliation with main before integration. This PR does not rebase or merge the stack or claim parity with current main. Its card reads the effective network through the existing config subscription, because the older stack's `useNetwork` still reads the legacy selection.
 
@@ -29,16 +29,16 @@ Before activation, approve canonical asset/issuer/network/decimals, authenticate
 
 ## Review fixtures and checks
 
-`screenshots/arcade-stacked` contains actual `ArcadeLanding`, carousel, drawer/card components and `TabRootHeader` at 390px, in light/dark, eligible/claimed/unavailable. Visible banners identify fictional account eligibility, balance and game data. Only wallet data, native navigation/back/haptics and unused barrel boundaries are isolated by `scripts/arcade-stacked-review`; rendering uses the production components. These screenshots do not establish authenticated full-shell, native-device or chain acceptance. The fixture query exists only in that harness, not the wallet.
+`screenshots/arcade-coins` contains the actual Coins `ArcadePage`/`SubPageLayout`/allowance card at 390px in light/dark eligible/claimed/unavailable states, plus updated game-only discovery. All current screenshots omit the global Rankings tab. Visible banners identify fictional account eligibility, balance and game data. `screenshots/arcade-stacked/historical-comparisons` contains superseded evidence, including explicitly old Ahmad-base images with Rankings; those are not current UI.
+
+The isolated harness replaces only wallet data, native navigation/back/haptics and unused barrel boundaries. Screenshots render production components, but do not establish authenticated full-shell, native-device or chain acceptance. Fixture queries exist only in that harness, not the wallet. The actual Coins header, scroll body, privacy footnote and pinned Browse games footer are preserved.
 
 ```sh
 node_modules/.bin/vite --config scripts/arcade-stacked-review/vite.config.mjs --configLoader native
-node scripts/arcade-stacked-review/capture.cjs
+node scripts/arcade-stacked-review/capture-coins.cjs
 node scripts/arcade-stacked-review/interactions.cjs
 ```
 
-The capture checks Claim availability and horizontal overflow/page errors. Interaction checks at 360/390/640px in both themes cover disabled production-fixture claims, removed global Rankings, preserved details policy/host, exact configured game launch despite unavailable GC, and no horizontal overflow/page errors. Unit tests cover the state machine, unknown outcomes, retries, duplicate clicks, UTC boundaries, effective network/account scope, routes, catalog discovery, carousel and details behavior.
+The capture checks Claim availability and horizontal overflow/page errors. Interaction checks at 360/390/640px in both themes cover Coins-only allowance, disabled production-fixture claims and pinned footer, removed global Rankings, preserved details policy/host, exact configured game launch despite unavailable GC, and no horizontal overflow/page errors. Unit tests cover the state machine, unknown outcomes, retries, duplicate clicks, UTC boundaries, effective network/account scope, routes, catalog discovery, carousel and details behavior.
 
 English source/Chrome message entries are included. Translation review, full CI/coverage, native iOS/Android/Tauri/device acceptance and a stack refresh against main remain release gates. No release build is installed, merged or deployed by this task.
-
-The two `ahmad-base-*.png` images were rendered from an untouched archive of `32855c21090234decc4d59bc17259d2bc9e42d71` with the same isolated harness/catalog, at 390px in both themes. Compare them with `eligible-*.png` to see only the added allowance section/policy copy and removed global ranking shortcut; no base source was edited to make those images.
