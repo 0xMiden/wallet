@@ -2260,7 +2260,10 @@ describe('user-visible USDCx deposit producers', () => {
       jest
         .mocked(subscribeToLiveQuery)
         .mockImplementationOnce(
-          <T,>(query: () => T | Promise<T>, observer: { next: (value: T) => void; error: (error: unknown) => void }) => {
+          <T,>(
+            query: () => T | Promise<T>,
+            observer: { next: (value: T) => void; error: (error: unknown) => void }
+          ) => {
             let disposed = false;
             let unsubscribe: (() => void) | undefined;
             subscriptionScheduled.resolve();
