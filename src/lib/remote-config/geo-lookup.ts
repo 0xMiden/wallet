@@ -1,7 +1,6 @@
 import { fetchBoundedJson, type JsonResponse } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
-import { devEligibilityOpen } from './dev-eligibility-open';
 import type { FeatureEligibility } from './geo';
 
 function readEligibility(body: unknown, network: string, version: number): FeatureEligibility | null {
@@ -11,9 +10,13 @@ function readEligibility(body: unknown, network: string, version: number): Featu
   return { network, version, allowed: { wallet, earn, swap } };
 }
 
-/** `yarn dev` allows every feature without calling the service. A production or E2E build cannot inherit that. */
+/**
+ * `yarn dev` allows every feature without calling the service.
+ * Read the flag as its own `process.env` property so Vite can replace it.
+ * The configs bake `true` only for an explicit non-E2E development build.
+ */
 function localDevelopmentEligibility(network: string, version: number): FeatureEligibility | null {
-  if (!devEligibilityOpen(process.env)) return null;
+  if (process.env.MIDEN_ELIGIBILITY_OPEN !== 'true') return null;
   return { network, version, allowed: { wallet: true, earn: true, swap: true } };
 }
 

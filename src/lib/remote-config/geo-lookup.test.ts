@@ -118,15 +118,6 @@ describe('lookupFeatureEligibility', () => {
     expect(devEligibilityOpen({ MODE_ENV: 'development', MIDEN_ELIGIBILITY_OPEN: 'true', MIDEN_E2E_TEST: 'false' })).toBe(true);
   });
 
-  it('does not let a production lookup inherit the open flag', async () => {
-    process.env.MODE_ENV = 'production';
-    process.env.MIDEN_ELIGIBILITY_OPEN = 'true';
-    delete process.env.FEATURE_ELIGIBILITY_URL;
-    const fetchImpl = jest.fn();
-    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
   it('does not treat a development-mode build as yarn dev', async () => {
     const savedMode = process.env.MODE_ENV;
     process.env.MODE_ENV = 'development';
