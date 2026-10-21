@@ -147,11 +147,13 @@ describe('SendAmount', () => {
     expect(screen.getByTestId('send-amount-confirm')).toHaveAttribute('data-accent', 'send');
   });
 
-  it('enables Confirm for a valid amount and shows its fiat value', () => {
+  it('offers Continue for a valid amount and advances toward review', () => {
     const props = renderAmount({ amount: '1.5', isValidAmount: true });
 
     expect(screen.getByText('approxFiatValue:$3.00')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('send-amount-confirm'));
+    const continueButton = screen.getByRole('button', { name: 'continue' });
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
     expect(props.onConfirm).toHaveBeenCalledTimes(1);
   });
 

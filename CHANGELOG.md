@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [FIX][all] The send amount step says Continue before review, so it no longer suggests the payment will be sent immediately.
+
 - [CHANGE][all] Login key commitment tests verify key handles are freed and root and scalar buffers are zeroed for stored EVM keys and legacy seed-derived keys (#1579).
 - [CHANGE][all] Update the Web SDK and React SDK to 0.17.5.
 
