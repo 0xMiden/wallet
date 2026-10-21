@@ -7,6 +7,7 @@ import { openEarnPosition } from 'lib/epoch';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { EARN_DATA } from './data';
 import EarnDepositReview from './EarnDepositReview';
@@ -572,6 +573,8 @@ describe('EarnDepositReview', () => {
     });
 
     it('shows a real Error rejection from the pre-check by its own message', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
       // Not price-unavailable and not an authorization-required breach - a genuine pre-check
       // failure, which must surface as itself rather than the generic fallback copy.
       mockWalletStoreState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
@@ -580,6 +583,8 @@ describe('EarnDepositReview', () => {
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
       expect(await screen.findByText('assessment backend down')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_deposit_submit_failed', 'notice']]);
     });
 
     it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
@@ -670,6 +675,8 @@ describe('EarnDepositReview', () => {
     });
 
     it('surfaces an error and never calls the SDK when the account has no EVM address', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
       mockAccount.evmAddress = undefined;
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
 
@@ -677,6 +684,8 @@ describe('EarnDepositReview', () => {
 
       expect(await screen.findByText('earnNoEvmAddress')).toBeInTheDocument();
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnNoEvmAddress', 'notice']]);
     });
 
     it('surfaces the SDK error message when opening the position rejects', async () => {
@@ -688,13 +697,50 @@ describe('EarnDepositReview', () => {
       expect(await screen.findByText('allocator unreachable')).toBeInTheDocument();
     });
 
+    it('reports user-visible raw submit failure only after the full display dwell', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockOpenEarnPosition.mockRejectedValue(new Error('allocator unreachable'));
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      await act(async () => fireEvent.click(screen.getByTestId('open-position-btn')));
+
+      expect(screen.getByText('allocator unreachable')).toBeInTheDocument();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_deposit_submit_failed', 'notice']]);
+    });
+
+    it('does not report user-visible raw submit failure unmounted before dwell', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+      mockOpenEarnPosition.mockRejectedValue(new Error('allocator unreachable'));
+      const view = renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      await act(async () => fireEvent.click(screen.getByTestId('open-position-btn')));
+
+      expect(screen.getByText('allocator unreachable')).toBeInTheDocument();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      view.unmount();
+      act(() => jest.advanceTimersByTime(2000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
     it('falls back to a generic message when the rejection is not an Error', async () => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
       mockOpenEarnPosition.mockRejectedValue('nope');
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
       expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnFailedToOpenPosition', 'notice']]);
     });
 
     // Double-tapping the CTA must not open two positions.
@@ -827,6 +873,22 @@ describe('EarnDepositReview after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
+  it('reports user-visible error: says the load failed, with Retry, instead of offering to open a position in a placeholder vault', () => {
+    jest.useFakeTimers();
+    mockRefetch.mockClear();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
+    renderReview('no-such-vault', '?amount=10');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnVaultLoadError', 'notice']]);
+  });
+
   it('keeps the failure said while a retry is out, with no vault in the header', () => {
     mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     renderReview('no-such-vault', '?amount=10');
@@ -843,6 +905,19 @@ describe('EarnDepositReview after a failed load', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
     expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();
+  });
+
+  it('reports user-visible error: draws nothing it has not loaded during a first load with no error', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockLoadState = { isLoading: true };
+    renderReview('no-such-vault', '?amount=10');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
+    expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 
   it("shows no notice over a found vault when only one owner's positions failed", () => {
@@ -899,6 +974,17 @@ describe('native USDCx funding', () => {
     expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralMismatch');
   });
 
+  it('reports user-visible error: refuses review for an old collateral identity after the frontend switches to USDCx', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
+    renderReview('aave-usdc-ethereum-1', '?amount=1&collateral=0x5b043dcb48d5721106f7a1ceb2b804');
+    expect(screen.getByTestId('open-position-btn')).toBeDisabled();
+    expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralMismatch');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
   it.each<['loading' | 'unavailable', string]>([
     ['loading', 'earnCollateralLoading'],
     ['unavailable', 'earnCollateralUnavailable']
@@ -932,3 +1018,7 @@ describe('native USDCx funding', () => {
     expect(mockOpenEarnPosition.mock.calls[0]![0]).toMatchObject({ amount: 1_250_000n, collateral: mockCollateral });
   });
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+afterEach(() => jest.useRealTimers());

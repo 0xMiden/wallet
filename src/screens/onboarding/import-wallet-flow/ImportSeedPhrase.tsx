@@ -164,12 +164,12 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
         </div>
       )}
       {isError && (
-        <Notice tone="negative" role="alert">
+        <Notice errorId="importSeedPhraseError" tone="negative" role="alert">
           {t('importSeedPhraseError')}
         </Notice>
       )}
       {isChecksumError && (
-        <Notice tone="negative" role="alert">
+        <Notice errorId="justValidPreGeneratedMnemonic" tone="negative" role="alert">
           {t('justValidPreGeneratedMnemonic')}
         </Notice>
       )}

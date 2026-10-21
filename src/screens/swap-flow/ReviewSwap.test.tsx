@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { SwapEta, SwapQuote } from 'lib/miden/swap/quote';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
@@ -587,5 +588,27 @@ describe('ReviewSwap', () => {
     renderComponent();
 
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible review reports', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+  it('reports the slippage range field after dwell', () => {
+    renderComponent();
+    fireEvent.change(screen.getByTestId('swap-slippage-percent'), { target: { value: '1.5' } });
+    expect(screen.getByTestId('swap-slippage-percent')).toHaveAttribute('aria-invalid', 'true');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapSlippageRange', 'field']]);
+  });
+  it('does not report valid slippage or an absent submit error', () => {
+    renderComponent({ submitError: null });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

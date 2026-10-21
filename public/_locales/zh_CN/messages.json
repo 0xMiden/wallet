@@ -1819,6 +1819,10 @@
     "message": "其他",
     "englishSource": "Other"
   },
+  "others": {
+    "message": "其他",
+    "englishSource": "Others"
+  },
   "thousandFormat": {
     "message": "$thousand$ k",
     "englishSource": "$thousand$k",
@@ -3258,6 +3262,26 @@
     "message": "您可以随时再次轮换您的Guardian——请妥善保管您的恢复短语，这是必须的。",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "您的新Guardian将进行共同签名",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "新“Guardian”在确认后进行联署",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "没有任何内容被移动",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "保持可访问性",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "随时可再次切换",
+    "englishSource": "Switch again anytime"
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "请进行身份验证以批准此 Guardian 切换操作。",
     "englishSource": "Authenticate to approve this Guardian switch."
@@ -3321,6 +3345,18 @@
   "hotKeyRotationFailedGeneric": {
     "message": "在轮换您的日常密钥时出现了一些问题。您的资金是安全的，现在可以重试。",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationStartOver": {
+    "message": "重新开始",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "删除这个钱包并重新开始吗？",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "此操作会将钱包从该设备中移除，以便您日后恢复，例如使用不同的“guardian”URL。您的资金仍保留在网络上。您需要使用恢复短语来恢复钱包。",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "每日密钥轮换尚未得到证实",
@@ -3822,6 +3858,15 @@
     "message": "我们无法自动检测到您的 guardian。请选择您使用的那个，或输入其 URL。",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
+  "guardianStateBehindChain": {
+    "message": "$name$ 识别该账户，但未保存该账户的最新状态。若您已将该账户转移至另一位 guardian，请输入该 guardian 的 URL。",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianProbePartialFailure": {
     "message": "$count$ 无法访问 guardian(s)，因此检测结果可能不完整。",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
@@ -4040,6 +4085,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "该外部服务目前无法使用。请稍后再试。",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "该网络不支持“Swap”功能",
@@ -5251,8 +5304,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "约20分钟",
-    "englishSource": "~20 min"
+    "message": "~2 分钟",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1 分钟",
@@ -7045,5 +7098,29 @@
   "webViewStartFailedAction": {
     "message": "请重试",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "正在检查可用性",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "请稍候，我们正在检查你所在地区是否可以使用钱包。",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "你所在地区无法使用钱包",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "你当前所在位置无法使用钱包。",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "无法检查可用性",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "请检查网络连接后重试。",
+    "englishSource": "Check your connection and try again."
   }
 }

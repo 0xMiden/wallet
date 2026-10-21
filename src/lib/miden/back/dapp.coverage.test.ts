@@ -85,11 +85,16 @@ jest.mock('lib/miden/metadata/utils', () => ({
 
 // The build's network unless a case puts the wallet on another.
 let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
+let mockEffectiveRpcUrl: string | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
     'lib/miden-chain/effective-endpoints'
   );
-  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+  return {
+    ...actual,
+    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName(),
+    getEffectiveRpcUrl: () => mockEffectiveRpcUrl ?? actual.getEffectiveRpcUrl()
+  };
 });
 
 const mockRequestConfirmation = jest.fn();
@@ -158,6 +163,7 @@ const SESSION = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockWalletNetwork = undefined;
+  mockEffectiveRpcUrl = undefined;
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
   mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-1');
   // Pre-seed the dApp sessions map under the origin we use in every test.
@@ -531,6 +537,15 @@ describe('getNetworkRPC', () => {
     const rpc = await dapp.getNetworkRPC(undefined);
     expect(typeof rpc).toBe('string');
     expect(rpc).toMatch(/^https?:\/\//);
+  });
+
+  // Regression #1655: Mainnet invitation onboarding writes only an endpoint
+  // override, not the legacy stored network id. A dApp that names no network
+  // must get the RPC of the effective network.
+  it('falls back to the effective RPC URL when net is undefined', async () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    mockEffectiveRpcUrl = 'https://rpc.override.example';
+    await expect(dapp.getNetworkRPC(undefined)).resolves.toBe('https://rpc.override.example');
   });
 
   // No test network may be told its requests run on mainnet; the adapter cannot name mainnet yet, so a

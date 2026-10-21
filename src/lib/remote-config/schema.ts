@@ -2,6 +2,7 @@ import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 import { evmChainSlug } from './chains';
+import { type GeoBlocks, readGeoBlocks } from './geo';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
@@ -127,6 +128,11 @@ export interface BridgeConfig {
   'bridge-providers': BridgeProviders;
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
   features: { earn: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
+  /**
+   * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
+   * blocks the feature. A withdrawal of an existing Earn position is not a start.
+   */
+  geo?: GeoBlocks;
   /**
    * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
    * way in directly. False or absent: Welcome shows the create and recover flows, and the logo taps
@@ -455,6 +461,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   }
   const guardians = readGuardians(body.guardians, url);
   const limits = readLimits(body.limits);
+  const geo = readGeoBlocks(body.geo, invalid);
   return {
     network,
     version,
@@ -484,7 +491,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     ...(limits === undefined ? {} : { limits }),
     swap: etaUrl === undefined ? {} : { etaUrl },
     ...(guardians === undefined ? {} : { guardians }),
-    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } })
+    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } }),
+    ...(geo === undefined ? {} : { geo })
   };
 }
 

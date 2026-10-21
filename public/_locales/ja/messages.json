@@ -1633,7 +1633,7 @@
     "englishSource": "Anyone with this phrase can take your assets forever."
   },
   "continue": {
-    "message": "続きを読む",
+    "message": "続ける",
     "englishSource": "Continue"
   },
   "noOperationsFound": {
@@ -1818,6 +1818,10 @@
   "other": {
     "message": "その他",
     "englishSource": "Other"
+  },
+  "others": {
+    "message": "その他",
+    "englishSource": "Others"
   },
   "thousandFormat": {
     "message": "$thousand$ k",
@@ -3258,6 +3262,26 @@
     "message": "Guardianはいつでも再ローテーションできます。その際はリカバリーフレーズが必要となるため、安全に保管してください。",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "新しいGuardianが共同署名を行います",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "新しいGuardianは、確認後、1回共同署名を行います",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "何も移動していない",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "アクセス可能な状態を保つ",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "いつでも再度切り替え可能",
+    "englishSource": "Switch again anytime"
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "このGuardianの切り替えを承認するには、認証を行ってください。",
     "englishSource": "Authenticate to approve this Guardian switch."
@@ -3321,6 +3345,18 @@
   "hotKeyRotationFailedGeneric": {
     "message": "日常キーのローテーション中に問題が発生しました。資金は安全ですので、今すぐ再試行できます。",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationStartOver": {
+    "message": "最初からやり直す",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "このウォレットを削除して、最初からやり直すべきでしょうか？",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "これにより、このデバイスからウォレットが削除されるため、例えば別のguardian URLを使用してウォレットを復元することが可能になります。資金はネットワーク上に残ります。ウォレットを復元するには、リカバリーフレーズが必要になります。",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "毎日の鍵のローテーションは確認されていません",
@@ -3822,6 +3858,15 @@
     "message": "guardianを自動的に検出できませんでした。ご利用になったものを選択するか、そのURLを入力してください。",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
+  "guardianStateBehindChain": {
+    "message": "$name$はこのアカウントを認識していますが、アカウントの最新の状態は保持していません。アカウントを別のguardianに移管した場合は、そのguardianのURLを入力してください。",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianProbePartialFailure": {
     "message": "$count$ guardian(s) にアクセスできなかったため、検出が不完全である可能性があります。",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
@@ -4040,6 +4085,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "この外部サービスは現在利用できません。後ほど再度お試しください。",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "このネットワークではスワップは利用できません",
@@ -5251,8 +5304,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "約20分",
-    "englishSource": "~20 min"
+    "message": "～2分",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "約1分",
@@ -7045,5 +7098,29 @@
   "webViewStartFailedAction": {
     "message": "もう一度試してください",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "利用可能か確認しています",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "お住まいの地域でウォレットを利用できるか確認しています。しばらくお待ちください。",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "お住まいの地域ではウォレットを利用できません",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "現在の所在地からはウォレットを利用できません。",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "利用可能か確認できませんでした",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "接続を確認して、もう一度お試しください。",
+    "englishSource": "Check your connection and try again."
   }
 }

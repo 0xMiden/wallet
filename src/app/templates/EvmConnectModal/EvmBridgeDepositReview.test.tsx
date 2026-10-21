@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { arrivingTokenName, EvmBridgeDepositReview, EvmBridgeDepositReviewProps } from './EvmBridgeDepositReview';
 
@@ -144,7 +144,7 @@ describe('EvmBridgeDepositReview', () => {
       expect(screen.getByText('usdcxRouteName usdcxArrivalArc')).toBeInTheDocument();
     });
 
-    it.each([11155111, 84532, 421614])('reads ~20 min for a USDCx deposit from chain %i', sourceChainId => {
+    it.each([11155111, 84532, 421614])('reads ~2 min for a USDCx deposit from chain %i', sourceChainId => {
       render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx', sourceChainId })} />);
       expect(screen.getByText('usdcxRouteName usdcxArrival')).toBeInTheDocument();
     });
@@ -245,5 +245,68 @@ describe('arrivingTokenName', () => {
   it('names the plain symbol on the Slow route and the label on Fast', () => {
     expect(arrivingTokenName('agglayer', 'USDC', 'Test Epoch USDC')).toBe('USDC');
     expect(arrivingTokenName('epoch', 'USDC', 'Test Epoch USDC')).toBe('Test Epoch USDC');
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible bridge review errors', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports raw submit text through the real review surface once', async () => {
+    render(<EvmBridgeDepositReview {...baseProps({ error: 'private submit 42 https://synthetic.invalid/0xabc' })} />);
+    expect(screen.getByText('private submit 42 https://synthetic.invalid/0xabc')).toBeInTheDocument();
+    await expectErrorAfterDwell('raw_bridge_deposit_submit_failed', 'review');
+  });
+
+  it('keeps quoting and submitting progress quiet without an error', async () => {
+    const view = render(<EvmBridgeDepositReview {...baseProps({ youReceiveLoading: true })} />);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    view.rerender(<EvmBridgeDepositReview {...baseProps({ isSubmitting: true })} />);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it.each(['clear', 'unmount'])('cancels a review failure on %s before dwell', async action => {
+    const view = render(<EvmBridgeDepositReview {...baseProps({ error: 'private review failure' })} />);
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (action === 'clear') view.rerender(<EvmBridgeDepositReview {...baseProps()} />);
+    else view.unmount();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(screen.queryByText('private review failure')).not.toBeInTheDocument();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

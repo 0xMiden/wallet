@@ -32,13 +32,13 @@ const SheetBody: FC<{ open: boolean }> = ({ open }) => {
       if (!accepted) return;
       await resetWalletAndReload(
         async () => {
-          await alert({ title: t('error'), children: t('resetDidNotFinish') });
+          await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
         },
         MIDEN_NETWORK_NAME.MAINNET,
         code
       );
     } catch {
-      await alert({ title: t('error'), children: t('resetDidNotFinish') });
+      await alert({ errorId: 'resetDidNotFinish', title: t('error'), children: t('resetDidNotFinish') });
     }
   };
 

@@ -61,7 +61,7 @@ The one residual: a `usdcx-in-l2` test that broadcast its burn but saw no receip
 ## Review Focus
 
 1. **`TokenMessengerWithFees` passing the hook data on verbatim.** The `source_burn` gate compares the CCTP message's hook data byte for byte with what the key signed (`submission.signed`, the tuple the Node signer received, never a rebuilt intent); the only live sample (another integrator's) ordered its frames `circle-generic-executor` then `cctp-forward`, the reverse of the wallet's, so this is unproven for the wallet's frame order. Expected: a mismatch fails naming `hookData`, never passes silently. Pinned in Task 4 ("names hookData when one signed byte differs").
-2. **Circle falling back to source finality.** A fast transfer forwarded in 8-10 s when probed; an exhausted fast allowance takes 15-20 min. Expected: the Iris step waits up to 25 min (the wallet's own arrival copy says about 20 min) and its failure names the last status and forward state. Pinned in Task 4 ("waits through pending reads" and "times out naming the last status").
+2. **Circle falling back to source finality.** A fast transfer forwarded in 8-10 s when probed; an exhausted fast allowance takes 15-20 min. Expected: the Iris step waits up to 25 min (the wallet's own arrival copy says about 2 min) and its failure names the last status and forward state. Pinned in Task 4 ("waits through pending reads" and "times out naming the last status").
 3. **Another party's deposit through the same executor, handler and xReserve.** It happens every 20 min or so. Expected: every gate keys on our burn hash (Iris) and our CCTP nonce (Arc logs), and two Iris messages or a foreign nonce fail by name. Pinned in Task 4 ("two messages", "another burn's nonce").
 4. **The key short of ETH or USDC on one chain, or no L2 endpoint taking writes.** Expected: the runner's preflight fails before the build with `top up the key on <chain>` naming the address and the minimum, or with `<chain> write endpoint` naming each endpoint's refusal, and the spec's `l2_key` step says the same about funds with the live quote. Past both, `runUsdcxExecutorDeposit`'s own check (#1498) refuses a USDC balance short of the amount plus the quoted fee before the approve, so nothing is sent. Pinned in Task 3 (`l2KeyShortfall`, and "sends nothing when the key's USDC does not cover the amount and Circle's fee") and Task 7 (runner preflight).
 5. **A forward Circle gave up on.** Expected: the gate fails at once naming `forwardState`, and the harness never executes on Arc. Pinned in Task 4 ("fails at once on a forward Circle gave up").
@@ -1826,7 +1826,7 @@ export async function waitForIrisForward(
     if (clock.now() >= deadline) {
       throw new Error(
         `Circle has not attested and forwarded ${where} within ${opts.timeoutMs} ms: ${last}. A fast transfer forwarded ` +
-          '8-10 s after its burn when probed on 2026-10-16; the wallet tells users about 20 min'
+          '8-10 s after its burn when probed on 2026-10-16; the wallet tells users about 2 min'
       );
     }
     await clock.sleep(opts.pollMs ?? 3_000);
@@ -2166,7 +2166,7 @@ const BUDGET = {
   trackingRow: 10_000,
   sourceBurn: ARC_READ_STEP_BUDGET_MS,
   // A fast transfer forwarded in 8-10 s when probed; Circle falls back to source finality (15-20 min) when its fast
-  // allowance runs out, and the wallet tells users about 20 min.
+  // allowance runs out, and the wallet tells users about 2 min.
   iris: 1_500_000,
   arcForward: 150_000,
   rowForward: 60_000,

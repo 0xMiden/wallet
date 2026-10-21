@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import SetupPasscodeScreen, {
   SetupPasscodeScreen as NamedSetupPasscodeScreen,
   SetupPasscodePhase
@@ -76,6 +78,24 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('SetupPasscodeScreen', () => {
   describe('initial "enter" phase render', () => {
@@ -318,5 +338,36 @@ describe('SetupPasscodeScreen', () => {
       const phases: SetupPasscodePhase[] = ['enter', 'confirm'];
       expect(phases).toEqual(['enter', 'confirm']);
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports a mismatched confirmation through the real passcode surface', () => {
+    renderComponent();
+    typeCode('123456');
+    flushTimers();
+    typeCode('654321');
+    flushTimers();
+    expect(screen.getByText('passcodesDoNotMatch')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('passcodesDoNotMatch', 'passcode');
+  });
+  it('does not report the enter or confirm instructions', () => {
+    renderComponent();
+    dwellForError();
+    typeCode('123456');
+    flushTimers();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

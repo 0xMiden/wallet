@@ -1,10 +1,13 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { BridgeDeposit } from './BridgeDeposit';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
@@ -27,12 +30,13 @@ jest.mock('@reown/appkit/react', () => ({
   useDisconnect: () => ({ disconnect: jest.fn() })
 }));
 
+let mockConnectionError: string | null = null;
 let mockConnection: { address: string | undefined; connected: boolean } = { address: undefined, connected: false };
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({
     ...mockConnection,
     status: 'idle',
-    nativeReown: { error: null },
+    nativeReown: { error: mockConnectionError },
     useNativeReownWallet: false
   })
 }));
@@ -196,4 +200,22 @@ describe('BridgeDeposit (#875)', () => {
     expect(screen.getByTestId('bridge-deposit-screen')).toBeInTheDocument();
     expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
+});
+
+it('reports a displayed wallet connection failure after 1000 ms without its text', async () => {
+  jest.useFakeTimers();
+  mockConnectionError = 'private connection failure';
+  mockConnection = { address: undefined, connected: false };
+  jest.mocked(reportUserVisibleError).mockClear();
+  try {
+    render(<BridgeDeposit />);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_bridge_connect_failed', 'notice');
+  } finally {
+    mockConnectionError = null;
+    jest.useRealTimers();
+  }
 });

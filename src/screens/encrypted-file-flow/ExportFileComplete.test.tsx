@@ -1,8 +1,9 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { importedAccountBackupFailure } from 'lib/miden/backup-file';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import ExportFileComplete, { ExportFileCompleteProps } from './ExportFileComplete';
 
@@ -127,6 +128,24 @@ const baseProps: ExportFileCompleteProps = {
 
 const renderComponent = (overrides: Partial<ExportFileCompleteProps> = {}) =>
   render(<ExportFileComplete {...baseProps} {...overrides} />);
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('ExportFileComplete', () => {
   let clickSpy: jest.SpyInstance;
@@ -642,5 +661,59 @@ describe('ExportFileComplete', () => {
 
     await waitFor(() => expect(mockExportWalletBackupMaterial).toHaveBeenCalled());
     expect(mockExportWalletBackupMaterial).toHaveBeenCalledWith(undefined);
+  });
+  describe('user-visible error reporting', () => {
+    it('does not report a dismissed share sheet', async () => {
+      mockIsMobile.mockReturnValue(true);
+      mockShare.mockRejectedValueOnce(new Error('Share canceled'));
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      await act(async () => {
+        renderComponent();
+      });
+      expect(screen.getByText('encryptedWalletFileNotSavedTitle')).toBeVisible();
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.mocked(reportUserVisibleError).mockClear();
+    });
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    it.each([false, true])(
+      'reports the export failure with a closed identity importedAccount=%s',
+      async importedAccount => {
+        mockExportWalletBackupMaterial.mockRejectedValueOnce(
+          new Error(importedAccount ? importedAccountBackupFailure(privateErrorFixture) : privateErrorFixture)
+        );
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        await act(async () => {
+          renderComponent();
+        });
+        expect(screen.getByRole('alert')).toHaveTextContent('encryptedWalletFileExportFailedTitle');
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          importedAccount ? privateErrorFixture : 'encryptedWalletFileExportFailedDesc'
+        );
+        expect(reportUserVisibleError).not.toHaveBeenCalled();
+        dwellForError();
+        expectDisplayReport(
+          importedAccount ? 'encryptedWalletFileExportFailedAccount' : 'encryptedWalletFileExportFailedDesc',
+          'inline'
+        );
+      }
+    );
+    it('does not report pending export progress', async () => {
+      mockExportWalletBackupMaterial.mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        renderComponent();
+      });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      dwellForError();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    });
   });
 });

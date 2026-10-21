@@ -1,16 +1,18 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { PendingActivityCard, type PendingActivityItem, type PendingActivityStatus } from './PendingActivityCard';
 
 const mockNavigate = jest.fn();
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 // The presets, with the transition of each tagged so the card's CHOICE of transition is readable.
 // `reducedMotionTransition` keeps its real shape: it is what the card falls back to, and the tests
@@ -44,6 +46,7 @@ jest.mock('framer-motion', () => {
   });
   return { ...actual, motion };
 });
+
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: (path: string) => mockNavigate(path) }));
 jest.mock('app/icons/v2', () => ({
@@ -370,5 +373,192 @@ describe('PendingActivityCard', () => {
       expect(bar).toHaveClass('border-t', 'border-hairline');
       expect(bar?.className).not.toMatch(/\bp[xb]-/);
     });
+  });
+});
+
+describe('PendingActivityCard live failure reporting', () => {
+  const advance = (ms: number) => act(() => jest.advanceTimersByTime(ms));
+  const card = (item: PendingActivityItem) => (
+    <PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />
+  );
+  const open = () => fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    localStorage.clear();
+    resetActivityReadState();
+  });
+
+  it('reports a pending row that becomes failed while its real Notice is open after 1000 ms', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    rerender(card({ note, status: 'failed' }));
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+    expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<PendingActivityItem>([
+    { note, status: 'failed' },
+    { note, status: 'claiming', txId: 'tx-held', held: true, retryError: 'Saved refusal' }
+  ])('keeps an already-failed first render silent: %p', item => {
+    render(card(item));
+    if (screen.queryByRole('button', { expanded: false })) open();
+    expect(screen.getByTestId('pending-activity-hint')).toHaveAttribute('data-tone', 'negative');
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('keeps a reopened failed row silent after its earlier mount ended before the dwell', () => {
+    const first = render(card({ note, status: 'pending' }));
+    open();
+    first.rerender(card({ note, status: 'failed' }));
+    advance(999);
+    first.unmount();
+
+    render(card({ note, status: 'failed' }));
+    open();
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('starts the dwell only when the folded live failure is displayed', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    rerender(card({ note, status: 'failed' }));
+    advance(5000);
+    expect(screen.queryByTestId('pending-activity-hint')).toBeNull();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    open();
+    advance(999);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+  });
+
+  it('does not restart the same failure dwell when the same note receives refreshed details', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed' }));
+    advance(500);
+    rerender(card({ note: { ...note, receivedAt: 123 }, status: 'failed' }));
+    expect(screen.getByText('activityReceivedOn')).toBeInTheDocument();
+    advance(499);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    advance(1);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+    rerender(card({ note: { ...note, receivedAt: 456 }, status: 'failed' }));
+    advance(5000);
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['clear', 'unmount'] as const)('cancels a live failure shorter than the dwell on %s', end => {
+    const view = render(card({ note, status: 'pending' }));
+    open();
+    view.rerender(card({ note, status: 'failed' }));
+    advance(999);
+    if (end === 'unmount') view.unmount();
+    else view.rerender(card({ note, status: 'pending' }));
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not transfer a live failure to a different note loaded already failed', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed' }));
+    advance(999);
+    rerender(card({ note: { ...note, id: 'note-other' }, status: 'failed' }));
+    advance(5000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('lets a replacement pending note create its own later live failure', () => {
+    const other = { ...note, id: 'note-other' };
+    const { rerender } = render(card({ note, status: 'failed' }));
+    open();
+    rerender(card({ note: other, status: 'pending' }));
+    advance(1000);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    rerender(card({ note: other, status: 'failed' }));
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+  });
+
+  it('starts another live episode after a displayed failure recovers', () => {
+    const { rerender } = render(card({ note, status: 'pending' }));
+    open();
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    rerender(card({ note, status: 'pending' }));
+    advance(1000);
+    rerender(card({ note, status: 'failed' }));
+    advance(1000);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['noteClaimFailedRetry', 'notice'],
+      ['noteClaimFailedRetry', 'notice']
+    ]);
+  });
+});
+
+describe('Guardian wait on a pending card (#1666)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('keeps the current wait visible while closed and removes it on the same card when cleared', () => {
+    const item: PendingActivityItem & { guardianBusy: true } = {
+      note,
+      status: 'claiming',
+      txId: 'tx-wait',
+      guardianBusy: true
+    };
+    const onAccept = jest.fn();
+    const view = render(<PendingActivityCard item={item} onAccept={onAccept} />);
+    const card = view.container.querySelector('[data-pending-status="claiming"]');
+
+    expect(card).not.toBeNull();
+    expect(screen.getByRole('button', { expanded: false })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+    expect(view.container.textContent).toContain('guardianBusyStep');
+    const reason = screen.getByText('guardianBusyStep');
+    expect(reason).toBeVisible();
+    expect(reason.closest('[aria-hidden="true"]')).toBeNull();
+
+    view.rerender(<PendingActivityCard item={{ note, status: 'claiming', txId: 'tx-wait' }} onAccept={onAccept} />);
+    expect(view.container.querySelector('[data-pending-status="claiming"]')).toBe(card);
+    expect(view.container.textContent).not.toContain('guardianBusyStep');
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('keeps a held Retry refusal ahead of a stale Guardian wait flag', () => {
+    const item: PendingActivityItem & { guardianBusy: true } = {
+      note,
+      status: 'claiming',
+      txId: 'tx-held',
+      held: true,
+      retryError: 'Saved refusal',
+      guardianBusy: true
+    };
+    const onAccept = jest.fn();
+    const onRetryHeld = jest.fn();
+    const { container } = render(<PendingActivityCard item={item} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('Saved refusal');
+    const retry = screen.getByRole('button', { name: 'retry' });
+    expect(retry).toBeEnabled();
+    expect(retry).not.toHaveAttribute('aria-busy', 'true');
+    expect(container.textContent).not.toContain('guardianBusyStep');
+    fireEvent.click(retry);
+    expect(onRetryHeld).toHaveBeenCalledWith(item);
+    expect(onAccept).not.toHaveBeenCalled();
   });
 });

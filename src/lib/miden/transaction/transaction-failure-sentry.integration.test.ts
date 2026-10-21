@@ -1,6 +1,10 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
 import * as Repo from 'lib/miden/repo';
 import { captureCrash } from 'lib/telemetry/crash';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
+import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
+import { readReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
   cancelStaleQueuedTransactions,
@@ -54,7 +58,20 @@ jest.mock('../sdk/miden-client', () => ({
   assertWasmHoldCurrent: () => {}
 }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
+jest.mock('@capacitor/core', () => {
+  const actual = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
+  const reown = { sendTransaction: jest.fn() };
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, getPlatform: jest.fn(actual.Capacitor.getPlatform) },
+    registerPlugin: jest.fn((name: string, implementations?: Parameters<typeof actual.registerPlugin>[1]) =>
+      name === 'Reown' ? reown : actual.registerPlugin(name, implementations)
+    )
+  };
+});
 
+const rawReown = registerPlugin<ReownPlugin>('Reown');
+const { Capacitor: actualCapacitor } = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
 const report = jest.mocked(reportTransactionFailure);
 const row = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'tx',
@@ -72,6 +89,8 @@ const phased = (type: 'earn-withdraw' | 'bridged-receive', phase: string): ITran
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  jest.mocked(Capacitor.getPlatform).mockImplementation(actualCapacitor.getPlatform);
+  jest.mocked(rawReown.sendTransaction).mockReset();
   await Repo.transactions.clear();
 });
 
@@ -402,6 +421,121 @@ describe('committed terminal transaction failure reports', () => {
         bridgeReceive: { route: 'epoch', step: 'epoch_execute', cause }
       })
     );
+  });
+
+  describe('ephemeral native request failures', () => {
+    const expectedSnapshot: ReownNativeFailure = {
+      nativeOrigin: 'wallet_error',
+      walletResponseCode: 'internal_error',
+      requestAge: '120_to_300s',
+      published: 'confirmed',
+      backgrounded: 'yes'
+    };
+
+    async function nativeApprovalRejection(): Promise<unknown> {
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
+      const rawError = Object.assign(new Error('Request expired'), {
+        code: `REOWN_NATIVE_REQUEST_FAILURE:${JSON.stringify(expectedSnapshot)}`
+      });
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: `0x${'a1'.repeat(20)}` });
+      } catch (rejection) {
+        caught = rejection;
+      }
+      expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(caught).toBe(rawError);
+      expect(readReownNativeFailure(caught)).toEqual(expectedSnapshot);
+      return caught;
+    }
+
+    function expectNoPersistedNativeFailure(value: unknown): void {
+      if (typeof value !== 'object' || value === null) return;
+      expect(readReownNativeFailure(value)).toBeUndefined();
+      expect(Object.getOwnPropertySymbols(value)).toEqual([]);
+      for (const [key, nested] of Object.entries(value)) {
+        expect([
+          'failure',
+          'cause',
+          ...Object.keys(expectedSnapshot),
+          'reownNativeOrigin',
+          'reownWalletResponseCode',
+          'reownRequestAge',
+          'reownPublished',
+          'reownBackgrounded'
+        ]).not.toContain(key);
+        if (typeof nested === 'string') expect(nested).not.toContain('REOWN_NATIVE_REQUEST_FAILURE:');
+        expectNoPersistedNativeFailure(nested);
+      }
+    }
+
+    it('reports the actual marked approval cause once without persisting its snapshot', async () => {
+      const caught = await nativeApprovalRejection();
+      await Repo.transactions.put(
+        row({
+          type: 'bridged-receive',
+          status: ITransactionStatus.Completed,
+          extraInputs: { phase: 'submitting', provider: 'usdcx' }
+        })
+      );
+      const failure = {
+        error: 'Request expired',
+        failure: { step: 'wallet_approve', cause: caught }
+      } satisfies NonNullable<Parameters<typeof updateBridgedReceivePhase>[2]>;
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+
+      expect(report).toHaveBeenCalledTimes(1);
+      const reported = report.mock.calls[0]?.[0];
+      expect(reported).toMatchObject({
+        point: 'bridge_receive_settlement',
+        type: 'bridged-receive',
+        error: 'Request expired',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_approve' }
+      });
+      expect(reported?.bridgeReceive?.cause).toBe(caught);
+      expect(readReownNativeFailure(reported?.bridgeReceive?.cause)).toEqual(expectedSnapshot);
+      const persisted = await Repo.transactions.get('tx');
+      expect(persisted).toMatchObject({
+        status: ITransactionStatus.Completed,
+        error: 'Request expired',
+        extraInputs: { phase: 'failed', provider: 'usdcx', error: 'Request expired' }
+      });
+      if (persisted === undefined) throw new Error('Expected a persisted inbound bridge');
+      expect(persisted.extraInputs).not.toHaveProperty('failure');
+      expect(persisted.extraInputs).not.toHaveProperty('cause');
+      expect(persisted.extraInputs).not.toHaveProperty('reownNativeOrigin');
+      expectNoPersistedNativeFailure(persisted);
+    });
+
+    it('does not report or persist a marked failure on a restored inbound bridge', async () => {
+      const caught = await nativeApprovalRejection();
+      await Repo.transactions.put(
+        row({
+          type: 'bridged-receive',
+          status: ITransactionStatus.Completed,
+          restoredFromBackup: true,
+          extraInputs: { phase: 'submitting', provider: 'usdcx' }
+        })
+      );
+      const failure = {
+        error: 'Request expired',
+        failure: { step: 'wallet_approve', cause: caught }
+      } satisfies NonNullable<Parameters<typeof updateBridgedReceivePhase>[2]>;
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+
+      const persisted = await Repo.transactions.get('tx');
+      expect(persisted).toMatchObject({
+        restoredFromBackup: true,
+        error: 'Request expired',
+        extraInputs: { phase: 'failed', provider: 'usdcx', error: 'Request expired' }
+      });
+      if (persisted === undefined) throw new Error('Expected a persisted restored inbound bridge');
+      expectNoPersistedNativeFailure(persisted);
+      expect(report).not.toHaveBeenCalled();
+    });
   });
 
   it('fails a restored inbound bridge the reconciler cannot verify without reporting it', async () => {

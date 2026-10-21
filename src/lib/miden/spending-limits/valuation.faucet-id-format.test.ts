@@ -11,6 +11,11 @@ import {
 
 import { SpendingLimitPriceUnavailableError } from './types';
 import { resolveSpendsUsd } from './valuation';
+
+jest.mock('lib/token-list/runtime', () => ({
+  loadTokenPriceAssets: jest.fn(async () => null),
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => NATIVE_BECH32),
   getNativeAssetMetadata: jest.fn(async () => ({ symbol: 'MIDEN', decimals: 6 })),

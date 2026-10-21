@@ -14,6 +14,7 @@ import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { approxFiatAmount, balanceFormatterFor } from 'screens/send-flow/amount-format';
 import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { UITokenWithPendingBalance } from 'screens/send-flow/types';
@@ -28,6 +29,7 @@ interface EvmBridgeDepositFormProps {
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  errorId?: UserErrorId | null;
   evmAddress: string;
   onAmountChange: (value: string) => void;
   onSelectToken: () => void;
@@ -46,6 +48,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   amount,
   isValidAmount,
   error,
+  errorId,
   evmAddress,
   onAmountChange,
   onSelectToken,
@@ -56,7 +59,17 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   const { t } = useTranslation();
   const balanceReady = token.balance !== null;
   const canProceed = token.scaleIsKnown && balanceReady && !!network && isValidAmount;
-  const amountError = error && (amount || error !== 'invalidAmount') ? t(error) : undefined;
+  const visibleError = error && (amount || error !== 'invalidAmount') ? error : undefined;
+  const amountError =
+    visibleError === 'amountMustBeLessThanBalance' || visibleError === 'invalidAmount' ? t(visibleError) : visibleError;
+  const amountErrorId =
+    visibleError && visibleError !== 'invalidAmount'
+      ? errorId === undefined
+        ? visibleError === 'amountMustBeLessThanBalance'
+          ? 'amountMustBeLessThanBalance'
+          : 'raw_bridge_balance_failed'
+        : errorId
+      : null;
   const balanceText = token.balance === null ? null : balanceFormatterFor(token.balance)(token.balance);
 
   return (
@@ -94,6 +107,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
         onValueChange={value => onAmountChange(value || '')}
         invalid={!!amountError}
         error={amountError}
+        errorId={amountErrorId}
         accent="receive"
         helper={
           token.scaleIsKnown && token.fiatPrice > 0 && amount

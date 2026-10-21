@@ -2,8 +2,13 @@ package com.miden.breadconnect
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -22,9 +27,26 @@ interface BreadConnectStorage {
     fun write(key: String, value: String?)
 }
 
+/**
+ * Runs a block only while its request is still waiting and active. The block does not suspend, so a cancel on
+ * another thread cannot land between the check and the open.
+ */
+class OpenAttempt internal constructor(private val lock: Any, private val waiting: () -> Boolean) {
+    /** The block's result, or null when this request can no longer open. */
+    fun <T> run(block: () -> T): T? = synchronized(lock) {
+        if (!waiting()) null else block()
+    }
+}
+
 /** Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead. */
 interface BreadOpener {
     suspend fun open(link: String): Boolean
+}
+
+internal interface ManagedBreadOpener : BreadOpener {
+    override suspend fun open(link: String): Boolean = open(link, OpenAttempt(Any()) { true })
+
+    suspend fun open(link: String, attempt: OpenAttempt): Boolean
 }
 
 class BreadConnectException(val code: Code, message: String) : Exception(message) {
@@ -64,7 +86,9 @@ class BreadConnect(
     /** The last request this client settled: a record of it left in storage takes no answer until a relaunch. */
     private var settledId: String? = null
 
-    private class Waiter(val pending: Pending, val answer: CompletableDeferred<JsonObject>)
+    private class Waiter(val pending: Pending, val answer: CompletableDeferred<JsonObject>, var opening: Job? = null) {
+        var stopped = false
+    }
 
     private sealed class Pending {
         abstract val id: String
@@ -239,6 +263,7 @@ class BreadConnect(
     }
 
     private suspend fun exchange(pending: Pending, link: String): JsonObject {
+        val callerJob = currentCoroutineContext()[Job]
         val waiter = Waiter(pending, CompletableDeferred())
         synchronized(lock) {
             settle(null, failure(BreadConnectException.Code.Superseded, "A newer request to Bread replaced this one"))
@@ -248,13 +273,27 @@ class BreadConnect(
         try {
             // Null is this deadline alone: a caller's own timeout arrives as a cancellation and propagates as one.
             val answer = withTimeoutOrNull(ANSWER_WAIT_MS) {
-                coroutineScope {
+                val timeoutJob = currentCoroutineContext().job
+                // The opener's own cancellation must not become the caller's answer; the deferred carries that.
+                supervisorScope {
+                    val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                        suspendCancellableCoroutine<Nothing> { continuation ->
+                            continuation.invokeOnCancellation { synchronized(lock) { waiter.stopped = true } }
+                        }
+                    }
                     // Beside the wait, so a cancel or a newer request ends this request while the opener has not returned.
-                    val opening = launch {
-                        // The cancel below runs only once the settled wait resumes, which can come after this starts.
-                        if (synchronized(lock) { this@BreadConnect.waiter !== waiter }) return@launch
+                    val opening = launch(start = CoroutineStart.LAZY) {
+                        val openingJob = currentCoroutineContext().job
+                        val attempt = OpenAttempt(lock) {
+                            this@BreadConnect.waiter === waiter && !waiter.stopped && callerJob?.isActive != false &&
+                                timeoutJob.isActive && openingJob.isActive
+                        }
                         val opened = try {
-                            opener.open(link)
+                            when (val openingOpener = opener) {
+                                is PackageOpener -> openingOpener.open(link, attempt)
+                                is ManagedBreadOpener -> openingOpener.open(link, attempt)
+                                else -> openingOpener.open(link)
+                            }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -264,8 +303,18 @@ class BreadConnect(
                         if (!opened) settle(waiter, failure(BreadConnectException.Code.NotInstalled, "Bread is not installed; its store page is open"))
                     }
                     try {
+                        val attached = synchronized(lock) {
+                            if (this@BreadConnect.waiter === waiter && !waiter.stopped) {
+                                waiter.opening = opening
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        if (attached) opening.start() else opening.cancel()
                         waiter.answer.await()
                     } finally {
+                        cancellationWatcher.cancel()
                         opening.cancel()
                     }
                 }
@@ -288,6 +337,7 @@ class BreadConnect(
             val current = waiter ?: return
             waiter = null
             settledId = current.pending.id
+            current.opening?.cancel()
             result.fold({ current.answer.complete(it) }, { current.answer.completeExceptionally(it) })
         }
     }
