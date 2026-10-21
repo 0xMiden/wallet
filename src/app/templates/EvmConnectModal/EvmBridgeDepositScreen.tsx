@@ -31,6 +31,7 @@ import { IBridgeProvider } from 'lib/miden/db/types';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { evmUsdcLabel } from 'lib/remote-config/token-labels';
@@ -44,6 +45,7 @@ import {
 } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import { type BridgeReceiveFailureStep, walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import {
   CIRCLE_USDC_DECIMALS,
@@ -81,10 +83,12 @@ import {
 } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
+import { approxFiatAmount } from 'screens/send-flow/amount-format';
 import { BridgeNetwork, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
+import { useBridgeInBalanceCap } from './bridge-in-balance-cap';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
@@ -1281,7 +1285,38 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Null while the balance loads or after its read failed, which the form shows: either way Continue waits.
   const heldUnits = selectedBalance.value;
   const amountExceedsBalance = typedUnits !== null && heldUnits !== null && typedUnits > heldUnits;
-  const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance;
+
+  // The document's bridge-in ceiling (`limits.bridgeInMaxBalanceUsd`) is a gate on this screen only: it weighs the
+  // receiving account's valued holdings plus this deposit, at the feed's price (USDC at par, ETH at the feed's ETH
+  // quote, never the nominal $1 a test network gives an unquoted token), and holds every step while they pass it. A
+  // note that lands by any other way is not this screen's to refuse.
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const depositPriceUsd = (() => {
+    if (token !== 'ETH') return 1;
+    const quote = quotedPrice(tokenPrices, 'ETH');
+    return quote && !isNominalQuote(quote) ? quote.price : undefined;
+  })();
+  const capVerdict = useBridgeInBalanceCap({
+    accountPublicKey: midenAccount.publicKey,
+    depositAmount: typedUnits === null ? null : Number(amount),
+    depositPriceUsd
+  });
+  const capHold = capVerdict.state !== 'none' && capVerdict.state !== 'clear';
+  const capHoldNotice = (() => {
+    switch (capVerdict.state) {
+      case 'exceeded':
+        return t('bridgeDepositBalanceCapExceeded', {
+          cap: approxFiatAmount(capVerdict.capUsd),
+          held: approxFiatAmount(capVerdict.heldUsd),
+          deposit: approxFiatAmount(capVerdict.depositUsd)
+        });
+      case 'unpriced':
+        return t('bridgeDepositBalanceCapUnpriced', { cap: approxFiatAmount(capVerdict.capUsd), token: tokenLabel });
+      default:
+        return undefined;
+    }
+  })();
+  const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance && !capHold;
 
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
   // The quote must be for the amount on screen: it lags the input by the debounce, and
@@ -1354,18 +1389,21 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setupReady &&
     !usdcxFeeShortfall &&
     slowStatus !== 'signing';
-  const canConfirmRoute = (() => {
-    switch (route) {
-      case 'epoch':
-        return fastReady;
-      case 'agglayer':
-        return slowReady;
-      case 'usdcx':
-        return usdcxReady;
-      default:
-        return false;
-    }
-  })();
+  // Fast does not read setupReady, so the ceiling is applied here as well, to every route.
+  const canConfirmRoute =
+    !capHold &&
+    (() => {
+      switch (route) {
+        case 'epoch':
+          return fastReady;
+        case 'agglayer':
+          return slowReady;
+        case 'usdcx':
+          return usdcxReady;
+        default:
+          return false;
+      }
+    })();
   // Fast (Epoch): the EVM amount the sponsor deposits, from the reverse quote's
   // `tokenIn` (EVM token base units). This is what the wallet signs for, so it
   // is the amount shown as "depositing". It stays exact because the tracking row
@@ -1433,7 +1471,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // short of the typed amount, the step says so as the amount step would. One value for every step, so none drifts.
   const balanceHoldNotice = (() => {
     if (selectedBalance.loading) return t('loading');
-    return selectedBalance.error ?? (amountExceedsBalance ? t('amountMustBeLessThanBalance') : undefined);
+    return selectedBalance.error ?? (amountExceedsBalance ? t('amountMustBeLessThanBalance') : capHoldNotice);
   })();
 
   // Fast/Slow hint below the cards: ETH on Fast wraps to WETH, which isn't available yet. A typed amount the balance
@@ -1467,7 +1505,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // error) so the Review isn't a dead-end — handleConfirm re-quotes to recover.
   const fastRetryable =
     route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
-  const reviewCanConfirm = (canConfirmRoute || fastRetryable) && !submitting && !submitted;
+  const reviewCanConfirm = (canConfirmRoute || (fastRetryable && !capHold)) && !submitting && !submitted;
   // Relabel Confirm → Retry after a failed Fast attempt (the tap re-quotes).
   const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
 
@@ -1639,7 +1677,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
               confirmLabel={reviewConfirmLabel}
-              error={error ?? usdcxFeeHoldNotice}
+              error={error ?? usdcxFeeHoldNotice ?? capHoldNotice}
               onConfirm={handleConfirm}
               onBack={goBack}
             />
@@ -1692,7 +1730,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               amount={amount}
               isValidAmount={setupReady}
               error={
-                amountExceedsBalance ? 'amountMustBeLessThanBalance' : (error ?? selectedBalance.error ?? undefined)
+                amountExceedsBalance
+                  ? 'amountMustBeLessThanBalance'
+                  : (error ?? selectedBalance.error ?? capHoldNotice ?? undefined)
               }
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
@@ -1709,6 +1749,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       amountExceedsBalance,
       awaitingNextConfirmation,
       balanceHoldNotice,
+      capHoldNotice,
       bridgeTxId,
       reviewAmount,
       error,

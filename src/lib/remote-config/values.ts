@@ -107,6 +107,14 @@ export function selectInviteOnlyOnboarding(s: BridgeConfigSnapshot): boolean | n
  * The registered token whose origin is native ETH on network 0: its faucet mints bridged ETH and sends its deliveries,
  * each a deposit of `w` wei arriving as `floor(w / 10^scale)` of the faucet's units.
  */
+/**
+ * The most the receiving account may hold in US dollars once a bridge-in lands (`limits.bridgeInMaxBalanceUsd`), or
+ * null when the document sets no ceiling.
+ */
+export function selectBridgeInMaxBalanceUsd(s: BridgeConfigSnapshot): number | null {
+  return s.config?.limits?.bridgeInMaxBalanceUsd ?? null;
+}
+
 export function selectNativeEthToken(s: BridgeConfigSnapshot, chainId?: number): BridgeToken | null {
   const tokens = okValue(agglayerReads(s, chainId)?.tokens) ?? [];
   return tokens.find(token => token.originToken === NATIVE_ETH && token.originNetwork === 0) ?? null;

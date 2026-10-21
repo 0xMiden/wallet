@@ -60,6 +60,15 @@ export interface MainnetCountdownConfig {
   launchAt?: number;
 }
 
+/**
+ * The ceilings the document puts on bridge transfers. `bridgeInMaxBalanceUsd` is the most the receiving account may
+ * hold, in US dollars, once a bridge-in lands: the wallet refuses a deposit that takes the account's valued balance
+ * past it. Absent means no ceiling.
+ */
+export interface BridgeLimitsConfig {
+  bridgeInMaxBalanceUsd?: number;
+}
+
 export interface RouteSwitches {
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
@@ -125,6 +134,8 @@ export interface BridgeConfig {
    */
   onboarding?: { inviteOnly: boolean };
   mainnetCountdown?: MainnetCountdownConfig;
+  /** Only there when the document sets a `limits` section. */
+  limits?: BridgeLimitsConfig;
   swap?: SwapConfig;
   /**
    * The network's Guardian operators in picker order, the first being the default. Never empty. Absent means the
@@ -217,6 +228,19 @@ function readCountdown(value: unknown): MainnetCountdownConfig {
 }
 
 type ConfigValue = Parameters<typeof section>[0];
+
+// A ceiling in US dollars: a finite number above zero. A malformed ceiling fails the document, since a ceiling the
+// wallet silently dropped would let a deposit through that the operator meant to refuse.
+function usdCeiling(value: ConfigValue): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return invalid();
+  return value;
+}
+
+function readLimits(value: ConfigValue): BridgeLimitsConfig | undefined {
+  if (value === undefined) return undefined;
+  const bridgeInMaxBalanceUsd = read(section(value), 'bridgeInMaxBalanceUsd', usdCeiling);
+  return bridgeInMaxBalanceUsd === undefined ? undefined : { bridgeInMaxBalanceUsd };
+}
 
 function requiredBoolean(value: ConfigValue): boolean {
   return typeof value === 'boolean' ? value : invalid();
@@ -430,6 +454,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
   }
   const guardians = readGuardians(body.guardians, url);
+  const limits = readLimits(body.limits);
   return {
     network,
     version,
@@ -456,6 +481,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       )
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
+    ...(limits === undefined ? {} : { limits }),
     swap: etaUrl === undefined ? {} : { etaUrl },
     ...(guardians === undefined ? {} : { guardians }),
     ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } })

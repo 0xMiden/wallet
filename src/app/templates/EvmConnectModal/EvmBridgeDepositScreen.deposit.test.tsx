@@ -197,7 +197,9 @@ jest.mock('lib/remote-config/values', () => ({
           decimals: 6
         }
       : null,
-  getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
+  getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 }),
+  // No bridge-in balance ceiling: this suite is not a test of the gate.
+  selectBridgeInMaxBalanceUsd: () => null
 }));
 
 jest.mock('use-debounce', () => ({
