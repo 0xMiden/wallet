@@ -125,7 +125,7 @@ import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/conn
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
-import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
+import { dispatchGuardianPipeline, midenClientProxy, type SubmitGate } from '../back/miden-client-proxy';
 import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
@@ -3877,6 +3877,11 @@ const generateGuardianTransaction = async (
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
   let submitCrossed = false;
+  // The offscreen leaf's submit gate (#1644): opened only by this worker, before it records the crossing, and never
+  // once this attempt's catch has started. An offscreen attempt that never opened it never called submit, whatever
+  // ended it, a kill included, so its candidate is abandoned instead of held for the Guardian's grace.
+  let submitGateOpened = false;
+  let leafSettled = false;
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
@@ -3887,6 +3892,13 @@ const generateGuardianTransaction = async (
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     await stampStage(stage, detail);
     if (stage === 'submitting') submitCrossed = true;
+  };
+  const submitGate: SubmitGate = async evidence => {
+    if (leafSettled) return false;
+    submitGateOpened = true;
+    // A reliable stamp: a crossing that cannot be recorded throws, and the gate stays shut.
+    await stampStage('submitting', { evidence });
+    return !leafSettled;
   };
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
@@ -3989,7 +4001,8 @@ const generateGuardianTransaction = async (
           transaction.delegateTransaction,
           signCallback,
           stampStage,
-          chainAnchorB64
+          chainAnchorB64,
+          submitGate
         )
       );
     } else {
@@ -4002,6 +4015,7 @@ const generateGuardianTransaction = async (
       );
     }
   } catch (error) {
+    leafSettled = true;
     // The message goes in the FORMAT STRING, not only in the object. Chrome
     // truncates strings nested inside a logged object's preview (~100 chars),
     // and a guardian write's whole diagnostic value is the executor's reason,
@@ -4018,7 +4032,8 @@ const generateGuardianTransaction = async (
     );
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
     // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
-    if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
+    const gateShut = offscreenDispatched && !submitGateOpened;
+    if ((hasErrorBeforeSubmit(error) || gateShut) && transaction.attemptId !== undefined) {
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
     // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
@@ -4032,6 +4047,7 @@ const generateGuardianTransaction = async (
     const keptForVerdict =
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
+      !gateShut &&
       (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
@@ -4109,13 +4125,13 @@ const generateGuardianTransaction = async (
         // here surfaces as one), and so may an inline attempt that reported
         // 'submitting'; each keeps this one abandon and leaves no mark. The
         // offscreen leaf's stamps can be lost, so an attempt dispatched offscreen
-        // never marks, and the retry never adds an abandon to a write the chain
-        // may still consume.
+        // marks only when its submit gate never opened (#1644), and the retry never
+        // adds an abandon to a write the chain may still consume.
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed) {
+        if (gateShut || (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed)) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
         }
       }
