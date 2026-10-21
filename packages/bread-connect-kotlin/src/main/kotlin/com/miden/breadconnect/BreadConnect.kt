@@ -303,8 +303,15 @@ class BreadConnect(
                         if (!opened) settle(waiter, failure(BreadConnectException.Code.NotInstalled, "Bread is not installed; its store page is open"))
                     }
                     try {
-                        synchronized(lock) { waiter.opening = opening }
-                        opening.start()
+                        val attached = synchronized(lock) {
+                            if (this@BreadConnect.waiter === waiter && !waiter.stopped) {
+                                waiter.opening = opening
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        if (attached) opening.start() else opening.cancel()
                         waiter.answer.await()
                     } finally {
                         cancellationWatcher.cancel()
