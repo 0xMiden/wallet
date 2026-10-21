@@ -668,6 +668,7 @@ describe('user-visible watched bridge failures', () => {
       'private deposit 42 https://synthetic.invalid/0xabc',
       'raw_bridge_deposit_failed'
     ],
+    ['empty reason', '', 'Visible generic bridge failure', 'transactionErrorDescription'],
     ['generic fallback', undefined, 'Visible generic bridge failure', 'transactionErrorDescription']
   ])('reports an observed live failure with %s once', async (_label, error, copy, id) => {
     show('submitting');
