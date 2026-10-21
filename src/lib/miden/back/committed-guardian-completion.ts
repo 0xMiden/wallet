@@ -171,7 +171,7 @@ export async function prepareCommittedGuardianCompletion(rowId: string): Promise
                 account.guardianEpoch ?? 0
               );
         assertCompletionCurrent();
-        accountsUpdated(updated);
+        accountsUpdated({ accounts: updated.accounts });
       });
     }
   );

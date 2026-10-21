@@ -168,7 +168,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
         assertCurrent();
         const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey, assertCurrent);
         assertCurrent();
-        accountsUpdated(updated);
+        accountsUpdated({ accounts: updated.accounts });
       });
     });
   },

@@ -109,7 +109,10 @@ export const store = createStore<StoreState>({
   .on(accountsUpdated, (state, { accounts, currentAccount }) => ({
     ...state,
     accounts,
-    currentAccount: currentAccount || state.currentAccount
+    currentAccount:
+      currentAccount ||
+      accounts.find(account => account.publicKey === state.currentAccount?.publicKey) ||
+      state.currentAccount
   }))
   .on(currentAccountUpdated, (state, currentAccount) => ({
     ...state,
