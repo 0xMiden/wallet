@@ -1,11 +1,12 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { Route, RouteOptions } from './Route';
 import { AgglayerEligibility } from './useAgglayerEligibility';
@@ -41,6 +42,10 @@ jest.mock('lib/miden/metadata/resolve', () => ({
 }));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 const DOWN: FeatureAvailability = {
@@ -454,3 +459,36 @@ describe('RouteOptions', () => {
     expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
   });
 });
+
+describe('route availability report', () => {
+  const mockReport = jest.mocked(reportUserVisibleError);
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockReport.mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it('reports the unavailable-feature event for a route down for a non-geographic reason', () => {
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        fastAvailability={DOWN}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+  });
+
+  it('reports nothing while both routes are available', () => {
+    render(
+      <RouteOptions route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...UP} />
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport).not.toHaveBeenCalled();
+  });
+});
+

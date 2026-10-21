@@ -17,6 +17,7 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { BridgeRoute } from './types';
 import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
@@ -185,6 +186,13 @@ const RouteAvailabilityNotice: React.FC<{
   'data-testid': string;
 }> = ({ availability, otherRouteSelectable, id, 'data-testid': testId }) => {
   const { t } = useTranslation();
+  // The same report FeatureUnavailableNotice makes, so the neutral copy keeps the event stream it replaced.
+  useUserVisibleError(
+    availability.state === 'unavailable' && availability.reason !== 'restricted'
+      ? 'bridgeFeatureUnavailableBody'
+      : null,
+    'notice'
+  );
   if (availability.state !== 'unavailable') return null;
   if (availability.reason === 'restricted') {
     return <FeatureUnavailableNotice availability={availability} variant="inline" id={id} data-testid={testId} />;
