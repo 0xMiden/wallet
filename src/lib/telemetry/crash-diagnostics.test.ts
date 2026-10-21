@@ -707,6 +707,11 @@ describe('source-bound crash diagnostics', () => {
     const otherStep = privateFailure();
     annotateCrash(otherStep, { proposalStep: 'chain_sync', securityChange: 'switch-guardian' });
     expect(snapshotCrashDiagnostics(otherStep)).toEqual({ proposalStep: 'chain_sync' });
+    const inner = privateFailure();
+    annotateCrash(inner, { proposalStep: 'proposal_create', securityChange: 'switch-guardian' });
+    const wrapped = new Error('wrapper', { cause: inner });
+    annotateCrash(wrapped, { proposalStep: 'chain_sync' });
+    expect(snapshotCrashDiagnostics(wrapped)).toEqual({ proposalStep: 'chain_sync' });
     const kept = privateFailure();
     annotateCrash(kept, { proposalStep: 'proposal_create', securityChange: 'replace-hot-key' });
     annotateCrash(kept, {

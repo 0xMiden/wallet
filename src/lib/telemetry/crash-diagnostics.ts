@@ -330,6 +330,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
       Object.assign(snapshot, storage);
     }
   }
+  // A name recorded on proposal creation must not survive onto a later step in the cause chain.
+  if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
   return snapshot;
 }
 
