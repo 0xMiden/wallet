@@ -80,7 +80,7 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  useBridgeConfigSnapshot({ load: false });
 
   const {
     data: claimableNotes,
@@ -230,41 +230,30 @@ const Explore: FC = () => {
     }
   }, [address]);
 
-  const { sortedTokens, hiddenTokens } = useMemo(() => {
-    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
-    void bridgeConfig;
-    // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
-    // nothing, never as its token count at $1 a unit.
-    const fiatValues = new Map(
-      allTokenBalances.map(token => [
-        token,
-        hasKnownScale(token.metadata)
-          ? token.balance * (tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)?.price ?? 0)
-          : 0
-      ])
-    );
-    const sorted = [...allTokenBalances].sort((a, b) => {
-      const aIsNative = a.tokenId === midenFaucetId;
-      const bIsNative = b.tokenId === midenFaucetId;
-      if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
-      return fiatValues.get(b)! - fiatValues.get(a)!;
-    });
-    // A hidden token moves to the Hidden assets section under the list; the hook never reports
-    // the native token hidden.
-    return {
-      sortedTokens: sorted.filter(token => !isHidden(token.tokenId)),
-      hiddenTokens: sorted.filter(token => isHidden(token.tokenId))
-    };
-  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices, bridgeConfig]);
+  // Read the current verified price assets on each render.
+  // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
+  // nothing, never as its token count at $1 a unit.
+  const fiatValues = new Map(
+    allTokenBalances.map(token => [
+      token,
+      hasKnownScale(token.metadata)
+        ? token.balance * (tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)?.price ?? 0)
+        : 0
+    ])
+  );
+  const sorted = [...allTokenBalances].sort((a, b) => {
+    const aIsNative = a.tokenId === midenFaucetId;
+    const bIsNative = b.tokenId === midenFaucetId;
+    if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
+    return fiatValues.get(b)! - fiatValues.get(a)!;
+  });
+  // Put hidden tokens in a separate list.
+  const sortedTokens = sorted.filter(token => !isHidden(token.tokenId));
+  const hiddenTokens = sorted.filter(token => isHidden(token.tokenId));
 
-  // The price symbols of the tokens the Balance total sums, so the card waits on the feed only
-  // while one of them is a symbol the feed lists (`pricesLoaded`).
-  const totalPriceSymbols = useMemo(() => {
-    void bridgeConfig;
-    return allTokenBalances
-      .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
-      .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
-  }, [allTokenBalances, isHidden, bridgeConfig]);
+  const totalPriceSymbols = allTokenBalances
+    .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
+    .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;

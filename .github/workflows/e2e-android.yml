@@ -209,12 +209,58 @@ jobs:
       - name: Build debug APK
         run: yarn test:e2e:android:build
 
+      - name: Build native Reown instrumentation APK
+        run: |
+          cd android
+          ./gradlew :app:assembleDebugAndroidTest
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
       # Reclaim the Gradle daemon's heap before two emulators start competing
       # for the runner's 16 GB. The daemon lingers after `assembleDebug` holding
       # a GB or two it will never use again in this job.
       - name: Stop the Gradle daemon
         working-directory: android
         run: ./gradlew --stop || true
+
+      - name: Run native Reown bridge smoke
+        id: reown-native-smoke
+        timeout-minutes: 10
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          avd-name: Pixel_API_34
+          force-avd-creation: false
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          script: >-
+            bash -euo pipefail -c '
+            mkdir -p test-results-android/reown-native-origin;
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk;
+            adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk;
+            adb shell pm clear com.miden.wallet;
+            adb shell am instrument -w -r -e class com.miden.wallet.ReownNativeFailureBridgeTest
+            com.miden.wallet.test/androidx.test.runner.AndroidJUnitRunner 2>&1
+            | tr -d "\r" | tee test-results-android/reown-native-origin/instrumentation.txt;
+            if grep -Eq "FAILURES|INSTRUMENTATION_FAILED" test-results-android/reown-native-origin/instrumentation.txt;
+            then exit 1; fi;
+            grep -Fxq "OK (2 tests)" test-results-android/reown-native-origin/instrumentation.txt
+            '
+
+      - name: Stop native Reown smoke emulator
+        if: ${{ always() && steps.reown-native-smoke.outcome != 'skipped' }}
+        run: |
+          adb -s emulator-5554 emu kill || true
+          for _ in $(seq 1 30); do
+            if ! adb -s emulator-5554 get-state >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo '::error::Native Reown smoke emulator did not stop'
+          exit 1
 
       - name: Run Android E2E
         run: yarn test:e2e:android:run

@@ -37,6 +37,8 @@ export interface PendingActivityItem {
   failure?: { id: UserErrorId };
   /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
   cannotPayFee?: boolean;
+  /** Its claim is queued again because the Guardian is still settling the previous change, #1666. */
+  guardianBusy?: true;
 }
 
 interface PendingActivityCardProps {
@@ -93,6 +95,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const feeBlocked = canAccept && item.cannotPayFee === true;
   const held = status === 'claiming' && item.held === true;
   const busy = (status === 'claiming' && !held) || status === 'checking';
+  const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
   // flicker. Read on every render, so a claim landing mid-tween drops the rest of it.
@@ -122,6 +125,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   if (item.retryError !== undefined) hint = item.retryError;
   else if (held) hint = t('transactionNotConfirmedHint');
   else if (status === 'failed') hint = t('noteClaimFailedRetry');
+  else if (waitingOnGuardian) hint = t('guardianBusyDescription');
   const negative = status === 'failed' || item.retryError !== undefined;
   const failureId =
     item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
@@ -269,7 +273,15 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
             )}
           </AnimatePresence>
 
-          {/* Outside the fold, so a withheld Accept is never left without its reason. */}
+          {/* Outside the fold, so a claim the Guardian holds back and a withheld Accept are never left without
+            their reason. */}
+          {waitingOnGuardian && (
+            <div className="px-4 pb-3">
+              <Notice variant="inline" tone="neutral" role="status" data-testid="pending-activity-guardian-wait">
+                {t('guardianBusyStep')}
+              </Notice>
+            </div>
+          )}
           {feeBlocked && (
             <div className="px-4 pb-3">
               <Notice id={feeNoticeId} variant="inline" tone="warning" data-testid="pending-activity-fee-notice">
