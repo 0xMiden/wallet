@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+
+import { navigate } from 'lib/woozie';
 
 import Me from './Me';
 
@@ -37,9 +39,11 @@ it('shows a standard Profile tab header and keeps the account identity without a
 
 it('puts My badges before the original embedded settings menu', () => {
   render(<Me />);
-  const badges = screen.getByRole('link', { name: /openMyBadges/ });
+  const badges = screen.getByTestId('my-badges-preview');
   const settings = screen.getByTestId('original-settings');
-  expect(badges).toHaveAttribute('href', '/me/badges');
+  expect(badges).toHaveTextContent('myBadges');
+  fireEvent.click(badges);
+  expect(navigate).toHaveBeenCalledWith('/me/badges');
   expect(settings).toHaveAttribute('data-embedded', 'true');
   expect(badges.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
@@ -49,4 +53,18 @@ it('releases the mobile tab frame when unmounted', () => {
   expect(document.body).toHaveAttribute('data-edge-to-edge');
   unmount();
   expect(document.body).not.toHaveAttribute('data-edge-to-edge');
+});
+
+it('shows badge progress as a count and a meter', () => {
+  render(<Me />);
+  expect(screen.getByText('badgesEarnedCount')).toBeInTheDocument();
+  const meter = screen.getByRole('progressbar', { name: 'myBadges' });
+  expect(meter).toHaveAttribute('aria-valuenow', '0');
+  expect(meter).toHaveAttribute('aria-valuemax', '6');
+});
+
+it('shows the address as one short copy chip and the network as its own tag', () => {
+  render(<Me />);
+  expect(screen.getByTestId('profile-address')).toHaveTextContent('0x123456…7890');
+  expect(screen.getByTestId('profile-network')).toHaveTextContent('Testnet');
 });

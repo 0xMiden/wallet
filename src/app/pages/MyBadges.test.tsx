@@ -61,3 +61,16 @@ it('returns to the profile through the shared back handler', () => {
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
+
+it('splits the set into earned, earnable and not-yet-available counts', () => {
+  render(<MyBadges />);
+  expect(screen.getByTestId('badges-stat-earned')).toHaveTextContent('0badgesStatEarned');
+  expect(screen.getByTestId('badges-stat-locked')).toHaveTextContent('3badgesStatLocked');
+  expect(screen.getByTestId('badges-stat-coming-soon')).toHaveTextContent('3badgesStatComingSoon');
+  expect(screen.queryByText('mainnetOnly')).not.toBeInTheDocument();
+});
+
+it('shows the earned fraction beside the All badges header', () => {
+  render(<MyBadges />);
+  expect(screen.getByTestId('badges-collection-count')).toHaveTextContent('badgesEarnedFraction');
+});

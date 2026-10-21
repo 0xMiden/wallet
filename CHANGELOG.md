@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] Profile and My badges polish: every badge has its own illustrated medallion; Profile shows the address as one copy chip with a network tag and opens My badges from a progress card; My badges leads with Earned / Locked / Coming soon counts, an earned fraction beside All badges, and the Mainnet note at the foot of the page.
 - [CHANGE][mobile] The home carousel snap starts on the frame the finger lifts, instead of holding still for a frame before the spring.
 - [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
 - [CHANGE][all] Each pull request posts a UI smoothness result: carousel feel against the base, the slowest scripted tap, and how the settings list scrolls, each with a difference in percent. The carousel score is the median of six passes from Overview to Swap, with the main thread slowed 4×. The tap and the list are not slowed, so the tap keeps the 200ms and 500ms bands. The comment is informational and does not block merge.
