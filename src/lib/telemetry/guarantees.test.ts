@@ -350,7 +350,8 @@ describe('the guard reads the tree it claims to read', () => {
     expect(lockfilePackages().has('@sentry/browser')).toBe(true);
     expect([...(importedPackages().get('@sentry/browser') ?? [])]).toEqual([
       'src/lib/telemetry/crash.test.ts',
-      'src/lib/telemetry/crash.ts'
+      'src/lib/telemetry/crash.ts',
+      'src/lib/telemetry/egress-boundary.test.ts'
     ]);
   });
 });
