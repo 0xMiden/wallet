@@ -410,11 +410,13 @@ export class MultisigService {
     noteType: NoteType
   ): Promise<Proposal> {
     return this.withChainSyncedHold('send proposal', () =>
-      this.multisig.createP2idProposal(
-        accountRefToSdk(recipientId).toString(),
-        accountRefToSdk(faucetId).toString(),
-        amount,
-        { noteType }
+      withProposalStep('proposal_create', () =>
+        this.multisig.createP2idProposal(
+          accountRefToSdk(recipientId).toString(),
+          accountRefToSdk(faucetId).toString(),
+          amount,
+          { noteType }
+        )
       )
     );
   }
@@ -459,8 +461,10 @@ export class MultisigService {
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
     return this.withChainSyncedHold('procedure-threshold proposal', () =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+      withProposalStep('proposal_create', () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+      )
     );
   }
 
@@ -479,7 +483,7 @@ export class MultisigService {
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
     return await this.withChainSyncedHold('custom proposal', () =>
-      this.multisig.createCustomProposal(requestBytes, proposalType)
+      withProposalStep('proposal_create', () => this.multisig.createCustomProposal(requestBytes, proposalType))
     );
   }
 
@@ -512,7 +516,9 @@ export class MultisigService {
       const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
       const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
-      const proposal = await this.multisig.createCustomProposal(rebased, proposalType);
+      const proposal = await withProposalStep('proposal_create', () =>
+        this.multisig.createCustomProposal(rebased, proposalType)
+      );
       return { proposal, requestBytes: rebased };
     });
   }
@@ -880,7 +886,10 @@ export class MultisigService {
       // calling `createProposal` again would duplicate it (nonce collision).
       const proposal = await this.withChainSyncedHold(
         'switch-guardian proposal',
-        () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
+        () =>
+          withProposalStep('proposal_create', () =>
+            this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+          ),
         syncPhase
       );
       return { proposal, newEndpoint: newGuardianEndpoint };
@@ -969,7 +978,9 @@ export class MultisigService {
       description: 'Replace device (hot) signer'
     };
 
-    const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
+    const proposal = await withProposalStep('proposal_create', () =>
+      this.multisig.createProposal(Date.now(), summaryBase64, metadata)
+    );
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
   }
