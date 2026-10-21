@@ -671,6 +671,46 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
   });
 
+  it('names only a closed security change beside the proposal step it records', () => {
+    const accountId = 'mtst1qprivateaccount00';
+    const hex = '0xabcdef1234';
+    const amount = '987654321';
+    const privateFailure = () => new Error(`fungible vault account ${accountId} ${hex} amount ${amount}`);
+    for (const securityChange of ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const) {
+      const error = privateFailure();
+      annotateCrash(error, { proposalStep: 'proposal_create', securityChange });
+      const snapshot = snapshotCrashDiagnostics(error);
+      expect(snapshot).toEqual({ proposalStep: 'proposal_create', securityChange });
+      const reported = JSON.stringify(snapshot);
+      expect(reported).not.toContain(accountId);
+      expect(reported).not.toContain(hex);
+      expect(reported).not.toContain(amount);
+      expect(reported).not.toMatch(/0x[0-9a-f]/i);
+    }
+    const unlisted = privateFailure();
+    annotateCrash(unlisted, { proposalStep: 'proposal_create', securityChange: `rotation ${hex} amount ${amount}` });
+    annotateCrash(unlisted, { proposalStep: 'proposal_create', securityChange: { toString: () => 'switch-guardian' } });
+    const unlistedSnapshot = snapshotCrashDiagnostics(unlisted);
+    expect(unlistedSnapshot).toEqual({ proposalStep: 'proposal_create' });
+    expect(JSON.stringify(unlistedSnapshot)).not.toContain(accountId);
+    expect(JSON.stringify(unlistedSnapshot)).not.toContain(hex);
+    expect(JSON.stringify(unlistedSnapshot)).not.toContain(amount);
+    const alone = privateFailure();
+    annotateCrash(alone, { securityChange: 'switch-guardian' });
+    expect(snapshotCrashDiagnostics(alone)).toEqual({});
+    const kept = privateFailure();
+    annotateCrash(kept, { proposalStep: 'proposal_create', securityChange: 'replace-hot-key' });
+    annotateCrash(kept, {
+      proposalStep: 'chain_sync',
+      securityChange: 'switch-guardian',
+      proposalGuard: 'hot_key_missing'
+    });
+    expect(snapshotCrashDiagnostics(kept)).toEqual({
+      proposalStep: 'proposal_create',
+      securityChange: 'replace-hot-key'
+    });
+  });
+
   it('accepts every proposal step and guard, and a guard only beside its step', () => {
     for (const proposalStep of PROPOSAL_STEPS) {
       for (const proposalGuard of PROPOSAL_GUARDS) {
