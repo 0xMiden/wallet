@@ -20,7 +20,7 @@ Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemb
 
 ## Build, Test, and Development Commands
 
-Use Node 22+ and Yarn v1, then run `yarn install`. Builds read `APTABASE_APP_KEY`, `APTABASE_HOST`, `SENTRY_DSN` and `FEATURE_ELIGIBILITY_URL` only from the shell environment, never from `.env`; `.env.example` says which ones a release build sets, and how. `yarn dev` does not need `FEATURE_ELIGIBILITY_URL`: it allows wallet, Earn and Swap without calling the service. Other builds still use the URL. MaxMind credentials belong only to the server-side feature-eligibility Worker and must never enter a wallet build.
+Use Node 22+ and Yarn v1, then run `yarn install`. Builds read `APTABASE_APP_KEY`, `APTABASE_HOST`, `SENTRY_DSN` and `FEATURE_ELIGIBILITY_URL` only from the shell environment, never from `.env`; `.env.example` says which ones a release build sets, and how. `yarn dev` does not need `FEATURE_ELIGIBILITY_URL`: it allows wallet, Earn and Swap without calling the service. That open flag is baked only when `MODE_ENV` is `development` and the build is not E2E, so a production build cannot inherit it. Other builds still use the URL. MaxMind credentials belong only to the server-side feature-eligibility Worker and must never enter a wallet build.
 
 - `yarn dev` rebuilds the Chrome extension in watch mode; load `dist/chrome_unpacked/` in Chrome.
 - `yarn build:devnet` — network-specific extension build.
