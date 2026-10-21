@@ -46,9 +46,18 @@ describe('bridgeInBalanceCapVerdict', () => {
     );
   });
 
-  it('compares at the cent, so float noise on an exact ceiling does not refuse it', () => {
+  it('lets float noise on an exact ceiling through', () => {
     expect(bridgeInBalanceCapVerdict({ capUsd: 0.3, heldUsd: 0.1, depositAmount: 0.2, depositPriceUsd: 1 }).state).toBe(
       'clear'
     );
+  });
+
+  it('compares the unrounded sum, so a fraction of a cent decides it', () => {
+    expect(
+      bridgeInBalanceCapVerdict({ capUsd: cap, heldUsd: 100.006, depositAmount: 1132.456, depositPriceUsd: 1 }).state
+    ).toBe('clear');
+    expect(
+      bridgeInBalanceCapVerdict({ capUsd: cap, heldUsd: cap, depositAmount: 0.004, depositPriceUsd: 1 }).state
+    ).toBe('exceeded');
   });
 });

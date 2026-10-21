@@ -36,7 +36,10 @@ export interface BridgeInBalanceCapInput {
   depositPriceUsd: number | undefined;
 }
 
-/** Pure: the verdict for one set of inputs. Decimal money is compared after rounding to the cent. */
+// Two floats summed can land a hair over an exact ceiling; anything further over is past it.
+const FLOAT_NOISE_USD = 1e-9;
+
+/** Pure: the verdict for one set of inputs. */
 export function bridgeInBalanceCapVerdict({
   capUsd,
   heldUsd,
@@ -48,9 +51,7 @@ export function bridgeInBalanceCapVerdict({
   if (depositPriceUsd === undefined || !(depositPriceUsd > 0)) return { state: 'unpriced', capUsd };
   const depositUsd = depositAmount * depositPriceUsd;
   const verdict = { capUsd, heldUsd, depositUsd };
-  // Two floats summed can land a hair over an exact ceiling; the cent is the unit the figures are shown in.
-  const cents = (usd: number) => Math.round(usd * 100);
-  return cents(heldUsd) + cents(depositUsd) > cents(capUsd)
+  return heldUsd + depositUsd > capUsd + FLOAT_NOISE_USD
     ? { state: 'exceeded', ...verdict }
     : { state: 'clear', ...verdict };
 }
