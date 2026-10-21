@@ -1,0 +1,977 @@
+name: NEVER-MERGE 1631 storage actual-wire expected red
+on:
+  push:
+    branches: [ci/1631-storage-wire-budget-red]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GIT_OPTIONAL_LOCKS: "0"
+      CI: "true"
+      FORCE_COLOR: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Bind signed test-only source and sole inert transport
+        id: bind
+        run: |
+          set -euo pipefail
+          umask 077
+          proof="$RUNNER_TEMP/1631-storage-wire-budget-red"
+          test ! -e "$proof"
+          mkdir "$proof"
+          printf 'PROOF_DIR=%s\n' "$proof" >> "$GITHUB_ENV"
+          cat > "$proof/capture.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import stat
+          import struct
+          import subprocess
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          ROOT = Path.cwd().resolve()
+          OUT = Path(os.environ['PROOF_DIR'])
+          BIND = json.loads((OUT / 'bindings.json').read_text())
+          SOURCE = BIND['source']
+          FRAMEWORK = ['jest', 'expect', 'jest-circus', 'jest-config', 'jest-runtime', 'jest-resolve',
+                       'jest-runner', 'jest-environment-jsdom', '@jest', '@swc', 'typescript',
+                       '@sentry/browser', '@sentry/core', '@sentry/browser-utils',
+                       'prettier', 'eslint', 'eslint-plugin-import', 'react', 'react-dom',
+                       '@testing-library/react', '@testing-library/dom', 'dexie', 'fake-indexeddb',
+                       'constate', '@epoch-protocol/epoch-intents-sdk', 'viem', '@miden-sdk/miden-sdk',
+                       '@openzeppelin/guardian-client', '@openzeppelin/miden-multisig-client',
+                       '@noble/hashes', '@scure/bip39', '@serh11p/jest-webextension-mock', 'ts-node',
+                       '.bin/jest', '.bin/prettier', '.bin/eslint', '.bin/tsc']
+
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], cwd=ROOT,
+                                             env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+
+          def save(name, value):
+              (OUT / name).write_text(json.dumps(value, indent=2) + '\n')
+
+
+          def index_identity(raw):
+              assert len(raw) >= 32 and raw[:4] == b'DIRC'
+              assert hashlib.sha1(raw[:-20]).digest() == raw[-20:]
+              version, count = struct.unpack('>II', raw[4:12])
+              assert version in (2, 3), version
+              limit = len(raw) - 20
+              normalized = bytearray(raw[:limit])
+              entries, pos = {}, 12
+              stat_names = ['ctime_seconds', 'ctime_nanoseconds', 'mtime_seconds', 'mtime_nanoseconds',
+                            'device', 'inode', 'uid', 'gid', 'size']
+              for _ in range(count):
+                  start = pos
+                  assert pos + 62 <= limit
+                  fields = struct.unpack('>10I20sH', raw[pos:pos + 62])
+                  pos += 62
+                  flags = fields[-1]
+                  extended = None
+                  if flags & 0x4000:
+                      assert version == 3 and pos + 2 <= limit
+                      extended = struct.unpack('>H', raw[pos:pos + 2])[0]
+                      pos += 2
+                  end = raw.index(b'\0', pos, limit)
+                  path = raw[pos:end]
+                  assert path and path not in entries
+                  assert flags & 0x0fff == min(len(path), 0x0fff)
+                  pos = start + ((end - start + 1 + 7) // 8) * 8
+                  assert pos <= limit and not any(raw[end:pos])
+                  stats = fields[:6] + fields[7:10]
+                  entries[path] = {'mode': format(fields[6], '06o'), 'oid': fields[10].hex(),
+                                   'stage': (flags >> 12) & 3, 'flags': flags, 'extended_flags': extended,
+                                   'stats': dict(zip(stat_names, stats))}
+                  # Only cache metadata is excluded; mode and every following identity byte remain.
+                  normalized[start:start + 24] = b'\0' * 24
+                  normalized[start + 28:start + 40] = b'\0' * 12
+              extension_start = pos
+              while pos < limit:
+                  assert pos + 8 <= limit
+                  assert raw[pos:pos + 4] not in [b'link', b'sdir']
+                  length = struct.unpack('>I', raw[pos + 4:pos + 8])[0]
+                  pos += 8 + length
+                  assert pos <= limit
+              assert pos == limit and len(entries) == count
+              return bytes(normalized), entries, {'version': version, 'entries': count,
+                  'raw_sha256': hashlib.sha256(raw).hexdigest(), 'checksum_sha1': raw[-20:].hex(),
+                  'normalized_sha256': hashlib.sha256(normalized).hexdigest(),
+                  'extension_bytes': limit - extension_start,
+                  'extension_sha256': hashlib.sha256(raw[extension_start:limit]).hexdigest()}
+
+
+          def validate_binding():
+              assert BIND['ready'] is True
+              assert git('rev-parse', 'HEAD').decode().strip() == SOURCE
+              assert git('rev-parse', 'HEAD^{tree}').decode().strip() == BIND['tree']
+              headers = git('cat-file', '-p', 'HEAD').split(b'\n\n', 1)[0].splitlines()
+              assert [line[7:].decode() for line in headers if line.startswith(b'parent ')] == [BIND['parent']]
+              assert not git('diff', '--name-only') and not git('diff', '--cached', '--name-only')
+              assert not git('status', '--porcelain=v1', '--untracked-files=all')
+
+
+          def snapshot(label):
+              validate_binding()
+              stage = git('ls-files', '--stage', '-z')
+              (OUT / (label + '.stage.nul')).write_bytes(stage)
+              files = {}
+              for record in stage.split(b'\0'):
+                  if not record:
+                      continue
+                  header, raw_path = record.split(b'\t', 1)
+                  mode, oid, number = header.decode().split()
+                  assert number == '0' and mode in ['100644', '100755', '120000']
+                  path = raw_path.decode()
+                  p = ROOT / path
+                  info = p.lstat()
+                  if mode == '120000':
+                      assert stat.S_ISLNK(info.st_mode)
+                      data, kind = os.readlink(p).encode(), 'symlink'
+                  else:
+                      assert stat.S_ISREG(info.st_mode) and not p.is_symlink()
+                      assert bool(info.st_mode & 0o111) == (mode == '100755')
+                      data, kind = p.read_bytes(), 'regular'
+                  assert data == git('cat-file', 'blob', oid), path
+                  files[path] = {'git_mode': mode, 'oid': oid, 'sha256': digest(data), 'bytes': len(data),
+                                 'physical_mode': format(stat.S_IMODE(info.st_mode), '04o'), 'type': kind}
+              assert len(files) == BIND['tracked_count']
+              for entry in BIND['source_inputs']:
+                  assert files[entry['path']]['sha256'] == entry['sha256']
+                  assert files[entry['path']]['git_mode'] == entry['git_mode']
+              framework, versions = {}, {}
+              for package in FRAMEWORK:
+                  base = ROOT / 'node_modules' / package
+                  tool = package.startswith('.bin/')
+                  assert tool or (base.is_dir() and not base.is_symlink()), package
+                  metadata = base / 'package.json'
+                  if not tool and metadata.is_file():
+                      value = json.loads(metadata.read_text())
+                      versions[package] = {'name': value['name'], 'version': value['version'],
+                                           'package_json_sha256': digest(metadata.read_bytes())}
+                  for p in [base] if tool else sorted(base.rglob('*')):
+                      info = p.lstat()
+                      if p.is_symlink():
+                          raw_link = os.readlink(p)
+                          target = p.resolve(strict=True)
+                          assert target.is_relative_to(ROOT) and target != ROOT, str(p)
+                          target_info = target.stat()
+                          assert stat.S_ISREG(target_info.st_mode), str(p)
+                          data = target.read_bytes()
+                          target_hash = digest(data)
+                          retained = OUT / 'framework-symlink-target-bytes' / target_hash
+                          retained.parent.mkdir(exist_ok=True)
+                          if retained.exists():
+                              assert retained.read_bytes() == data
+                          else:
+                              retained.write_bytes(data)
+                          framework[str(p.relative_to(ROOT))] = {
+                              'type': 'symlink', 'lstat_mode': format(stat.S_IMODE(info.st_mode), '04o'),
+                              'raw_link_text': raw_link, 'raw_link_sha256': digest(os.fsencode(raw_link)),
+                              'resolved_root_relative_path': str(target.relative_to(ROOT)),
+                              'target_bytes': len(data), 'target_sha256': target_hash,
+                              'target_mode': format(stat.S_IMODE(target_info.st_mode), '04o'),
+                              'target_byte_copy': str(retained.relative_to(OUT))}
+                      elif p.is_file():
+                          assert p.resolve().is_relative_to(ROOT)
+                          data = p.read_bytes()
+                          framework[str(p.relative_to(ROOT))] = {
+                              'sha256': digest(data), 'bytes': len(data), 'type': 'regular',
+                              'mode': format(stat.S_IMODE(info.st_mode), '04o')}
+              for package, version in BIND['framework_versions'].items():
+                  assert versions[package]['version'] == version, package
+              matcher = BIND['matcher_source']
+              assert framework[matcher['path']]['sha256'] == matcher['sha256']
+              runtime = {}
+              for command in ['node', 'yarn', 'python3']:
+                  path = Path(shutil.which(command)).resolve(strict=True)
+                  assert path.is_file()
+                  runtime[command] = {'path': str(path), 'sha256': digest(path.read_bytes()),
+                                      'mode': format(stat.S_IMODE(path.stat().st_mode), '04o')}
+              index = Path(git('rev-parse', '--git-path', 'index').decode().strip())
+              if not index.is_absolute():
+                  index = ROOT / index
+              raw_index = index.read_bytes()
+              (OUT / (label + '.index')).write_bytes(raw_index)
+              normalized, entries, index_info = index_identity(raw_index)
+              (OUT / (label + '.index-normalized')).write_bytes(normalized)
+              save(label + '.index-identity.json', {'summary': index_info,
+                   'entries': {path.decode(): row for path, row in entries.items()}})
+              save(label + '.json', {'head': SOURCE, 'tree': BIND['tree'], 'stage_sha256': digest(stage),
+                   'physical_index_sha256': digest(raw_index), 'source': files,
+                   'framework': framework, 'framework_versions': versions, 'runtime': runtime})
+              if label == 'before':
+                  with tarfile.open(OUT / 'bound-source.tar', 'w') as archive:
+                      for entry in BIND['source_inputs']:
+                          archive.add(ROOT / entry['path'], arcname=entry['path'], recursive=False)
+
+
+          def bookends():
+              before = json.loads((OUT / 'before.json').read_text())
+              after = json.loads((OUT / 'after.json').read_text())
+              for key in ['head', 'tree', 'stage_sha256', 'source', 'framework', 'framework_versions', 'runtime']:
+                  assert before[key] == after[key], key
+              a, ae, ai = index_identity((OUT / 'before.index').read_bytes())
+              b, be, bi = index_identity((OUT / 'after.index').read_bytes())
+              assert a == b and ae.keys() == be.keys(), 'index identity differs beyond stat-cache fields'
+              differences = []
+              for path in ae:
+                  left, right = ae[path], be[path]
+                  assert {k: v for k, v in left.items() if k != 'stats'} == {k: v for k, v in right.items() if k != 'stats'}
+                  fields = {key: {'before': left['stats'][key], 'after': right['stats'][key]}
+                            for key in left['stats'] if left['stats'][key] != right['stats'][key]}
+                  if fields:
+                      differences.append({'path': path.decode(), 'stat_cache_differences': fields})
+              save('bookend-comparison.json', {'source_stage_framework_runtime_equal': True,
+                   'canonical_index_equal': True, 'raw_index_equal': ai['raw_sha256'] == bi['raw_sha256'],
+                   'before_index': ai, 'after_index': bi, 'stat_cache_differences': differences,
+                   'raw_index_policy': 'Complete raw bytes retained. Only nine cache fields may differ; every identity byte and extension is exact.'})
+
+
+          def classify():
+              rows = []
+              if (OUT / 'jest.json').is_file():
+                  x = json.loads((OUT / 'jest.json').read_text())
+                  for suite in x['testResults']:
+                      path = str(Path(suite['name']).relative_to(ROOT))
+                      for ordinal, row in enumerate(suite['assertionResults']):
+                          rows.append({'file': path, 'ordinal': ordinal, 'assertion': row})
+                  save('inventory.json', rows)
+              gates = ['install', 'format', 'lint', 'types', 'snapshot-before', 'snapshot-after']
+              prerequisite = {name: {'exit': (OUT / (name + '.exit')).read_text().strip(),
+                                     'tee': (OUT / (name + '.tee.exit')).read_text().strip()}
+                              for name in gates if (OUT / (name + '.exit')).exists()}
+              save('prerequisite-exits.json', prerequisite)
+              if len(prerequisite) != len(gates) or any(v != {'exit': '0', 'tee': '0'} for v in prerequisite.values()):
+                  save('classification.json', {'status': 'UNRUN_CAUSAL_CREDIT_PREREQUISITE', 'gates': prerequisite,
+                       'raw_runtime_present': bool(rows), 'whole_head_acceptance': False})
+                  raise SystemExit(1)
+              bookends()
+              assert (OUT / 'node-version.log').read_text().strip() == BIND['node_version']
+              assert (OUT / 'yarn-version.log').read_text().strip() == BIND['yarn_version']
+              for name in ['node-version', 'yarn-version', 'python-version', 'jest-version']:
+                  assert (OUT / (name + '.exit')).read_text().strip() == '0'
+                  assert (OUT / (name + '.tee.exit')).read_text().strip() == '0'
+              x = json.loads((OUT / 'jest.json').read_text())
+              tests = BIND['tests']
+              assert len(x['testResults']) == 7 and x['numTotalTestSuites'] == 7
+              assert {str(Path(s['name']).relative_to(ROOT)) for s in x['testResults']} == set(tests)
+              assert all(suite['assertionResults'] for suite in x['testResults'])
+              assert x['numRuntimeErrorTestSuites'] == 0 and x['wasInterrupted'] is False
+              assert x['numPendingTests'] == 0 and x['numTodoTests'] == 0 and x['numPendingTestSuites'] == 0
+              assert x['numTotalTests'] == len(rows) and len(rows) > 3
+              assert x['numFailedTests'] == 1 and x['numPassedTests'] == len(rows) - 1 and x['success'] is False
+              assert x['numFailedTestSuites'] == 1 and x['numPassedTestSuites'] == 6
+              cases = BIND['new_cases']
+              for case in cases:
+                  observed = [r for r in rows if (r['file'], r['assertion']['fullName']) == (case['file'], case['fullName'])]
+                  assert len(observed) == 1, case['fullName']
+                  row = observed[0]['assertion']
+                  assert row['status'] == case['status'] and row['numPassingAsserts'] == case['numPassingAsserts']
+              target = cases[0]
+              for record in rows:
+                  row = record['assertion']
+                  assert row['invocations'] == 1 and row['retryReasons'] == []
+                  if (record['file'], row['fullName']) == (target['file'], target['fullName']):
+                      assert len(row['failureDetails']) == 1 and len(row['failureMessages']) == 1
+                      result = row['failureDetails'][0]['matcherResult']
+                      assert set(result) == {'message', 'pass'} and result['pass'] is False
+                      assert isinstance(result['message'], str) and result['message']
+                      message = re.sub(r'\x1b\[[0-9;]*m', '', result['message'])
+                      assert 'toBeLessThanOrEqual' in message
+                      assert re.search(r'^Expected:\s*<=\s*192\s*$', message, re.M)
+                      assert re.search(r'^Received:\s*197\s*$', message, re.M)
+                      raw = row['failureMessages'][0]
+                      frames = re.findall(re.escape(target['file']) + r':(\d+):(\d+)', raw)
+                      assert frames and frames[0] == ('1531', '27')
+                  else:
+                      assert row['status'] == 'passed' and not row['failureMessages'] and not row['failureDetails']
+              assert sum(case['numPassingAsserts'] for case in cases) == 52
+              assert (OUT / 'jest.exit').read_text().strip() == '1'
+              assert (OUT / 'jest.tee.exit').read_text().strip() == '0'
+              save('classification.json', {'status': 'EXACT_EXPECTED_197_OVER_192_WIRE_RED', 'source': SOURCE,
+                   'actual_cases': len(rows), 'old_cases_passed': len(rows) - 3, 'new_passed': 2, 'new_failed': 1,
+                   'new_passing_assertions': 52, 'new_reached_assertions': 53,
+                   'first_frame': '1531:27', 'prior_passing_assertions': 16,
+                   'raw_inventory_retained': True, 'whole_head_coverage_review_merge': 'PENDING'})
+
+
+          def seal():
+              files = []
+              for p in sorted(OUT.rglob('*')):
+                  if p.is_file() and p.name != 'hashes.json':
+                      assert not p.is_symlink()
+                      files.append({'path': str(p.relative_to(OUT)), 'bytes': p.stat().st_size,
+                                    'sha256': digest(p.read_bytes()), 'type': 'regular',
+                                    'mode': format(stat.S_IMODE(p.stat().st_mode), '04o')})
+              save('hashes.json', files)
+
+
+          try:
+              command = sys.argv[1]
+              if command == 'snapshot':
+                  snapshot(sys.argv[2])
+              elif command == 'classify':
+                  classify()
+              elif command == 'seal':
+                  seal()
+              else:
+                  raise SystemExit('unknown operation')
+          except Exception as error:
+              save('.'.join(sys.argv[1:]) + '.refusal.json', {'status': 'NOT_ACCEPTED',
+                   'error_type': type(error).__name__, 'detail': str(error)})
+              raise
+          PY
+          cat > "$proof/record.sh" <<'SH'
+          record() {
+            local name="$1"
+            shift
+            printf '%s\0' "$@" > "$PROOF_DIR/$name.argv.nul"
+            set +e
+            "$@" 2>&1 | tee "$PROOF_DIR/$name.log"
+            local codes=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${codes[0]}" > "$PROOF_DIR/$name.exit"
+            printf '%s\n' "${codes[1]}" > "$PROOF_DIR/$name.tee.exit"
+            if test "${codes[1]}" -ne 0; then
+              return "${codes[1]}"
+            fi
+            return "${codes[0]}"
+          }
+          SH
+          cat > "$proof/bindings.json" <<'JSON'
+          {
+            "ready": true,
+            "source": "e7f6e56caede496a80438ea194cfbfad0471b60a",
+            "tree": "bcedbe67e9b9702298cf93157a066be5ddd4320b",
+            "parent": "567951812afca7ea6672b8223b047ee9052b53f2",
+            "branch": "ci/1631-storage-wire-budget-red",
+            "workflow_path": ".github/workflows/ci-1631-storage-wire-budget-red.yml",
+            "node_version": "v22.23.3",
+            "yarn_version": "1.22.22",
+            "tracked_count": 3660,
+            "source_inputs": [
+              {
+                "path": ".eslintrc",
+                "sha256": "2b70aa065506346da75d71f19f3a138f71b5b5be0889e4074cc04a26fddca629",
+                "git_mode": "100644",
+                "git_blob": "13857ec7c1613ef096ca1e3fa21469f7f7728796",
+                "bytes": 13286
+              },
+              {
+                "path": ".prettierrc",
+                "sha256": "7f1e0eb21ae9b216c1de1435dddb0b680c8b2e5cdde55ca95a8ee3d32a7973cf",
+                "git_mode": "100644",
+                "git_blob": "2fdaf943c0c26787ef61d6240834dffac0cecc7a",
+                "bytes": 361
+              },
+              {
+                "path": "__mocks__/@miden-sdk/miden-wallet-adapter-base.ts",
+                "sha256": "f47896dad58875946e2d5c854ad2ad69dcc8d6db9e24ffdb45982f48e9c6302e",
+                "git_mode": "100644",
+                "git_blob": "61d7e9d07108a66e9d076c64b15882d35f32f223",
+                "bytes": 222
+              },
+              {
+                "path": "__mocks__/@openzeppelin/guardian-client.ts",
+                "sha256": "d374369ee20aae00bd32d9bb5d0a51eef67475930acc52e473501907519e8d5a",
+                "git_mode": "100644",
+                "git_blob": "1a0aeb26c73a3f78d7956fdb4880963c760fc5ac",
+                "bytes": 958
+              },
+              {
+                "path": "__mocks__/@openzeppelin/miden-multisig-client.ts",
+                "sha256": "53cb1bb7e65a5d27b107a27b0080ac9714b7be0801a04007692b4c78ec3979ac",
+                "git_mode": "100644",
+                "git_blob": "92c8a3d862dbf2f55bdf5ffa73278bd11db76199",
+                "bytes": 6750
+              },
+              {
+                "path": "__mocks__/app/hooks/useGasToken.ts",
+                "sha256": "a678a30b1e072e591f7881760d0a634bf8dfbc537662ca666e59241fc0c887c3",
+                "git_mode": "100644",
+                "git_blob": "1f5966ef7e2efe646ba087456a85cfc7ad62cf04",
+                "bytes": 67
+              },
+              {
+                "path": "__mocks__/app/hooks/useMidenFaucetId.ts",
+                "sha256": "c60fc69966a0b07ffcf85cf1d7ff97834b48478950f0b26f5b12a6b93768ce8e",
+                "git_mode": "100644",
+                "git_blob": "a8b79b7ba634fb10b9d16a504f78e967ca9d8219",
+                "bytes": 77
+              },
+              {
+                "path": "__mocks__/fileMock.js",
+                "sha256": "e3a48bb2614b52adeca63cfd096bce33eb8c465777057cf9d811749d15640ba5",
+                "git_mode": "100644",
+                "git_blob": "86059f36292497436f0fdbd0fb673f6ea9535159",
+                "bytes": 35
+              },
+              {
+                "path": "__mocks__/lib/amp/amp-interface.ts",
+                "sha256": "0f05d3132e5920bed8dfb0662a8e4a9b3671ecaf8a76350b216cdbe798847385",
+                "git_mode": "100644",
+                "git_blob": "81ec449b9e031f35661122dd7abbd6637b254ac9",
+                "bytes": 45
+              },
+              {
+                "path": "__mocks__/lib/i18n/numbers.ts",
+                "sha256": "19e54ae19bc1917b51dd94086b2d1f824358ec5e46811afe886c90a468bdd3ec",
+                "git_mode": "100644",
+                "git_blob": "c10486eb74971f735150e189b786c42885800256",
+                "bytes": 1797
+              },
+              {
+                "path": "__mocks__/lib/miden/back/dapp.ts",
+                "sha256": "13f8321d96455c4af329747699be11f130c91c80b53197ea09336a6b1270f5a2",
+                "git_mode": "100644",
+                "git_blob": "5333f2c1017f563c278588cb1c6e44344bdb657b",
+                "bytes": 3278
+              },
+              {
+                "path": "__mocks__/lib/miden/back/vault.ts",
+                "sha256": "ec4612339b136d75aa40e01299385c546f3406a3901ee2d50fd2be2eacbd6eb5",
+                "git_mode": "100644",
+                "git_blob": "0b923fb8bc4aad9cc6aa568547221c07a4114fff",
+                "bytes": 3010
+              },
+              {
+                "path": "__mocks__/lib/miden/sdk/miden-client-interface.ts",
+                "sha256": "eb2027f2de1d487c5e78ccd9e6733a0b2da67203bc686b56ae9b4d173125c600",
+                "git_mode": "100644",
+                "git_blob": "d49ed7c654ce70cc7cda04f0a0dc588048a137a9",
+                "bytes": 104
+              },
+              {
+                "path": "__mocks__/lib/miden/sdk/miden-client.ts",
+                "sha256": "fd75b60d9975a2ebba52d245d9ab74087ab735159b44abc89ca5742942c3bd82",
+                "git_mode": "100644",
+                "git_blob": "04c195d77011805ca2525fff816f02e6407e584f",
+                "bytes": 723
+              },
+              {
+                "path": "__mocks__/nanoid.ts",
+                "sha256": "52238e5c35341052fae2ba8f9e3f71fed3caa27d0ae90f72b74c64ca58930e73",
+                "git_mode": "100644",
+                "git_blob": "0d4b493fbec56b0e692077b62d43cb3d7b686184",
+                "bytes": 34
+              },
+              {
+                "path": "__mocks__/reownAppKitNetworks.ts",
+                "sha256": "9319acd4680ba45c55bd2c88dc000453c62db93fe4b56bba6a881318363e0079",
+                "git_mode": "100644",
+                "git_blob": "da22285b58072c8d188038bbe2097405f93bf9bc",
+                "bytes": 249
+              },
+              {
+                "path": "__mocks__/reownAppKitReact.ts",
+                "sha256": "aa0cb01488e3f90ae035e70c47866a92805aa5d101225a622317695480982c7b",
+                "git_mode": "100644",
+                "git_blob": "0a0a99da7fcaee8da8bb5aabc18e434abc20e071",
+                "bytes": 1406
+              },
+              {
+                "path": "__mocks__/reownWagmiAdapter.ts",
+                "sha256": "69462dd65f802ddf61185ecd366f1122f36d9df71758efb1beeccd80f0f5847d",
+                "git_mode": "100644",
+                "git_blob": "00e23a2c5ba4451fc915d52000e8ca89c1664674",
+                "bytes": 50
+              },
+              {
+                "path": "__mocks__/styleMock.ts",
+                "sha256": "450f0af4f4c1ecc4c7180f2e364c8a59bfed69dd350fb6b47bce8641c2a37786",
+                "git_mode": "100644",
+                "git_blob": "ff8b4c56321a3362fc00224b01800f62466f9a1f",
+                "bytes": 19
+              },
+              {
+                "path": "__mocks__/svgMock.js",
+                "sha256": "60baa36ccdf8d0dec19e8ad428b78ec8765960b8048c5f536087c4d00025392d",
+                "git_mode": "100644",
+                "git_blob": "ff8a7dd9f66a5fe8aae4c3888c9e669ea86bc595",
+                "bytes": 64
+              },
+              {
+                "path": "__mocks__/svgRawMock.js",
+                "sha256": "7bb180dd4c9dc69ea44b25502a022c00e0651e941f641b79c7b1cb1438f968cb",
+                "git_mode": "100644",
+                "git_blob": "7a13dc341c3ac760129ddcd34c88bb1db383ce39",
+                "bytes": 85
+              },
+              {
+                "path": "__mocks__/svgUrlMock.js",
+                "sha256": "24a5d978a38849472f8735f554338df41922438f6a96d4fccd8df29c5834e9d6",
+                "git_mode": "100644",
+                "git_blob": "7f6b33936f6e453f54c89186b4c7add59d64b531",
+                "bytes": 33
+              },
+              {
+                "path": "__mocks__/utils/string.ts",
+                "sha256": "e52c393052509c19ee195eabb175f5ee3de1a15b4ca7098005725b9d4c63f0fc",
+                "git_mode": "100644",
+                "git_blob": "a89212ca135f18cff13d659c6e43f35cd344a609",
+                "bytes": 281
+              },
+              {
+                "path": "__mocks__/wagmi.ts",
+                "sha256": "14af0b02462e7c5641a7a63e3ac60c998d273258cb03d0646f68a32337688c88",
+                "git_mode": "100644",
+                "git_blob": "758f99e04a214085446767edc6e0c3c7487a85c9",
+                "bytes": 337
+              },
+              {
+                "path": "__mocks__/wagmiCore.ts",
+                "sha256": "3e04cc45ddb4c7da01771e23c7a609132dc450583e13fa2166747b777698ffd4",
+                "git_mode": "100644",
+                "git_blob": "96735336e839e19f517b01632bc07a9ba8178928",
+                "bytes": 132
+              },
+              {
+                "path": "__mocks__/wasmMock.js",
+                "sha256": "57ea69910c305958333b7efc1f98dcf610187cb501c47d3b03f69dd6b29fdc66",
+                "git_mode": "100644",
+                "git_blob": "394afab472dbfe3205fe4e67c6463e0894f7d438",
+                "bytes": 3946
+              },
+              {
+                "path": "__mocks__/webextension-polyfill.ts",
+                "sha256": "c8aea13b9a03558f62e33ba9364ec561ca63641a7d201da9854eeae43ef9e9c2",
+                "git_mode": "100644",
+                "git_blob": "064f808ac099d0cf33630fa015312159e322a51d",
+                "bytes": 3773
+              },
+              {
+                "path": "docs/privacy/index.md",
+                "sha256": "018c2400acbfd080268e1b3e1115c1368ebc9b6ec57c4523dc93999228e6bf41",
+                "git_mode": "100644",
+                "git_blob": "c99f9862ba80c9ebbcb382d18a45df5bd4df0751",
+                "bytes": 64655
+              },
+              {
+                "path": "jest.config.ts",
+                "sha256": "73a3951b600a8514cbe91fa7e1be098cc3ae0948c470f2649e8686b192e559a6",
+                "git_mode": "100644",
+                "git_blob": "f4ca64f9b388d86da39def01c886bbfbba9f65d0",
+                "bytes": 10839
+              },
+              {
+                "path": "jest.setup.js",
+                "sha256": "247ac76bd2045c08af6596611277cab6283dc19a8254e03d06a275892c2018e0",
+                "git_mode": "100644",
+                "git_blob": "7f77082c2e8d6fc30afb430325be3ce305c43ef5",
+                "bytes": 1959
+              },
+              {
+                "path": "package.json",
+                "sha256": "9fe827fb0272c4f3e2ba37978f8f4e5658c9502366ff8c022e63480ce5cd301e",
+                "git_mode": "100644",
+                "git_blob": "5ed317129cab8ec62e4264364d1a0db5d31c9b9b",
+                "bytes": 23234
+              },
+              {
+                "path": "packages/hd-key/src/index.ts",
+                "sha256": "5eaa632b3f338fa23beec025c4f8a5b4e359d4fec42a034efda3991d950724c8",
+                "git_mode": "100644",
+                "git_blob": "72a15cf969fb6d148e2aa0ff40dcf55541b6412c",
+                "bytes": 525
+              },
+              {
+                "path": "packages/hd-key/src/miden.ts",
+                "sha256": "4d501ac03ab9d56d584fec468bf94a07f729c98674d8e8f7a7095f4817f82880",
+                "git_mode": "100644",
+                "git_blob": "bb11abd6278453d9125407b36be03268485b5fac",
+                "bytes": 2054
+              },
+              {
+                "path": "packages/hd-key/src/mnemonic.ts",
+                "sha256": "fcb346e09523667b517b25ef0d743ab3e89885a8aaaf134eafa6fe8edd4f7cd5",
+                "git_mode": "100644",
+                "git_blob": "49db3dbd9743175db3b411c619d99f58ef83e013",
+                "bytes": 1195
+              },
+              {
+                "path": "packages/hd-key/src/slip10.ts",
+                "sha256": "fada9158d046066f7f61eb537892caffcada7ea3919c431a182b6cfc850d605f",
+                "git_mode": "100644",
+                "git_blob": "09a84668d88538b728b66883cdfc1c804fb08b9d",
+                "bytes": 6861
+              },
+              {
+                "path": "src/lib/miden/db/types.ts",
+                "sha256": "936e3f6a4ebe3c76620996344adbcc251b2c6375310a20dc9923b64003af10aa",
+                "git_mode": "100644",
+                "git_blob": "340dff52aa7d960a96bd35b47d71a9167a4b7b76",
+                "bytes": 80856
+              },
+              {
+                "path": "src/lib/miden/repo.test.ts",
+                "sha256": "6c2b1964e07bc16ab387f031900eff67f077f120a50a04025508622f471759c1",
+                "git_mode": "100644",
+                "git_blob": "84f15847e0be00862c963633e5c88ce49433da41",
+                "bytes": 82623
+              },
+              {
+                "path": "src/lib/miden/repo.ts",
+                "sha256": "69e0897c0865d531b6ed4ac4d975c4b4a826483150d4980fcdd0d54d3a7a26f8",
+                "git_mode": "100644",
+                "git_blob": "737faf17dbc11d02920702103ed7814efee074c1",
+                "bytes": 33485
+              },
+              {
+                "path": "src/lib/miden/spending-limits/types.ts",
+                "sha256": "1b007e502e7cdee04fe7150bc411552a081cf561d639ebaf4fae4dd8887ec44b",
+                "git_mode": "100644",
+                "git_blob": "8870d4d4f8b433d7cc3ad1c50fd746998056873b",
+                "bytes": 12336
+              },
+              {
+                "path": "src/lib/telemetry/context.ts",
+                "sha256": "87877069d295fc2219a929ebca9bb1413351bfb80305af10262f14785b64119e",
+                "git_mode": "100644",
+                "git_blob": "569acb41f86b37934da552b866b15b8b90415bb9",
+                "bytes": 1359
+              },
+              {
+                "path": "src/lib/telemetry/crash-build.ts",
+                "sha256": "0014675e090ec542220dc25707b95d36eb08cdcac7ee9180742ed4607eea2f52",
+                "git_mode": "100644",
+                "git_blob": "7dee5dfde389bc7a1eca6c96fc57763f698343ac",
+                "bytes": 820
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+                "sha256": "4c96e2d82af7ab466731d33537055b31dbbcb34668f0e9364ec3bbcf74f9a6f7",
+                "git_mode": "100644",
+                "git_blob": "d9630f189b4e950afaa4877fd8cbe284d450e2bd",
+                "bytes": 4427
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.test.ts",
+                "sha256": "633199ea711c83b3249b141a3a2ea258b2179cbeafbc20e3c9c0ed3bf3fa2590",
+                "git_mode": "100644",
+                "git_blob": "d08b43995175031a35d0b6b7e35220f74157b639",
+                "bytes": 28650
+              },
+              {
+                "path": "src/lib/telemetry/crash-diagnostics.ts",
+                "sha256": "561f115784bc1e9decadeb29214275221b2f2dcd4421d5220f3c74a0db3e86fa",
+                "git_mode": "100644",
+                "git_blob": "e90cee59e603d7fcf5625b341f44f0d72f3e2c0c",
+                "bytes": 9272
+              },
+              {
+                "path": "src/lib/telemetry/crash-frames.ts",
+                "sha256": "652babe0b0c22ff94d89cd30f412222c3fcbe083e686137b0f114ef1fadc67ef",
+                "git_mode": "100644",
+                "git_blob": "40929e2dab009581e3a19d80a345c285fca85586",
+                "bytes": 1224
+              },
+              {
+                "path": "src/lib/telemetry/crash.test.ts",
+                "sha256": "fe97a4666ee67c180bab02306089df4f02a8fbdbd1ddb20080f26da69cfe8166",
+                "git_mode": "100644",
+                "git_blob": "4888773086dd06f99091f6794b637d768b642ad3",
+                "bytes": 39153
+              },
+              {
+                "path": "src/lib/telemetry/crash.ts",
+                "sha256": "c82ea8758c5356a4065206af48b64678d4803c05903035c025e43a41ed62faf7",
+                "git_mode": "100644",
+                "git_blob": "4417ea25c534ccd798ca4b6e049c603555cca370",
+                "bytes": 20277
+              },
+              {
+                "path": "src/lib/telemetry/crash.visibility.worker.test.ts",
+                "sha256": "0f91528cef70b3f1d8ac8a42cb82fdcf4e8caa005cc9bcd2b6a5a67e5a47b702",
+                "git_mode": "100644",
+                "git_blob": "991127c37fe4d2ff85679afd4566a37af79720be",
+                "bytes": 2870
+              },
+              {
+                "path": "src/lib/telemetry/egress-boundary.test.ts",
+                "sha256": "ef789f2e2d181217db431ad6be30db9d8a3cd1f179041842345fc82794208106",
+                "git_mode": "100644",
+                "git_blob": "00393d8ab10da4ee9166820142050fb345833a39",
+                "bytes": 107560
+              },
+              {
+                "path": "src/lib/telemetry/egress-guard.ts",
+                "sha256": "72944e2e25569c8339c3cd809b2c84b54a1b60985a820b020e3f1016d0ff66b6",
+                "git_mode": "100644",
+                "git_blob": "2b85b4ba723a460f158fc558937f42248e0935ea",
+                "bytes": 2448
+              },
+              {
+                "path": "src/lib/telemetry/guarantees.test.ts",
+                "sha256": "4eb5a8f806f0bed02b1cc863c787ac0b8ff3e592cfbbd15f7e88eabf2a15f1df",
+                "git_mode": "100644",
+                "git_blob": "2cdad503cb56362f329c38d9d6ed1d71ae24e4f9",
+                "bytes": 63818
+              },
+              {
+                "path": "src/lib/telemetry/protocol-assertions.sources.json",
+                "sha256": "be5107b2fcfbf1bdcb21fafabb5c6af4bcb6f6d7e0c992c252078fdcafcfb594",
+                "git_mode": "100644",
+                "git_blob": "92bdd0b65e5eea7d47d33a55121db42fd7178790",
+                "bytes": 249
+              },
+              {
+                "path": "src/lib/telemetry/redact.ts",
+                "sha256": "1c572f9d02a0c5d6a18caac1eeeeb689b505f0787452337e7e577786a5faf1a6",
+                "git_mode": "100644",
+                "git_blob": "4187caa2ce76b8787660975c6a20a485fe118f2e",
+                "bytes": 16256
+              },
+              {
+                "path": "src/lib/telemetry/relay-diagnostics.ts",
+                "sha256": "ab7f57895cb949bd16987ec48d441f94738b0e96c80a13ae3ebfa5b99560f6da",
+                "git_mode": "100644",
+                "git_blob": "660d2515fbe61214e5e174d61f260db8d9c865f0",
+                "bytes": 6412
+              },
+              {
+                "path": "src/lib/telemetry/report-flow.ts",
+                "sha256": "f4623696e39d0d231382ca8ddd08778ddd5b67e518807c147b10d9386fc3d9e9",
+                "git_mode": "100644",
+                "git_blob": "64bd053f330480bb9800963cb59c9d10864a3b7d",
+                "bytes": 3703
+              },
+              {
+                "path": "src/lib/telemetry/run.ts",
+                "sha256": "8836127f7cd9f5442a950081191a5108f3bb96faf88c9a28c51676af72c3efdf",
+                "git_mode": "100644",
+                "git_blob": "2185a5639dcd5906dc73d5bd5a712762238cd615",
+                "bytes": 2873
+              },
+              {
+                "path": "src/lib/telemetry/serialize.ts",
+                "sha256": "a7157bb1a0f5513ef135d0be86657c6704f2274af49c721d681c26e11d8ae45b",
+                "git_mode": "100644",
+                "git_blob": "945e7f510352fa1872953b259601feb3056ffc2a",
+                "bytes": 2260
+              },
+              {
+                "path": "src/lib/telemetry/sink.ts",
+                "sha256": "efc2d379433e5360495094a38e56378f2354f79d68af3bdd027448d50a60c101",
+                "git_mode": "100644",
+                "git_blob": "26fcdd04b42c08758236802208fc890f66b70382",
+                "bytes": 3700
+              },
+              {
+                "path": "src/lib/telemetry/transaction-failure.ts",
+                "sha256": "ed4394efa44a730904687d9016eb15b3240b88706c6dae8cceb16e5f62fcb412",
+                "git_mode": "100644",
+                "git_blob": "2c0bdcf7ae3be77ff7b521a6e3b1ec0846d48196",
+                "bytes": 34745
+              },
+              {
+                "path": "src/lib/telemetry/transaction-operation.ts",
+                "sha256": "27b30210c5596949dd0f094bf79d2ca404cdc41fce3136c860ec11e4e5c5fc8e",
+                "git_mode": "100644",
+                "git_blob": "92c652ad8b116f8e69b3643d8196302f39e1ad17",
+                "bytes": 7111
+              },
+              {
+                "path": "src/lib/telemetry/types.ts",
+                "sha256": "156283be23ffb4f60000faab2d6b7844488f7e244df6fbbf7f2a8a8c5222f8e2",
+                "git_mode": "100644",
+                "git_blob": "f96a8dc21e013a0552a92b68c99bfd4d5692be83",
+                "bytes": 10116
+              },
+              {
+                "path": "src/lib/telemetry/user-visible-error-contract.ts",
+                "sha256": "af87b4ba57ad625e427b3b4cc87c97397309f01565b0e0bb3e8d2f1a736262f6",
+                "git_mode": "100644",
+                "git_blob": "52eea7c74536f07ab09c82c8e83e51aef88920ce",
+                "bytes": 12937
+              },
+              {
+                "path": "src/lib/telemetry/user-visible-error.ts",
+                "sha256": "b9d92bcbb039bfec79bfe44cc2e523998e6a3d8fd4ef84ce9480e9b6be2d3359",
+                "git_mode": "100644",
+                "git_blob": "96cfd7152c56c7132dbeb6796e93cdc0ea0e118a",
+                "bytes": 2094
+              },
+              {
+                "path": "src/lib/telemetry/wasm-startup.ts",
+                "sha256": "8cf8191223116e09648e06f32a21c6e3f5e92b86d4cc73c7eb71c77ccc0a24f5",
+                "git_mode": "100644",
+                "git_blob": "19e42939fddc8d6febaafee9712d336370d35f03",
+                "bytes": 2325
+              },
+              {
+                "path": "tsconfig-utility.json",
+                "sha256": "a3363a62439b5c1f79849e763697184a3d568cfab0d41c88bc542bb5e2fb400a",
+                "git_mode": "100644",
+                "git_blob": "9ee2179f41a096f39c86147f1692bcfaac863147",
+                "bytes": 553
+              },
+              {
+                "path": "tsconfig.json",
+                "sha256": "fa684612fc11e0419496cc3c08f0a35983f1c0b3cacc191a0a6a4a1e3b218efe",
+                "git_mode": "100644",
+                "git_blob": "0d431024b44e5a2c81cacb32eda3420cda552380",
+                "bytes": 1390
+              },
+              {
+                "path": "yarn.lock",
+                "sha256": "624004355d465398fbce1f733b53671a8f6cf4687d18f00ee6d00384217dffa7",
+                "git_mode": "100644",
+                "git_blob": "9852dfc4e2a160548e8b3a5023e6edb9cb01aed5",
+                "bytes": 785240
+              }
+            ],
+            "tests": [
+              "src/lib/miden/repo.test.ts",
+              "src/lib/telemetry/crash-diagnostics.test.ts",
+              "src/lib/telemetry/crash-diagnostics.policy.test.ts",
+              "src/lib/telemetry/crash.test.ts",
+              "src/lib/telemetry/crash.visibility.worker.test.ts",
+              "src/lib/telemetry/egress-boundary.test.ts",
+              "src/lib/telemetry/guarantees.test.ts"
+            ],
+            "new_cases": [
+              {
+                "file": "src/lib/telemetry/egress-boundary.test.ts",
+                "fullName": "crash-report egress storage rejection egress keeps the maximum storage diagnostic increment within192 wire bytes",
+                "status": "failed",
+                "numPassingAsserts": 16
+              },
+              {
+                "file": "src/lib/telemetry/egress-boundary.test.ts",
+                "fullName": "crash-report egress storage rejection egress keeps a real cursor diagnostic increment within192 wire bytes",
+                "status": "passed",
+                "numPassingAsserts": 18
+              },
+              {
+                "file": "src/lib/telemetry/egress-boundary.test.ts",
+                "fullName": "crash-report egress storage rejection egress keeps an unannotated report within192 added wire bytes without storage attribution",
+                "status": "passed",
+                "numPassingAsserts": 18
+              }
+            ],
+            "framework_versions": {
+              "jest": "30.4.2",
+              "expect": "30.4.1",
+              "typescript": "5.9.3",
+              "dexie": "4.4.2",
+              "fake-indexeddb": "4.0.2",
+              "@sentry/browser": "10.70.0",
+              "@sentry/core": "10.70.0",
+              "@sentry/browser-utils": "10.70.0",
+              "react": "18.2.0",
+              "react-dom": "18.2.0"
+            },
+            "matcher_source": {
+              "path": "node_modules/expect/build/index.js",
+              "sha256": "469add4932a11785006b19dbd1c041169b040d69cf4e27872892e0a7119368b4"
+            },
+            "expected_runtime": {
+              "suites": 7,
+              "new_cases": 3,
+              "new_passed": 2,
+              "new_failed": 1,
+              "new_passing_assertions": 52,
+              "new_reached_assertions": 53,
+              "causal_first_frame": "1531:27",
+              "passing_prerequisites": 16,
+              "old_full_inventory": "fresh actual collection, no copied pass receipt or invented expanded names",
+              "allowed_skips": [],
+              "whole95": "PENDING"
+            },
+            "prediction_only": true
+          }
+          JSON
+          sha256sum "$proof/capture.py" "$proof/record.sh" "$proof/bindings.json" > "$proof/embedded.sha256"
+          test "$(sha256sum "$proof/capture.py" | cut -d' ' -f1)" = '908eaaa5df9aa6d5c800500a47cd4c5d8afea50e6722efb61e1357420aae182e'
+          test "$(sha256sum "$proof/record.sh" | cut -d' ' -f1)" = 'e00464833c124ef521607fba47688b25607119cfa78dfcfbe5c8d6921baa5685'
+          test "$(sha256sum "$proof/bindings.json" | cut -d' ' -f1)" = '7171a57635b411943fcf706b8f00ae88efeb3430be94a6d576fceebef2e086d6'
+          cp .github/workflows/ci-1631-storage-wire-budget-red.yml "$proof/workflow.yml"
+          printf '%s\n' "$GITHUB_SHA" "$GITHUB_REF" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_EVENT_NAME" > "$proof/github-run.txt"
+          git rev-parse HEAD HEAD^{tree} HEAD^ > "$proof/transport.txt"
+          git cat-file -p HEAD > "$proof/transport-commit.raw"
+          git log -1 --format=fuller --show-signature > "$proof/transport-commit.txt" 2>&1
+          git diff-tree --no-commit-id --name-status -r HEAD^ HEAD > "$proof/transport-paths.txt"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = 'refs/heads/ci/1631-storage-wire-budget-red'
+          test "$GITHUB_EVENT_NAME" = 'push'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test "$(git rev-parse HEAD^)" = 'e7f6e56caede496a80438ea194cfbfad0471b60a'
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD^ HEAD)" = '.github/workflows/ci-1631-storage-wire-budget-red.yml'
+          test "$(git ls-tree HEAD -- .github/workflows/ci-1631-storage-wire-budget-red.yml | cut -d' ' -f1)" = '100644'
+          git checkout --detach 'e7f6e56caede496a80438ea194cfbfad0471b60a'
+          test "$(git rev-parse HEAD^{tree})" = 'bcedbe67e9b9702298cf93157a066be5ddd4320b'
+          git cat-file -p HEAD > "$proof/source-commit.raw"
+          git log -1 --format=fuller --show-signature > "$proof/source-commit.txt" 2>&1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.3"
+      - name: Install frozen lock and retain runtime versions
+        id: install
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record corepack-enable corepack enable
+          record corepack-prepare corepack prepare yarn@1.22.22 --activate
+          record node-version node --version
+          record yarn-version yarn --version
+          record python-version python3 --version
+          record install yarn install --frozen-lockfile --network-timeout 600000
+          record jest-version yarn --silent jest --version
+      - name: Named test formatting lint and whole types before runtime
+        id: preflight
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot-before python3 "$PROOF_DIR/capture.py" snapshot before
+          failed=0
+          if record format yarn prettier --check src/lib/telemetry/egress-boundary.test.ts; then :; else failed=1; fi
+          if record lint yarn eslint src/lib/telemetry/egress-boundary.test.ts --max-warnings 0; then :; else failed=1; fi
+          if record types yarn ts --noEmit; then :; else failed=1; fi
+          exit "$failed"
+      - name: Run seven complete suites and preserve natural expected red
+        id: tests
+        if: steps.preflight.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record jest yarn jest --runTestsByPath src/lib/miden/repo.test.ts src/lib/telemetry/crash-diagnostics.test.ts src/lib/telemetry/crash-diagnostics.policy.test.ts src/lib/telemetry/crash.test.ts src/lib/telemetry/crash.visibility.worker.test.ts src/lib/telemetry/egress-boundary.test.ts src/lib/telemetry/guarantees.test.ts --maxWorkers=2 --coverage=false --watch=false --testLocationInResults --json --outputFile="$PROOF_DIR/jest.json"
+      - name: Retain source index runtime and framework after checks
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record snapshot-after python3 "$PROOF_DIR/capture.py" snapshot after
+      - name: Classify exact causal red independently
+        if: always() && steps.bind.outcome == 'success'
+        run: |
+          set -euo pipefail
+          source "$PROOF_DIR/record.sh"
+          record classification python3 "$PROOF_DIR/capture.py" classify
+      - name: Seal raw producer payloads
+        if: always() && steps.bind.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python3 "$PROOF_DIR/capture.py" seal
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 1631-storage-wire-budget-red
+          path: ${{ runner.temp }}/1631-storage-wire-budget-red/
+          include-hidden-files: true
+          if-no-files-found: error
