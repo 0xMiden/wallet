@@ -1,0 +1,106 @@
+name: Final reporting findings regression proof
+
+on:
+  push:
+    branches: [ci/1616-final-review-targets]
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    name: Exact-source reporting regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      FORCE_COLOR: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7357c71f4406229ec694a74166c933ad029127e4
+          persist-credentials: false
+      - name: Verify exact test-only checkpoint
+        run: |
+          test "$(git rev-parse HEAD)" = 7357c71f4406229ec694a74166c933ad029127e4
+          test "$(git rev-parse HEAD^ )" = 1c7d709929067e27db83b78d17cd1e88d95d80d6
+          git diff --exit-code 6bc7636be3d42a1a2c58a8f8486a90172de07a0a HEAD -- . ':!src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx' ':!src/components/ui/PromptCarousel.test.tsx' ':!src/lib/telemetry/user-visible-error.test.ts'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned dependencies
+        id: install
+        uses: ./.github/actions/yarn-install
+      - name: Freeze source and framework inputs
+        if: always() && steps.install.outcome == 'success'
+        shell: bash
+        run: |
+          mkdir -p proof
+          cat > /tmp/record-reporting-inputs.py <<'PYTHON'
+          import hashlib,json,pathlib,subprocess,sys
+          phase=sys.argv[1]
+          root=pathlib.Path.cwd()
+          out=root/'proof'
+          tracked=subprocess.check_output(['git','ls-files','-z']).split(b'\0')
+          source={}
+          for raw in tracked:
+              if not raw: continue
+              p=root/raw.decode()
+              if p.is_file(): source[raw.decode()]={'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'mode':oct(p.stat().st_mode&0o777)}
+          frameworks=['jest','jest-runtime','babel-jest','jest-environment-jsdom','@jest/fake-timers','@sinonjs/fake-timers','@testing-library/react','@testing-library/dom','react','react-dom','jsdom']
+          framework={}
+          for name in frameworks:
+              package=root/'node_modules'/name
+              assert package.is_dir(),name
+              for p in sorted(package.rglob('*')):
+                  if p.is_file() and not p.is_symlink():
+                      key=p.relative_to(root).as_posix()
+                      framework[key]={'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'mode':oct(p.stat().st_mode&0o777)}
+          (out/f'source-{phase}.json').write_text(json.dumps(source,indent=2)+'\n')
+          (out/f'framework-{phase}.json').write_text(json.dumps(framework,indent=2)+'\n')
+          (out/f'index-{phase}.bin').write_bytes(subprocess.check_output(['git','ls-files','--stage','-z']))
+          (out/f'identity-{phase}.txt').write_bytes(subprocess.check_output(['git','rev-parse','HEAD','HEAD^{tree}']))
+          if phase=='after':
+              for name in ['source','framework']:
+                  assert json.loads((out/f'{name}-before.json').read_text())==json.loads((out/f'{name}-after.json').read_text()),name
+              assert (out/'index-before.bin').read_bytes()==(out/'index-after.bin').read_bytes()
+              assert (out/'identity-before.txt').read_bytes()==(out/'identity-after.txt').read_bytes()
+          PYTHON
+          python3 /tmp/record-reporting-inputs.py before
+          git diff --exit-code
+      - name: Typecheck frozen source
+        if: always() && steps.install.outcome == 'success'
+        shell: bash
+        run: |
+          set -o pipefail
+          yarn -s tsc --noEmit -p . 2>&1 | tee proof/types.log
+      - name: Lint only new regression files
+        if: always() && steps.install.outcome == 'success'
+        shell: bash
+        run: |
+          set -o pipefail
+          yarn -s eslint src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCarousel.test.tsx src/lib/telemetry/user-visible-error.test.ts 2>&1 | tee proof/lint.log
+      - name: Run unchanged-source regressions expecting causal failures
+        if: always() && steps.install.outcome == 'success'
+        shell: bash
+        run: |
+          set +e
+          yarn -s jest --runTestsByPath src/app/templates/EvmConnectModal/EvmBridgeDepositStatus.test.tsx src/components/ui/PromptCarousel.test.tsx src/components/ui/PromptCard.test.tsx src/lib/telemetry/user-visible-error.test.ts --maxWorkers=2 --json --outputFile=proof/jest-results.json 2>&1 | tee proof/jest.log
+          statuses=("${PIPESTATUS[@]}")
+          printf '%s\n' "${statuses[0]}" > proof/jest.exit
+          printf '%s\n' "${statuses[1]}" > proof/tee.exit
+          test "${statuses[1]}" -eq 0 || exit "${statuses[1]}"
+          exit "${statuses[0]}"
+      - name: Verify inputs after natural test completion
+        if: always() && steps.install.outcome == 'success'
+        shell: bash
+        run: |
+          python3 /tmp/record-reporting-inputs.py after
+          git diff --exit-code
+      - name: Preserve raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporting-final-findings-red-7357
+          path: proof/
+          if-no-files-found: error
