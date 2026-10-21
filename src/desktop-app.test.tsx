@@ -35,6 +35,11 @@ import React from 'react';
 // `const`s, but the factories only *reference* the names inside arrow bodies
 // that run later, so by call time the bindings are initialized.
 // ---------------------------------------------------------------------------
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
 const mockInitTheme = jest.fn();
 const mockGetDesktopIntercomAdapter = jest.fn();
 const mockCreateRoot = jest.fn();
@@ -263,5 +268,50 @@ describe('desktop-app entry point', () => {
       expect(errorSpy).toHaveBeenCalledWith('Desktop app error:', 'Failed to initialize', undefined);
       expect(errorSpy).toHaveBeenCalledWith('Desktop app error:', 'Unhandled initialization error', undefined);
     });
+  });
+});
+
+describe('desktop startup user-visible reporting', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root"></div>';
+    mockGetDesktopIntercomAdapter.mockReturnValue(makeAdapter(jest.fn().mockResolvedValue(undefined)));
+  });
+
+  it('reports the root-missing path once with a closed startup identity', async () => {
+    document.body.innerHTML = '';
+    await loadDesktopApp();
+    expect(errorSpy).toHaveBeenCalledWith('Desktop app error:', 'Root container not found', undefined);
+    expect(mockCreateRoot).not.toHaveBeenCalled();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_root_missing', 'startup']]);
+  });
+
+  it('reports initialization rejection once despite both real catch displays', async () => {
+    const error = new Error('private init detail 0x1234 amount 42');
+    mockGetDesktopIntercomAdapter.mockReturnValue(makeAdapter(jest.fn().mockRejectedValue(error)));
+    await loadDesktopApp();
+    expect(errorSpy).toHaveBeenCalledWith('Desktop app error:', 'Failed to initialize', error);
+    expect(errorSpy).toHaveBeenCalledWith('Desktop app error:', 'Unhandled initialization error', error);
+    expect(document.getElementById('root')?.textContent).toContain('Unhandled initialization error');
+    expect(document.getElementById('root')?.textContent).toContain(error.message);
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_init_failed', 'startup']]);
+  });
+
+  it('keeps successful initialization quiet', async () => {
+    await loadDesktopApp();
+    expect(mockRender).toHaveBeenCalledTimes(1);
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('reports each fresh startup but does not repeat for a cached module import', async () => {
+    document.body.innerHTML = '';
+    await loadDesktopApp();
+    require('./desktop-app');
+    await flush();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_root_missing', 'startup']]);
+    await loadDesktopApp();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([
+      ['raw_startup_root_missing', 'startup'],
+      ['raw_startup_root_missing', 'startup']
+    ]);
   });
 });

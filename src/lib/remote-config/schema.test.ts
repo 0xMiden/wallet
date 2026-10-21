@@ -472,7 +472,10 @@ it.each([
   ['an onboarding section that is not an object', doc({ onboarding: true })],
   ['a null onboarding section', doc({ onboarding: null })],
   ['an invite-only flag written as text', doc({ onboarding: { inviteOnly: 'true' } })],
-  ['a null invite-only flag', doc({ onboarding: { inviteOnly: null } })]
+  ['a null invite-only flag', doc({ onboarding: { inviteOnly: null } })],
+  ['a geo section that is not an object', doc({ geo: [] })],
+  ['a geo rule that is not an object', doc({ geo: { earn: ['block UK'] } })],
+  ['a geo answer that is not yes or no', doc({ geo: { earn: { 'block UK': true } } })]
 ])('rejects a document with %s', (_label, body) => {
   expect(parseBridgeConfig(body, 'testnet')).toBeNull();
 });
@@ -622,5 +625,28 @@ describe('the E2E local http allowance', () => {
   it.each(['http://allocator.example', 'http://10.0.2.2:8548'])('still rejects %s', input => {
     const body = withSection('epoch', { allocatorUrl: input });
     expect(parseBridgeConfig(body, 'testnet', { allowLocalHttp: true })).toBeNull();
+  });
+});
+
+describe('geo place rules', () => {
+  it('keeps yes answers for earn and swap, and drops a no, an unknown phrase, and an unknown feature', () => {
+    const parsed = parseBridgeConfig(
+      doc({
+        geo: {
+          earn: { 'block NY state': 'yes', 'block UK': 'yes', 'block US-CA': 'no', 'block Narnia': 'yes' },
+          swap: { 'block DE': 'yes' },
+          bridgeIn: { 'block UK': 'yes' }
+        }
+      }),
+      'testnet'
+    );
+    expect(parsed?.geo).toEqual({
+      earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }],
+      swap: [{ country: 'DE' }]
+    });
+  });
+
+  it('omits the section when the document names none', () => {
+    expect(parseBridgeConfig(doc(), 'testnet')?.geo).toBeUndefined();
   });
 });

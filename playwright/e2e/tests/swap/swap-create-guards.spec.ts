@@ -1,31 +1,31 @@
 import sharp from 'sharp';
 
+import { IS_LOCALNET } from '../../config/environments';
 import { expect, test } from '../../fixtures/two-wallets';
-import { PUBLISHED_BRIDGE_CONFIG_URL } from '../../helpers/fake-bridge-config';
+import { forgetFixtureConfig, setEligibilityFixtureConfig } from '../../helpers/feature-eligibility';
 import { fundSwapPair } from '../../helpers/swap';
 
 /** Manual receive entry and create-side guards, without submitting an order. */
 test.describe('swap: create-side guards', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('review is gated by balance and a non-zero requested amount', async (
-    { walletA, walletB, midenCli, timeline },
-    info
-  ) => {
+  test('review is gated by balance and a non-zero requested amount', async ({
+    walletA,
+    walletB,
+    midenCli,
+    timeline
+  }, info) => {
     const { page, extensionId } = walletA;
     const etaUrl = 'https://quotes.test';
-    await page.route(`${PUBLISHED_BRIDGE_CONFIG_URL}/localnet.json`, route =>
-      route.fulfill({
-        contentType: 'application/json',
-        headers: { 'access-control-allow-origin': '*' },
-        body: JSON.stringify({
-          network: 'localnet',
-          version: 1,
-          features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
-          swap: { etaUrl }
-        })
-      })
-    );
+    if (IS_LOCALNET) {
+      await setEligibilityFixtureConfig({
+        network: 'localnet',
+        version: 1,
+        features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+        swap: { etaUrl }
+      });
+      await forgetFixtureConfig(page, 'localnet');
+    }
     // The solver lists nothing: fundSwapPair sets the registry through `__TEST_SET_SWAP_TOKENS__`.
     await page.route(`${etaUrl}/v2/pairs`, route =>
       route.fulfill({

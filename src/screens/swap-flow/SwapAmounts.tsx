@@ -13,6 +13,8 @@ import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
@@ -37,6 +39,7 @@ export interface SwapAmountsProps {
   /** Helper line under the fields (fetching price / pick two tokens / unavailable). */
   statusMessage?: string;
   statusIsError?: boolean;
+  statusErrorId?: UserErrorId | null;
 }
 
 /** SwapToken → the UIToken shape SelectAmount expects. `balance` feeds the
@@ -72,9 +75,11 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   canProceed,
   statusMessage,
   statusIsError,
+  statusErrorId,
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError(statusMessage && statusIsError ? (statusErrorId ?? null) : null, 'inline');
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const reduceMotion = useReducedMotion();
   const motionTokens = useTabBarMotion();
@@ -140,13 +145,14 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             amount={offerAmount}
             isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
             error={offerAmountError}
+            errorId={feeAssetMissing ? null : offerAmountError}
             // The fee shortfall keeps the amount red but says so under the token.
             hideErrorText={feeAssetMissing}
             onAmountChange={onOfferAmountChange}
             onSelectToken={onSelectOfferToken}
           />
           {feeAssetMissing && (
-            <ErrorLine role="note" data-testid="swap-fee-notice" className="mt-3">
+            <ErrorLine errorId="insufficientFeeAssetShort" role="note" data-testid="swap-fee-notice" className="mt-3">
               {t('insufficientFeeAssetShort')}
             </ErrorLine>
           )}

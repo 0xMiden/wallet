@@ -17,6 +17,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
 import { pendingNoteUnreadKey } from './activityUnread';
@@ -32,8 +33,12 @@ export interface PendingActivityItem {
   held?: boolean;
   /** The refusal its last Retry met, shown in place of the hint. */
   retryError?: string;
+  /** Stable for one producer failure, including when the note's details refresh. */
+  failure?: { id: UserErrorId };
   /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
   cannotPayFee?: boolean;
+  /** Its claim is queued again because the Guardian is still settling the previous change, #1666. */
+  guardianBusy?: true;
 }
 
 interface PendingActivityCardProps {
@@ -90,6 +95,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const feeBlocked = canAccept && item.cannotPayFee === true;
   const held = status === 'claiming' && item.held === true;
   const busy = (status === 'claiming' && !held) || status === 'checking';
+  const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
   // flicker. Read on every render, so a claim landing mid-tween drops the rest of it.
@@ -119,7 +125,29 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   if (item.retryError !== undefined) hint = item.retryError;
   else if (held) hint = t('transactionNotConfirmedHint');
   else if (status === 'failed') hint = t('noteClaimFailedRetry');
+  else if (waitingOnGuardian) hint = t('guardianBusyDescription');
   const negative = status === 'failed' || item.retryError !== undefined;
+  const failureId =
+    item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
+  const [observedFailure, setObservedFailure] = useState<{
+    noteId: string;
+    status: PendingActivityStatus;
+    failure: PendingActivityItem['failure'];
+    errorId: UserErrorId | null;
+  }>({ noteId: note.id, status, failure: item.failure, errorId: null });
+  // A restored failure is a baseline; only a transition or a new producer failure is live on this mount.
+  if (
+    observedFailure.noteId !== note.id ||
+    observedFailure.status !== status ||
+    observedFailure.failure !== item.failure
+  ) {
+    setObservedFailure({
+      noteId: note.id,
+      status,
+      failure: item.failure,
+      errorId: observedFailure.noteId === note.id ? failureId : null
+    });
+  }
 
   // A refusal's message lives in the folded section, so it opens with it (#1081).
   useEffect(() => {
@@ -229,6 +257,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                 an edge with the buttons under it. */}
                 <div className="px-4 py-3">
                   <Notice
+                    errorId={observedFailure.errorId}
+                    errorOccurrence={observedFailure.failure}
                     data-testid="pending-activity-hint"
                     tone={negative ? 'negative' : 'neutral'}
                     role={negative ? 'alert' : 'status'}
@@ -243,7 +273,15 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
             )}
           </AnimatePresence>
 
-          {/* Outside the fold, so a withheld Accept is never left without its reason. */}
+          {/* Outside the fold, so a claim the Guardian holds back and a withheld Accept are never left without
+            their reason. */}
+          {waitingOnGuardian && (
+            <div className="px-4 pb-3">
+              <Notice variant="inline" tone="neutral" role="status" data-testid="pending-activity-guardian-wait">
+                {t('guardianBusyStep')}
+              </Notice>
+            </div>
+          )}
           {feeBlocked && (
             <div className="px-4 pb-3">
               <Notice id={feeNoticeId} variant="inline" tone="warning" data-testid="pending-activity-fee-notice">

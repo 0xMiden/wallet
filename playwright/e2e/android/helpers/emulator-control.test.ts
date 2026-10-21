@@ -93,6 +93,37 @@ describe('EmulatorControl', () => {
   });
 
   describe('launch', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('forwards local eligibility and hermetic config ports before opening the app', async () => {
+      jest.replaceProperty(process, 'env', {
+        ...process.env,
+        MIDEN_E2E_TEST: 'true',
+        FEATURE_ELIGIBILITY_URL: 'http://127.0.0.1:8551/v1/eligibility',
+        MIDEN_REMOTE_CONFIG_URL: 'http://127.0.0.1:8550'
+      });
+      const calls = adbAnswers(args => (args.includes('pidof') ? { stdout: '4242' } : {}));
+      await new EmulatorControl().launch(SERIAL, PACKAGE);
+      expect(calls.slice(0, 2).map(call => call.args)).toEqual([
+        ['-s', SERIAL, 'reverse', 'tcp:8551', 'tcp:8551'],
+        ['-s', SERIAL, 'reverse', 'tcp:8550', 'tcp:8550']
+      ]);
+      expect(calls[2]!.args).toContain('start');
+    });
+
+    it('refuses to launch when the required eligibility port cannot be forwarded', async () => {
+      jest.replaceProperty(process, 'env', {
+        ...process.env,
+        MIDEN_E2E_TEST: 'true',
+        FEATURE_ELIGIBILITY_URL: 'http://127.0.0.1:8551/v1/eligibility'
+      });
+      const calls = adbAnswers(args =>
+        args.includes('reverse') ? { error: new Error('forward failed') } : { stdout: '4242' }
+      );
+      await expect(new EmulatorControl().launch(SERIAL, PACKAGE)).rejects.toThrow('forward failed');
+      expect(calls.some(call => call.args.includes('start'))).toBe(false);
+    });
+
     it('fails at once, saying why, when am start -W is killed at its timeout', async () => {
       const killed = Object.assign(new Error(`Command failed: adb -s ${SERIAL} shell am start -W`), { killed: true });
       const calls = adbAnswers(args => (args.includes('start') ? { error: killed } : { stdout: '4242' }));

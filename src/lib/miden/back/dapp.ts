@@ -108,7 +108,7 @@ import {
   MidenRequest
 } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
@@ -141,7 +141,6 @@ import {
   waitForUnlock
 } from './dapp-locked';
 import { midenClientProxy } from './miden-client-proxy';
-import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
@@ -3312,15 +3311,12 @@ async function createConfirmWindow(
 }
 
 export async function getNetworkRPC(net: string | undefined) {
-  // dApp didn't specify a network — fall back to the wallet's currently
-  // selected one. Prevents an immediate connect() failure for dApps that
-  // (legitimately) just want to use whatever the user is on.
+  // When the dApp names no network, use the RPC of the network that the wallet
+  // runs on. This is the effective network (the endpoint override, else the
+  // build default), not the legacy stored network id: Mainnet invitation
+  // onboarding writes only the override (#1655).
   if (!net) {
-    const current = await getCurrentMidenNetwork();
-    if (!current) {
-      throw new Error(MidenDAppErrorType.NetworkNotGranted);
-    }
-    return current.rpcBaseURL;
+    return getEffectiveRpcUrl();
   }
   // Only a mainnet wallet takes a mainnet claim. A test-network claim still reaches a mainnet wallet, whose
   // connect sheet warns, because the adapter cannot name mainnet yet.

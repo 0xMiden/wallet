@@ -17,6 +17,7 @@ import { formatUsd } from 'lib/i18n/numbers';
 import { classifySpendingLimitChange } from 'lib/miden/spending-limits/change';
 import type { SpendingLimitConfiguration, SpendingLimitDraft } from 'lib/miden/spending-limits/types';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 // Mirrors the SDK's documented fungible-asset maximum used by transaction construction.
 export const MAX_SPENDING_LIMIT = (1n << 63n) - (1n << 31n);
@@ -88,6 +89,7 @@ const SpendingLimits: FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const [saving, setSaving] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const loadGenerationRef = useRef(0);
@@ -159,7 +161,10 @@ const SpendingLimits: FC = () => {
           setValue(initialValue(saved?.limit));
         }
       } catch {
-        if (mountedRef.current) setError(t('spendingLimitSaveFailed'));
+        if (mountedRef.current) {
+          setError(t('spendingLimitSaveFailed'));
+          setErrorId('spendingLimitSaveFailed');
+        }
       } finally {
         savingRef.current = false;
         if (mountedRef.current) setSaving(false);
@@ -190,6 +195,7 @@ const SpendingLimits: FC = () => {
       limit = parseUsdLimitInput(value);
     } catch {
       setError(t('spendingLimitInvalidAmount'));
+      setErrorId('spendingLimitInvalidAmount');
       return;
     }
     setError(null);
@@ -237,7 +243,7 @@ const SpendingLimits: FC = () => {
           {t('loading')}
         </Notice>
       ) : loadError ? (
-        <ErrorLine>{t('spendingLimitLoadFailed')}</ErrorLine>
+        <ErrorLine errorId="spendingLimitLoadFailed">{t('spendingLimitLoadFailed')}</ErrorLine>
       ) : (
         <SubPageSection className="gap-4">
           <AmountInput
@@ -257,7 +263,7 @@ const SpendingLimits: FC = () => {
               setError(null);
             }}
           />
-          <ErrorLine>{error}</ErrorLine>
+          <ErrorLine errorId={errorId}>{error}</ErrorLine>
           <Pill
             className="self-center"
             tone={currentLimit !== undefined ? 'positive' : 'neutral'}

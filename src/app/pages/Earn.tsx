@@ -8,6 +8,7 @@ import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { TextAction } from 'components/ui/TextAction';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from 'screens/earn-flow/components';
 import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
@@ -21,6 +22,7 @@ const Earn: FC = () => {
   // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
   // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
+  useUserVisibleError(notOnNetwork ? 'earnUnavailableOnNetwork' : null, 'inline');
 
   // A network with no Earn has nothing to load or retry, so it gets neither the summary nor the load error.
   if (notOnNetwork) {

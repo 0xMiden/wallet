@@ -49,6 +49,8 @@ import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-conf
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
 import { USDCX_DECIMALS } from 'lib/usdcx/constant';
 import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
@@ -73,6 +75,15 @@ import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
+
+const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> = ({ message, errorId }) => {
+  useUserVisibleError(message ? errorId : null, 'review');
+  return (
+    <p data-testid="review-error" className="text-center text-sm text-red-500">
+      {message}
+    </p>
+  );
+};
 
 /**
  * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
@@ -310,6 +321,7 @@ export const ReviewTransaction: React.FC = () => {
   }, []);
 
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
+  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId>();
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
@@ -364,6 +376,7 @@ export const ReviewTransaction: React.FC = () => {
       }
       setIsSubmitting(true);
       setSubmitError(undefined);
+      setSubmitErrorId(undefined);
       setSpendingLimitChallenge(undefined);
       // Biometrics already passed, or this is the spending-limit authorization
       // that actually submits. Re-open a flow a previous error already settled.
@@ -410,6 +423,7 @@ export const ReviewTransaction: React.FC = () => {
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
         setSubmitError(error instanceof Error ? error.message : String(error));
+        setSubmitErrorId('raw_send_submit_failed');
         setIsSubmitting(false);
       }
     },
@@ -434,11 +448,13 @@ export const ReviewTransaction: React.FC = () => {
       }
       setIsSubmitting(true);
       setSubmitError(undefined);
+      setSubmitErrorId(undefined);
       setSpendingLimitChallenge(undefined);
       // Biometrics already passed, or this is the spending-limit authorization
       // that actually submits. Re-open a flow a previous error already settled.
       enterSendFlow();
       reportSendStep('submitting');
+      let failureId: UserErrorId = 'raw_send_submit_failed';
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         if (route === 'usdcx') {
@@ -458,6 +474,7 @@ export const ReviewTransaction: React.FC = () => {
         } else if (route === 'agglayer') {
           // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
           if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
+            failureId = 'agglayerTokenUnsupported';
             throw new Error(t('agglayerTokenUnsupported'));
           }
           const txId = await initiateB2AggBridge({
@@ -505,6 +522,9 @@ export const ReviewTransaction: React.FC = () => {
           return;
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
+        setSubmitErrorId(
+          error instanceof UsdcxBurnError && isUserErrorId(error.translationKey) ? error.translationKey : failureId
+        );
         setSubmitError(
           error instanceof UsdcxBurnError
             ? t(error.translationKey, error.values)
@@ -534,11 +554,13 @@ export const ReviewTransaction: React.FC = () => {
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
+      setSubmitErrorId('unknownTokenScale');
       return;
     }
     const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
     setIsSubmitting(true);
     setSubmitError(undefined);
+    setSubmitErrorId(undefined);
     try {
       const assessment = await assessSpendingLimit(publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
@@ -570,6 +592,7 @@ export const ReviewTransaction: React.FC = () => {
         return;
       }
       setSubmitError(error instanceof Error ? error.message : String(error));
+      setSubmitErrorId('raw_send_submit_failed');
       setIsSubmitting(false);
     }
   }, [
@@ -613,6 +636,17 @@ export const ReviewTransaction: React.FC = () => {
     }
   }, [publicKey, spendingLimitChallenge]);
 
+  const minimumBurnShortfall =
+    isUsdcxBurn && amountBaseUnits !== undefined ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum) : undefined;
+  const burnValidationErrorId = !isUsdcxBurn
+    ? undefined
+    : amountBaseUnits === undefined || amountBaseUnits <= 0n
+      ? 'usdcxInvalidAmount'
+      : minimumBurnShortfall
+        ? 'usdcxBelowMinimumBurn'
+        : undefined;
+  const burnValidationError = burnValidationErrorId ? t(burnValidationErrorId, minimumBurnShortfall) : undefined;
+
   // Deep-link guards — after all hooks. Address/amount are checkable
   // immediately; token existence and balance only once balances load. A 0x
   // recipient is valid here too: it routes through the bridge. Self-sends are
@@ -630,6 +664,12 @@ export const ReviewTransaction: React.FC = () => {
   const tokenInvalid =
     isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
     (!!balanceData && (!token || parseFloat(amount) > token.balance));
+  const reviewError = scaleIsUnknown ? t('unknownTokenScale') : (submitError ?? burnValidationError);
+  const reviewErrorId = scaleIsUnknown
+    ? 'unknownTokenScale'
+    : submitError !== undefined
+      ? submitErrorId
+      : burnValidationErrorId;
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
   }
@@ -665,16 +705,6 @@ export const ReviewTransaction: React.FC = () => {
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  const minimumBurnShortfall =
-    isUsdcxBurn && amountBaseUnits !== undefined ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum) : undefined;
-  const burnValidationError = !isUsdcxBurn
-    ? undefined
-    : amountBaseUnits === undefined || amountBaseUnits <= 0n
-      ? t('usdcxInvalidAmount')
-      : minimumBurnShortfall
-        ? t('usdcxBelowMinimumBurn', minimumBurnShortfall)
-        : undefined;
-
   const fiatValue =
     token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
 
@@ -692,9 +722,7 @@ export const ReviewTransaction: React.FC = () => {
         footer={
           <div className="flex flex-col gap-2">
             {(scaleIsUnknown || submitError || burnValidationError) && (
-              <p data-testid="review-error" className="text-center text-sm text-red-500">
-                {scaleIsUnknown ? t('unknownTokenScale') : (submitError ?? burnValidationError)}
-              </p>
+              <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
             )}
             <Button
               type="button"

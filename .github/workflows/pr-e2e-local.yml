@@ -132,6 +132,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Install xvfb

@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { MeetGuardianScreen } from './MeetGuardian';
@@ -118,6 +119,24 @@ beforeEach(() => {
   mockVerdicts = {};
   mockSheet = null;
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('MeetGuardianScreen', () => {
   it('opens on its title with no checklist, and holds the operator shape with Continue closed while checking', () => {
@@ -344,5 +363,40 @@ describe('MeetGuardianScreen', () => {
   it('does not offer the fully private account when dev-gated off', () => {
     renderScreen({ showNoGuardianOption: false });
     expect(screen.queryByTestId('meet-guardian-no-guardian')).toBeNull();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  it('does not report an empty operator list as a network failure', () => {
+    mockGetGuardianOptions.mockReturnValue([]);
+    renderScreen();
+    expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports a settled failed Guardian round', () => {
+    mockVerdicts = { [OZ.endpoint]: { status: 'offline' }, [GATEWAY.endpoint]: { status: 'offline' } };
+    renderScreen();
+    expect(screen.getByTestId('meet-guardian-none-reachable')).toHaveTextContent('meetGuardianNoneReachable');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('meetGuardianNoneReachable', 'notice');
+  });
+  it('does not report a still-checking Guardian round', () => {
+    mockVerdicts = {};
+    renderScreen();
+    expect(screen.getByTestId('meet-guardian-checking')).toBeInTheDocument();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

@@ -14,9 +14,11 @@ import { Pill } from 'components/ui/Pill';
 import { Spinner } from 'components/ui/Spinner';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
+import type { GuardianProbeMatch } from 'lib/miden/guardian/discover';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 import { GuardianProbeState, WalletType } from '../types';
@@ -29,9 +31,21 @@ import { GuardianProbeState, WalletType } from '../types';
  */
 const PROBE_ESCAPE_HATCH_MS = 10_000;
 
+/** The name the screen gives an operator: the built-in's name, else the endpoint's host. */
+function operatorName(match: GuardianProbeMatch | undefined): string {
+  if (!match) return '';
+  if (match.option) return match.option.name;
+  try {
+    return new URL(match.endpoint).hostname;
+  } catch {
+    return match.endpoint;
+  }
+}
+
 export interface ImportRecoveryMethodScreenProps {
   /** The last lookup failure's display text; `undefined`/`null` for none. */
   error?: string | null;
+  errorId?: UserErrorId | null;
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
   /**
@@ -50,6 +64,7 @@ export interface ImportRecoveryMethodScreenProps {
 
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({
   error,
+  errorId = 'raw_import_recovery_lookup_failed',
   probe,
   guardianOnly = false,
   network,
@@ -83,12 +98,29 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   const probeMatchCount = probe?.status === 'done' ? probe.result.matches.length : 0;
   const probeFailureCount = probe?.status === 'done' ? probe.result.failures.length : 0;
   const probeFinishedWithoutMatch = (probe?.status === 'done' && !probe.result.best) || probe?.status === 'error';
+  // An operator that knows the account but serves a state the chain has moved past (#1648): the
+  // account left it, most often for a guardian the probe cannot enumerate, so only the user can
+  // name the current one. Shown only when nothing current was found.
+  const staleOperator =
+    probe?.status === 'done' && !probe.result.best
+      ? probe.result.matches.find(match => match.holdsCurrentState === false)
+      : undefined;
 
   // Adopt the detected endpoint unless the user already chose one.
   useEffect(() => {
     if (!detected || userOverrodeEndpoint) return;
     setEndpointInput(detected.endpoint);
   }, [detected, userOverrodeEndpoint]);
+
+  // A stale operator opens the URL field, empty: the prefilled default is a listed operator, and
+  // the one piece of evidence the probe has says the account is not at the listed ones. The user
+  // can still pick a preset through the toggle below the field.
+  const staleEndpoint = staleOperator?.endpoint;
+  useEffect(() => {
+    if (!staleEndpoint || userOverrodeEndpoint) return;
+    setIsCustomizing(true);
+    setEndpointInput('');
+  }, [staleEndpoint, userOverrodeEndpoint]);
 
   // Escape hatch while probing, so nobody is stuck behind a spinner.
   useEffect(() => {
@@ -146,15 +178,8 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   // endpoint on it.
   const guardianPresets = useGuardianOptions(network);
 
-  const detectedName = useMemo(() => {
-    if (!detected) return '';
-    if (detected.option) return detected.option.name;
-    try {
-      return new URL(detected.endpoint).hostname;
-    } catch {
-      return detected.endpoint;
-    }
-  }, [detected]);
+  const detectedName = useMemo(() => operatorName(detected), [detected]);
+  const staleOperatorName = useMemo(() => operatorName(staleOperator), [staleOperator]);
 
   const options: ChoiceCardItem<WalletType>[] = useMemo(
     () =>
@@ -287,9 +312,11 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     return (
       <>
         {probeFinishedWithoutMatch && (
-          <Notice data-testid="guardian-not-detected">
+          <Notice data-testid={staleOperator ? 'guardian-state-behind-chain' : 'guardian-not-detected'}>
             <span className="flex flex-col items-start gap-1">
-              <span>{t('guardianNotDetected')}</span>
+              <span>
+                {staleOperator ? t('guardianStateBehindChain', { name: staleOperatorName }) : t('guardianNotDetected')}
+              </span>
               {probeFailureCount > 0 && <span>{t('guardianProbePartialFailure', { count: probeFailureCount })}</span>}
               {onRetryProbe && (
                 <TextAction onClick={onRetryProbe} className="-mx-1">
@@ -334,7 +361,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
         <div className="flex flex-col gap-3">
           {renderGuardianBody()}
           {showError && (
-            <Notice tone="negative" role="alert">
+            <Notice errorId={errorId} tone="negative" role="alert">
               {error}
             </Notice>
           )}

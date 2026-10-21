@@ -6,7 +6,7 @@ import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { type BridgeReceiveFailureStep, walletRaised } from 'lib/telemetry/bridge-receive-failure';
+import { type BridgeReceiveFailureStep } from 'lib/telemetry/bridge-receive-failure';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -24,7 +24,7 @@ import {
 import { usdcxSourceChains, UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS } from 'lib/walletconnect/config';
-import { readEvmReceiptOutcome, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import { EvmTransactionRevertedError, readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
 
 import {
   BRIDGE_DELIVERY_TIMED_OUT,
@@ -80,20 +80,32 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
   }
 
   if (inputs.phase === 'submitting') {
+    // A row saved before its route was is from DEFAULT_CHAIN_ID.
+    const chainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
+    const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
+    if (!chain || !isHash(inputs.evmTxHash)) {
+      console.warn('[bridge-receive] AggLayer receipt not readable', row.id);
+      return;
+    }
+    // Only a confirmed revert fails the row: a failed row leaves reconciliation for good, so a deposit that
+    // lands after an unreadable receipt would stay Failed. The delivery window bounds a dropped transaction.
+    let outcome: Awaited<ReturnType<typeof readEvmReceiptOutcome>>;
     try {
-      // A row saved before its route was is from DEFAULT_CHAIN_ID.
-      const chainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
-      const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
-      if (!chain) throw walletRaised(new Error(`EVM chain ${chainId} is not configured`));
-      await waitForEvmReceipt(inputs.evmTxHash as `0x${string}`, chain);
-      await updateBridgedReceivePhase(row.id, 'delivering');
+      outcome = await readEvmReceiptOutcome(inputs.evmTxHash, chain);
     } catch (error) {
+      console.warn('[bridge-receive] AggLayer receipt read failed', row.id, error);
+      return;
+    }
+    if (outcome === 'pending') return;
+    if (outcome === 'reverted') {
+      const revert = new EvmTransactionRevertedError(chain.name);
       await updateBridgedReceivePhase(row.id, 'failed', {
-        error: error instanceof Error ? error.message : String(error),
-        failure: { step: 'reconciler_receipt', cause: error }
+        error: revert.message,
+        failure: { step: 'reconciler_receipt', cause: revert }
       });
       return;
     }
+    await updateBridgedReceivePhase(row.id, 'delivering');
   }
 
   try {
