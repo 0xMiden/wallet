@@ -1931,6 +1931,22 @@ it('gatesNativeDiagnosticsToAndroidInboundBridgeCause', () => {
   expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0])).toEqual(nativeDiagnostics);
 });
 
+it('carriesNativeDiagnosticsForAFailedUsdcxDeposit', () => {
+  jest
+    .mocked(resolveTelemetryContext)
+    .mockReturnValue({ platform: 'android', network: 'testnet', appVersion: '1.17.6' });
+  jest.mocked(isDesktop).mockReturnValue(false);
+  const cause = new Error('opaque');
+  markReownNativeFailure(cause, nativeFailure);
+
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    bridgeReceive: { route: 'usdcx', step: 'wallet_deposit', cause }
+  });
+
+  expect(snapshotCrashDiagnostics(jest.mocked(captureCrash).mock.calls.at(-1)?.[0])).toEqual(nativeDiagnostics);
+});
+
 it('nativeDimensionsDoNotChangeTitleSeverityOrFingerprint', () => {
   jest
     .mocked(resolveTelemetryContext)

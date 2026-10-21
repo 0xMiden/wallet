@@ -23,7 +23,7 @@
 
 ### Fixes
 
-- [FIX][android] Failed bridge-in crash reports distinguish native Reown rejection sites, wallet response codes, request age, publication and backgrounding using fixed values only; the privacy policy lists every value (#1608, #1609).
+- [FIX][android] Failed bridge-in crash reports distinguish native Reown rejection sites, wallet response codes, request age, publication and backgrounding using fixed values only; including a refused add or switch of the bridge's network; the privacy policy lists every value (#1608, #1609, #1640).
 - [FIX][all] Existing crash reports add fixed storage owner, operation and page visibility values without reporting storage contents or changing report grouping; the privacy policy lists every value (#1613)
 - [FIX][mobile] A cancelled Bread Connect request no longer opens Bread. Swift stops an opener already queued when the caller's own task is cancelled, and Kotlin opens Bread only while that request is still the one waiting, so a cancel from another thread cannot land between the check and the open, including while an opener is already in progress (#1589).
 - [FIX][all] The external-wallet connection picker offers wallet connections without email or social sign-in, including when the remote dashboard enables them (#1625).
