@@ -270,7 +270,7 @@ describe('known-bug registry', () => {
   });
 
   // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (Task 12's K15
-  // and any K1 or K11 extension each name theirs).
+  // and any K1 extension each name theirs).
   const unproven = (bugs: readonly KnownBug[]): string[] =>
     bugs
       .filter(entry => Object.values(entry.cells).some(placements => placements.some(at => at.surface !== 'extension')))
@@ -295,7 +295,6 @@ describe('known-bug registry', () => {
       ])
     ).toEqual([
       ['K1', '39090853726'],
-      ['K11', '39090853726'],
       ['K15', '39090853726']
     ]);
   });

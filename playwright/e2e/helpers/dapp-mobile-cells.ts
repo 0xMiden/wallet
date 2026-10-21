@@ -620,7 +620,7 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
         message: 'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
       }
     ),
-    // K11 on the extension: the wallet prompts with its could-not-decode sheet instead (dapp.ts preview).
+    // #1462 refuses malformed request bytes before any surface, on mobile as on the extension.
     'R3-customUndecodable': refusedBeforeSheet(
       me => ({
         call: 'requestTransaction',

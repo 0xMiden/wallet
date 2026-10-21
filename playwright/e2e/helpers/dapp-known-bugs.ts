@@ -125,7 +125,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     title: "The in-app browser's provider rejects every refusal as a plain Error, so a dApp cannot tell its class",
     tracking: `0xMiden/wallet#${MOBILE_PLAIN_ERROR_ISSUE} (open)`,
     mobileEvidenceRun: MOBILE_PLAIN_ERROR_RUN,
-    // R3-customUndecodable opened a sheet and returned NOT_GRANTED; that is K11, not the candidate's INVALID_PARAMS.
+    // R3-customUndecodable prompted in the evidence run (#1462 fixed that); it joins once a run shows it refused.
     cells: on(
       Object.keys(PLAIN_ERROR_TEXT).filter(id => id !== 'R3-customUndecodable'),
       BOTH,
