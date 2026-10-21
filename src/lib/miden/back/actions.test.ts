@@ -1586,6 +1586,7 @@ describe('actions', () => {
     const admittedAccount = (): WalletAccount => ({
       publicKey: 'pk1',
       type: WalletType.Guardian,
+      authScheme: 'ecdsa',
       name: 'Guardian account',
       isPublic: true,
       hdIndex: 0,
@@ -1613,7 +1614,7 @@ describe('actions', () => {
       await swapHotKey('pk1', 'new-pub', 'old-pub');
 
       expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', 'old-pub', expect.any(Function));
-      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts: updated.accounts });
     });
 
     it('passes no expectation when the caller passes none (#1233)', async () => {
@@ -2797,6 +2798,7 @@ describe('GEO022 hot-key mutation publication authority', () => {
   const original = (): WalletAccount => ({
     publicKey: 'geo022-account',
     type: WalletType.Guardian,
+    authScheme: 'ecdsa',
     name: 'Guardian account',
     isPublic: true,
     hdIndex: 0,

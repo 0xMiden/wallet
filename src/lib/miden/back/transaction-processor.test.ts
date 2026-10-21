@@ -537,6 +537,7 @@ describe('vaultGuardianProvider.swapHotKey', () => {
     const account: WalletAccount = {
       publicKey: 'acc',
       type: WalletType.Guardian,
+      authScheme: 'ecdsa',
       name: 'Guardian account',
       isPublic: true,
       hdIndex: 0,
