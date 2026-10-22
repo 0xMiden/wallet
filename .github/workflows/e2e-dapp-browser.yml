@@ -344,7 +344,6 @@ jobs:
     timeout-minutes: 90
     env:
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
-      AUTH_TAB_CERT_DIR: ${{ runner.temp }}/auth-tab-cert
       AUTH_TAB_FIREFOX_URL: https://ftp.mozilla.org/pub/fenix/releases/158.0.2/android/fenix-158.0.2-android-x86_64/fenix-158.0.2.multi.android-x86_64.apk
       AUTH_TAB_FIREFOX_SHA256: 75273e0088f22d3cde1a298f694e91d5ddb096b040487569f534636dcc3ac2b3
       ANDROID_SERIAL: emulator-5554
@@ -393,7 +392,7 @@ jobs:
             -accel on -cores 4 -memory 4096 -partition-size 4096 -no-snapshot -no-metrics \
             > test-results-auth-tab/emulator.log 2>&1 &
           adb wait-for-device
-          for attempt in $(seq 1 300); do
+          for _ in $(seq 1 300); do
             if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
               break
             fi
@@ -430,12 +429,14 @@ jobs:
         run: yarn test:e2e:android:build
 
       - name: Stop Gradle daemon
-        run: cd android && ./gradlew --stop || true
+        working-directory: android
+        run: ./gradlew --stop
 
       - name: Generate run-scoped fixture CA and TLS certificate
         shell: bash
         run: |
           set -euo pipefail
+          AUTH_TAB_CERT_DIR="$RUNNER_TEMP/auth-tab-cert"
           mkdir -p "$AUTH_TAB_CERT_DIR" test-results-auth-tab
           ca_subject="AuthTabAcceptance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "AUTH_TAB_CA_SUBJECT=$ca_subject" >> "$GITHUB_ENV"
@@ -470,7 +471,7 @@ jobs:
       - name: Install fixture CA through Android Settings
         run: |
           adb shell mkdir -p /sdcard/Download
-          adb push "$AUTH_TAB_CERT_DIR/auth-tab-root-ca.crt" /sdcard/Download/auth-tab-root-ca.crt
+          adb push "$RUNNER_TEMP/auth-tab-cert/auth-tab-root-ca.crt" /sdcard/Download/auth-tab-root-ca.crt
           cd android
           ./gradlew :app:connectedDebugAndroidTest \
             -Pandroid.testInstrumentationRunnerArguments.class=com.miden.wallet.AuthTabCertificateSetupTest \

@@ -395,6 +395,7 @@ Review: focused native review has no actionable source finding. First real OS re
 - [x] Add a focused, manually dispatched CI acceptance lane using one API 34 Google Play emulator and actual Chrome.
 - [x] Serve the auth dApp and redirect fixture from the local emulator host over HTTPS with a test CA limited to the debug fixture host.
 - [x] Exercise Chrome Auth Tab success and cancellation, then a real unsupported Custom Tabs provider through the existing fallback.
+- [x] Fix workflow-lint findings from the first current-head CI run.
 - [ ] Record exact CI source SHA, emulator image, browser package versions, queried Auth Tab capability and nonzero executed test count.
 - [ ] Run source review and current-head CI, fix all actionable findings, then update PR #1621 and complete its authorized merge gates.
 
