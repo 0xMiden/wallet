@@ -1,5 +1,6 @@
 import { isRecord } from 'lib/update/guards';
 
+import { assertOneClickDeadline } from './deadline';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
 import type {
@@ -43,6 +44,7 @@ export const ONE_CLICK_EVM_CHAIN_IDS: Readonly<Record<string, number>> = {
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
+const ONE_CLICK_METADATA_READS_AT_ONCE = 4;
 const ISO_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
@@ -326,11 +328,15 @@ function validateProviderFees(
   ) {
     throw new Error('1Click provider fees are invalid');
   }
+  const remaining = [...actual];
   for (const expected of configured) {
-    if (!actual.some(fee => fee.recipient === expected.recipient && fee.fee === expected.fee)) {
+    const matchedIndex = remaining.findIndex(fee => fee.recipient === expected.recipient && fee.fee === expected.fee);
+    if (matchedIndex < 0) {
       throw new Error('1Click quote is missing a configured app fee');
     }
+    remaining.splice(matchedIndex, 1);
   }
+  if (remaining.length > 0) throw new Error('1Click quote is missing a configured app fee');
 }
 
 export function assertOneClickQuoteBinding(
@@ -360,6 +366,7 @@ export function assertOneClickQuoteBinding(
   validateProviderFees(signed.appFees ?? [], config.appFees ?? []);
   if (response.quote.amountIn !== request.amount) throw new Error('1Click quote changed the exact input amount');
   if (!dry) {
+    assertOneClickDeadline(request.deadline);
     if (
       !response.quote.depositAddress ||
       !response.quote.deadline ||
@@ -368,8 +375,6 @@ export function assertOneClickQuoteBinding(
     ) {
       throw new Error('1Click deposit quote is expired or incomplete');
     }
-    if (Date.parse(response.quote.deadline) > Date.parse(request.deadline))
-      throw new Error('1Click deposit deadline exceeds the requested deadline');
   }
 }
 
@@ -428,9 +433,9 @@ export async function fetchOneClickAssets(
       ...(ONE_CLICK_EVM_CHAIN_IDS[item.blockchain] ? { chainId: ONE_CLICK_EVM_CHAIN_IDS[item.blockchain] } : {})
     });
   }
-  for (const configured of config.midenAssets) {
+  const candidates = config.midenAssets.flatMap(configured => {
     const listed = byId.get(configured.assetId);
-    if (!listed || listed.blockchain !== 'miden' || listed.decimals !== configured.decimals) continue;
+    if (!listed || listed.blockchain !== 'miden' || listed.decimals !== configured.decimals) return [];
     const candidate: OneClickAsset = {
       assetId: configured.assetId,
       blockchain: 'miden',
@@ -439,15 +444,27 @@ export async function fetchOneClickAssets(
       faucetId: configured.faucetId,
       ...(typeof listed.coingeckoId === 'string' ? { coingeckoId: listed.coingeckoId } : {})
     };
-    const metadata = await resolveMetadata(candidate);
-    if (
-      !Number.isSafeInteger(metadata.decimals) ||
-      metadata.decimals !== configured.decimals ||
-      typeof metadata.symbol !== 'string' ||
-      !metadata.symbol.trim()
-    )
-      continue;
-    assets.push({ ...candidate, symbol: metadata.symbol });
+    return [{ configured, candidate }];
+  });
+  for (let start = 0; start < candidates.length; start += ONE_CLICK_METADATA_READS_AT_ONCE) {
+    const metadataResults = await Promise.all(
+      candidates.slice(start, start + ONE_CLICK_METADATA_READS_AT_ONCE).map(async ({ configured, candidate }) => {
+        try {
+          const metadata = await resolveMetadata(candidate);
+          if (
+            !Number.isSafeInteger(metadata.decimals) ||
+            metadata.decimals !== configured.decimals ||
+            typeof metadata.symbol !== 'string' ||
+            !metadata.symbol.trim()
+          )
+            return undefined;
+          return { ...candidate, symbol: metadata.symbol };
+        } catch {
+          return undefined;
+        }
+      })
+    );
+    assets.push(...metadataResults.filter((asset): asset is OneClickAsset => asset !== undefined));
   }
   return assets;
 }
@@ -600,6 +617,7 @@ export async function fetchOneClickStatus(
   const query = new URLSearchParams({ depositAddress, ...(depositMemo ? { depositMemo } : {}) });
   const raw = await requestJson(config, `/v0/status?${query.toString()}`);
   const status = parseStatus(raw);
+  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     status.quoteResponse.quote.depositMemo !== depositMemo ||
@@ -630,6 +648,7 @@ export async function submitOneClickDeposit(
     body: JSON.stringify({ depositAddress, txHash: transactionHash, ...(memo ? { memo } : {}) })
   });
   const status = parseStatus(raw);
+  validateProviderFees(status.quoteResponse.quoteRequest.appFees ?? [], config.appFees ?? []);
   if (
     status.quoteResponse.quote.depositAddress !== depositAddress ||
     (expectedQuote && hashOneClickQuote(status.quoteResponse) !== hashOneClickQuote(expectedQuote))

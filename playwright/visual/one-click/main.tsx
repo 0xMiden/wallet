@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import '../../../src/i18n';
 import '../../../src/main.css';
+import type { OneClickEvmBalanceSnapshot } from '../../../src/lib/one-click/evm-balance';
 import { OneClickAmounts } from '../../../src/screens/swap-flow/OneClickAmounts';
 import { OneClickReview } from '../../../src/screens/swap-flow/OneClickReview';
 import type { OneClickAsset, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
@@ -31,6 +32,24 @@ const ethereumNetwork: OneClickNetworkOption = {
   logoNetwork: 'ethereum'
 };
 const networks = [midenNetwork, ethereumNetwork];
+const inboundEvmBalance: OneClickEvmBalanceSnapshot = {
+  chainId: 1,
+  account: '0x3333333333333333333333333333333333333333',
+  assetId: ethereum.assetId,
+  tokenBalance: 25_000_000n,
+  nativeBalance: 1_000_000_000_000_000_000n,
+  gasReserve: 0n,
+  spendableTokenBalance: 25_000_000n,
+  spendableNativeBalance: 1_000_000_000_000_000_000n,
+  requiredTokenAmount: 12_500_000n,
+  tokenSufficient: true,
+  gasSufficient: true,
+  gasCheckComplete: true,
+  canDeposit: true,
+  estimatedGas: 100_000n,
+  maxFeePerGas: 1_000_000_000n,
+  updatedAt: Date.parse('2026-10-22T10:00:00.000Z')
+};
 const quote: OneClickQuoteResponse = {
   correlationId: 'visual-fixture',
   timestamp: '2026-10-22T10:00:00.000Z',
@@ -107,7 +126,7 @@ function App() {
         { label: 'oneClickRefundFee', value: inbound ? '0.001 USDC' : '0.001 USDCX' },
         { label: 'oneClickWithdrawFee', value: inbound ? '0.002 USDCX' : '0.002 USDC' }
       ]}
-      nativeFee="0.01 MIDEN"
+      nativeFee={inbound ? undefined : '0.01 MIDEN'}
       now={Date.parse('2026-10-22T10:01:00.000Z')}
       onBack={() => undefined}
       onRefresh={() => undefined}
@@ -123,9 +142,10 @@ function App() {
       requestAsset={destinationAsset}
       offerAmount="12.5"
       previewAmount="12.4"
-      offerBalance={25}
+      offerBalance={inbound ? undefined : 25}
+      evmBalance={inbound && connected ? { status: 'ready', snapshot: inboundEvmBalance, gasSymbol: 'ETH' } : undefined}
       externalAddressLabel={inbound ? 'refund' : 'recipient'}
-      externalAddressNetwork={inbound ? ethereumNetwork : undefined}
+      externalAddressNetwork={ethereumNetwork}
       externalAddress={inbound ? '' : '0x4444444444444444444444444444444444444444'}
       externalAddressEditable={!inbound}
       connectedExternalAddress={inbound && connected ? '0x3333333333333333333333333333333333333333' : undefined}
@@ -134,7 +154,7 @@ function App() {
         { name: 'Savings', address: '0x4444444444444444444444444444444444444444', network: 'ethereum' },
         { name: 'Other chain', address: '0x6666666666666666666666666666666666666666', network: 'arbitrum' }
       ]}
-      canContinue
+      canContinue={!inbound || connected}
       onOfferNetworkChange={() => undefined}
       onRequestNetworkChange={() => undefined}
       onOfferAssetChange={() => undefined}

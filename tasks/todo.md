@@ -432,7 +432,7 @@ Validation: 934 tests across 34 focused Jest suites and 29 native SDK tests pass
 
 Spec: https://github.com/0xMiden/wallet/issues/1738
 
-User decisions: build the config-gated integration before Miden is listed; delegate implementation tasks; review finished code with four independent Council seats at xhigh.
+User decisions: build the config-gated integration before Miden is listed; delegate bounded implementation tasks; complete independent review on finished code.
 
 Architecture: preserve the PSWAP form when both networks are Miden. Add remote-configured 1Click assets and a server-side partner-key proxy. Verify signed quotes and exact request binding before exposing deposit instructions. Ordinary Miden sends retain Guardian, spending limits and native fees, with a persisted deadline enforced immediately before broadcast. Track swaps durably and resume polling from the app root. Incoming SUCCESS remains arriving until an exact destination note is available locally.
 
@@ -442,11 +442,12 @@ Architecture: preserve the PSWAP form when both networks are Miden. Add remote-c
 - [x] Implement durable swap tracking, local note confirmation and deadline-safe ordinary sends with tests.
 - [x] Integrate network selection, quote/review/deposit UI, contacts and history using shared components and localization.
 - [x] Read the connected external wallet token/native balances, reserve gas, and recheck the exact transfer before signing while retaining the session on amount edits.
-- [ ] Run focused guarded checks and current-source CI coverage/build; add cost-bounded mainnet swap-out/swap-back E2E using existing funded accounts.
+- [x] Implement the cost-bounded mainnet swap-out/swap-back harness using existing funded accounts and actual returned principal.
+- [x] Complete real WalletConnect acceptance: pairing survives amount edits, no transfer occurs before confirmation, and exactly one revised 0.0002 ETH transfer is sent. An unrelated same-amount note remains arriving; the exact linked note completes the swap.
 - [x] Add mocked testnet 1Click E2E alongside mainnet, following the existing Epoch test harness.
 - [x] Gate the entire integration with wallet-config features.nearIntents, default false, plus an explicit false mainnet flag in the config repository.
-- [x] Run the requested four-seat Council review and fix actionable findings; plan 6 passed all four seats and review-fix round 6 is complete.
-- [ ] Prepare the feature PR and final evidence, retaining external activation requirements.
+- [ ] Complete final independent review. Confirmed findings are fixed; final verification remains pending.
+- [ ] Pass current-head CI after publication and prepare the feature PR and final evidence, retaining external activation requirements.
 
 ## Integration contracts
 
@@ -458,11 +459,11 @@ Delivery note IDs must be resolved from the provider's destination transaction h
 
 ## Verification constraints
 
-Use ~/.codex/bin/ci-local for local checks, at most two workers. Full suites, coverage and builds run in CI; global coverage thresholds remain 95% for all metrics. Record expected red proofs before fixes. The mainnet E2E harness must reuse existing funded accounts and recycle principal with an out-and-back swap. A live run remains unavailable until Miden is listed and activation prerequisites are configured. No wallet PR merge or wallet deployment is authorized. Screenshots are capped at 1800px and reviewed for affected UI states. Review dependency sources must be available before paid panels.
+Use resource-guarded local checks for lightweight commands only. Full suites, coverage and builds run in CI; global coverage thresholds remain 95% for all metrics. Record expected-red evidence before fixes. The mainnet E2E harness must reuse existing funded accounts and recycle principal with an out-and-back swap. A live run remains unavailable until Miden is listed and activation prerequisites are configured. No wallet PR merge or wallet deployment is authorized. Cap screenshots at 1800px and review affected UI states. Make review dependencies available before independent review begins.
 
 ## Review
 
-Implementation frozen for finished-code review. Focused guarded tests, type checking and scoped UI lint pass. Two real Chrome UI scenarios cover WalletConnect session retention, revised-amount transfer, quote refresh, incomplete/refunded status and exact linked-note delivery. Browser execution, rendered screenshots, full suites/builds and the unchanged 95% coverage gates remain pending CI. The funded mainnet harness is implemented but cannot run before the provider lists Miden and activation is configured.
+Production snapshot 802 passed 30,236 unit tests across 1,196 suites, with four existing test skips. Its unchanged 95% coverage gate passed at 98.14% lines/statements, 97.57% functions and 95.97% branches; the Chrome build and 25 mock UI tests passed. The corrected visual source passed all 20 cases after proving the new contrast and fixture assertions fail against the old rendering. The real Guardian Miden scenario passed; the inbound WalletConnect scenario exposed a relay origin rejection. A dedicated test project now allows the stable E2E extension origin, and both browser and counterparty configuration are prepared. Three functional regressions were confirmed by expected-red CI run 39851725039. Fixed-snapshot unit CI passed 23/23 tests with full TypeScript; strict seven-file lint and format checks passed with zero warnings. Both real WalletConnect UI scenarios passed with no skips, retries, flaky cases or browser errors. Pairing survived the amount edit, exactly one revised 0.0002 ETH transfer was sent, an unrelated same-amount note remained arriving, and the exact linked note completed the swap. Fresh resized screenshots showed 0.0002 ETH, 0.0002 MLOCAL and the matching minimum-received amount. Current-head CI awaits publication, and final independent review remains pending. The funded mainnet loop requires Miden listing and enabled configuration; activation remains off.
 
 - Mainnet 1Click E2E uses $2 as the total round-trip safety cap, including both swaps and network gas. Optimize for the cheapest viable route and minimum viable amount; do not treat the cap as a target. Reuse the funded accounts and recycle actual received principal.
 
@@ -474,7 +475,7 @@ Implementation frozen for finished-code review. Focused guarded tests, type chec
 
 2026-10-22 12:30UTC: user explicitly accepted Chrome for the mocked suite provided WalletConnect works there. Required acceptance drives real Bread UI, actual WalletConnect handshake to test counterparty, amount edit without reconnection, and one revised-amount transfer. No phone runner is required.
 
-2026-10-22 recovery: the initial finished-code panel is incomplete and preserved. The user selected fixing confirmed issues then a fresh four-seat review. Config PR24 completed review with zero findings and CI152/152 passes. Wallet preflight175/175 passes across8suites; dedicated mocked Chrome and visual acceptance remain CI gates. Eligibility now needs to recognize explicitly enabled 1Click-only routes while preserving place restrictions.
+2026-10-22 recovery: the initial independent review was incomplete and its evidence remains preserved. The user chose to fix confirmed findings before fresh verification. Config PR #24 completed review with zero findings and all 152 CI checks passed. Wallet preflight passed 175 checks across eight suites; dedicated mocked Chrome and visual acceptance remain CI gates. Eligibility now recognizes explicitly enabled 1Click-only routes while preserving place restrictions.
 
 2026-10-22 authorization update: the user explicitly requested deployment of the matching feature-eligibility service after tests and finished-code review. Keep nearIntents false. This authorizes that service deployment only; wallet PR merge/release and the new partner proxy deployment are not authorized.
 # NEAR Intents eligibility service deployment
@@ -483,9 +484,9 @@ The service must recognize explicitly enabled valid 1Click-only configurations w
 
 - [x] Carry over the validated capability predicate and its regressions.
 - [x] Add a manual-main deployment path pinned to the workflow commit, retaining the protected environment and release-tag path.
-- [ ] Verify worker tests, workflow contracts and CI dry run.
-- [ ] Complete independent finished-code review and fix actionable findings.
-- [ ] Open the service-only PR and follow normal branch protection before deployment.
-- [ ] Deploy the reviewed service and verify its live revision, retaining nearIntents false.
+- [x] Verify worker tests, workflow contracts and CI dry run.
+- [x] Complete independent finished-code review and fix actionable findings.
+- [x] Merge service-only PR #1746 using the explicitly authorized admin squash merge after all 15 required checks pass.
+- [x] Deploy the reviewed service and verify its live revision and backward compatibility, retaining nearIntents false.
 
-Service validation: the frozen fix snapshot passed 145 Node tests with zero skips in CI. All five targeted mutations failed at their named assertions. The existing daily query cap is 10,000 and the deployment input now preserves it. Final branch CI, independent verification, protected merge and live deployment remain pending.
+Service validation: 145 Node tests passed with zero skips, all five targeted mutations failed at their named assertions, and all 15 required checks passed. PR #1746 merged as 76148bdb5b23cc66913dbe2af386f96eb442a549. Deployment run 39818501102 succeeded, and live health reports ready at that revision. The four configured wallet origins and rejected-origin cases match pre-deployment behavior. The daily query cap remains 10,000, and nearIntents stays false.

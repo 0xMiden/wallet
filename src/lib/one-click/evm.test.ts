@@ -173,6 +173,74 @@ describe('EVM 1Click wallet submission', () => {
     );
   });
 
+  it('accepts WalletConnect numeric chain IDs and still rechecks the account before sending', async () => {
+    const { request, quote } = signedDeposit();
+    const calls: string[] = [];
+    const wallet = providerWith(async method => {
+      calls.push(method);
+      if (method === 'eth_chainId') return 8453;
+      if (method === 'eth_accounts') return [account];
+      if (method === 'eth_sendTransaction') return txHash;
+      return null;
+    });
+
+    await expect(submitEvmOneClickDeposit({ provider: wallet, account, request, quote, config })).resolves.toBe(txHash);
+    expect(calls).toEqual(['eth_chainId', 'eth_accounts', 'eth_chainId', 'eth_accounts', 'eth_sendTransaction']);
+  });
+
+  it.each([
+    ['unsafe numeric', 9_007_199_254_740_992],
+    ['unsafe hex', '0x20000000000001'],
+    ['negative', -1],
+    ['fractional', 8453.5],
+    ['malformed', '8453'],
+    ['zero', 0]
+  ])('rejects %s chain IDs before sending', async (_label, chainId) => {
+    const { request, quote } = signedDeposit();
+    const wallet = providerWith(async method => (method === 'eth_chainId' ? chainId : null));
+
+    await expect(submitEvmOneClickDeposit({ provider: wallet, account, request, quote, config })).rejects.toThrow(
+      'chain id'
+    );
+    expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+  });
+
+  it('refuses to send when the numeric provider chain changes during funding verification', async () => {
+    const { request, quote } = signedDeposit();
+    let chainChecks = 0;
+    const wallet = providerWith(async method => {
+      if (method === 'eth_chainId') {
+        chainChecks += 1;
+        return chainChecks === 1 ? 8453 : 1;
+      }
+      if (method === 'eth_accounts') return [account];
+      return null;
+    });
+
+    await expect(submitEvmOneClickDeposit({ provider: wallet, account, request, quote, config })).rejects.toThrow(
+      'changed during balance verification'
+    );
+    expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+  });
+
+  it('refuses to send when the account changes during funding verification', async () => {
+    const { request, quote } = signedDeposit();
+    let accountChecks = 0;
+    const wallet = providerWith(async method => {
+      if (method === 'eth_chainId') return 8453;
+      if (method === 'eth_accounts') {
+        accountChecks += 1;
+        return accountChecks === 1 ? [account] : [refundAccount];
+      }
+      return null;
+    });
+
+    await expect(submitEvmOneClickDeposit({ provider: wallet, account, request, quote, config })).rejects.toThrow(
+      'changed during balance verification'
+    );
+    expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+  });
+
   it('refuses to broadcast if the selected wallet account changed during network switching', async () => {
     const { request, quote } = signedDeposit();
     let switched = false;

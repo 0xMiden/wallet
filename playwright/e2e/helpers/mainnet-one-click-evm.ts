@@ -2,6 +2,7 @@ import { createPublicClient, http, isAddress, isHash, parseAbi, type Address, ty
 
 import { assertOneClickQuoteBinding } from '../../../src/lib/one-click/client';
 import { buildEvmOneClickTransaction } from '../../../src/lib/one-click/evm';
+import { assertOneClickFundingDeadline } from '../../../src/lib/one-click/deadline';
 import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
@@ -142,12 +143,16 @@ export function createMainnetOneClickEvmSender({ holding, account, config, gasBu
         account
       );
       if (!transfer.to || !transfer.from) throw new Error('The reviewed reverse transfer has no exact sender or target');
+      const fundingDeadline = assertOneClickFundingDeadline(
+        request.deadline,
+        quote.quote.deadline
+      );
       expected = {
         target: transfer.to,
         data: transfer.data ?? '0x',
         value: transfer.value ? BigInt(transfer.value) : 0n,
         amount: BigInt(quote.quote.amountIn),
-        deadline: quote.quote.deadline ?? ''
+        deadline: fundingDeadline
       };
     },
     async send(transaction, signal) {

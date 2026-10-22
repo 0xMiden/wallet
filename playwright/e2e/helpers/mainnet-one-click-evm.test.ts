@@ -239,13 +239,21 @@ describe('mainnet 1Click EVM sender', () => {
   });
 
   it('refuses a wet quote that expires before the one-time wallet send', async () => {
+    const now = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     const broadcast = jest.fn(async () => testHash(`0x${'aa'.repeat(32)}`));
     const sender = makeSender({ broadcast });
     const pair = quotePair();
-    pair.quote.quote.deadline = new Date(Date.now() - 1000).toISOString();
-    sender.bind(pair.request, pair.quote);
-    await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow(/quote has expired/);
-    expect(broadcast).not.toHaveBeenCalled();
+    const providerDeadline = new Date(now + 1_000).toISOString();
+    pair.quote.quote.deadline = providerDeadline;
+    try {
+      sender.bind(pair.request, pair.quote);
+      nowSpy.mockReturnValue(Date.parse(providerDeadline));
+      await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow(/quote has expired/);
+      expect(broadcast).not.toHaveBeenCalled();
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('uses the earlier signed request cutoff when it expires during balance and fee reads', async () => {

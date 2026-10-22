@@ -161,12 +161,14 @@ describe('1Click durable tracking', () => {
         fundingDeadline: new Date(
           Date.parse(signedRequestDeadline) < Date.parse(providerExpiry) ? signedRequestDeadline : providerExpiry
         ).toISOString(),
-        request: { deadline: signedRequestDeadline },
+        request: expect.objectContaining({ deadline: signedRequestDeadline }),
         quote: {
           quoteRequest: { deadline: signedRequestDeadline },
           quote: { deadline: providerExpiry }
         }
       });
+      expect(row.extraInputs?.oneClick?.request).toEqual(signedRequest);
+      expect(row.extraInputs?.oneClick?.quote).toEqual(signedQuote);
     }
   );
 
@@ -204,9 +206,9 @@ describe('1Click durable tracking', () => {
       quote: { ...quote.quote, deadline: liveProviderExpiry }
     };
 
-    await expect(initiateOneClickMidenDeposit({ ...input, request: signedRequest, quote: signedQuote })).rejects.toThrow(
-      /expired/i
-    );
+    await expect(
+      initiateOneClickMidenDeposit({ ...input, request: signedRequest, quote: signedQuote })
+    ).rejects.toThrow(/expired/i);
     expect(initiateSend).not.toHaveBeenCalled();
   });
 
@@ -241,10 +243,13 @@ describe('1Click durable tracking', () => {
           fundingDeadline: new Date(
             Date.parse(signedRequestDeadline) < Date.parse(providerExpiry) ? signedRequestDeadline : providerExpiry
           ).toISOString(),
-          request: { deadline: signedRequestDeadline },
+          request: expect.objectContaining({ deadline: signedRequestDeadline }),
           quote: signedQuote
         })
       );
+      const tracking = initiateSend.mock.calls[0]?.[9];
+      expect(tracking?.request).toEqual(signedRequest);
+      expect(tracking?.quote).toEqual(signedQuote);
     }
   );
 

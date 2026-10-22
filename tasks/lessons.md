@@ -64,7 +64,7 @@
 
 # Session lessons
 
-- Follow the explicit issue-scoped implementation routing: define bounded tasks, then use the requested implementation workers. The finished-code review uses the requested four-seat roster at xhigh, overriding the global default for #1738.
+- For #1738, define bounded implementation tasks and complete independent review only after the code is finished.
 
 - #1738 acceptance uses the existing mainnet E2E suite and already-funded accounts. Add a cost-bounded swap-out/swap-back loop. Do not replace live settlement coverage with a simulated cross-chain service; keep mocks for deterministic unit and component failure cases.
 
@@ -74,6 +74,14 @@
 
 - For #1738, distinguish the real Bread UI and WalletConnect protocol from the mocked settlement service. User accepted Chrome once that distinction was clear; do not add mobile-runner scope after that explicit choice.
 
-- Pin the explicitly requested Council release before preflight. For #1738 use 0.7.4, including its session panel-request setup; a copied earlier runtime is not sufficient.
-
 - For #1738, config presence is not the rollout switch. Require an explicit wallet-config features.nearIntents boolean, default false, before exposing or starting the integration; dedicated mocks opt in and mainnet acceptance honors the same flag.
+
+- Preserve existing commit signing settings. No-attribution instructions prohibit authorship trailers; they do not justify disabling the signature required by the pre-push hook. Prepare an identical-tree candidate and obtain any required exception before replacing unpublished history.
+
+- When review requirements change, preserve prior review evidence and continue under the latest explicit instruction without relabeling incomplete proof.
+
+## Existing browser sessions
+
+When a browser debugging connection is unavailable, inspect the requested browser through the available native UI interface before asking for another sign-in. A missing CDP connection does not imply the signed-in browser window is inaccessible. Follow the user's named tab group and preserve the current login.
+
+- HTTP fixture tests run in Jest JSDOM, where Node fetch is not supplied. Reuse the existing node:http request pattern and distinguish setup exceptions from functional assertion failures in regression proofs.

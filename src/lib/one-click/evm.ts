@@ -2,6 +2,7 @@ import { toHex } from 'viem';
 import type { EIP1193Provider } from 'viem';
 
 import { assertOneClickQuoteBinding, ONE_CLICK_EVM_CHAIN_IDS } from './client';
+import { assertOneClickFundingDeadline } from './deadline';
 import { assertOneClickEvmDepositFunded } from './evm-balance';
 import { buildEvmOneClickTransaction } from './evm-transfer';
 import type { OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
@@ -62,7 +63,7 @@ export async function submitEvmOneClickDeposit({
   if (asset.contractAddress !== 'native' && (!asset.contractAddress || !EVM_ADDRESS.test(asset.contractAddress))) {
     throw new Error('The origin asset has no verified transfer method');
   }
-  assertNotExpired(quote);
+  assertNotExpired(request, quote);
   let currentChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
   if (currentChain !== chainId) {
     await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHex(chainId) }] });
@@ -76,7 +77,7 @@ export async function submitEvmOneClickDeposit({
   ) {
     throw new Error('Connected EVM account changed');
   }
-  assertNotExpired(quote);
+  assertNotExpired(request, quote);
   const transaction = buildEvmOneClickTransaction(asset, depositAddress, quote.quote.amountIn, account);
   await assertOneClickEvmDepositFunded({ asset, account, depositAddress, amountIn: quote.quote.amountIn });
   const confirmedChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
@@ -90,32 +91,31 @@ export async function submitEvmOneClickDeposit({
   ) {
     throw new Error('Connected EVM wallet changed during balance verification');
   }
-  assertNotExpired(quote);
+  assertNotExpired(request, quote);
   const hash = await provider.request({ method: 'eth_sendTransaction', params: [transaction] });
   if (typeof hash !== 'string' || !TX_HASH.test(hash))
     throw new Error('EVM wallet returned an invalid transaction hash');
   try {
     if (onSubmitted) await onSubmitted(hash);
-    assertNotExpired(quote);
+    assertNotExpired(request, quote);
   } catch (error) {
     throw new OneClickDepositBroadcastError(hash, error);
   }
   return hash;
 }
 
-function assertNotExpired(quote: OneClickQuoteResponse): void {
-  if (
-    !quote.quote.deadline ||
-    !Number.isFinite(Date.parse(quote.quote.deadline)) ||
-    Date.parse(quote.quote.deadline) <= Date.now()
-  ) {
-    throw new Error('The 1Click deposit quote has expired');
-  }
+function assertNotExpired(request: OneClickQuoteRequest, quote: OneClickQuoteResponse): void {
+  assertOneClickFundingDeadline(request.deadline, quote.quote.deadline);
 }
 
 function parseChainId(value: unknown): number {
-  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]+$/.test(value))
+  if (typeof value === 'number') {
+    if (Number.isSafeInteger(value) && value > 0) return value;
     throw new Error('EVM wallet returned an invalid chain id');
+  }
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]+$/.test(value)) {
+    throw new Error('EVM wallet returned an invalid chain id');
+  }
   const chainId = Number.parseInt(value.slice(2), 16);
   if (!Number.isSafeInteger(chainId)) throw new Error('EVM wallet returned an invalid chain id');
   return chainId;

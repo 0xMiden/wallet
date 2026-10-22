@@ -1,13 +1,14 @@
-import { expect, test, type HermeticOneClickFixture } from '../../fixtures/hermetic-one-click';
-import type { GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { type Page } from '@playwright/test';
+
+import { expect, test, type HermeticOneClickFixture } from '../../fixtures/hermetic-one-click';
+import { ETH_ASSET_ID, MIDEN_ASSET_ID } from '../../fixtures/hermetic-one-click';
+import type { GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { fundBridgeToken } from '../../helpers/bridge';
 import { forgetFixtureConfig } from '../../helpers/feature-eligibility';
 import { readTransactionRows, TxStatus } from '../../helpers/history';
 import type { MidenCli } from '../../helpers/miden-cli';
 import { AnvilInstance } from '../../ios/helpers/anvil';
 import { WcCounterparty } from '../../ios/helpers/wc-counterparty';
-import { ETH_ASSET_ID, MIDEN_ASSET_ID } from '../../fixtures/hermetic-one-click';
 
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
 const ANVIL_PORT = 8545;
@@ -58,11 +59,7 @@ async function prepareWallet(
   return { accountAddress, faucetHex: funded.faucetHex };
 }
 
-async function chooseRoute(
-  page: Page,
-  pay: 'miden' | 'eth',
-  receive: 'miden' | 'eth'
-): Promise<void> {
+async function chooseRoute(page: Page, pay: 'miden' | 'eth', receive: 'miden' | 'eth'): Promise<void> {
   await page.getByTestId('one-click-pay-network-picker').click();
   await page.getByTestId(`one-click-pay-network-${pay}`).click();
   await page.getByTestId('one-click-receive-network-picker').click();
@@ -103,11 +100,13 @@ test('Guardian Miden send uses a signed 1Click quote and the ordinary local tran
   await walletA.page.getByTestId('one-click-recipient-address').fill('0x000000000000000000000000000000000000dEaD');
   await walletA.page.getByTestId('one-click-pay-amount').fill('1');
 
-  await expect.poll(() => latestQuoteRequest(oneClick.service.requests, true)).toMatchObject({
-    amount: '1000000',
-    originAsset: MIDEN_ASSET_ID,
-    destinationAsset: ETH_ASSET_ID
-  });
+  await expect
+    .poll(() => latestQuoteRequest(oneClick.service.requests, true))
+    .toMatchObject({
+      amount: '1000000',
+      originAsset: MIDEN_ASSET_ID,
+      destinationAsset: ETH_ASSET_ID
+    });
   await expect(walletA.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 60_000 });
   const wetResponse = walletA.page.waitForResponse(response => {
     if (!response.url().includes('/v0/quote') || response.request().method() !== 'POST') return false;
@@ -117,28 +116,56 @@ test('Guardian Miden send uses a signed 1Click quote and the ordinary local tran
   await walletA.page.getByTestId('one-click-review-submit').click();
   await expect(walletA.page.getByTestId('one-click-review-hero')).toBeVisible();
   const signedReview: unknown = await (await wetResponse).json();
-  expect(typeof signedReview === 'object' && signedReview !== null &&
-    typeof Reflect.get(signedReview, 'quote') === 'object' && Reflect.get(Reflect.get(signedReview, 'quote'), 'deadline')).toBeTruthy();
-  await expect.poll(() => oneClick.service.requests.some(request =>
-    request.path === '/v0/quote' && typeof request.body === 'object' && request.body !== null && Reflect.get(request.body, 'dry') === false
-  )).toBe(true);
-  expect((await readTransactionRows(walletA.page)).some(row => row.type === 'send' && row.status === TxStatus.Completed)).toBe(false);
+  expect(
+    typeof signedReview === 'object' &&
+      signedReview !== null &&
+      typeof Reflect.get(signedReview, 'quote') === 'object' &&
+      Reflect.get(Reflect.get(signedReview, 'quote'), 'deadline')
+  ).toBeTruthy();
+  await expect
+    .poll(() =>
+      oneClick.service.requests.some(
+        request =>
+          request.path === '/v0/quote' &&
+          typeof request.body === 'object' &&
+          request.body !== null &&
+          Reflect.get(request.body, 'dry') === false
+      )
+    )
+    .toBe(true);
+  expect(
+    (await readTransactionRows(walletA.page)).some(row => row.type === 'send' && row.status === TxStatus.Completed)
+  ).toBe(false);
 
   await walletA.page.getByTestId('one-click-confirm').click();
   await expect
-    .poll(async () => {
-      const rows = await readTransactionRows(walletA.page);
-      return rows.find(row => {
-        const metadata = row.extraInputs?.oneClick;
-        return row.type === 'send' && row.status === TxStatus.Completed &&
-          typeof metadata === 'object' && metadata !== null && Reflect.get(metadata, 'accountAddress') === accountAddress;
-      })?.status ?? null;
-    }, { timeout: 300_000, intervals: [3_000] })
+    .poll(
+      async () => {
+        const rows = await readTransactionRows(walletA.page);
+        return (
+          rows.find(row => {
+            const metadata = row.extraInputs?.oneClick;
+            return (
+              row.type === 'send' &&
+              row.status === TxStatus.Completed &&
+              typeof metadata === 'object' &&
+              metadata !== null &&
+              Reflect.get(metadata, 'accountAddress') === accountAddress
+            );
+          })?.status ?? null
+        );
+      },
+      { timeout: 300_000, intervals: [3_000] }
+    )
     .toBe(TxStatus.Completed);
   const sendRow = (await readTransactionRows(walletA.page)).find(row => {
     const metadata = row.extraInputs?.oneClick;
-    return row.type === 'send' && typeof metadata === 'object' && metadata !== null &&
-      Reflect.get(metadata, 'accountAddress') === accountAddress;
+    return (
+      row.type === 'send' &&
+      typeof metadata === 'object' &&
+      metadata !== null &&
+      Reflect.get(metadata, 'accountAddress') === accountAddress
+    );
   });
   expect(sendRow?.id).toBeTruthy();
   const phaseForSend = async (): Promise<unknown> => {
@@ -162,18 +189,20 @@ test('inbound WC keeps its session after amount edits, sends only on confirm, an
   await chooseRoute(walletA.page, 'eth', 'miden');
   const wc = new WcCounterparty({ chainId: 1, sessionChainIds: [1], rpcUrl: 'http://127.0.0.1:8545' });
   counterparty = wc;
-  const appState = async () => walletA.page.evaluate(() => {
-    const read = window.__TEST_APPKIT_STATE__;
-    if (!read) throw new Error('Local E2E AppKit state hook is unavailable');
-    return read();
-  });
+  const appState = async () =>
+    walletA.page.evaluate(() => {
+      const read = window.__TEST_APPKIT_STATE__;
+      if (!read) throw new Error('Local E2E AppKit state hook is unavailable');
+      return read();
+    });
   await wc.start();
   const connection = wc.connectWithRetry(
-    () => walletA.page.evaluate(() => {
-      const read = window.__TEST_APPKIT_CONNECT_URI__;
-      if (!read) throw new Error('Local E2E AppKit URI hook is unavailable');
-      return read();
-    }),
+    () =>
+      walletA.page.evaluate(() => {
+        const read = window.__TEST_APPKIT_CONNECT_URI__;
+        if (!read) throw new Error('Local E2E AppKit URI hook is unavailable');
+        return read();
+      }),
     async () => (await appState()).connected,
     { attempts: 3, backoffMs: 2_000, sessionTimeoutMs: 45_000 }
   );
@@ -187,8 +216,12 @@ test('inbound WC keeps its session after amount edits, sends only on confirm, an
     timeout: 30_000
   });
   await setNativeBalance(wc.account.address, 10_000_000_000_000_000n);
-  const priorWetQuoteCount = oneClick.service.requests.filter(request => request.path === '/v0/quote' &&
-    typeof request.body === 'object' && request.body !== null && Reflect.get(request.body, 'dry') === false
+  const priorWetQuoteCount = oneClick.service.requests.filter(
+    request =>
+      request.path === '/v0/quote' &&
+      typeof request.body === 'object' &&
+      request.body !== null &&
+      Reflect.get(request.body, 'dry') === false
   ).length;
   let wetQuoteCount = 0;
   oneClick.service.setQuoteBuilder((request, defaults) => {
@@ -197,39 +230,66 @@ test('inbound WC keeps its session after amount edits, sends only on confirm, an
     const result = { ...defaults, amountOut: output, minAmountOut: output, amountOutFormatted: '0.0002' };
     if (request.dry) return result;
     wetQuoteCount += 1;
-    return wetQuoteCount === 1
-      ? { ...result, deadline: new Date(Date.now() + 5_000).toISOString() }
-      : result;
+    return wetQuoteCount === 1 ? { ...result, deadline: new Date(Date.now() + 5_000).toISOString() } : result;
   });
   await walletA.page.getByTestId('one-click-pay-amount').fill(AMOUNT_ETH_REVISED);
   await expect(walletA.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 60_000 });
-  await expect.poll(() => latestQuoteRequest(oneClick.service.requests, true)).toMatchObject({
-    amount: AMOUNT_ETH_REVISED_BASE.toString(),
-    originAsset: ETH_ASSET_ID,
-    destinationAsset: MIDEN_ASSET_ID
-  });
+  await expect
+    .poll(() => latestQuoteRequest(oneClick.service.requests, true))
+    .toMatchObject({
+      amount: AMOUNT_ETH_REVISED_BASE.toString(),
+      originAsset: ETH_ASSET_ID,
+      destinationAsset: MIDEN_ASSET_ID
+    });
   expect((await appState()).connected, 'editing amount preserves the WalletConnect session').toBe(true);
   expect(wc.requests.filter(request => request.method === 'eth_sendTransaction')).toHaveLength(0);
   await expect(walletA.page.getByTestId('one-click-connect-origin-wallet')).toHaveCount(0);
 
   await walletA.page.getByTestId('one-click-review-submit').click();
   await expect(walletA.page.getByTestId('one-click-review-hero')).toBeVisible();
-  const wet = [...oneClick.service.requests].reverse().find(request => request.path === '/v0/quote' &&
-    typeof request.body === 'object' && request.body !== null && Reflect.get(request.body, 'dry') === false
-  );
+  const wet = [...oneClick.service.requests]
+    .reverse()
+    .find(
+      request =>
+        request.path === '/v0/quote' &&
+        typeof request.body === 'object' &&
+        request.body !== null &&
+        Reflect.get(request.body, 'dry') === false
+    );
   expect(wet?.body).toMatchObject({ amount: AMOUNT_ETH_REVISED_BASE.toString(), refundTo: wc.account.address });
   await expect(walletA.page.getByTestId('one-click-refresh-quote')).toBeVisible({ timeout: 15_000 });
   await walletA.page.getByTestId('one-click-refresh-quote').click();
   await expect(walletA.page.getByTestId('one-click-confirm')).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => oneClick.service.requests.filter(request => request.path === '/v0/quote' &&
-    typeof request.body === 'object' && request.body !== null && Reflect.get(request.body, 'dry') === false
-  ).length).toBe(priorWetQuoteCount + 2);
+  await expect
+    .poll(
+      () =>
+        oneClick.service.requests.filter(
+          request =>
+            request.path === '/v0/quote' &&
+            typeof request.body === 'object' &&
+            request.body !== null &&
+            Reflect.get(request.body, 'dry') === false
+        ).length
+    )
+    .toBe(priorWetQuoteCount + 2);
   expect(wc.requests.filter(request => request.method === 'eth_sendTransaction')).toHaveLength(0);
+  const reviewHero = walletA.page.getByTestId('one-click-review-hero');
+  await expect(reviewHero).toContainText('0.0002 ETH');
+  await expect(reviewHero).toContainText('0.0002 MLOCAL');
+  await expect(walletA.page.getByTestId('one-click-minimum-row')).toContainText('0.0002 MLOCAL');
+  await test.info().attach('one-click-refreshed-review.png', {
+    body: await reviewHero.screenshot(),
+    contentType: 'image/png'
+  });
   await walletA.page.getByTestId('one-click-confirm').click();
   await expect.poll(() => wc.requests.filter(request => request.method === 'eth_sendTransaction').length).toBe(1);
   const sentTransaction = wc.requests.find(request => request.method === 'eth_sendTransaction');
-  if (!sentTransaction || !Array.isArray(sentTransaction.params) || typeof sentTransaction.params[0] !== 'object' ||
-      sentTransaction.params[0] === null) {
+  if (
+    !sentTransaction ||
+    !Array.isArray(sentTransaction.params) ||
+    typeof sentTransaction.params[0] !== 'object' ||
+    sentTransaction.params[0] === null
+  ) {
     throw new Error('WalletConnect did not send a transaction object');
   }
   expect(Reflect.get(sentTransaction.params[0], 'to')).toMatch(/^0x[0-9a-fA-F]{40}$/);
@@ -237,13 +297,25 @@ test('inbound WC keeps its session after amount edits, sends only on confirm, an
   expect((await appState()).connected, 'the transfer did not disconnect the session').toBe(true);
 
   const transactionRows = () => readTransactionRows(walletA.page);
-  await expect.poll(async () => (await transactionRows()).find(row => {
-    const metadata = row.extraInputs?.oneClick;
-    return typeof metadata === 'object' && metadata !== null && Reflect.get(metadata, 'accountAddress') === accountAddress;
-  }) ?? null, { timeout: 90_000 }).not.toBeNull();
+  await expect
+    .poll(
+      async () =>
+        (await transactionRows()).find(row => {
+          const metadata = row.extraInputs?.oneClick;
+          return (
+            typeof metadata === 'object' &&
+            metadata !== null &&
+            Reflect.get(metadata, 'accountAddress') === accountAddress
+          );
+        }) ?? null,
+      { timeout: 90_000 }
+    )
+    .not.toBeNull();
   const tracked = (await transactionRows()).find(row => {
     const metadata = row.extraInputs?.oneClick;
-    return typeof metadata === 'object' && metadata !== null && Reflect.get(metadata, 'accountAddress') === accountAddress;
+    return (
+      typeof metadata === 'object' && metadata !== null && Reflect.get(metadata, 'accountAddress') === accountAddress
+    );
   });
   expect(tracked?.id).toBeTruthy();
   expect(wet?.body).toMatchObject({ amount: AMOUNT_ETH_REVISED_BASE.toString() });
@@ -255,30 +327,45 @@ test('inbound WC keeps its session after amount edits, sends only on confirm, an
   const unrelated = await midenCli.mint(faucetHex, accountAddress, AMOUNT_MIDEN_OUTPUT, 'public');
   await walletA.triggerSync(true);
   await walletA.claimAllNotes(120_000);
-  await expect.poll(async () => {
-    const rows = await transactionRows();
-    const row = rows.find(candidate => candidate.id === tracked?.id);
-    const metadata = row?.extraInputs?.oneClick;
-    return typeof metadata === 'object' && metadata !== null ? Reflect.get(metadata, 'phase') : undefined;
-  }, { timeout: 60_000 }).toBe('arriving');
+  await expect
+    .poll(
+      async () => {
+        const rows = await transactionRows();
+        const row = rows.find(candidate => candidate.id === tracked?.id);
+        const metadata = row?.extraInputs?.oneClick;
+        return typeof metadata === 'object' && metadata !== null ? Reflect.get(metadata, 'phase') : undefined;
+      },
+      { timeout: 60_000 }
+    )
+    .toBe('arriving');
   expect(unrelated.noteId).toBeTruthy();
 
   const linked = await midenCli.mint(faucetHex, accountAddress, AMOUNT_MIDEN_OUTPUT, 'public');
   oneClick.service.setReceipts([{ transactionHash: DEPOSIT_TX_HASH, noteIds: [linked.noteId] }]);
   await walletA.triggerSync(true);
   await walletA.claimAllNotes(120_000);
-  await expect.poll(async () => {
-    const row = (await transactionRows()).find(candidate => candidate.id === tracked?.id);
-    const metadata = row?.extraInputs?.oneClick;
-    return typeof metadata === 'object' && metadata !== null ? Reflect.get(metadata, 'phase') : undefined;
-  }, { timeout: 90_000 }).toBe('delivered');
+  await expect
+    .poll(
+      async () => {
+        const row = (await transactionRows()).find(candidate => candidate.id === tracked?.id);
+        const metadata = row?.extraInputs?.oneClick;
+        return typeof metadata === 'object' && metadata !== null ? Reflect.get(metadata, 'phase') : undefined;
+      },
+      { timeout: 90_000 }
+    )
+    .toBe('delivered');
 });
 
 async function setNativeBalance(account: string, balance: bigint): Promise<void> {
   const response = await fetch('http://127.0.0.1:8545', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'anvil_setBalance', params: [account, `0x${balance.toString(16)}`] })
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'anvil_setBalance',
+      params: [account, `0x${balance.toString(16)}`]
+    })
   });
   if (!response.ok) throw new Error(`Anvil rejected the test balance update (${response.status})`);
 }

@@ -12,7 +12,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { assertOneClickQuoteBinding } from 'lib/one-click/client';
-import { assertOneClickDeadline } from 'lib/one-click/deadline';
+import { assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -861,7 +861,12 @@ export const initiateSendTransaction = async (
 
   if (oneClick) {
     assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
-    assertOneClickDeadline(oneClick.quote.quote.deadline);
+    const fundingDeadline = assertOneClickFundingDeadlineMatches(
+      oneClick.fundingDeadline,
+      oneClick.request.deadline,
+      oneClick.quote.quote.deadline
+    );
+    oneClick = { ...oneClick, fundingDeadline };
     const midenAsset = oneClick.originAsset;
     const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
     if (

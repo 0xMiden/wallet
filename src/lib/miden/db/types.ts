@@ -181,6 +181,7 @@ export interface IOneClickTrackingData {
   direction: IOneClickDirection;
   request: OneClickQuoteRequest;
   quote: OneClickQuoteResponse;
+  fundingDeadline?: string;
   config: OneClickConfig;
   network: string;
   accountId: string;

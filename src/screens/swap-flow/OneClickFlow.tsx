@@ -43,9 +43,9 @@ import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate, HistoryAction } from 'lib/woozie';
 import { isValidEthereumAddress } from 'utils/miden';
 
-import { OneClickAmounts } from './OneClickAmounts';
+import { OneClickAmounts, type OneClickAmountsErrorKey } from './OneClickAmounts';
 import { OneClickNetworkOption } from './OneClickPickers';
-import { OneClickReview } from './OneClickReview';
+import { OneClickReview, type OneClickFlowErrorKey } from './OneClickReview';
 import { useOneClickEvmBalance } from './useOneClickEvmBalance';
 import { oneClickQuoteExpired, useOneClickQuote } from './useOneClickQuote';
 
@@ -61,6 +61,14 @@ interface OneClickFlowProps {
 }
 
 const DEFAULT_QUOTE_LIFETIME_MS = 5 * 60_000;
+
+function localizedSubmitError(error: unknown): OneClickFlowErrorKey {
+  if (error instanceof Error) {
+    if (error.message === 'oneClickRouteChanged') return 'oneClickRouteChanged';
+    if (error.message === 'oneClickConnectOriginWallet') return 'oneClickConnectOriginWallet';
+  }
+  return 'oneClickSubmitFailed';
+}
 
 export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   config,
@@ -108,7 +116,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   );
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<OneClickFlowErrorKey>();
   const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const [instruction, setInstruction] = useState<OneClickQuoteResponse>();
   const [depositSubmitted, setDepositSubmitted] = useState(false);
@@ -278,7 +286,6 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const preview = useOneClickQuote(
     quoteRequest,
     queryPreview,
-    350,
     screen === 'amounts' && challenge === undefined && !submitting
   );
   const visibleFlowError =
@@ -294,7 +301,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
         ? destinationAsset
         : undefined;
   const previewAmount = preview.quote?.quote.amountOutFormatted ?? '';
-  const routeError = bothMiden
+  const routeError: OneClickAmountsErrorKey | undefined = bothMiden
     ? 'oneClickChooseForeignNetwork'
     : sameUnderlying
       ? 'oneClickSameUnderlyingBridge'
@@ -364,8 +371,8 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       setWetQuote(wet);
       setWetRequest(request);
       setScreen('review');
-    } catch (quoteError) {
-      setError(quoteError instanceof Error ? quoteError.message : 'oneClickQuoteUnavailable');
+    } catch {
+      setError('oneClickQuoteUnavailable');
       setErrorId('oneClickQuoteUnavailable');
     } finally {
       setRefreshing(false);
@@ -384,8 +391,8 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       const wet = await requestOneClickQuote(config, request, false);
       setWetQuote(wet);
       setWetRequest(request);
-    } catch (quoteError) {
-      setError(quoteError instanceof Error ? quoteError.message : 'oneClickQuoteUnavailable');
+    } catch {
+      setError('oneClickQuoteUnavailable');
       setErrorId('oneClickQuoteUnavailable');
     } finally {
       setRefreshing(false);
@@ -541,7 +548,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           });
           return;
         }
-        setError(submitError instanceof Error ? submitError.message : 'oneClickSubmitFailed');
+        setError(localizedSubmitError(submitError));
         setErrorId('oneClickSubmitFailed');
       }
       return;
@@ -598,7 +605,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           setErrorId('oneClickBroadcastTrackingPending');
         }
       } else {
-        setError(submitError instanceof Error ? submitError.message : 'oneClickSubmitFailed');
+        setError(localizedSubmitError(submitError));
         setErrorId('oneClickSubmitFailed');
       }
     } finally {
@@ -625,7 +632,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       setChallenge(undefined);
       if (authorization && wetQuote)
         void submitOutbound(wetQuote, authorization).catch(errorValue => {
-          setError(String(errorValue));
+          setError(localizedSubmitError(errorValue));
           setErrorId('oneClickSubmitFailed');
         });
       else if (!authorization) {
@@ -749,7 +756,9 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
             title={t(depositSubmitted ? 'oneClickDepositSubmitted' : 'oneClickDepositInstructions')}
             data-testid="one-click-deposit-instructions"
           >
-            {error ? t(error) : t(depositSubmitted ? 'oneClickTrackingSaved' : 'oneClickManualDepositNotice')}
+            {error
+              ? t(error, { network: offerNetwork.name })
+              : t(depositSubmitted ? 'oneClickTrackingSaved' : 'oneClickManualDepositNotice')}
           </Notice>
           {depositSubmitted ? (
             <DetailCard surface="fill">

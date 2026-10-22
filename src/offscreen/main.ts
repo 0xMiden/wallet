@@ -878,7 +878,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       delegateTransaction?: boolean;
       extraInputs: {
         recallBlocks?: number;
-        oneClick?: { quote: { quote: { deadline?: string } } };
+        oneClick?: { fundingDeadline?: string; quote: { quote: { deadline?: string } } };
       };
     }
   ) => {

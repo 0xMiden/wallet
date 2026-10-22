@@ -86,14 +86,22 @@ describe('OneClick quote signature', () => {
       slippageTolerance: 100
     };
     expect(() =>
-      assertOneClickQuoteBinding(request, response, true, { serviceUrl: 'https://proxy.example', midenAssets: [] })
+      assertOneClickQuoteBinding(request, response, true, {
+        serviceUrl: 'https://proxy.example',
+        midenAssets: [],
+        appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
+      })
     ).not.toThrow();
     expect(() =>
       assertOneClickQuoteBinding(
         { ...request, recipient: '0x3333333333333333333333333333333333333333' },
         response,
         true,
-        { serviceUrl: 'https://proxy.example', midenAssets: [] }
+        {
+          serviceUrl: 'https://proxy.example',
+          midenAssets: [],
+          appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
+        }
       )
     ).toThrow('requested route');
   });

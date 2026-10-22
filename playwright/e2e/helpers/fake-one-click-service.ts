@@ -101,7 +101,7 @@ export class FakeOneClickService {
     if (!server) return;
     this.server = undefined;
     await new Promise<void>((resolve, reject) => {
-      server.close(error => error ? reject(error) : resolve());
+      server.close(error => (error ? reject(error) : resolve()));
     });
   }
 
@@ -136,7 +136,10 @@ export class FakeOneClickService {
     if (method === 'GET' && url.pathname === '/v0/status') {
       const depositAddress = url.searchParams.get('depositAddress');
       const quote = depositAddress ? this.quotesByDeposit.get(depositAddress) : undefined;
-      if (!quote || (url.searchParams.has('depositMemo') && url.searchParams.get('depositMemo') !== quote.quote.depositMemo)) {
+      if (
+        !quote ||
+        (url.searchParams.has('depositMemo') && url.searchParams.get('depositMemo') !== quote.quote.depositMemo)
+      ) {
         this.writeJson(response, 404, { error: 'unknown_deposit' });
         return;
       }
@@ -159,7 +162,11 @@ export class FakeOneClickService {
         this.writeJson(response, 400, { error: 'invalid_receipt_request' });
         return;
       }
-      this.writeJson(response, 200, this.receipts.filter(receipt => hashes.includes(receipt.transactionHash)));
+      this.writeJson(
+        response,
+        200,
+        this.receipts.filter(receipt => hashes.includes(receipt.transactionHash))
+      );
       return;
     }
     this.writeJson(response, 404, { error: 'not_found' });
@@ -173,15 +180,29 @@ export class FakeOneClickService {
     }
     this.quoteSequence += 1;
     const depositAddress = `0x${this.quoteSequence.toString(16).padStart(40, '0')}`;
+    const originAsset = this.tokens.find(asset => asset.assetId === request.originAsset);
+    const destinationAsset = this.tokens.find(asset => asset.assetId === request.destinationAsset);
+    const amountIn = BigInt(request.amount);
+    const decimalsKnown =
+      originAsset !== undefined &&
+      destinationAsset !== undefined &&
+      isValidDecimals(originAsset.decimals) &&
+      isValidDecimals(destinationAsset.decimals);
+    const amountOut = decimalsKnown
+      ? scaleBaseUnits(amountIn, originAsset.decimals, destinationAsset.decimals)
+      : amountIn;
     const defaults: OneClickQuote = {
       amountIn: request.amount,
-      amountInFormatted: request.amount,
+      amountInFormatted:
+        originAsset && isValidDecimals(originAsset.decimals)
+          ? formatBaseUnits(amountIn, originAsset.decimals)
+          : request.amount,
       amountInUsd: '1',
       minAmountIn: request.amount,
-      amountOut: request.amount,
-      amountOutFormatted: request.amount,
+      amountOut: amountOut.toString(),
+      amountOutFormatted: decimalsKnown ? formatBaseUnits(amountOut, destinationAsset.decimals) : amountOut.toString(),
       amountOutUsd: '1',
-      minAmountOut: request.amount,
+      minAmountOut: amountOut.toString(),
       timeEstimate: 1,
       ...(request.dry ? {} : { depositAddress, deadline: request.deadline })
     };
@@ -227,17 +248,53 @@ export class FakeOneClickService {
   }
 }
 
+function isValidDecimals(decimals: number): boolean {
+  return Number.isSafeInteger(decimals) && decimals >= 0 && decimals <= 38;
+}
+
+function formatBaseUnits(amount: bigint, decimals: number): string {
+  if (amount === 0n) return '0';
+  const negative = amount < 0n;
+  const digits = (negative ? -amount : amount).toString();
+  const sign = negative ? '-' : '';
+  if (decimals === 0) return `${sign}${digits}`;
+
+  const padded = digits.padStart(decimals + 1, '0');
+  const whole = padded.slice(0, -decimals);
+  const fraction = padded.slice(-decimals).replace(/0+$/, '');
+  return `${sign}${whole}${fraction ? `.${fraction}` : ''}`;
+}
+
+function scaleBaseUnits(amount: bigint, fromDecimals: number, toDecimals: number): bigint {
+  const difference = toDecimals - fromDecimals;
+  if (difference === 0) return amount;
+  if (difference > 0) return amount * 10n ** BigInt(difference);
+  return amount / 10n ** BigInt(-difference);
+}
+
 function parseSignedRequest(value: Record<string, unknown>): OneClickSignedRequest | undefined {
   const appFees = value.appFees;
-  if (typeof value.dry !== 'boolean' || value.swapType !== 'EXACT_INPUT' ||
-      typeof value.slippageTolerance !== 'number' || !Number.isSafeInteger(value.slippageTolerance) ||
-      typeof value.originAsset !== 'string' ||
-      value.depositType !== 'ORIGIN_CHAIN' || typeof value.destinationAsset !== 'string' ||
-      typeof value.amount !== 'string' || !/^[0-9]{1,78}$/.test(value.amount) || BigInt(value.amount) <= 0n ||
-      typeof value.refundTo !== 'string' || typeof value.refundType !== 'string' || value.refundType !== 'ORIGIN_CHAIN' ||
-      typeof value.recipient !== 'string' || value.recipientType !== 'DESTINATION_CHAIN' ||
-      typeof value.deadline !== 'string' || !Number.isFinite(Date.parse(value.deadline)) ||
-      (appFees !== undefined && (!Array.isArray(appFees) || appFees.length > 3 || !appFees.every(isAppFee)))) return undefined;
+  if (
+    typeof value.dry !== 'boolean' ||
+    value.swapType !== 'EXACT_INPUT' ||
+    typeof value.slippageTolerance !== 'number' ||
+    !Number.isSafeInteger(value.slippageTolerance) ||
+    typeof value.originAsset !== 'string' ||
+    value.depositType !== 'ORIGIN_CHAIN' ||
+    typeof value.destinationAsset !== 'string' ||
+    typeof value.amount !== 'string' ||
+    !/^[0-9]{1,78}$/.test(value.amount) ||
+    BigInt(value.amount) <= 0n ||
+    typeof value.refundTo !== 'string' ||
+    typeof value.refundType !== 'string' ||
+    value.refundType !== 'ORIGIN_CHAIN' ||
+    typeof value.recipient !== 'string' ||
+    value.recipientType !== 'DESTINATION_CHAIN' ||
+    typeof value.deadline !== 'string' ||
+    !Number.isFinite(Date.parse(value.deadline)) ||
+    (appFees !== undefined && (!Array.isArray(appFees) || appFees.length > 3 || !appFees.every(isAppFee)))
+  )
+    return undefined;
   return {
     dry: value.dry,
     swapType: 'EXACT_INPUT',
@@ -256,9 +313,16 @@ function parseSignedRequest(value: Record<string, unknown>): OneClickSignedReque
 }
 
 function isAppFee(value: unknown): value is { recipient: string; fee: number } {
-  return isRecord(value) && typeof value.recipient === 'string' && value.recipient.length >= 2 &&
-    value.recipient.length <= 128 && Number.isSafeInteger(value.fee) &&
-    typeof value.fee === 'number' && value.fee >= 0 && value.fee <= 1000;
+  return (
+    isRecord(value) &&
+    typeof value.recipient === 'string' &&
+    value.recipient.length >= 2 &&
+    value.recipient.length <= 128 &&
+    Number.isSafeInteger(value.fee) &&
+    typeof value.fee === 'number' &&
+    value.fee >= 0 &&
+    value.fee <= 1000
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

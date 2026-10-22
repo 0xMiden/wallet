@@ -1,8 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 import { parseOneClickQuoteResponse } from 'lib/one-click/client';
 import dryFixture from 'lib/one-click/test-fixtures-dry.json';
+import { OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 
 import { oneClickQuoteExpired, useOneClickQuote } from './useOneClickQuote';
 
@@ -133,14 +133,21 @@ describe('useOneClickQuote', () => {
 });
 
 describe('oneClickQuoteExpired', () => {
-  it('treats the provider deadline as expired at the deadline and when missing', () => {
+  it('treats a wet provider deadline as expired at the deadline and when missing', () => {
     const now = Date.parse('2026-10-22T12:00:00.000Z');
-    expect(oneClickQuoteExpired(response('fresh'), now)).toBe(false);
-    expect(oneClickQuoteExpired(response('expired', '2026-10-22T12:00:00.000Z'), now)).toBe(true);
+    const wetQuote = response('fresh');
+    wetQuote.quoteRequest.dry = false;
+    expect(oneClickQuoteExpired(wetQuote, now)).toBe(false);
+    const expiredQuote = response('expired', '2026-10-22T12:00:00.000Z');
+    expiredQuote.quoteRequest.dry = false;
+    expect(oneClickQuoteExpired(expiredQuote, now)).toBe(true);
     const noDeadline = response('missing');
+    noDeadline.quoteRequest.dry = false;
     delete noDeadline.quote.deadline;
     expect(oneClickQuoteExpired(noDeadline, now)).toBe(true);
-    expect(oneClickQuoteExpired(response('malformed', 'bad'), now)).toBe(true);
+    const malformed = response('malformed', 'bad');
+    malformed.quoteRequest.dry = false;
+    expect(oneClickQuoteExpired(malformed, now)).toBe(true);
   });
 
   it('uses the signed request cutoff for dry quotes without a provider expiry', () => {

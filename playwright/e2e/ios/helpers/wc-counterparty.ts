@@ -162,14 +162,25 @@ export class WcCounterparty {
   async connectWithRetry(
     getUri: () => Promise<string>,
     verifyAppConnected: () => Promise<boolean>,
-    opts: { attempts?: number; backoffMs?: number; sessionTimeoutMs?: number } = {}
+    opts: { attempts?: number; backoffMs?: number; sessionTimeoutMs?: number; uriTimeoutMs?: number } = {}
   ): Promise<void> {
-    const { attempts = 5, backoffMs = 15_000, sessionTimeoutMs = 45_000 } = opts;
+    const { attempts = 5, backoffMs = 15_000, sessionTimeoutMs = 45_000, uriTimeoutMs = 15_000 } = opts;
     await this.start();
     let lastErr: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        const uri = await getUri();
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const uri = await Promise.race([
+          getUri(),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error(`WC pairing URI was not emitted within ${uriTimeoutMs}ms`)),
+              uriTimeoutMs
+            );
+          })
+        ]).finally(() => {
+          if (timeout !== undefined) clearTimeout(timeout);
+        });
         if (!uri.startsWith('wc:')) throw new Error(`expected a wc: pairing URI, got "${uri}"`);
         await this.pair(uri);
         // The relay subscribe inside pair/approve can stall without erroring;

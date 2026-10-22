@@ -22,7 +22,7 @@ import {
   resolveOneClickDestinationReceipts,
   submitOneClickDeposit
 } from './client';
-import { assertOneClickDeadline } from './deadline';
+import { assertOneClickFundingDeadline } from './deadline';
 import { oneClickActualOutputAmount, oneClickDestinationFaucet, hasOneClickDeliveryArrived } from './delivery';
 import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
@@ -75,9 +75,9 @@ export function useOneClickTransactions(): ITransaction[] {
   return rows;
 }
 
-function validateTrackingInput(input: OneClickTrackingInput): void {
+function validateTrackingInput(input: OneClickTrackingInput): string {
   assertOneClickQuoteBinding(input.request, input.quote, false, input.config);
-  assertOneClickDeadline(input.quote.quote.deadline);
+  const fundingDeadline = assertOneClickFundingDeadline(input.request.deadline, input.quote.quote.deadline);
   if (!input.quote.quote.depositAddress)
     throw new Error('The 1Click quote has no deposit address. Request a new quote.');
   if (
@@ -94,13 +94,14 @@ function validateTrackingInput(input: OneClickTrackingInput): void {
   if (!input.network || !input.accountId || !input.accountAddress || !input.faucetId) {
     throw new Error('The 1Click route is missing wallet account details.');
   }
+  return fundingDeadline;
 }
 
 function trackingData(
   input: OneClickTrackingInput,
   direction: IOneClickTrackingData['direction']
 ): IOneClickTrackingData {
-  validateTrackingInput(input);
+  const fundingDeadline = validateTrackingInput(input);
   const midenAsset = direction === 'evm-to-miden' ? input.destinationAsset : input.originAsset;
   if (midenAsset.blockchain !== 'miden') throw new Error('The 1Click quote does not contain a Miden asset.');
   const mapped = input.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
@@ -110,6 +111,7 @@ function trackingData(
     direction,
     request: input.request,
     quote: input.quote,
+    fundingDeadline,
     config: input.config,
     network: input.network,
     accountId: input.accountId,

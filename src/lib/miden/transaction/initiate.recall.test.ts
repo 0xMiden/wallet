@@ -16,12 +16,12 @@
  */
 import type { OneClickAsset, OneClickConfig } from 'lib/one-click/types';
 
-import type { IOneClickTrackingData } from '../db/types';
+import type { IOneClickTrackingData, SendTransaction } from '../db/types';
 import { MAX_RECALL_BLOCKS } from '../helpers';
 import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction } from './initiate';
 
-const mockAdd = jest.fn(async () => undefined);
+const mockAdd = jest.fn(async (_transaction: SendTransaction) => undefined);
 jest.mock('lib/miden/repo', () => ({
   get transactions() {
     return { add: mockAdd };
@@ -162,7 +162,8 @@ describe('initiateSendTransaction — reclaim window bounds', () => {
         extraInputs: expect.objectContaining({ oneClick: tracking })
       })
     );
-    const [row] = mockAdd.mock.calls[0];
+    const row = mockAdd.mock.calls.at(0)?.[0];
+    if (row === undefined) throw new Error('Expected the ordinary send row to be persisted');
     expect(row.extraInputs?.oneClick).toMatchObject({
       fundingDeadline: expectedFundingDeadline,
       request: { deadline: signedRequestDeadline },

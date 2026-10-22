@@ -32,3 +32,42 @@ export function assertOneClickDeadline(deadline: string | undefined, now = Date.
   }
   if (Date.parse(deadline) <= now) throw new OneClickDeadlineError(ONE_CLICK_EXPIRED_ERROR);
 }
+
+export function effectiveOneClickFundingDeadline(
+  requestDeadline: string | undefined,
+  providerDeadline: string | undefined
+): string {
+  if (
+    typeof requestDeadline !== 'string' ||
+    !Number.isFinite(Date.parse(requestDeadline)) ||
+    typeof providerDeadline !== 'string' ||
+    !Number.isFinite(Date.parse(providerDeadline))
+  ) {
+    throw new OneClickDeadlineError(ONE_CLICK_INVALID_DEADLINE_ERROR);
+  }
+  return Date.parse(requestDeadline) <= Date.parse(providerDeadline) ? requestDeadline : providerDeadline;
+}
+
+export function assertOneClickFundingDeadline(
+  requestDeadline: string | undefined,
+  providerDeadline: string | undefined,
+  now = Date.now()
+): string {
+  const fundingDeadline = effectiveOneClickFundingDeadline(requestDeadline, providerDeadline);
+  assertOneClickDeadline(requestDeadline, now);
+  assertOneClickDeadline(providerDeadline, now);
+  return fundingDeadline;
+}
+
+export function assertOneClickFundingDeadlineMatches(
+  storedDeadline: string | undefined,
+  requestDeadline: string | undefined,
+  providerDeadline: string | undefined,
+  now = Date.now()
+): string {
+  const fundingDeadline = assertOneClickFundingDeadline(requestDeadline, providerDeadline, now);
+  if (storedDeadline !== undefined && storedDeadline !== fundingDeadline) {
+    throw new OneClickDeadlineError(ONE_CLICK_INVALID_DEADLINE_ERROR);
+  }
+  return fundingDeadline;
+}

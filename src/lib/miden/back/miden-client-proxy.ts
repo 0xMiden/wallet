@@ -908,7 +908,7 @@ type OffscreenSendDto = {
   delegateTransaction?: boolean;
   extraInputs: {
     recallBlocks?: number;
-    oneClick?: { quote: { quote: { deadline?: string } } };
+    oneClick?: { fundingDeadline?: string; quote: { quote: { deadline?: string } } };
   };
 };
 
@@ -1761,7 +1761,14 @@ export const midenClientProxy = {
       extraInputs: {
         recallBlocks: transaction.extraInputs?.recallBlocks,
         ...(transaction.extraInputs?.oneClick
-          ? { oneClick: { quote: { quote: { deadline: transaction.extraInputs.oneClick.quote.quote.deadline } } } }
+          ? {
+              oneClick: {
+                ...(transaction.extraInputs.oneClick.fundingDeadline === undefined
+                  ? {}
+                  : { fundingDeadline: transaction.extraInputs.oneClick.fundingDeadline }),
+                quote: { quote: { deadline: transaction.extraInputs.oneClick.quote.quote.deadline } }
+              }
+            }
           : {})
       }
     };

@@ -10,11 +10,19 @@ import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { formatBigInt } from 'lib/i18n/numbers';
+import { effectiveOneClickFundingDeadline } from 'lib/one-click/deadline';
 import { OneClickAsset, OneClickQuoteResponse } from 'lib/one-click/types';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import { oneClickLogoNetwork } from './OneClickPickers';
 import { oneClickQuoteExpired } from './useOneClickQuote';
+
+export type OneClickFlowErrorKey =
+  | 'oneClickQuoteUnavailable'
+  | 'oneClickSubmitFailed'
+  | 'oneClickBroadcastTrackingPending'
+  | 'oneClickRouteChanged'
+  | 'oneClickConnectOriginWallet';
 
 export interface OneClickReviewProps {
   quote: OneClickQuoteResponse;
@@ -36,7 +44,7 @@ export interface OneClickReviewProps {
   fundingSymbol?: string;
   refreshing?: boolean;
   recoveryNotice?: boolean;
-  error?: string;
+  error?: OneClickFlowErrorKey;
   errorId?: UserErrorId | null;
   now?: number;
   onBack: () => void;
@@ -69,7 +77,15 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
 }) => {
   const { t } = useTranslation();
   const expired = oneClickQuoteExpired(quote, now);
+  let fundingDeadline: string | undefined;
+  try {
+    fundingDeadline = effectiveOneClickFundingDeadline(quote.quoteRequest.deadline, quote.quote.deadline);
+  } catch {
+    fundingDeadline = undefined;
+  }
   const arrival = t('oneClickArrivalEstimate', { minutes: Math.ceil(quote.quote.timeEstimate / 60) });
+  const amountInFormatted = formatBigInt(BigInt(quote.quote.amountIn), originAsset.decimals);
+  const amountOutFormatted = formatBigInt(BigInt(quote.quote.amountOut), destinationAsset.decimals);
 
   return (
     <ReviewLayout
@@ -85,7 +101,7 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
                 size="md"
               />
             }
-            value={`${quote.quote.amountInFormatted} ${originAsset.symbol}`}
+            value={`${amountInFormatted} ${originAsset.symbol}`}
             subtitle={t('oneClickYouPayFrom', { network: originNetworkName })}
           />
           <span className="text-center text-body-sm text-muted" aria-hidden="true">
@@ -99,7 +115,7 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
                 size="md"
               />
             }
-            value={`${quote.quote.amountOutFormatted} ${destinationAsset.symbol}`}
+            value={`${amountOutFormatted} ${destinationAsset.symbol}`}
             subtitle={t('oneClickYouReceiveOn', { network: destinationNetworkName })}
           />
         </div>
@@ -112,7 +128,13 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
         'data-testid': expired ? 'one-click-refresh-quote' : 'one-click-confirm'
       }}
       secondary={{ label: t('back'), onPress: onBack, disabled: submitting || refreshing }}
-      error={error ? t(error) : undefined}
+      error={
+        error
+          ? error === 'oneClickConnectOriginWallet'
+            ? t(error, { network: originNetworkName })
+            : t(error)
+          : undefined
+      }
       errorId={error ? errorId : null}
     >
       {recoveryNotice && (
@@ -145,9 +167,7 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
         {nativeFee && <DetailRow label={t('oneClickNativeFee')}>{nativeFee}</DetailRow>}
         <DetailRow label={t('oneClickArrival')}>{arrival}</DetailRow>
         <DetailRow label={t('oneClickQuoteExpiresAt')}>
-          {quote.quote.deadline && Number.isFinite(Date.parse(quote.quote.deadline))
-            ? new Date(quote.quote.deadline).toLocaleString()
-            : t('oneClickQuoteExpired')}
+          {fundingDeadline ? new Date(fundingDeadline).toLocaleString() : t('oneClickQuoteExpired')}
         </DetailRow>
         <DetailRow label={t('oneClickRecipient')} stacked data-testid="one-click-recipient-row">
           {recipient}

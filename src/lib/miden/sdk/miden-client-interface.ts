@@ -50,7 +50,11 @@ import {
 import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
-import { assertOneClickDeadline, isOneClickDeadlineError } from 'lib/one-click/deadline';
+import {
+  assertOneClickDeadline,
+  assertOneClickFundingDeadlineMatches,
+  isOneClickDeadlineError
+} from 'lib/one-click/deadline';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { annotateCrash, type CrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
@@ -1713,9 +1717,15 @@ export class MidenClientInterface {
 
   async sendTransaction(dbTransaction: SendTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
-    const assertQuotedDeadline = extraInputs?.oneClick
-      ? () => assertOneClickDeadline(extraInputs.oneClick?.quote.quote.deadline)
+    const oneClick = extraInputs?.oneClick;
+    const fundingDeadline = oneClick
+      ? assertOneClickFundingDeadlineMatches(
+          oneClick.fundingDeadline,
+          oneClick.request.deadline,
+          oneClick.quote.quote.deadline
+        )
       : undefined;
+    const assertQuotedDeadline = fundingDeadline ? () => assertOneClickDeadline(fundingDeadline) : undefined;
 
     // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
     // producer — send UI, dApp path, epoch bridge — passes an offset). This is

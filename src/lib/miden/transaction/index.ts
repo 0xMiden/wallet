@@ -53,7 +53,7 @@ import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { assertOneClickDeadline } from 'lib/one-click/deadline';
+import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
@@ -4078,7 +4078,13 @@ const generateGuardianTransaction = async (
 
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
     const oneClick = transaction.type === 'send' ? transaction.extraInputs?.oneClick : undefined;
-    const oneClickDeadline = oneClick?.quote.quote.deadline;
+    const oneClickDeadline = oneClick
+      ? assertOneClickFundingDeadlineMatches(
+          oneClick.fundingDeadline,
+          oneClick.request.deadline,
+          oneClick.quote.quote.deadline
+        )
+      : undefined;
     const oneClickRequired = oneClick !== undefined;
 
     await requireBridgeSubmitClaim(transaction);

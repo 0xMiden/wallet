@@ -1014,6 +1014,10 @@ describe('MidenClientInterface', () => {
   });
 
   it('refuses an expired 1Click send after its final stage stamp and does not submit or rebuild', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const providerDeadline = new Date(now + 60_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
     const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
     const prove = jest.fn(async () => ({ submit }));
     const fakeMidenClient = buildFakeMidenClient({
@@ -1045,27 +1049,35 @@ describe('MidenClientInterface', () => {
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
     const stages: string[] = [];
 
-    await expect(
-      client.sendTransaction(
-        {
-          accountId: 'sender',
-          secondaryAccountId: 'deposit',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(1),
-          extraInputs: {
-            oneClick: {
-              fundingDeadline: '2000-01-01T00:00:00.000Z',
-              quote: { quote: { deadline: '2099-01-01T00:00:00.000Z' } }
+    try {
+      await expect(
+        client.sendTransaction(
+          {
+            accountId: 'sender',
+            secondaryAccountId: 'deposit',
+            faucetId: 'faucet',
+            noteType: 'public' as any,
+            amount: BigInt(1),
+            extraInputs: {
+              oneClick: {
+                fundingDeadline,
+                request: { deadline: fundingDeadline },
+                quote: {
+                  quoteRequest: { deadline: fundingDeadline },
+                  quote: { deadline: providerDeadline }
+                }
+              }
             }
+          } as any,
+          stage => {
+            stages.push(stage);
+            if (stage === 'submitting') now = Date.parse(fundingDeadline);
           }
-        } as any,
-        stage => {
-          stages.push(stage);
-        }
-      )
-    ).rejects.toThrow(/expired/i);
-
+        )
+      ).rejects.toThrow(/expired/i);
+    } finally {
+      nowSpy.mockRestore();
+    }
     expect(stages).toEqual(['executing', 'proving', 'submitting']);
     expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
     expect(prove).toHaveBeenCalledTimes(1);

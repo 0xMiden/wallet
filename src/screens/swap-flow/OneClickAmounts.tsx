@@ -19,6 +19,15 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import { OneClickAssetPicker, OneClickNetworkOption, OneClickNetworkPicker } from './OneClickPickers';
+import type { OneClickFlowErrorKey } from './OneClickReview';
+
+export type OneClickAmountsErrorKey =
+  | OneClickFlowErrorKey
+  | 'oneClickChooseForeignNetwork'
+  | 'oneClickSameUnderlyingBridge'
+  | 'oneClickDifferentNetworksRequired'
+  | 'oneClickMidenAssetRequired'
+  | 'insufficientFeeAsset';
 
 export interface OneClickAmountsProps {
   assets: readonly OneClickAsset[];
@@ -37,7 +46,7 @@ export interface OneClickAmountsProps {
     gasSymbol: string;
   };
   quoteLoading?: boolean;
-  routeError?: string;
+  routeError?: OneClickAmountsErrorKey;
   routeErrorId?: UserErrorId | null;
   externalAddressLabel?: 'recipient' | 'refund';
   externalAddressNetwork?: OneClickNetworkOption;
@@ -143,9 +152,11 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
           tokenSelector={payPicker}
           accent="swap"
           helper={
-            offerBalance === undefined
-              ? undefined
-              : t('availableAmount', { amount: offerBalance, symbol: offerAsset?.symbol })
+            offerBalance === undefined ? undefined : (
+              <span className="font-heading text-base font-bold text-text-muted">
+                {t('availableAmount', { amount: offerBalance, symbol: offerAsset?.symbol })}
+              </span>
+            )
           }
           aria-label={t('youPay')}
           data-testid="one-click-pay-amount"
