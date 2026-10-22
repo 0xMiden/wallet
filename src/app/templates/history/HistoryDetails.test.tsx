@@ -219,6 +219,11 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
   useTransactionRow: () => ({ row: mockRow, loaded: mockRowLoaded })
 }));
 
+let mockPaybackState: { stuck: boolean; failedClaimId?: string; reason?: string } | null = null;
+jest.mock('./usePaybackClaimState', () => ({
+  usePaybackClaimState: (row: { type?: string } | undefined) => (row?.type === 'swap' ? mockPaybackState : null)
+}));
+
 jest.mock('./useSwapSettlementNotes', () => ({
   useSwapSettlementNotes: (swapTxId: string | undefined) => (swapTxId ? mockSettlementNotes : null)
 }));
@@ -510,6 +515,7 @@ beforeEach(() => {
 
   mockRow = undefined;
   mockRowLoaded = true;
+  mockPaybackState = null;
   setMockSettlementNotes(settlementNotes([]));
   trackingStore().useSwapOrderTrackingStore.setState({ entries: {} });
   trackingStore().clearSwapOrderSchedulesForTests();
@@ -4388,6 +4394,19 @@ describe('HistoryDetails swap order actions', () => {
       expect.objectContaining({ destructive: true, confirmLabel: 'swapCancelOrder' })
     );
     expect(mockCancelSwapOrder).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('shows a stuck payout claim from the live read, and drops it once the read clears (#1644, F-006)', async () => {
+    mockPaybackState = { stuck: true, failedClaimId: 'claim-9', reason: 'guardian' };
+    await openOrder();
+    expect(screen.getByTestId('swap-payback-stuck')).toHaveTextContent('swapPaybackStuckGuardian');
+    expect(screen.getByTestId('swap-retry-payback-button')).toBeInTheDocument();
+  });
+
+  it('shows no stuck payout claim while the live read says none', async () => {
+    mockPaybackState = { stuck: false };
+    await openOrder();
+    expect(screen.queryByTestId('swap-payback-stuck')).not.toBeInTheDocument();
   });
 
   it('does nothing at all when the confirmation is declined', async () => {
