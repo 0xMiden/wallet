@@ -40,6 +40,10 @@ import {
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
+  OFFSCREEN_DEADLINE_KILLERS,
+  OFFSCREEN_DEADLINE_OWNERS,
+  OFFSCREEN_DEADLINE_TIMERS,
+  OFFSCREEN_OP_STARTED,
   PIPELINE_KILLS,
   PROVING_PREFERENCES,
   REAP_AGES,
@@ -175,6 +179,10 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     ['under_9s', '9_to_11s', 'over_11s', 'unavailable'],
     THROWN_CLASS_VALUES,
     PIPELINE_KILLS,
+    OFFSCREEN_DEADLINE_OWNERS,
+    OFFSCREEN_DEADLINE_TIMERS,
+    OFFSCREEN_DEADLINE_KILLERS,
+    OFFSCREEN_OP_STARTED,
     EXECUTION_CAUSES,
     SIGNING_STEPS,
     CONFIRMING_STEPS,
@@ -1164,12 +1172,14 @@ describe('a submit the node refused', () => {
 describe('a pipeline killed from outside', () => {
   const sync = (cause: unknown) => new Error(`pre-flight sync for ${ACCOUNT} failed`, { cause });
 
+  const unrecorded =
+    'deadline owner unavailable; deadline timer unavailable; deadline op unavailable; op start reported unavailable';
   it.each([
-    ['deadline', 'offscreen_aborted_deadline'],
-    ['deadline-no-kill', 'offscreen_aborted_deadline_no_kill'],
-    ['doc-closed', 'offscreen_aborted_doc_closed'],
-    ['transport', 'offscreen_aborted_transport'],
-    [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other']
+    ['deadline', `offscreen_aborted_deadline; ${unrecorded}`],
+    ['deadline-no-kill', `offscreen_aborted_deadline_no_kill; ${unrecorded}`],
+    ['doc-closed', 'offscreen_aborted_doc_closed; op start reported unavailable'],
+    ['transport', 'offscreen_aborted_transport; op start reported unavailable'],
+    [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other; op start reported unavailable']
   ])('names an offscreen abort for %s by its reason, never its operation id', async (reason, identity) => {
     reportTransactionFailure({
       type: 'consume',
@@ -1213,8 +1223,60 @@ describe('a pipeline killed from outside', () => {
     await settle();
     const [evicted, aborted] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
     expect(evicted).toContain('; point pipeline; wasm_lock_evicted_other. ');
-    expect(aborted).toContain('; point pipeline; offscreen_aborted_other. ');
+    expect(aborted).toContain('; point pipeline; offscreen_aborted_other; op start reported unavailable. ');
     expectNoTransactionData(`${evicted} ${aborted}`);
+  });
+
+  it.each([
+    [
+      'its own deadline after it started',
+      { started: true, deadline: { owner: 'own', timer: 'started', killer: 'write' } },
+      'deadline owner own; deadline timer started; deadline op write; op start reported yes'
+    ],
+    [
+      "another op's dispatch deadline before it started",
+      { started: false, deadline: { owner: 'collateral', timer: 'dispatch', killer: 'read' } },
+      'deadline owner collateral; deadline timer dispatch; deadline op read; op start reported no'
+    ],
+    [
+      'a resumed deadline',
+      { started: true, deadline: { owner: 'own', timer: 'resumed', killer: 'write' } },
+      'deadline owner own; deadline timer resumed; deadline op write; op start reported yes'
+    ],
+    [
+      'values outside the lists',
+      { started: 'yes', deadline: { owner: ACCOUNT_HEX, timer: AMOUNT, killer: OP_ID } },
+      'deadline owner unavailable; deadline timer unavailable; deadline op unavailable; op start reported unavailable'
+    ]
+  ])('names a deadline abort with %s by closed facts only', async (_label, facts, expected) => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'sending',
+      error: sync(new OperationAbortedError(OP_ID, 'deadline', facts as never))
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; offscreen_aborted_deadline; ${expected}. authentication`);
+    expectNoTransactionData(message);
+  });
+
+  it('names whether a transport abort had started, and survives a hostile facts accessor', async () => {
+    const hostile = new OperationAbortedError(OP_ID, 'transport');
+    Object.defineProperty(hostile, 'facts', {
+      get: () => {
+        throw new Error(`facts for ${ACCOUNT_HEX}`);
+      }
+    });
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'sending',
+      error: new OperationAbortedError(OP_ID, 'transport', { started: true })
+    });
+    reportTransactionFailure({ type: 'consume', stage: 'sending', error: hostile });
+    await settle();
+    const [started, unreadable] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+    expect(started).toContain('; point pipeline; offscreen_aborted_transport; op start reported yes. ');
+    expect(unreadable).toContain('; point pipeline; offscreen_aborted_transport; op start reported unavailable. ');
+    expectNoTransactionData(`${started} ${unreadable}`);
   });
 
   it('names the kill rather than the unknown outcome text it abandoned', async () => {
