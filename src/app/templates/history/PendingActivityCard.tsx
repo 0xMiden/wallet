@@ -127,10 +127,10 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   // failure; the words say it too, so the block is never colour alone.
   // A held claim awaits its verdict and may already have gone through, and its only action is Retry, so it says it
   // is not confirmed rather than inviting a review (#1081).
+  // A stored submit outcome has its own notice outside the fold, so the hint never repeats it.
   const submissionText = submission !== undefined ? (submission.rowCopy ?? t(submission.messageKey)) : undefined;
   let hint = t('activityNotYetAccepted');
   if (item.retryError !== undefined) hint = item.retryError;
-  else if (submissionText !== undefined) hint = submissionText;
   else if (held) hint = t('transactionNotConfirmedHint');
   else if (status === 'failed') hint = t('noteClaimFailedRetry');
   else if (waitingOnGuardian) hint = t('guardianBusyDescription');

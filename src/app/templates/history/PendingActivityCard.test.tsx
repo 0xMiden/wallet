@@ -315,6 +315,17 @@ describe('PendingActivityCard', () => {
       expect(onAccept).not.toHaveBeenCalled();
     });
 
+    it('says a stored submission sentence once on an open card, not again in the folded hint (#1689)', () => {
+      renderCard('claiming', {
+        held: true,
+        txId: 'tx-held',
+        submission: { kind: 'rejected', messageKey: 'submissionRejectedByNetwork' }
+      });
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getAllByText('submissionRejectedByNetwork')).toHaveLength(1);
+      expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('transactionNotConfirmedHint');
+    });
+
     it('a held claim without a refusal says it is not confirmed yet, not that it waits to be accepted (#1081)', () => {
       const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
       render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
