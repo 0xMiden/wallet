@@ -3594,8 +3594,9 @@ async function formatConsumeTransactionPreview(
   accountId: string
 ): Promise<ConsumePreview> {
   const { noteId, assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction, accountId));
-  // Refused here, before the sheet: once approved, the consume would fail at execution with ERR_RECLAIM_DISABLED, and
-  // nothing before execution asks whether the account can consume the note.
+  // Refused here, before the sheet: once approved, the consume would fail at execution with
+  // ERR_NOTE_ACTIVE_ACCOUNT_IS_NOT_TARGET_ACCOUNT or ERR_RECLAIM_DISABLED, and nothing before execution asks whether the
+  // account can consume the note.
   if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
     throw new Error('This account can never consume this note - refusing it');
   }
