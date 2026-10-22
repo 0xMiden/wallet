@@ -219,14 +219,30 @@ type SessionWatch = {
   latest?: ReownState;
   listener?: PluginListenerHandle;
   onEvent?: (state: ReownState) => void;
+  /** Chain whose approval the listener is tracking, once a request is in progress. */
+  chainId?: number;
+  /** A deletion replaced an approval of `chainId`. A non-event reread must not undo it. */
+  deletionSupersededApproval?: boolean;
 };
 
 async function startSessionWatch(): Promise<SessionWatch> {
   const watch: SessionWatch = { generation: 0 };
   try {
     watch.listener = await NativeReown.addListener('stateChanged', (next: ReownState) => {
+      const previous = watch.latest;
+      const chainId = watch.chainId;
       watch.generation += 1;
       watch.latest = next;
+      if (
+        chainId !== undefined &&
+        previous !== undefined &&
+        sessionApproves(previous, chainId) &&
+        !sessionApproves(next, chainId)
+      ) {
+        watch.deletionSupersededApproval = true;
+      } else if (chainId !== undefined && sessionApproves(next, chainId)) {
+        watch.deletionSupersededApproval = false;
+      }
       watch.onEvent?.(next);
     });
   } catch (err) {
@@ -268,6 +284,8 @@ async function waitForSessionChain(
     sawState = true;
     // A slower re-read that lacks the chain does not replace a state that approved it.
     // A session event does: a deletion after an approval must not be pinned to the old snapshot.
+    // A deletion that superseded an approval stays until a session event replaces it.
+    if (!fromEvent && watch.deletionSupersededApproval) return;
     if (!fromEvent && sessionApproves(latest, chainId) && !sessionApproves(next, chainId)) return;
     latest = next;
     if (sessionApproves(latest, chainId)) finish();
@@ -342,6 +360,7 @@ async function requestSessionChain(
   if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return { state, recovery: 'unsupported' };
 
   const hexChainId = `0x${chainId.toString(16)}`;
+  watch.chainId = chainId;
   // A session event during either request is already on the watch before this catch samples a
   // generation for the reread, so the reread's generation check does not see it.
   const generationBeforeRequest = watch.generation;
