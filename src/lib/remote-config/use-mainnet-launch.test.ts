@@ -50,6 +50,19 @@ describe('useMainnetLaunched', () => {
     expect(result.current).toBe(true);
   });
 
+  it('catches a forward system-clock correction while a launch is pending', () => {
+    jest.setSystemTime(LAUNCH_AT - 60_000);
+    const { result } = renderHook(() => useMainnetLaunched());
+    expect(result.current).toBe(false);
+
+    act(() => {
+      jest.setSystemTime(LAUNCH_AT + 60_000);
+      jest.advanceTimersByTime(1_000);
+    });
+
+    expect(result.current).toBe(true);
+  });
+
   it('reaches a moment further off than one timer can wait', () => {
     jest.setSystemTime(LAUNCH_AT - 40 * DAY_MS);
     const { result } = renderHook(() => useMainnetLaunched());
