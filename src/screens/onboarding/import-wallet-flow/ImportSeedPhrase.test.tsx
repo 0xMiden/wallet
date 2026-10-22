@@ -336,6 +336,24 @@ describe('ImportSeedPhraseScreen', () => {
       expect(mockButtonProps.disabled).toBe(true);
     });
 
+    it('cannot submit the phrase that was already entered while a refused paste is showing', () => {
+      const onSubmit = jest.fn();
+      setup({ onSubmit });
+      fillValidPhrase();
+      expect(mockButtonProps.disabled).toBe(false);
+
+      pasteInto(0, [...VALID_MNEMONIC, ...VALID_MNEMONIC].join(' '));
+
+      expect(mockButtonProps.disabled).toBe(true);
+      act(() => {
+        mockButtonProps.onClick();
+      });
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      changeWord(0, 'abandon');
+      expect(mockButtonProps.disabled).toBe(false);
+    });
+
     it('rejects any pasted phrase longer than 12 words', () => {
       setup();
 

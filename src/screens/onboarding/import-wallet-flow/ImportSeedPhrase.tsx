@@ -78,11 +78,14 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
   // (every word is known but the phrase is not a valid mnemonic).
   const isChecksumError = allWordsKnown && !isChecksumValid;
 
+  // The grid still holds what was there before a refused paste, which would submit as if nothing happened.
+  const canSubmit = isValid && !pasteTooLong;
+
   const handleSubmit = useCallback(() => {
-    if (onSubmit && isValid) {
+    if (onSubmit && canSubmit) {
       onSubmit(seedPhrase.join(' '));
     }
-  }, [onSubmit, isValid, seedPhrase]);
+  }, [onSubmit, canSubmit, seedPhrase]);
 
   const onInputPaste: React.ClipboardEventHandler = useCallback(
     event => {
@@ -132,7 +135,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
           data-testid="import-seed-submit"
           title={t('continue')}
           onClick={handleSubmit}
-          disabled={!isValid || submitting}
+          disabled={!canSubmit || submitting}
           className="max-w-none"
         />
       }
