@@ -10,12 +10,24 @@ function readEligibility(body: unknown, network: string, version: number): Featu
   return { network, version, allowed: { wallet, earn, swap } };
 }
 
+/**
+ * `yarn dev` allows every feature without calling the service.
+ * Read the flag as its own `process.env` property so Vite can replace it.
+ * The configs bake `true` only for an explicit non-E2E development build.
+ */
+function localDevelopmentEligibility(network: string, version: number): FeatureEligibility | null {
+  if (process.env.MIDEN_ELIGIBILITY_OPEN !== 'true') return null;
+  return { network, version, allowed: { wallet: true, earn: true, swap: true } };
+}
+
 /** The server owns paid-service credentials and returns only decisions for the accepted policy. */
 export async function lookupFeatureEligibility(
   network: string,
   version: number,
   options: { fetchImpl?: (url: string, init: RequestInit) => Promise<JsonResponse> } = {}
 ): Promise<FeatureEligibility | null> {
+  const openForDevelopment = localDevelopmentEligibility(network, version);
+  if (openForDevelopment) return openForDevelopment;
   const endpoint = process.env.FEATURE_ELIGIBILITY_URL;
   if (!endpoint) return null;
   try {
