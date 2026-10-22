@@ -245,7 +245,9 @@ const History = memo<HistoryProps>(
       mutate: mutateLatest
     } = useRetryableSWR(
       readingCompleted ? completedKey : null,
-      async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
+      // Newest page only. The 10s refresh re-reads that window; older pages keep
+      // the progress captured when `loadMore` loaded them.
+      async () => fetchTransactionsAsHistoryEntries(address, undefined, HISTORY_PAGE_SIZE, tokenId, true),
       {
         revalidateOnMount: true,
         revalidateIfStale: true,
@@ -501,9 +503,14 @@ async function fetchTransactionsAsHistoryEntries(
   address: string,
   offset?: number,
   limit?: number,
-  tokenId?: string
+  tokenId?: string,
+  fromEnd?: boolean
 ): Promise<IHistoryEntry[]> {
-  const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
+  // Omit `fromEnd` unless the refresh asked for the newest page, so `loadMore`
+  // keeps its five-argument ascending call.
+  const transactions = fromEnd
+    ? await getCompletedTransactions(address, offset, limit, true, tokenId, true)
+    : await getCompletedTransactions(address, offset, limit, true, tokenId);
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   // One settlement read for every eligible swap on this page. The fill
   // percentage is already on `swapProgress` while each row awaits its metadata.

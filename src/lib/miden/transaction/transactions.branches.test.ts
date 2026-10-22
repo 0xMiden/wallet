@@ -690,6 +690,22 @@ describe('getCompletedTransactions', () => {
     ]);
   });
 
+  it('filters account and token before selecting the newest page and ignores its offset', async () => {
+    for (let i = 0; i < 12; i++) {
+      txStore.push({
+        id: `tx-${i}`,
+        status: ITransactionStatus.Completed,
+        accountId: i % 2 === 0 ? 'acc-1' : 'acc-2',
+        faucetId: [0, 4, 8, 10].includes(i) ? 'f1' : 'f2',
+        initiatedAt: i
+      });
+    }
+
+    const newest = await getCompletedTransactions('acc-1', 1, 2, false, 'f1', true);
+
+    expect(newest.map(tx => tx.id)).toEqual(['tx-8', 'tx-10']);
+  });
+
   it('applies offset and limit correctly', async () => {
     for (let i = 0; i < 10; i++) {
       txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });

@@ -94,7 +94,8 @@ export const getCompletedTransactions = async (
   offset?: number,
   limit?: number,
   includeFailed: boolean = false,
-  tokenId?: string
+  tokenId?: string,
+  fromEnd?: boolean
 ) => {
   let transactions = await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Completed).toArray();
   if (includeFailed) {
@@ -105,6 +106,10 @@ export const getCompletedTransactions = async (
   transactions = transactions.filter(tx => compareAccountIds(tx.accountId, accountId));
   if (tokenId) {
     transactions = transactions.filter(tx => matchesTokenId(tx, tokenId));
+  }
+  // The history refresh asks for the newest page after these filters and ignores offset.
+  if (fromEnd) {
+    return limit === undefined ? transactions : transactions.slice(Math.max(0, transactions.length - limit));
   }
   // `limit` is a page size, not an end index — `slice(offset, limit)` returned
   // nothing for every page after the first, since offset >= limit there, which

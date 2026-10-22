@@ -761,6 +761,44 @@ describe('History', () => {
     expect(resolveSwapHistoryProgress).toHaveBeenCalledTimes(1);
   });
 
+  it('enriches only the newest refresh page and only the older loadMore page', async () => {
+    const newest = {
+      id: 'REFRESH',
+      status: STATUS.Completed,
+      displayMessage: 'latest swap',
+      displayIcon: 'SWAP',
+      faucetId: 'fa2',
+      type: 'swap',
+      amount: 6n,
+      completedAt: 5000,
+      secondaryAccountId: '0xBBB'
+    };
+    const older = { ...newest, id: 'OLDER', displayMessage: 'older swap', completedAt: 1000 };
+    mockGetCompletedTransactions.mockImplementation(
+      async (
+        _addr: string,
+        _offset?: number,
+        _limit?: number,
+        _includeFailed?: boolean,
+        _tokenId?: string,
+        fromEnd?: boolean
+      ) => (fromEnd ? [newest] : [older])
+    );
+
+    await renderHistory();
+    await waitFor(() => expect(resolveSwapHistoryProgress).toHaveBeenCalledTimes(1));
+
+    expect(mockGetCompletedTransactions).toHaveBeenNthCalledWith(1, '0xme', undefined, 1000, true, undefined, true);
+    expect(resolveSwapHistoryProgress).toHaveBeenNthCalledWith(1, [expect.objectContaining({ id: 'REFRESH' })]);
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(0);
+    });
+
+    expect(mockGetCompletedTransactions).toHaveBeenNthCalledWith(2, '0xme', 0, 1000, true, undefined);
+    expect(resolveSwapHistoryProgress).toHaveBeenNthCalledWith(2, [expect.objectContaining({ id: 'OLDER' })]);
+  });
+
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {
     await renderHistory();
 
@@ -793,7 +831,7 @@ describe('History', () => {
     expect(failedEntry.isCancelled).toBe(false);
 
     // Failed rows are fetched at all: the completed fetch runs with includeFailed=true.
-    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, true, undefined);
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, 1000, true, undefined, true);
     // Completed: Swap → swapFields drive amount/token/requested*, icon from displayIcon.
     expect(rowText('completed-S')).toContain('completed-S|swap msg|S-tok|S-amt|SWAP|');
     expect(rowText('completed-S')).toContain('|S-req|S-reqtok');
@@ -1545,7 +1583,7 @@ describe('History', () => {
   it('threads tokenId into the SWR keys and both fetchers', async () => {
     await renderHistory({ tokenId: 'tok-9' });
 
-    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, undefined, true, 'tok-9');
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, 1000, true, 'tok-9', true);
     expect(mockGetUncompletedTransactions).toHaveBeenCalledWith('0xme', 'tok-9');
     const keys = mockUseRetryableSWR.mock.calls.map(c => c[0]);
     expect(keys).toContainEqual(['latest-transactions', '0xme', 'tok-9']);
