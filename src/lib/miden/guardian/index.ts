@@ -538,10 +538,14 @@ export class MultisigService {
     approvalExpirationDelta?: number
   ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
     return await this.withChainSyncedHold('rebased custom proposal', async (hold, client) => {
-      const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();
-      const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
+      const { notes, builder } = await this.proposalStep('rebase_build', async () => ({
+        notes: TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes(),
+        builder: await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta)
+      }));
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
-      const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
+      const rebased = await this.proposalStep('rebase_build', async () =>
+        builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize()
+      );
       const proposal = await this.proposalStep('proposal_create', () =>
         this.multisig.createCustomProposal(rebased, proposalType)
       );

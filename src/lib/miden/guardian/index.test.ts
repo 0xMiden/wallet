@@ -596,7 +596,7 @@ describe('MultisigService', () => {
         expect(createCustomFn).not.toHaveBeenCalled();
       });
 
-      it('names a rejected rebased proposal creation but not a failed rebuild', async () => {
+      it('names a rejected rebased proposal creation apart from a failed rebuild', async () => {
         const { service, createCustomFn } = arrange();
         const error = new Error('proposal refused');
         createCustomFn.mockRejectedValueOnce(error);
@@ -606,7 +606,7 @@ describe('MultisigService', () => {
         const buildError = new Error('rebuild failed');
         mockFeeAwareRequestBuilder.mockRejectedValueOnce(buildError);
         await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toBe(buildError);
-        expect(snapshotCrashDiagnostics(buildError)).toEqual({});
+        expect(snapshotCrashDiagnostics(buildError)).toEqual({ proposalStep: 'rebase_build' });
       });
 
       // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
