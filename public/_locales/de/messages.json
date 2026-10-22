@@ -5260,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Dieses Konto kann maximal $cap$ USD enthalten. Es enthält $held$ USD, und diese Einzahlung fügt $deposit$ USD hinzu. Geben Sie einen geringeren Betrag ein.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Dieses Konto kann maximal $cap$ USD enthalten, und $token$ hat derzeit keinen Preis, sodass die Einzahlung nicht dagegen abgeglichen werden kann. Versuchen Sie es später erneut.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Brücke initiiert!",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7205,13 @@
   "walletAccessUnavailableBody": {
     "message": "Prüfe deine Verbindung und versuche es erneut.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Dieser Browser oder dieses Gerät kann die Wallet nicht ausführen",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

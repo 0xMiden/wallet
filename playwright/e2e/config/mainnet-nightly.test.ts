@@ -30,10 +30,9 @@ describe('mainnet environment', () => {
 describe('mainnet nightly workflow', () => {
   const text = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-mainnet-nightly.yml'), 'utf8');
 
-  it('keeps the cron commented until the accounts are funded', () => {
-    expect(text).toContain("cron: '30 5 * * *'");
+  it('runs nightly at 05:30 UTC, after e2e-resilience.yml, and by dispatch', () => {
     const live = text.split('\n').filter(line => !line.trim().startsWith('#') && line.includes('cron:'));
-    expect(live).toEqual([]);
+    expect(live).toEqual(["    - cron: '30 5 * * *'"]);
     expect(text).toContain('workflow_dispatch:');
     expect(text).toContain('ref: main');
     expect(text).toContain('cancel-in-progress: false');

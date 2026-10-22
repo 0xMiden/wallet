@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "ブリッジへの入金が失敗しました",
   "bridgeDepositBalanceTooLow": "接続されたウォレットには、$network$上の$balance$分の$token$が保管されていますが、この入金額には不足しています。何も送信されませんでした。",
   "bridgeDepositBalanceReadFailed": "$network$上の$token$残高を確認できませんでした。何も送信されませんでした。",
+  "bridgeDepositBalanceCapExceeded": "このアカウントの最大保有額は$cap$米ドルです。現在$held$米ドルが保有されており、この入金により$deposit$米ドルが追加されます。これより少ない金額を入力してください。",
+  "bridgeDepositBalanceCapUnpriced": "このアカウントの最大保有額は$cap$米ドルです。また、$token$の価格は現在設定されていないため、この金額との照合はできません。後ほど再度お試しください。",
   "bridgeDepositSubmitted": "ブリッジを開始しました！",
   "bridgeDepositDeliveryDescription": "送信元の取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
   "viewOnEtherscan": "Etherscanで表示",
@@ -1587,5 +1589,7 @@
   "walletAccessRestrictedTitle": "お住まいの地域ではウォレットを利用できません",
   "walletAccessRestrictedBody": "現在の所在地からはウォレットを利用できません。",
   "walletAccessUnavailableTitle": "利用可能か確認できませんでした",
-  "walletAccessUnavailableBody": "接続を確認して、もう一度お試しください。"
+  "walletAccessUnavailableBody": "接続を確認して、もう一度お試しください。",
+  "runtimeUnsupportedTitle": "このブラウザまたはデバイスではウォレットを実行できません",
+  "runtimeUnsupportedBody": "このウォレットには WebAssembly SIMD が必要ですが、このブラウザまたはデバイスでは提供されていません。別のデバイスまたは最新のブラウザでウォレットを開いてください。"
 }

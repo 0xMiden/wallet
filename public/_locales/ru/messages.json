@@ -5260,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "На этом счете может храниться не более $cap$ долларов США. На нем находится $held$ долларов США, и этот депозит добавляет $deposit$ долларов США. Введите меньшую сумму.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "На этом счете может храниться не более $cap$ долларов США, а у $token$ в данный момент нет цены, поэтому невозможно проверить соответствие депозита по нему. Попробуйте позже.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Мост запущен!",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7205,13 @@
   "walletAccessUnavailableBody": {
     "message": "Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Этот браузер или устройство не поддерживает работу кошелька",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

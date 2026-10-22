@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "브리지 입금 실패",
   "bridgeDepositBalanceTooLow": "연결된 지갑에는 $network$에서 $balance$의 $token$가 보관되어 있으나, 이는 입금에 필요한 금액보다 적습니다. 아무것도 전송되지 않았습니다.",
   "bridgeDepositBalanceReadFailed": "$network$에서 $token$ 잔액을 확인할 수 없습니다. 전송된 내역이 없습니다.",
+  "bridgeDepositBalanceCapExceeded": "이 계좌에는 최대 $cap$ USD까지 보관할 수 있습니다. 현재 $held$ USD가 예치되어 있으며, 이번 입금으로 $deposit$ USD가 추가됩니다. 더 적은 금액을 입력하십시오.",
+  "bridgeDepositBalanceCapUnpriced": "이 계좌는 최대 $cap$ USD까지 보유할 수 있으며, 현재 $token$의 가격이 없으므로 입금액을 해당 토큰 기준으로 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
   "bridgeDepositSubmitted": "브릿지 시작되었습니다!",
   "bridgeDepositDeliveryDescription": "원본 거래가 확인되었습니다. 브리지 전송이 완료되면 Miden에 자금이 표시될 것입니다.",
   "viewOnEtherscan": "Etherscan에서 보기",
@@ -1587,5 +1589,7 @@
   "walletAccessRestrictedTitle": "해당 지역에서는 지갑을 이용할 수 없습니다",
   "walletAccessRestrictedBody": "현재 위치에서는 지갑을 이용할 수 없습니다.",
   "walletAccessUnavailableTitle": "이용 가능 여부를 확인하지 못했습니다",
-  "walletAccessUnavailableBody": "연결을 확인하고 다시 시도해 주세요."
+  "walletAccessUnavailableBody": "연결을 확인하고 다시 시도해 주세요.",
+  "runtimeUnsupportedTitle": "이 브라우저나 기기에서는 지갑을 실행할 수 없습니다.",
+  "runtimeUnsupportedBody": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오."
 }

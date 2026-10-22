@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import { listPlaywrightTests } from './playwright-list';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
-import { DAPP_JOURNEY_CELLS, JOURNEY_TITLES } from '../helpers/dapp-matrix';
+import { DAPP_JOURNEY_CELLS, JOURNEY_TITLES, journeyTitle } from '../helpers/dapp-matrix';
 import { guardianAxis, runMultiAccountJourney, type AccountAxis } from '../helpers/money-path';
 
 jest.mock('@playwright/test', () => {
@@ -74,6 +74,14 @@ const replaceStep = (source: string, name: string, replacement: (step: string) =
 
 const listTests = (config: string): string => listPlaywrightTests(config);
 
+/** The titles a listing shows, from Playwright's `<file>:<line>:<column> › <title>` lines. */
+const listedTitles = (listing: string): string[] =>
+  listing.split('\n').flatMap(line => {
+    const match = /^\s+\S+\.spec\.ts:\d+:\d+ › (.+)$/.exec(line);
+    const title = match?.[1];
+    return title === undefined ? [] : [title];
+  });
+
 describe('production Guardian account E2E coverage', () => {
   let coreTests: string;
   let earnTests: string;
@@ -117,6 +125,49 @@ describe('production Guardian account E2E coverage', () => {
     }
     expect(coreTests).not.toMatch(/\bdapp\/[a-z-]+\.spec\.ts/);
     expect(guardianTests).not.toMatch(/\bdapp\/[a-z-]+\.spec\.ts/);
+  });
+});
+
+describe('the dApp journey in the mobile in-app browser', () => {
+  const MOBILE_LEGS = [
+    {
+      surface: 'ios',
+      config: 'playwright.ios.dapp-e2e.config.ts',
+      base: 'playwright.ios.config.ts',
+      spec: 'dapp-inapp.ios.spec.ts'
+    },
+    {
+      surface: 'android',
+      config: 'playwright.android.dapp-e2e.config.ts',
+      base: 'playwright.android.config.ts',
+      spec: 'dapp-inapp.android.spec.ts'
+    }
+  ] as const;
+  const listings = new Map<string, string>();
+  const listed = (config: string): string => listings.get(config) ?? '';
+
+  beforeAll(() => {
+    for (const config of ['playwright.dapp.config.ts', ...MOBILE_LEGS.flatMap(leg => [leg.config, leg.base])]) {
+      listings.set(config, listTests(config));
+    }
+  });
+
+  it('lists the in-app browser journey once per account kind on each mobile surface, under titles no other suite uses', () => {
+    for (const leg of MOBILE_LEGS) {
+      const titles = listedTitles(listed(leg.config));
+      expect(titles).toEqual([
+        journeyTitle('PL', 'offchain', leg.surface),
+        journeyTitle('PL', 'guardian', leg.surface)
+      ]);
+      const elsewhere = [...listings.keys()]
+        .filter(config => config !== leg.config)
+        .flatMap(config => listedTitles(listed(config)));
+      expect(elsewhere.filter(title => titles.includes(title))).toEqual([]);
+    }
+  });
+
+  it('keeps the in-app browser specs out of the base iOS and Android suites', () => {
+    expect(MOBILE_LEGS.filter(leg => listed(leg.base).includes(leg.spec)).map(leg => leg.base)).toEqual([]);
   });
 });
 

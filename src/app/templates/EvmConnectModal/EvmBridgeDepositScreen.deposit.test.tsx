@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
+import type { Erc20Holding } from 'lib/agglayer/token-holdings';
 import {
   TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
@@ -12,6 +13,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import type { TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerDepositToken } from 'lib/remote-config/values';
@@ -156,6 +158,12 @@ let mockEvmUsdcSymbol = 'USDC';
 let mockAgglayerChainId: number | null = 11155111;
 // A USDC of the AggLayer chain's own, which picking Slow moves to; unset, it is the Fast one.
 let mockAgglayerUsdc: string | undefined;
+// The test network's token API, which offers the wallet's holdings: none unless a case sets one.
+let mockTokenApiUrl: string | undefined;
+let mockHeldErc20s: Erc20Holding[] = [];
+jest.mock('lib/agglayer/token-holdings', () => ({ readErc20Holdings: async () => mockHeldErc20s }));
+// The document's bridge-in ceiling: none unless a case sets one.
+let mockBridgeInCapUsd: number | null = null;
 // The ERC-20s the document lists for the AggLayer chain, as the derivation verified them.
 let mockDepositTokens: AgglayerDepositToken[] = [];
 jest.mock('lib/remote-config/values', () => ({
@@ -178,7 +186,8 @@ jest.mock('lib/remote-config/values', () => ({
           bridges: {
             agglayer: {
               contractAddress: '0x00000000000000000000000000000000000000b2',
-              midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+              midenBridgeId: '0x3b66e20b5088f25133b69216484652',
+              tokenApiUrl: mockTokenApiUrl
             }
           }
         },
@@ -203,11 +212,18 @@ jest.mock('lib/remote-config/values', () => ({
         }
       : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 }),
+  selectBridgeInMaxBalanceUsd: () => mockBridgeInCapUsd,
   // Unless a case lists one, the document lists no deposit token and the registry holds none: the picker offers ETH
   // and the USDC rows alone. Each call returns a new list, as the selector does for an absent read, to test that
   // balance updates stop.
   selectAgglayerDepositTokens: () => mockDepositTokens.map(token => ({ ...token })),
   selectAgglayerRegistryToken: () => null
+}));
+// The receiving account holds nothing, so a ceiling weighs the deposit alone.
+jest.mock('lib/miden/front', () => ({
+  ...jest.requireActual<typeof import('lib/miden/front')>('lib/miden/front'),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => ({ data: [], isLoading: false })
 }));
 
 jest.mock('use-debounce', () => ({
@@ -2504,9 +2520,22 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
   }
 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'synthetic-native' }));
+let mockTokenPrices: TokenPrices = {};
+// The symbols whose USD market the feed has not yet ruled out at both providers.
+const mockPendingUsdMarkets = new Set<string>();
+jest.mock('lib/prices/feed', () => ({
+  ...jest.requireActual<typeof import('lib/prices/feed')>('lib/prices/feed'),
+  usdMarketPending: (symbol: string | undefined) => symbol !== undefined && mockPendingUsdMarkets.has(symbol)
+}));
+// The price symbol each delivery faucet is quoted under; any other faucet has none.
+const mockPriceSymbols = new Map<string, string>();
+jest.mock('lib/miden/swap/tokens', () => ({
+  ...jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens'),
+  priceSymbolFor: (faucetId: string) => mockPriceSymbols.get(faucetId)
+}));
 jest.mock('lib/store', () => ({
-  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never> }) => T) =>
-    selector({ assetsMetadata: {} })
+  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never>; tokenPrices: TokenPrices }) => T) =>
+    selector({ assetsMetadata: {}, tokenPrices: mockTokenPrices })
 }));
 jest.mock('./UsdcxDepositSteps', () => ({ UsdcxDepositSteps: () => null }));
 jest.mock('./UsdcxExecuteAction', () => ({ UsdcxExecuteAction: () => null }));
@@ -2565,6 +2594,13 @@ describe('user-visible bridge deposit producers', () => {
   afterEach(() => {
     jest.useRealTimers();
     mockRealBridgeDisplays = false;
+    mockBridgeInCapUsd = null;
+    mockTokenPrices = {};
+    mockPendingUsdMarkets.clear();
+    mockPriceSymbols.clear();
+    mockDepositTokens = [];
+    mockTokenApiUrl = undefined;
+    mockHeldErc20s = [];
     mockLiveBridgeRow = undefined;
     Object.assign(epochState, idleEpoch);
     mockNativeReown = false;
@@ -2600,6 +2636,152 @@ describe('user-visible bridge deposit producers', () => {
     await flushBridgePromises();
     expect(screen.getByText('private row 42 https://synthetic.invalid/0xabc')).toBeInTheDocument();
     await expectErrorAfterDwell('raw_bridge_deposit_submit_failed', 'review');
+  });
+
+  const typeEthAmount = async () => {
+    renderScreen();
+    await settle();
+    fireEvent.click(screen.getByTestId('send-token-selector'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await flushBridgePromises();
+  };
+  // Review is reached under no ceiling; one that lands while it is open holds Confirm there.
+  const ceilingOnReview = async () => {
+    await realSlowReview();
+    jest.useFakeTimers();
+    mockBridgeInCapUsd = 1;
+    act(() => publishSnapshot({ ...mockSnapshot }));
+    await flushBridgePromises();
+  };
+  const ethQuote = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } };
+
+  it('reports a ceiling the typed deposit passes by its own copy on the amount field', async () => {
+    mockTokenPrices = ethQuote;
+    mockBridgeInCapUsd = 1;
+    await typeEthAmount();
+    expect(screen.getByText(/^bridgeDepositBalanceCapExceeded /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapExceeded', 'field');
+  });
+
+  it('reports a ceiling the deposit passes by its own copy on the review', async () => {
+    mockTokenPrices = ethQuote;
+    await ceilingOnReview();
+    expect(screen.getByText(/^bridgeDepositBalanceCapExceeded /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapExceeded', 'review');
+  });
+
+  it('reports an unpriced deposit token under a ceiling by its own copy on the amount field', async () => {
+    mockBridgeInCapUsd = 1;
+    await typeEthAmount();
+    expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapUnpriced', 'field');
+  });
+
+  it('reports an unpriced deposit token under a ceiling by its own copy on the review', async () => {
+    await ceilingOnReview();
+    expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapUnpriced', 'review');
+  });
+
+  it('holds an ETH deposit with no quote yet under a ceiling without calling it unpriced', async () => {
+    mockPendingUsdMarkets.add('ETH');
+    mockBridgeInCapUsd = 1;
+    await typeEthAmount();
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    expect(screen.queryByText(/^bridgeDepositBalanceCap/)).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  // An ERC-20 is weighed at its own quote, under the price symbol of the faucet that delivers it, not at par.
+  const WBTC_FAUCET = '0x00000000000000000000000000f1f1';
+  const WBTC_LISTING: AgglayerDepositToken = {
+    symbol: 'WBTC',
+    contractAddress: '0x00000000000000000000000000000000000000d1',
+    decimals: 8,
+    midenFaucetId: WBTC_FAUCET,
+    scale: 2
+  };
+  const typeErc20Amount = async () => {
+    renderScreen();
+    await settle();
+    act(() => mockLastTokenSelect({ kind: 'erc20', contractAddress: WBTC_LISTING.contractAddress }));
+    await settle();
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await flushBridgePromises();
+  };
+
+  it('holds an ERC-20 deposit its own quote takes past the ceiling, though it would clear at par', async () => {
+    mockPriceSymbols.set(WBTC_FAUCET, 'BTC');
+    mockTokenPrices = { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } };
+    mockBridgeInCapUsd = 100;
+    mockDepositTokens = [WBTC_LISTING];
+    await typeErc20Amount();
+    expect(screen.getByText(/^bridgeDepositBalanceCapExceeded /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapExceeded', 'field');
+  });
+
+  it('holds an ERC-20 deposit whose market the feed has ruled out as unpriced', async () => {
+    mockPriceSymbols.set(WBTC_FAUCET, 'BTC');
+    mockBridgeInCapUsd = 100;
+    mockDepositTokens = [WBTC_LISTING];
+    await typeErc20Amount();
+    expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapUnpriced', 'field');
+  });
+
+  // A test network offers a held token the registry has no faucet for yet: there is no price symbol to quote it by.
+  it('holds an ERC-20 deposit with no delivery faucet as unpriced, though its own symbol is quoted', async () => {
+    mockTokenApiUrl = 'https://tokens.test';
+    mockHeldErc20s = [{ contractAddress: WBTC_LISTING.contractAddress, symbol: 'WBTC', decimals: 8, value: FUNDED }];
+    mockPendingUsdMarkets.add('WBTC');
+    mockTokenPrices = { WBTC: { price: 1, change24h: 0, percentageChange24h: 0 } };
+    mockBridgeInCapUsd = 100;
+    await typeErc20Amount();
+    expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();
+    await expectErrorAfterDwell('bridgeDepositBalanceCapUnpriced', 'field');
+  });
+
+  it('holds an ERC-20 deposit whose quote is still on its way without calling it unpriced', async () => {
+    mockPriceSymbols.set(WBTC_FAUCET, 'BTC');
+    mockPendingUsdMarkets.add('BTC');
+    mockBridgeInCapUsd = 100;
+    mockDepositTokens = [WBTC_LISTING];
+    await typeErc20Amount();
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    expect(screen.queryByText(/^bridgeDepositBalanceCap/)).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  const typeUsdcAmount = async (cap: number) => {
+    mockBridgeInCapUsd = cap;
+    Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
+    renderScreen();
+    await settle();
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '1.5' } });
+    await flushBridgePromises();
+    expect(screen.getByTestId('send-amount-input')).toHaveValue('1.5');
+  };
+
+  it('weighs a USDC deposit at par with no quote: a $2 ceiling clears 1.5 USDC', async () => {
+    await typeUsdcAmount(2);
+    expect(screen.queryByText(/^bridgeDepositBalanceCap/)).not.toBeInTheDocument();
+  });
+
+  it('weighs a USDC deposit at par with no quote: a $1 ceiling holds 1.5 USDC', async () => {
+    await typeUsdcAmount(1);
+    expect(screen.getByText(/^bridgeDepositBalanceCapExceeded /)).toBeInTheDocument();
   });
 
   it('reports the actual balance-read failure through the real amount field', async () => {

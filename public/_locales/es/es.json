@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "Error en el depósito del puente",
   "bridgeDepositBalanceTooLow": "Tu monedero conectado contiene $balance$ $token$ en $network$, una cantidad inferior a la que requiere este depósito. No se ha enviado nada.",
   "bridgeDepositBalanceReadFailed": "No se ha podido comprobar el saldo de $token$ en $network$. No se ha enviado nada.",
+  "bridgeDepositBalanceCapExceeded": "Esta cuenta puede contener como máximo $cap$ USD. Contiene $held$ USD y este depósito añade $deposit$ USD. Introduce una cantidad menor.",
+  "bridgeDepositBalanceCapUnpriced": "Esta cuenta puede contener como máximo $cap$ USD, y $token$ no tiene precio en este momento, por lo que no se puede comprobar el depósito con respecto a él. Inténtalo de nuevo más tarde.",
   "bridgeDepositSubmitted": "¡Puente iniciado!",
   "bridgeDepositDeliveryDescription": "La transacción de origen está confirmada. Tus fondos aparecerán en Miden cuando se complete la transferencia a través del puente.",
   "viewOnEtherscan": "Ver en Etherscan",
@@ -1587,5 +1589,7 @@
   "walletAccessRestrictedTitle": "Monedero no disponible en tu región",
   "walletAccessRestrictedBody": "El monedero no está disponible desde tu ubicación actual.",
   "walletAccessUnavailableTitle": "No se pudo comprobar la disponibilidad",
-  "walletAccessUnavailableBody": "Comprueba tu conexión e inténtalo de nuevo."
+  "walletAccessUnavailableBody": "Comprueba tu conexión e inténtalo de nuevo.",
+  "runtimeUnsupportedTitle": "Este navegador o dispositivo no puede ejecutar la cartera",
+  "runtimeUnsupportedBody": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado."
 }

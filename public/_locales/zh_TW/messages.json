@@ -5260,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "此帳戶最多可持有 $cap$ 美元。目前持有 $held$ 美元，本次存款將增加 $deposit$ 美元。請輸入較小的金額。",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "此帳戶最多可持有 $cap$ 美元，且 $token$ 目前無價格，因此無法據此核對存款金額。請稍後再試。",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "橋接已啟動！",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7205,13 @@
   "walletAccessUnavailableBody": {
     "message": "請檢查網路連線後重試。",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "此瀏覽器或裝置無法執行該錢包",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "此錢包需要 WebAssembly SIMD，而此瀏覽器或裝置並未提供此功能。請在另一台裝置上或使用最新版本的瀏覽器開啟錢包。",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

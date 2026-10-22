@@ -4,11 +4,17 @@
 
 ### Fixes
 
+- [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
+- [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
+- [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
+- [FIX][extension] Crash reports for work the extension stopped on a time limit now say whose limit it was, which limit, and whether the work had started, without any identifier or duration.
 - [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
 
 ### Changes
 
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
+- [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
+- [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.
 - [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
 - [CHANGE][all] Profile and My badges polish: every badge has its own illustrated medallion; Profile shows the address as one copy chip with a network tag and opens My badges from a progress card; My badges leads with Earned / Locked / Coming soon counts, an earned fraction beside All badges, and the Mainnet note at the foot of the page.
 - [CHANGE][extension] The EVM wallet connect modal on the extension opens on the WalletConnect QR code and hides the browser-extension, EIP-6963 and Coinbase wallets and the "All Wallets" grid, since an extension page cannot reach another extension's wallet.
@@ -23,10 +29,11 @@
 - [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
 - [CHANGE][all] Each pull request posts a UI smoothness result: carousel feel against the base, the slowest scripted tap, and how the settings list scrolls, each with a difference in percent. The carousel score is the median of six passes from Overview to Swap, with the main thread slowed 4×. The tap and the list are not slowed, so the tap keeps the 200ms and 500ms bands. The comment is informational and does not block merge.
 - [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
+- [CHANGE][ci] The dApp E2E harness also runs the test dApp in the wallet's iOS and Android in-app browsers, on two simulators and two emulators against the branch's network, on single-sig and Guardian accounts: the page takes its commands over a long poll, its requests are answered on the approval sheet by test id, and a slim set of connect, read, sign, write, refusal and 120 s auto-decline cells is judged by the same records and gate as the Chrome legs, each mobile leg labelled with the presentation path its in-app browser ran.
 
 ### Features
 
-- [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. The schedule stays off until the accounts are funded (#1629).
+- [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. It runs nightly at 05:30 UTC (#1629).
 - [FEATURE][all] Verified tokens can show USD prices from Binance, using a USDT market first and a USDC market second, with the quote currency converted to USD. If neither market exists, the wallet uses a direct USD market on Kraken, including PYUSD. Totals and token order use the current verified price assets. The wallet checks the saved token list once when it opens and keeps the saved list if the check fails.
 - [FEATURE][all] Every error message the wallet shows is reported to the team as a crash report naming only which message it was and where, never its text (#1616).
 - [FEATURE][all] A Guardian swap sends a short diagnostic history with crash reports, through the same crash-reporting permission: each step from preparing the Guardian service to running the proposal, how it ended (including a timeout, an eviction or a locked wallet) and how the swap ended (including a cancel, a timeout or an unknown outcome), in fixed values and duration ranges only, at most 10 records in 10 seconds and 60 in 10 minutes; the privacy policy lists every value.
