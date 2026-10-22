@@ -98,10 +98,9 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const feeBlocked = canAccept && item.cannotPayFee === true;
   const held = status === 'claiming' && item.held === true;
   const submission = item.retryError === undefined ? item.submission : undefined;
-  // A stored submit outcome already has its verdict. Retry is the existing guarded one, and the
-  // button stops spinning so the notice is the explanation.
-  const guardedRetry = held || (status === 'claiming' && submission !== undefined);
-  const busy = (status === 'claiming' && !guardedRetry) || status === 'checking';
+  // Retry runs only for a held claim (`onRetryHeld`). A claim still in flight keeps its spinner even
+  // with a stored submit outcome, and the notice below explains it.
+  const busy = (status === 'claiming' && !held) || status === 'checking';
   const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true && submission === undefined;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
@@ -114,7 +113,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
       actionLabel = t('activityCheckingTransfer');
       break;
     case 'claiming':
-      actionLabel = guardedRetry ? t('retry') : t('activityAcceptingTransfer');
+      actionLabel = held ? t('retry') : t('activityAcceptingTransfer');
       break;
     case 'failed':
       actionLabel = t('retry');
@@ -348,14 +347,16 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
               className="h-12 min-w-0 flex-1 rounded-none"
               title={actionLabel}
               disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked}
-              isLoading={status === 'claiming' && !guardedRetry}
+              isLoading={status === 'claiming' && !held}
               aria-busy={busy}
               aria-describedby={feeBlocked ? feeNoticeId : undefined}
               onClick={() => {
+                // A loading Button refuses only pointer taps, so a keyboard press on a claim in flight stops here.
+                if (busy) return;
                 // Accepting IS the decision, so the transfer is read from here on even though no
                 // detail page was opened.
                 markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
-                if (guardedRetry) onRetryHeld?.(item);
+                if (held) onRetryHeld?.(item);
                 else onAccept(note);
               }}
             />
