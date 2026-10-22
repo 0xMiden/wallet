@@ -10,6 +10,14 @@ import {
 } from 'lib/walletconnect/native-request-failure';
 
 import {
+  BRIDGE_BALANCE_CHECKS,
+  BRIDGE_ORPHAN_CHECKS,
+  BRIDGE_SOURCE_ROUTES,
+  type BridgeBalanceCheck,
+  type BridgeOrphanCheck,
+  type BridgeSourceRoute
+} from './bridge-receive-failure';
+import {
   USER_ERROR_SURFACES,
   isUserErrorId,
   type UserErrorId,
@@ -145,6 +153,9 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   securityChange?: SecurityChangeAction;
   completionStep?: CompletionStep;
   completionGuard?: CompletionGuard;
+  bridgeBalanceCheck?: BridgeBalanceCheck;
+  bridgeOrphanCheck?: BridgeOrphanCheck;
+  bridgeSourceRoute?: BridgeSourceRoute;
   guardianSignerInSet?: GuardianSignerInSet;
   guardianSigningKey?: GuardianSigningKey;
   hotKeyRotationPending?: HotKeyRotationPending;
@@ -252,6 +263,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       securityChange: suppliedChange,
       completionStep: suppliedCompletionStep,
       completionGuard: suppliedCompletionGuard,
+      bridgeBalanceCheck: suppliedBalanceCheck,
+      bridgeOrphanCheck: suppliedOrphanCheck,
+      bridgeSourceRoute: suppliedSourceRoute,
       guardianSignerInSet: suppliedSignerInSet,
       guardianSigningKey: suppliedSigningKey,
       hotKeyRotationPending: suppliedRotationPending
@@ -306,6 +320,12 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       const completionGuard = COMPLETION_GUARDS.find(guard => guard === suppliedCompletionGuard);
       if (completionGuard !== undefined) safe.completionGuard = completionGuard;
     }
+    const bridgeBalanceCheck = BRIDGE_BALANCE_CHECKS.find(value => value === suppliedBalanceCheck);
+    if (bridgeBalanceCheck !== undefined) safe.bridgeBalanceCheck = bridgeBalanceCheck;
+    const bridgeOrphanCheck = BRIDGE_ORPHAN_CHECKS.find(value => value === suppliedOrphanCheck);
+    if (bridgeOrphanCheck !== undefined) safe.bridgeOrphanCheck = bridgeOrphanCheck;
+    const bridgeSourceRoute = BRIDGE_SOURCE_ROUTES.find(value => value === suppliedSourceRoute);
+    if (bridgeSourceRoute !== undefined) safe.bridgeSourceRoute = bridgeSourceRoute;
     // The three describe one signing attempt, so a partial set is dropped rather than joined to another's.
     const guardianSignerInSet = GUARDIAN_SIGNER_IN_SET.find(value => value === suppliedSignerInSet);
     const guardianSigningKey = GUARDIAN_SIGNING_KEYS.find(value => value === suppliedSigningKey);
