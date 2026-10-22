@@ -427,3 +427,14 @@ Report only fixed transaction/stage/route categories, shipped dependency version
 Independent review found stale authentication diagnostics after retry and pending reports surviving stop/re-enable boundaries. Retry diagnostics are cleared per attempt, and both capture and transport consent awaits reject stopped reporting generations. Re-review found no remaining actionable findings.
 
 Validation: 934 tests across 34 focused Jest suites and 29 native SDK tests pass. Type checking, full ESLint, i18n and E2E harness lint, native prover pin validation and the background build pass; the expected background artifact exists. Wire regressions reject raw failure data and prove both consent races. The optional whole-repository noncoverage run was stopped while exercising unchanged password derivation; full-suite testing and the unchanged 95% coverage thresholds remain CI gates. No local coverage was run.
+
+# NEAR Intents eligibility service deployment
+
+The service must recognize explicitly enabled valid 1Click-only configurations while preserving existing location restrictions and default-off behavior. Prepare a service-only deployment from protected main without a wallet release.
+
+- [ ] Carry over the validated capability predicate and its regressions.
+- [ ] Add a manual-main deployment path pinned to the workflow commit, retaining the protected environment and release-tag path.
+- [ ] Verify worker tests, workflow contracts and CI dry run.
+- [ ] Complete independent finished-code review and fix actionable findings.
+- [ ] Open the service-only PR and follow normal branch protection before deployment.
+- [ ] Deploy the reviewed service and verify its live revision, retaining nearIntents false.
