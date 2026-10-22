@@ -89,6 +89,7 @@ function installBalanceState(state: Record<string, unknown>, notes: Array<Record
 describe('ChromeWalletPage balance scoping', () => {
   afterEach(() => {
     Reflect.deleteProperty(window, '__TEST_STORE__');
+    Reflect.deleteProperty(window, '__TEST_BALANCE_READ_STATE__');
     jest.restoreAllMocks();
   });
 
@@ -172,6 +173,34 @@ describe('ChromeWalletPage balance scoping', () => {
     expect(state.fetchBalances).toHaveBeenCalledWith('account-a', state.assetsMetadata);
     expect(snapshotSpy).toHaveBeenCalledWith({ symbol: 'tst' });
     expect(state.fetchBalances.mock.invocationCallOrder[0]!).toBeLessThan(snapshotSpy.mock.invocationCallOrder[0]!);
+  });
+
+  it('does not treat a skipped in-flight refresh as a landed post-claim vault', async () => {
+    const readState = { inFlight: true };
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => {
+        if (readState.inFlight) return;
+        state.balances['account-a'] = [{ tokenId: 'native-faucet', balance: 10 }];
+        state.balancesLastFetched['account-a'] = 2;
+      })
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? readState : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    setTimeout(() => {
+      readState.inFlight = false;
+    }, 0);
+
+    await wallet.refreshBalances();
+
+    expect(state.balances['account-a'][0].balance).toBe(10);
   });
 
   it('delegates an unscoped getBalance call without inventing a filter', async () => {

@@ -2255,8 +2255,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Refresh the Zustand `balances` projection from the account vault — the same
-   * `state.fetchBalances` call getBalance() makes, but without navigating or
-   * waiting, so it's cheap enough for the stress settle loop to call each poll.
+   * `state.fetchBalances` call getBalance() makes, but without navigating, so
+   * it's cheap enough for the stress settle loop to call each poll.
    *
    * Why this exists: quickBalanceSnapshot() is deliberately non-invasive and
    * never calls `fetchBalances`, so its `balance` half can be stale. The stress
@@ -2270,18 +2270,32 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * baseline, which uses getBalance() and so refreshes the same way.
    */
   async refreshBalances(): Promise<void> {
-    try {
-      await this.page.evaluate(async () => {
-        const store = (window as any).__TEST_STORE__;
-        const state = store?.getState?.();
-        if (state?.currentAccount?.publicKey && state.fetchBalances) {
-          await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
+    await this.page.evaluate(async () => {
+      const store = (window as any).__TEST_STORE__;
+      const state = store?.getState?.();
+      const account = state?.currentAccount?.publicKey;
+      if (!state || !account || !state.fetchBalances) return;
+
+      const hook = (window as any).__TEST_BALANCE_READ_STATE__;
+      if (typeof hook !== 'function') {
+        await state.fetchBalances(account, state.assetsMetadata || {});
+        return;
+      }
+
+      const yieldRead = () => new Promise<void>(resolve => setTimeout(resolve, 50));
+      const stampOf = () => (store.getState().balancesLastFetched || {})[account] || 0;
+
+      for (;;) {
+        while (hook(account)?.inFlight === true) {
+          await yieldRead();
         }
-      });
-    } catch {
-      // Best-effort: a failed refresh leaves the prior balance in place and the
-      // settle loop retries on its next poll.
-    }
+        const before = stampOf();
+        const now = store.getState();
+        await now.fetchBalances(account, now.assetsMetadata || {});
+        if (stampOf() > before) return;
+        await yieldRead();
+      }
+    });
   }
 
   // ── Sync ──────────────────────────────────────────────────────────────────
