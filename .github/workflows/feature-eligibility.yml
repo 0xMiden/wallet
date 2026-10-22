@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'services/feature-eligibility/**'
+      - 'scripts/feature-eligibility-deploy-source.mjs'
       - '.github/workflows/**'
       - '.github/actions/start-eligibility-fixture/**'
       - 'scripts/feature-eligibility-fixture*'
