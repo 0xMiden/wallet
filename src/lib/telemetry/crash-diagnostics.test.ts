@@ -7,6 +7,9 @@ import { WalletMessageType } from 'lib/shared/types';
 import {
   COMPLETION_GUARDS,
   COMPLETION_STEPS,
+  GUARDIAN_SIGNER_IN_SET,
+  GUARDIAN_SIGNING_KEYS,
+  HOT_KEY_ROTATION_PENDING,
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
   SECURITY_CHANGE_ACTIONS,
@@ -842,6 +845,34 @@ describe('source-bound crash diagnostics', () => {
       proposalStep: 'service_select',
       proposalGuard: 'guardian_out_of_sync'
     });
+  });
+
+  it('accepts the Guardian signer facts only as listed values, and only together', () => {
+    for (const guardianSignerInSet of GUARDIAN_SIGNER_IN_SET) {
+      for (const guardianSigningKey of GUARDIAN_SIGNING_KEYS) {
+        for (const hotKeyRotationPending of HOT_KEY_ROTATION_PENDING) {
+          const error = new Error('authentication failed');
+          annotateCrash(error, { guardianSignerInSet, guardianSigningKey, hotKeyRotationPending });
+          expect(snapshotCrashDiagnostics(error)).toEqual({
+            guardianSignerInSet,
+            guardianSigningKey,
+            hotKeyRotationPending
+          });
+        }
+      }
+    }
+    const partial = new Error('partial');
+    annotateCrash(partial, { guardianSignerInSet: 'no', guardianSigningKey: 'hot' });
+    expect(snapshotCrashDiagnostics(partial)).toEqual({});
+    const unlisted = new Error('unlisted');
+    annotateCrash(unlisted, {
+      guardianSignerInSet: '0xabcdef0123456789',
+      guardianSigningKey: 'hot',
+      hotKeyRotationPending: 'no'
+    });
+    annotateCrash(unlisted, { guardianSignerInSet: 'yes', guardianSigningKey: 'device', hotKeyRotationPending: 'no' });
+    annotateCrash(unlisted, { guardianSignerInSet: 'yes', guardianSigningKey: 'cold', hotKeyRotationPending: true });
+    expect(snapshotCrashDiagnostics(unlisted)).toEqual({});
   });
 
   it('accepts every completion step and guard, and a guard only beside its step', () => {

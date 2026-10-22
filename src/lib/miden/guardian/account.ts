@@ -203,6 +203,15 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
   return { commitment };
 }
 
+/** Every signer commitment the account holds on chain, in storage order, or none when they cannot be read. */
+export function getSignerCommitmentsFromAccount(account: Account): string[] {
+  try {
+    return AccountInspector.getSignerPublicKeyCommitments(account).map(String);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Read the on-chain guardian operator key commitment — a SEPARATE storage slot
  * from the multisig signer keys read by `getSignerDetailsFromAccount`.
