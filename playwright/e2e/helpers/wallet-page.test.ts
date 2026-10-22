@@ -9,6 +9,7 @@ function makePage(): Page {
   return {
     url: () => 'chrome-extension://test/fullpage.html#/',
     waitForFunction: jest.fn(async () => undefined),
+    waitForTimeout: jest.fn(async () => undefined),
     evaluate: jest.fn(async <T>(callback: (arg: T) => unknown, arg: T) => callback(arg))
   } as unknown as Page;
 }
@@ -219,6 +220,43 @@ describe('ChromeWalletPage balance scoping', () => {
     const wallet = new ChromeWalletPage(makePage(), 'test');
 
     await expect(wallet.refreshBalances()).rejects.toThrow();
+  });
+
+  it('retries waitForBalanceAbove when a skipped refresh does not land', async () => {
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    jest.spyOn(wallet, 'triggerSync').mockResolvedValue(undefined);
+    jest
+      .spyOn(wallet, 'getBalance')
+      .mockRejectedValueOnce(new Error('refreshBalances did not land for account-a'))
+      .mockResolvedValueOnce(5);
+
+    await expect(wallet.waitForBalanceAbove(0, 10_000)).resolves.toBe(5);
+  });
+
+  it('retries refreshBalancesLanded when an idle-started refresh does not land', async () => {
+    let fetches = 0;
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => {
+        fetches += 1;
+        if (fetches === 1) return;
+        state.balances['account-a'] = [{ tokenId: 'native-faucet', balance: 10 }];
+        state.balancesLastFetched['account-a'] = 2;
+      })
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: false } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+
+    await wallet.refreshBalancesLanded(10_000);
+
+    expect(state.balances['account-a'][0].balance).toBe(10);
   });
 
   it('delegates an unscoped getBalance call without inventing a filter', async () => {

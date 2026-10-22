@@ -290,6 +290,13 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * implementation for why the stress settle loop needs this.
    */
   refreshBalances(): Promise<void>;
+  /**
+   * Retry `refreshBalances` until a read advances `balancesLastFetched` or
+   * `timeoutMs` elapses. Catches only `refreshBalances did not land`; any other
+   * error is rethrown. One-shot callers that are not already in a retry use this
+   * so an idle-started skip is not a failed land.
+   */
+  refreshBalancesLanded(timeoutMs: number): Promise<void>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
   /**
@@ -2296,6 +2303,35 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     });
   }
 
+  /**
+   * Retry `refreshBalances` until a land or `timeoutMs`. A finished non-landing
+   * read stays a rejection on `refreshBalances` itself; this loop is the retry.
+   */
+  async refreshBalancesLanded(timeoutMs: number): Promise<void> {
+    const intervalMs = 5_000;
+    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.refreshBalances();
+        return;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('refreshBalances did not land')) {
+          throw error;
+        }
+        lastError = error;
+        if (attempt < maxAttempts) {
+          await this.page.waitForTimeout(intervalMs);
+        }
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`refreshBalances did not land within ${timeoutMs}ms`);
+  }
+
   // ── Sync ──────────────────────────────────────────────────────────────────
 
   /**
@@ -3216,7 +3252,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       await this.triggerSync();
-      lastBalance = await this.getBalance(tokenSymbol);
+      try {
+        lastBalance = await this.getBalance(tokenSymbol);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('refreshBalances did not land')) {
+          throw error;
+        }
+        if (attempt < maxAttempts) {
+          await this.page.waitForTimeout(intervalMs);
+        }
+        continue;
+      }
 
       if (timeline) {
         timeline.emit({
