@@ -36,7 +36,7 @@ import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
-import { reportTransactionFailure } from './transaction-failure';
+import { reportTransactionFailure, type TransactionFailure } from './transaction-failure';
 import {
   TelemetryErrorKind,
   TelemetryEvent,
@@ -1396,6 +1396,39 @@ describe('crash-report egress', () => {
       expect(JSON.stringify(objectAt(unrelated, 'exception'))).toContain('advice_stack_read_failed');
       expectNoNativeDiagnostics(unrelated);
     });
+  });
+
+  it('reports a startup-interrupted claim by its fixed startup facts within 192 added wire bytes', async () => {
+    consentOn();
+    const failure = (startup?: TransactionFailure['startup']): TransactionFailure => ({
+      type: 'consume',
+      stage: 'signing-proposal',
+      entryPoint: 'claim',
+      reason: 'interrupted_on_startup',
+      error: poisonedError('interrupted on startup'),
+      startup
+    });
+    reportTransactionFailure(failure());
+    await flushEgress();
+    reportTransactionFailure(
+      failure({ selection: 'before_session', stageAge: 'under_1d', submit: 'no_submit_recorded' })
+    );
+    await flushEgress();
+
+    expect(captured).toHaveLength(2);
+    const [without, withFacts] = captured.map(entry => entry.body);
+    expect(withFacts).toContain(
+      '; startup selection before_session; stored stage age under_1d; submit no_submit_recorded; point pipeline; interrupted_on_startup.'
+    );
+    expect(without).toContain(
+      '; startup selection unavailable; stored stage age unavailable; submit unavailable; point pipeline; interrupted_on_startup.'
+    );
+    // The whole added segment, measured as sent: the report carries it in its exception value, once.
+    const segment = /; startup selection [a-z_0-9]+; stored stage age [a-z_0-9]+; submit [a-z_]+/.exec(withFacts ?? '');
+    expect(segment).not.toBeNull();
+    expect(new TextEncoder().encode(segment?.[0] ?? '').length).toBeLessThanOrEqual(192);
+    expect((withFacts ?? '').split('startup selection').length - 1).toBe(1);
+    expect(leaksIn(wireText())).toEqual([]);
   });
 
   it('reports a handled offscreen assertion without raw transaction data or a frontend scope', async () => {
