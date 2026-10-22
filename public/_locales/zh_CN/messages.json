@@ -3572,6 +3572,10 @@
     "message": "该文件包含您的助记词以及您的Guardian运营商通常为您保存的账户状态，因此任何拥有该文件及其密码的人都可以读取这两者。该文件不包含日常密钥：恢复后，钱包会通过您的Guardian运营商替换该密钥，或者您可以使用已保存的日常密钥对（设置 → 密钥 → 显示私钥）。 该文件是一个快照：在进行收发操作后，请保存一个新文件，因为旧文件无法恢复其保存之后发生的情况。",
     "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
   },
+  "hotKeyRotationImportBusy": {
+    "message": "轮转仍在进行中。请等待其完成，然后重试。",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
   "hotKeyRotationUseKeyPair": {
     "message": "使用我保存的日常密钥对",
     "englishSource": "Use my saved everyday key pair"
