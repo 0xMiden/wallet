@@ -41,6 +41,7 @@ import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mo
 import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { WalletAccount } from 'lib/shared/types';
 import { captureDiagnosticLog } from 'lib/telemetry/crash';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { _resetDiagnosticLogLimitsForTest } from 'lib/telemetry/diagnostic-log';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -365,6 +366,7 @@ function mockParseAccountRef(id: string) {
   const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
   return { toString: () => `sdk-${parsed}` };
 }
+const mockRandomFeeSalt = jest.fn((): unknown => 'SALT');
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => {
     if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
@@ -376,7 +378,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
   // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
   // nothing downstream inspects it.
-  randomFeeSalt: () => 'SALT',
+  randomFeeSalt: () => mockRandomFeeSalt(),
   // Mirrors the real helper, so each test sees exactly which account and salt reach the SDK.
   feeAwareRequestBuilder: (
     client: {
@@ -2426,6 +2428,87 @@ describe('generateTransaction — Guardian routing', () => {
         ['operation_step', 'proposal_execute', 'failed'],
         ['operation_end', undefined, 'failed']
       ]);
+    });
+
+    // The crash diagnostics of the same steps (Sentry BREAD-WALLET-35): the error the swap fails with carries the
+    // preparation step, and nothing from its message.
+    const privateSwapFailure = () =>
+      new Error(`swap of 987654321 for ${PRIVATE_ADDRESS} at 0x${'cd'.repeat(32)} via https://private.example/path`);
+
+    const rejectRequestWrite = (when: (row: Record<string, unknown>) => boolean, error: Error) => {
+      const repo: { transactions: { where: jest.Mock } } = jest.requireMock('lib/miden/repo');
+      const where = repo.transactions.where.getMockImplementation();
+      repo.transactions.where.mockImplementation((query: { id: string }) => ({
+        ...where?.(query),
+        modify: jest.fn(async (fn: (tx: Record<string, unknown>) => void) => {
+          const row = txStore.find(r => r.id === query.id);
+          if (!row) return;
+          const draft = { ...row };
+          fn(draft);
+          if (draft.requestBytes !== row.requestBytes && when(row)) throw error;
+          fn(row);
+        })
+      }));
+      return () => repo.transactions.where.mockImplementation(where);
+    };
+
+    it('names a failed swap request build on the error the swap fails with', async () => {
+      const { run, newPswapCreateTransactionRequest, multisigService } = arrangeSwap();
+      const error = privateSwapFailure();
+      newPswapCreateTransactionRequest.mockRejectedValueOnce(error);
+      await run();
+      expect(txStore[0]?.status).toBe(ITransactionStatus.Failed);
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_build' });
+      expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+    });
+
+    it('names a failed fee salt of a new swap request as the swap request build', async () => {
+      const { run, newPswapCreateTransactionRequest } = arrangeSwap();
+      const error = privateSwapFailure();
+      mockRandomFeeSalt.mockImplementationOnce(() => {
+        throw error;
+      });
+      await run();
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_build' });
+      expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
+    });
+
+    it('names a failed write of the built swap request before any proposal', async () => {
+      const { run, multisigService } = arrangeSwap();
+      const error = privateSwapFailure();
+      const restore = rejectRequestWrite(row => row.requestBytes === undefined, error);
+      try {
+        await run();
+      } finally {
+        restore();
+      }
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_persist' });
+      expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+    });
+
+    it('names a failed write of the rebased request after the proposal returned', async () => {
+      const { run, multisigService } = arrangeSwap();
+      const error = privateSwapFailure();
+      const restore = rejectRequestWrite(row => row.requestBytes !== undefined, error);
+      try {
+        await run();
+      } finally {
+        restore();
+      }
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'rebased_request_persist' });
+    });
+
+    it('builds nothing for a swap that already has its request, so no build step is named', async () => {
+      const { transaction, run, newPswapCreateTransactionRequest, multisigService } = arrangeSwap();
+      Object.assign(transaction, { requestBytes: new Uint8Array([7]) });
+      txStore.length = 0;
+      txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+      const error = privateSwapFailure();
+      multisigService.createRebasedCustomProposal.mockRejectedValueOnce(error);
+      await run();
+      expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(snapshotCrashDiagnostics(error).proposalStep).not.toBe('swap_request_build');
     });
 
     it('records nothing for a Guardian transaction other than a swap', async () => {

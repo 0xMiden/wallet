@@ -74,15 +74,46 @@ function solverEnabled(value) {
   return true;
 }
 
+function oneClickEnabled(value) {
+  if (!record(value) || typeof value.serviceUrl !== 'string' || value.serviceUrl.length > 512) return false;
+  let url;
+  try {
+    url = new URL(value.serviceUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return false;
+  if (!Array.isArray(value.midenAssets) || value.midenAssets.length < 1 || value.midenAssets.length > 64) return false;
+  const assetIds = new Set();
+  const faucetIds = new Set();
+  return value.midenAssets.every(asset => {
+    if (!record(asset) ||
+        typeof asset.assetId !== 'string' || asset.assetId.length < 1 || asset.assetId.length > 256 ||
+        /[\u0000-\u001f\u007f-\u009f]/.test(asset.assetId) ||
+        typeof asset.faucetId !== 'string' || !/^0x[\da-f]{30}$/i.test(asset.faucetId) ||
+        !Number.isSafeInteger(asset.decimals) || asset.decimals < 0 || asset.decimals > 38) {
+      return false;
+    }
+    const faucetId = asset.faucetId.toLowerCase();
+    if (assetIds.has(asset.assetId) || faucetIds.has(faucetId)) return false;
+    assetIds.add(asset.assetId);
+    faucetIds.add(faucetId);
+    return true;
+  });
+}
+
 function readPolicy(body, network) {
   if (!record(body) || body.network !== network || !Number.isSafeInteger(body.version) || body.version <= 0) {
     throw new Error('Invalid policy');
   }
   const features = body.features === undefined ? {} : body.features;
-  if (!record(features) || (features.earn !== undefined && typeof features.earn !== 'boolean')) {
+  if (!record(features) ||
+      (features.earn !== undefined && typeof features.earn !== 'boolean') ||
+      (features.nearIntents !== undefined && typeof features.nearIntents !== 'boolean')) {
     throw new Error('Invalid policy');
   }
-  const enabled = { wallet: true, earn: features.earn === true, swap: solverEnabled(body.swap) };
+  const nearIntents = features.nearIntents === true && oneClickEnabled(record(body.swap) ? body.swap.oneClick : undefined);
+  const enabled = { wallet: true, earn: features.earn === true, swap: solverEnabled(body.swap) || nearIntents };
   if (!record(body.geo) || !record(body.geo.wallet)) throw new Error('Invalid policy');
   const rules = { wallet: [], earn: [], swap: [] };
   for (const feature of FEATURES) {
