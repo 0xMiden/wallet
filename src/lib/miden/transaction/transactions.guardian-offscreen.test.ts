@@ -3125,6 +3125,24 @@ describe('guardian offscreen submit gate (#1644)', () => {
     expect(seenAtGate?.stage).toBe('submitting');
   });
 
+  it('an attempt that settles while its crossing stamp is pending reads as never past its gate', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    let pending: Promise<boolean> | undefined;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      pending = gate();
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+    mockProxyGetInputNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    const { service } = arrange('gate-pending', consumeRow);
+
+    await generateTransaction(buildTx('gate-pending', consumeRow) as never, signCallback, false, provider as never);
+
+    expect(await pending).toBe(false);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+  });
+
   it('the gate refuses once the attempt has settled', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockLeafOpensGate = false;

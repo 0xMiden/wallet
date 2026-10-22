@@ -574,6 +574,31 @@ const stageStampFor =
     }
   };
 
+/**
+ * The offscreen Guardian leaf's submit gate (#1644), for one attempt. The leaf submits only once this answers yes, and
+ * it answers yes only after the reliable 'submitting' stamp recorded the crossing (a stamp that throws leaves it shut)
+ * and while the attempt has not settled, so an attempt it never answered yes for never called submit. `settle` is
+ * called first thing when the attempt's outcome is decided; a gate still recording then answers no.
+ */
+const offscreenSubmitGate = (stamp: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>) => {
+  let opened = false;
+  let settled = false;
+  const gate: SubmitGate = async evidence => {
+    if (settled) return false;
+    await stamp('submitting', { evidence });
+    if (settled) return false;
+    opened = true;
+    return true;
+  };
+  return {
+    gate,
+    opened: () => opened,
+    settle: () => {
+      settled = true;
+    }
+  };
+};
+
 /** Pending liveness wakes, keyed by transaction id, so each row has at most one. */
 const requeueWakes = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -2859,15 +2884,23 @@ const generateDirectSwitchGuardianTransaction = async (
   if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
     // Serialized outside the leaf: a request that cannot serialize never crossed, so it leaves no entry.
     const requestBytes = tr.serialize();
-    result = await runWriteLeaf(transaction.id, attempt, true, () =>
-      dispatchGuardianPipeline(
-        transaction.accountId,
-        requestBytes,
-        transaction.delegateTransaction,
-        signCallback,
-        stageStampFor(transaction.id, attempt)
-      )
-    );
+    const stamp = stageStampFor(transaction.id, attempt);
+    const submitGate = offscreenSubmitGate(stamp);
+    try {
+      result = await runWriteLeaf(transaction.id, attempt, true, () =>
+        dispatchGuardianPipeline(
+          transaction.accountId,
+          requestBytes,
+          transaction.delegateTransaction,
+          signCallback,
+          stamp,
+          undefined,
+          submitGate.gate
+        )
+      );
+    } finally {
+      submitGate.settle();
+    }
   } else {
     result = await runGuardianPipeline(
       transaction.accountId,
@@ -3967,11 +4000,6 @@ const generateGuardianTransaction = async (
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
   let submitCrossed = false;
-  // The offscreen leaf's submit gate (#1644): opened only by this worker, before it records the crossing, and never
-  // once this attempt's catch has started. An offscreen attempt that never opened it never called submit, whatever
-  // ended it, a kill included, so its candidate is abandoned instead of held for the Guardian's grace.
-  let submitGateOpened = false;
-  let leafSettled = false;
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
@@ -3983,13 +4011,9 @@ const generateGuardianTransaction = async (
     await stampStage(stage, detail);
     if (stage === 'submitting') submitCrossed = true;
   };
-  const submitGate: SubmitGate = async evidence => {
-    if (leafSettled) return false;
-    submitGateOpened = true;
-    // A reliable stamp: a crossing that cannot be recorded throws, and the gate stays shut.
-    await stampStage('submitting', { evidence });
-    return !leafSettled;
-  };
+  // An offscreen attempt whose gate never answered yes never called submit, whatever ended it, a kill included, so
+  // its candidate is abandoned instead of held for the Guardian's grace (#1644).
+  const submitGate = offscreenSubmitGate(stampStage);
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
     // 30s outgoing deadline precisely because a silent operator wedges the row at
@@ -4092,7 +4116,7 @@ const generateGuardianTransaction = async (
           signCallback,
           stampStage,
           chainAnchorB64,
-          submitGate
+          submitGate.gate
         )
       );
     } else {
@@ -4105,7 +4129,7 @@ const generateGuardianTransaction = async (
       );
     }
   } catch (error) {
-    leafSettled = true;
+    submitGate.settle();
     // The message goes in the FORMAT STRING, not only in the object. Chrome
     // truncates strings nested inside a logged object's preview (~100 chars),
     // and a guardian write's whole diagnostic value is the executor's reason,
@@ -4122,7 +4146,7 @@ const generateGuardianTransaction = async (
     );
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
     // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
-    const gateShut = offscreenDispatched && !submitGateOpened;
+    const gateShut = offscreenDispatched && !submitGate.opened();
     if ((hasErrorBeforeSubmit(error) || gateShut) && transaction.attemptId !== undefined) {
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
