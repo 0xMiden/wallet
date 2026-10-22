@@ -535,6 +535,43 @@ describe('HotKeyRotationGate', () => {
       expect(screen.queryByTestId('hot-key-rotation-funding')).not.toBeInTheDocument();
     });
 
+    it('is withheld while the failed rotation may still land', async () => {
+      storeState = { currentAccount: flaggedAccount, importHotKeyPair: jest.fn() };
+      mockUseTransactionRow.mockReturnValue({
+        row: {
+          id: 'tx-new',
+          status: ITransactionStatus.Failed,
+          type: 'replace-hot-key',
+          error: 'guardian unreachable',
+          mayHaveSubmitted: true
+        },
+        loaded: true
+      });
+
+      render(<HotKeyRotationGate />);
+
+      await screen.findByTestId('hot-key-rotation-failed');
+      expect(screen.queryByTestId('hot-key-rotation-use-key-pair')).not.toBeInTheDocument();
+    });
+
+    it('is refused while another rotation is live, so none lands behind it', async () => {
+      const importHotKeyPair = jest.fn().mockResolvedValue(undefined);
+      storeState = { currentAccount: flaggedAccount, importHotKeyPair };
+      mockTable = [rotationRow('tx-other-surface', { status: ITransactionStatus.GeneratingTransaction })];
+      failRotation();
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(screen.getByTestId('hot-key-rotation-use-key-pair')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
+      fireEvent.click(screen.getByTestId('import-hot-key-screen'));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-import-error')).toHaveTextContent('hotKeyRotationImportBusy')
+      );
+      expect(importHotKeyPair).not.toHaveBeenCalled();
+    });
+
     it('goes back to the failure panel', async () => {
       storeState = { currentAccount: flaggedAccount, importHotKeyPair: jest.fn() };
       failRotation();

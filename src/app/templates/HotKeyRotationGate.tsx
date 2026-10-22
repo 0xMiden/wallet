@@ -200,9 +200,11 @@ const RotationFailedPanel: FC<{
           Guardian. Without it the only exit was to reinstall. */}
       {/* The other way out when the Guardian cannot be reached: the everyday key from a saved key pair needs no
           operator, because the account state it signs against is already on this device. */}
-      <Button variant={ButtonVariant.Secondary} data-testid="hot-key-rotation-use-key-pair" onClick={onUseKeyPair}>
-        {t('hotKeyRotationUseKeyPair')}
-      </Button>
+      {!failure.unconfirmed && (
+        <Button variant={ButtonVariant.Secondary} data-testid="hot-key-rotation-use-key-pair" onClick={onUseKeyPair}>
+          {t('hotKeyRotationUseKeyPair')}
+        </Button>
+      )}
       <Button variant={ButtonVariant.Secondary} data-testid="hot-key-rotation-start-over" onClick={onStartOver}>
         {t('hotKeyRotationStartOver')}
       </Button>
@@ -337,7 +339,14 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
       setImportBusy(true);
       setImportError(null);
       try {
-        await importHotKeyPair(accountPublicKey, keyPairPayload);
+        // Under the rotation lock, so no rotation queues beside the import and none already live lands after it.
+        await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
+          const live = await Repo.transactions
+            .filter(r => isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey))
+            .first();
+          if (live) throw new Error(t('hotKeyRotationImportBusy'));
+          await importHotKeyPair(accountPublicKey, keyPairPayload);
+        });
       } catch (e) {
         console.error('[HotKeyRotationGate] key pair import failed:', e);
         setImportError(e instanceof Error && e.message ? e.message : t('importHotKeyError'));
@@ -349,12 +358,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
 
   // A funding trigger never queues a second rotation beside a live one.
   const onFunded = useCallback(() => {
-    if (!rotationLive) void beginRotation(false);
-  }, [beginRotation, rotationLive]);
+    if (!rotationLive && !importing) void beginRotation(false);
+  }, [beginRotation, rotationLive, importing]);
 
   const { retryClaim } = useRotationFundingClaim({
     accountPublicKey,
-    active: rowsLoaded && gate.view === 'funding' && !rotationLive,
+    active: rowsLoaded && gate.view === 'funding' && !rotationLive && !importing,
     listLive: !isFallback && claimableNotes !== undefined && feeFaucetId !== null,
     selection,
     feeFaucetId,
@@ -370,7 +379,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   // Before balances land it adopts a prior shortfall rather than queue a rotation that falls
   // short again. On mount the first call is still in flight and swallows this one.
   const deferredRotationDue =
-    gate.view === 'rotating' && txId === null && !rotationLive && !fundingRows.some(isLiveTransaction);
+    gate.view === 'rotating' && txId === null && !rotationLive && !importing && !fundingRows.some(isLiveTransaction);
   useEffect(() => {
     if (deferredRotationDue) void beginRotation(balancesLoading);
   }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
