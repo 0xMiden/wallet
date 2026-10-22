@@ -449,6 +449,8 @@
   "swapVerdictTolerated": "Pode demorar mais: a ordem é preenchida quando o preço se move ligeiramente.",
   "swapVerdictPartial": "Apenas parte dessa ordem é preenchida agora; o restante fica em espera.",
   "swapVerdictFull": "Executa a ordem ao preço atual.",
+  "swapNoFillWarning": "É improvável que essa troca seja preenchida com a liquidez disponível no momento. Você pode continuar, mas sua ordem pode permanecer não preenchida até que expire.",
+  "swapPartialFillWarning": "Apenas parte dessa ordem de swap pode ser preenchida com a liquidez disponível no momento. Você pode continuar, mas o restante pode permanecer não preenchido até que a ordem expire.",
   "swapVerdictExpected": "Você recebe cerca de $amount$ em $symbol$.",
   "swapSlippage": "Slippage",
   "percentSign": "%",
