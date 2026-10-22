@@ -663,6 +663,15 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
 
+    importHotKeyPair: async (accountPublicKey, keyPairPayload) => {
+      const res = await request({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey,
+        keyPairPayload
+      });
+      assertResponse(res.type === WalletMessageType.ImportHotKeyPairResponse);
+    },
+
     setGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
       const res = await request({
         type: WalletMessageType.SetGuardianEndpointRequest,

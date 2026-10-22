@@ -47,7 +47,7 @@ let mockAppEnv: { fullPage: boolean } = { fullPage: false };
 let mockLocation: { pathname: string } = { pathname: '/' };
 let mockHandoffAvailable = false;
 
-let storeState: { currentAccount?: Partial<WalletAccount> };
+let storeState: { currentAccount?: Partial<WalletAccount>; importHotKeyPair?: (...args: string[]) => Promise<void> };
 // Simulates another surface actively holding the generate-transactions-loop
 // Web Lock (i.e. a generation is genuinely in flight somewhere).
 let loopLockHeld = false;
@@ -254,6 +254,24 @@ jest.mock('components/Button', () => ({
   )
 }));
 
+jest.mock('screens/onboarding/import-wallet-flow/ImportHotKey', () => ({
+  ImportHotKeyScreen: ({ onSubmit, submitting }: { onSubmit: (payload: string) => void; submitting: boolean }) => (
+    <button
+      type="button"
+      data-testid="import-hot-key-screen"
+      data-submitting={submitting}
+      onClick={() => onSubmit('hot:evm')}
+    />
+  )
+}));
+jest.mock('components/ui/Notice', () => ({
+  Notice: ({ children, 'data-testid': testId }: { children: React.ReactNode; 'data-testid'?: string }) => (
+    <div role="alert" data-testid={testId}>
+      {children}
+    </div>
+  )
+}));
+
 const flaggedAccount = { publicKey: 'account-1', requiresHotKeyRotation: true };
 
 const rotationRow = (id: string, extra: Partial<TableRow> = {}): TableRow => ({
@@ -457,6 +475,62 @@ describe('HotKeyRotationGate', () => {
     );
     // No rotation was queued by the exit.
     expect(mockInitiate).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the saved everyday key pair as the other way out of a failed rotation', () => {
+    const failRotation = () =>
+      mockUseTransactionRow.mockReturnValue({
+        row: {
+          id: 'tx-new',
+          status: ITransactionStatus.Failed,
+          type: 'replace-hot-key',
+          error: 'guardian unreachable'
+        },
+        loaded: true
+      });
+
+    it('hands the pair to the store for the gated account', async () => {
+      const importHotKeyPair = jest.fn().mockResolvedValue(undefined);
+      storeState = { currentAccount: flaggedAccount, importHotKeyPair };
+      failRotation();
+
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(screen.getByTestId('hot-key-rotation-use-key-pair')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
+      fireEvent.click(screen.getByTestId('import-hot-key-screen'));
+
+      await waitFor(() => expect(importHotKeyPair).toHaveBeenCalledWith('account-1', 'hot:evm'));
+      expect(mockResetWalletAndReload).not.toHaveBeenCalled();
+    });
+
+    it('shows why the pair was refused and stays on the form', async () => {
+      const importHotKeyPair = jest.fn().mockRejectedValue(new Error('importHotKeyNotActive'));
+      storeState = { currentAccount: flaggedAccount, importHotKeyPair };
+      failRotation();
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(screen.getByTestId('hot-key-rotation-use-key-pair')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
+      fireEvent.click(screen.getByTestId('import-hot-key-screen'));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('hot-key-rotation-import-error')).toHaveTextContent('importHotKeyNotActive')
+      );
+      expect(screen.getByTestId('import-hot-key-screen')).toHaveAttribute('data-submitting', 'false');
+    });
+
+    it('goes back to the failure panel', async () => {
+      storeState = { currentAccount: flaggedAccount, importHotKeyPair: jest.fn() };
+      failRotation();
+
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(screen.getByTestId('hot-key-rotation-use-key-pair')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
+      fireEvent.click(screen.getByText('back'));
+
+      expect(screen.getByTestId('hot-key-rotation-failed')).toBeInTheDocument();
+    });
   });
 
   it('keeps the wallet when Start over is not confirmed', async () => {
