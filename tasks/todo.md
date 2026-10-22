@@ -432,9 +432,11 @@ Validation: 934 tests across 34 focused Jest suites and 29 native SDK tests pass
 
 The service must recognize explicitly enabled valid 1Click-only configurations while preserving existing location restrictions and default-off behavior. Prepare a service-only deployment from protected main without a wallet release.
 
-- [ ] Carry over the validated capability predicate and its regressions.
-- [ ] Add a manual-main deployment path pinned to the workflow commit, retaining the protected environment and release-tag path.
+- [x] Carry over the validated capability predicate and its regressions.
+- [x] Add a manual-main deployment path pinned to the workflow commit, retaining the protected environment and release-tag path.
 - [ ] Verify worker tests, workflow contracts and CI dry run.
 - [ ] Complete independent finished-code review and fix actionable findings.
 - [ ] Open the service-only PR and follow normal branch protection before deployment.
 - [ ] Deploy the reviewed service and verify its live revision, retaining nearIntents false.
+
+Service validation: the frozen fix snapshot passed 145 Node tests with zero skips in CI. All five targeted mutations failed at their named assertions. The existing daily query cap is 10,000 and the deployment input now preserves it. Final branch CI, independent verification, protected merge and live deployment remain pending.
