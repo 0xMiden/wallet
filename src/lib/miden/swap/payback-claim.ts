@@ -3,6 +3,7 @@ import { compareAccountIds } from 'lib/miden/activity/utils';
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { isUserCancelledTransaction } from 'lib/miden/transaction/constants';
+import { holdsNotes } from 'lib/miden/transaction/verdict-rules';
 
 /** Why a swap's payback claim keeps failing, as the swap row and its detail page name it. */
 export type PaybackClaimStuckReason = 'fee' | 'guardian' | 'network' | 'other';
@@ -16,8 +17,9 @@ const NOT_STUCK: PaybackClaimState = { stuck: false };
 
 const noteIdsOf = (tx: ITransaction): string[] => tx.noteIds ?? (tx.noteId ? [tx.noteId] : []);
 
-const isLiveOrUnconfirmed = (tx: ITransaction): boolean =>
-  tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed;
+/** The claim dedup's rule (`noteClaimCoverage`): live, Unconfirmed, or Failed while the reconciler still judges it. */
+const isInFlight = (tx: ITransaction): boolean =>
+  (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) || holdsNotes(tx);
 
 /**
  * Names a failed payback claim's cause from its own error text. The text is the only stable join key across the
@@ -34,15 +36,12 @@ export function classifyPaybackClaimFailure(claim: ITransaction): PaybackClaimSt
 const isCompletedSwap = (swap: ITransaction): boolean =>
   swap.type === 'swap' && swap.status === ITransactionStatus.Completed;
 
-const paybackClaimsOf = (swap: ITransaction, linkedRows: ITransaction[]): ITransaction[] =>
-  linkedRows.filter(
-    row =>
-      row.type === 'consume' &&
-      row.extraInputs?.swapOrderTxId === swap.id &&
-      row.extraInputs?.swapSettleKind !== 'reclaim' &&
-      !isUserCancelledTransaction(row.error) &&
-      !row.restoredFromBackup
-  );
+const isPaybackClaimOf = (swap: ITransaction, row: ITransaction): boolean =>
+  row.type === 'consume' &&
+  row.extraInputs?.swapOrderTxId === swap.id &&
+  row.extraInputs?.swapSettleKind !== 'reclaim' &&
+  !isUserCancelledTransaction(row.error) &&
+  !row.restoredFromBackup;
 
 /**
  * A completed swap reads stuck while no payout claim is live and a failed payout claim still has a note that no
@@ -57,8 +56,8 @@ export function paybackClaimStateFrom(
   coverage: NoteCoverage
 ): PaybackClaimState {
   if (!isCompletedSwap(swap)) return NOT_STUCK;
-  const claims = paybackClaimsOf(swap, linkedRows);
-  if (claims.some(isLiveOrUnconfirmed)) return NOT_STUCK;
+  const claims = linkedRows.filter(row => isPaybackClaimOf(swap, row));
+  if (claims.some(isInFlight)) return NOT_STUCK;
   const unclaimed = claims.filter(
     row =>
       row.status === ITransactionStatus.Failed &&
@@ -95,19 +94,26 @@ export async function getPaybackClaimStates(swaps: ITransaction[]): Promise<Map<
           Repo.transactions.where('noteId').anyOf(failedNoteIds).toArray(),
           Repo.transactions.where('noteIds').anyOf(failedNoteIds).toArray()
         ]);
-  const covering = [...byScalar, ...byBatch].filter(
-    row =>
-      row.type === 'consume' &&
-      !row.restoredFromBackup &&
-      (row.status === ITransactionStatus.Completed || isLiveOrUnconfirmed(row))
-  );
+  const coveringByNote = new Map<string, ITransaction[]>();
+  const seen = new Set<string>();
+  for (const row of [...byScalar, ...byBatch]) {
+    if (seen.has(row.id) || row.type !== 'consume' || row.restoredFromBackup) continue;
+    if (row.status !== ITransactionStatus.Completed && !isInFlight(row)) continue;
+    seen.add(row.id);
+    for (const noteId of noteIdsOf(row)) coveringByNote.set(noteId, [...(coveringByNote.get(noteId) ?? []), row]);
+  }
+  const linkedByOrder = new Map<string, ITransaction[]>();
+  for (const row of linked) {
+    const order = row.extraInputs?.swapOrderTxId;
+    if (typeof order === 'string') linkedByOrder.set(order, [...(linkedByOrder.get(order) ?? []), row]);
+  }
   for (const swap of completed) {
     const coverage: NoteCoverage = noteId => {
-      const rows = covering.filter(row => compareAccountIds(row.accountId, swap.accountId) && noteIdsOf(row).includes(noteId));
+      const rows = (coveringByNote.get(noteId) ?? []).filter(row => compareAccountIds(row.accountId, swap.accountId));
       if (rows.some(row => row.status === ITransactionStatus.Completed)) return 'claimed';
-      return rows.some(isLiveOrUnconfirmed) ? 'held' : 'open';
+      return rows.length > 0 ? 'held' : 'open';
     };
-    states.set(swap.id, paybackClaimStateFrom(swap, linked, coverage));
+    states.set(swap.id, paybackClaimStateFrom(swap, linkedByOrder.get(swap.id) ?? [], coverage));
   }
   return states;
 }

@@ -11,6 +11,10 @@ import {
 } from './payback-claim';
 
 jest.mock('lib/miden/repo', () => ({ transactions: { where: jest.fn() } }));
+// A row the reconciler still judges holds its notes (verdict-rules' own suite pins that rule); these cases name one by id.
+jest.mock('lib/miden/transaction/verdict-rules', () => ({
+  holdsNotes: (row: { type: string; id: string }) => row.type === 'consume' && row.id.startsWith('judged')
+}));
 
 const swap = (extraInputs: Record<string, unknown> = {}, id = 'swap-1'): ITransaction =>
   ({
@@ -97,6 +101,10 @@ describe('paybackClaimStateFrom', () => {
     }
   });
 
+  it('is not stuck while its own failed payout claim still awaits a verdict (F-005)', () => {
+    expect(paybackClaimStateFrom(swap(), [claim('judged-failed')], open)).toEqual({ stuck: false });
+  });
+
   it('ignores reclaim rows, cancelled claims and claims restored from a backup', () => {
     expect(
       paybackClaimStateFrom(
@@ -174,6 +182,11 @@ describe('getPaybackClaimStates', () => {
 
     rows.splice(1, 1);
     expect(await getPaybackClaimState(swap())).toEqual({ stuck: true, failedClaimId: 'failed', reason: 'other' });
+  });
+
+  it('counts a failed consume the reconciler still judges as holding the note (F-005)', async () => {
+    rows.push(claim('failed'), claim('judged-other', { noteIds: ['failed-note'], extraInputs: {} }));
+    expect(await getPaybackClaimState(swap())).toEqual({ stuck: false });
   });
 
   it('makes no query without a completed swap', async () => {
