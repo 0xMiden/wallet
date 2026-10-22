@@ -63,6 +63,7 @@ import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/co
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
+  earnMarketLabel,
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -981,8 +982,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <DetailSection title={t('earnWithdrawDetailsTitle')}>
                     {typeof earnWithdraw.marketUid === 'string' && earnWithdraw.marketUid !== '' && (
                       <DetailRow label={t('earnMarketLabel')}>
-                        <span className="select-text">
-                          {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
+                        <span className="min-w-0 select-text truncate" title={earnWithdraw.marketUid}>
+                          {earnMarketLabel(bridgeConfig, earnWithdraw.marketUid) ?? earnWithdraw.marketUid}
                         </span>
                       </DetailRow>
                     )}
@@ -1032,8 +1033,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <DetailSection title={t('earnDepositDetailsTitle')}>
                     {typeof earnDeposit.marketUid === 'string' && earnDeposit.marketUid !== '' && (
                       <DetailRow label={t('earnMarketLabel')}>
-                        <span className="select-text">
-                          {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                        <span className="min-w-0 select-text truncate" title={earnDeposit.marketUid}>
+                          {earnMarketLabel(bridgeConfig, earnDeposit.marketUid) ?? earnDeposit.marketUid}
                         </span>
                       </DetailRow>
                     )}

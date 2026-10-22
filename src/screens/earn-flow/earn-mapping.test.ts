@@ -93,21 +93,37 @@ describe('marketSlug', () => {
 });
 
 describe('mapEarnPosition', () => {
-  it('links back to the vault of its own market, whatever the case of the uid', () => {
+  const LISTED = EARN_VAULT_INFOS.map(info => info.listing);
+
+  it('links back to the listed vault of its own market, whatever the case of the uid', () => {
+    const ui = mapEarnPosition(
+      libPosition({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' }),
+      LISTED
+    );
+    expect(ui.vaultId).toBe(vaultSlug(libVault()));
+    expect(ui.name).toBe('Dummy Lending USDC');
+  });
+
+  it('links a position in a market the document does not list to the slug of its uid, with no name', () => {
     const ui = mapEarnPosition(
       libPosition({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })
     );
-    expect(ui.vaultId).toBe(vaultSlug(libVault()));
+    expect(ui.vaultId).toBe('dummy-lending-11155111-0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69');
+    expect(ui).not.toHaveProperty('name');
   });
 
   it('links two Morpho markets of one chain to two vaults', () => {
     const [first, second] = EARN_VAULT_INFOS;
     const position = (info: EarnVaultInfo) =>
       mapEarnPosition(
-        libPosition({ marketUid: info.marketUid, lenderKey: info.lenderKey, lenderName: info.lenderName })
+        libPosition({ marketUid: info.marketUid, lenderKey: info.lenderKey, lenderName: info.lenderName }),
+        LISTED
       );
     expect(position(first!).vaultId).toBe(EARN_DATA.vaults[0]!.id);
     expect(position(second!).vaultId).toBe(EARN_DATA.vaults[1]!.id);
+    // The listed name identifies each market, so neither needs its lender name beside it.
+    expect(position(first!)).toMatchObject({ name: 'Morpho uniBTC-USDC 77' });
+    expect(position(first!)).not.toHaveProperty('marketName');
   });
 
   it('names a position by its lender family, and a Morpho position by its market too', () => {
@@ -197,9 +213,9 @@ const libVault = (overrides: Partial<EarnVaultInfo> = {}): EarnVaultInfo => ({
 });
 
 describe('vaultSlug', () => {
-  it('is the deterministic, URL-safe slug of the market uid', () => {
+  it('is the URL-safe id the document lists the vault under', () => {
     const slug = vaultSlug(libVault());
-    expect(slug).toBe('dummy-lending-11155111-0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69');
+    expect(slug).toBe('dummy-lending-sepolia-usdc');
     expect(slug).toBe(vaultSlug(libVault()));
     expect(encodeURIComponent(slug)).toBe(slug);
   });
@@ -229,13 +245,41 @@ describe('mapEarnVault', () => {
     expect(ui.chartData.map(point => point.value)).toEqual([5.12, 5.12]);
   });
 
-  it('names a vault by its family, and a Morpho vault by its lender name too', () => {
+  it("names a vault by the document's name, and keeps its family as the protocol", () => {
     const [morpho, , aave, compound] = EARN_VAULT_INFOS;
-    expect(mapEarnVault(aave!)).toMatchObject({ protocol: 'Aave V3' });
-    expect(mapEarnVault(aave!)).not.toHaveProperty('marketName');
-    expect(mapEarnVault(compound!)).toMatchObject({ protocol: 'Compound V3' });
-    expect(mapEarnVault(morpho!)).toMatchObject({ protocol: 'Morpho', marketName: 'Morpho uniBTC-USDC 77' });
+    expect(mapEarnVault(aave!)).toMatchObject({ name: 'Aave V3 USDC', protocol: 'Aave V3' });
+    expect(mapEarnVault(compound!)).toMatchObject({ name: 'Compound III USDC', protocol: 'Compound V3' });
+    // The listed name tells two Morpho markets apart, so no market name is added.
+    expect(mapEarnVault(morpho!)).toMatchObject({ name: 'Morpho uniBTC-USDC 77', protocol: 'Morpho' });
+    expect(mapEarnVault(morpho!)).not.toHaveProperty('marketName');
     expect(mapEarnVault(libVault())).toMatchObject({ protocol: 'Dummy Lending', network: 'Sepolia' });
+  });
+
+  it("shows a lender outside the known families by its lender name, under the document's name", () => {
+    const { lenderFamily: _family, ...unknown } = libVault({ lenderKey: 'EULER_V2', lenderName: 'Euler V2' });
+    expect(mapEarnVault(unknown)).toMatchObject({ name: 'Dummy Lending USDC', protocol: 'Euler V2' });
+  });
+
+  it("takes the document's about and risk in place of the catalogue's", () => {
+    const listed = libVault({
+      about: 'The catalogue says this.',
+      risk: { score: 4, label: 'high' },
+      listing: { ...libVault().listing, about: 'The document says this.', risk: 'low' }
+    });
+    expect(mapEarnVault(listed)).toMatchObject({
+      about: 'The document says this.',
+      listedAbout: 'The document says this.',
+      risk: 'Low',
+      riskLevel: 'low'
+    });
+    const unlisted = mapEarnVault(libVault({ about: 'The catalogue says this.', risk: { score: 4, label: 'high' } }));
+    expect(unlisted).toMatchObject({ about: 'The catalogue says this.', risk: 'High', riskLevel: 'high' });
+    expect(unlisted).not.toHaveProperty('listedAbout');
+  });
+
+  it('takes no deposit into a vault whose deposits the document stops, however the catalogue opens it', () => {
+    const stopped = libVault({ listing: { ...libVault().listing, depositsEnabled: false } });
+    expect(mapEarnVault(stopped)).toMatchObject({ canOpen: false, depositsEnabled: false });
   });
 
   it('takes the asset from the underlying symbol', () => {

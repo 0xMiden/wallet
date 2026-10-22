@@ -3939,7 +3939,7 @@ describe('HistoryDetails earn-withdraw', () => {
     setMockRow(earnWithdrawTx({ phase: 'received', outputSymbol: 'USDC' }, { amount: 999n }));
     await renderAndLoad();
 
-    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('Dummy Lending');
     expect(document.body.textContent).not.toContain('USDC');
   });
 
@@ -4138,7 +4138,7 @@ describe('HistoryDetails earn-withdraw', () => {
     await renderAndLoad();
 
     // Market shows only the protocol segment of the `PROTOCOL:chainId:token` uid.
-    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('Dummy Lending');
     expect(rowByLabel('positionOwnerLabel')?.textContent).toContain('0x1111111111111111111111111111111111111111');
     expect(rowByLabel('redeemIntentLabel')?.textContent).toContain('NONCE-1');
     expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
@@ -4203,7 +4203,7 @@ describe('HistoryDetails earn-deposit', () => {
     );
     await renderAndLoad();
 
-    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('Dummy Lending');
     expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
       'href',
       'https://sepolia.etherscan.io/address/0x2222222222222222222222222222222222222222'

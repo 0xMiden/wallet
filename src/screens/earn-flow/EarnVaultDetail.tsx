@@ -85,7 +85,9 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           )}
           <FeatureUnavailableNotice availability={earnDeposit} />
           {/* One reason at a time: when Earn deposits are down, that notice already says why Deposit is off. */}
-          {earnDeposit.state !== 'unavailable' && <EarnVaultClosedNotice canOpen={vault.canOpen} />}
+          {earnDeposit.state !== 'unavailable' && (
+            <EarnVaultClosedNotice canOpen={vault.canOpen} depositsEnabled={vault.depositsEnabled} />
+          )}
           <EarnHero
             layout="label-first"
             labelId="earn-vault-apy-title"

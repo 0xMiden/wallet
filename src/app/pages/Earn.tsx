@@ -167,7 +167,8 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-row-title text-ink">{vault.protocol}</div>
+          {/* The document's name of the vault, as written in every language. */}
+          <div className="truncate text-row-title text-ink">{earnSubjectTitle(vault)}</div>
           {/* A market with its own name (a Morpho market) says it first, so two markets of one protocol
               read differently. */}
           <div className="truncate text-caption text-muted">
@@ -175,6 +176,11 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
               ? t('earnMarketAssetOnNetwork', { market: vault.marketName, asset, network })
               : t('earnVaultAssetOnNetwork', { asset, network })}
           </div>
+          {vault.listedAbout && (
+            <div className="line-clamp-2 text-caption text-muted" data-testid={`earn-vault-row-about-${vault.id}`}>
+              {vault.listedAbout}
+            </div>
+          )}
         </div>
 
         <span className="shrink-0 text-value text-positive-tint-ink">{vault.apy}</span>

@@ -12,6 +12,7 @@ import {
   getAgglayerMidenBridge,
   getAgglayerRollupId,
   getEarnMarket,
+  getEarnVaults,
   getEpochAllocatorUrl,
   getEpochPositionsUrl,
   getEvmChainId,
@@ -21,6 +22,8 @@ import {
   getEvmUsdcAddress,
   getMidenUsdc,
   selectEarnMarket,
+  selectEarnVault,
+  selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
   selectInviteOnlyOnboarding,
@@ -69,7 +72,18 @@ const CONFIG: BridgeConfig = {
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true },
+  earn: {
+    vaults: [
+      {
+        id: 'dummy-lending-sepolia-usdc',
+        marketUid: 'dummy_lending:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+        name: 'Dummy Lending USDC',
+        protocol: 'dummy-lending',
+        depositsEnabled: true
+      }
+    ]
+  }
 };
 const ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
 const SEPOLIA_READS: DerivedChainConfig = {
@@ -286,6 +300,31 @@ describe('findEpochUsdcAddress', () => {
     expect(findEpochUsdcAddress(84532)).toBeNull();
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(findEpochUsdcAddress(11155111)).toBeNull();
+  });
+});
+
+describe('the Earn vaults', () => {
+  const [vault] = CONFIG.earn?.vaults ?? [];
+
+  it("selects the document's list, and a vault by its market in any case", () => {
+    expect(selectEarnVaults(snapshot())).toEqual([vault]);
+    expect(selectEarnVault(snapshot(), 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69')).toBe(
+      vault
+    );
+    expect(selectEarnVault(snapshot(), 'AAVE_V3:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69')).toBeNull();
+  });
+
+  it('selects no vault while no document is accepted, or while it lists none', () => {
+    const { earn: _earn, ...unlisted } = CONFIG;
+    expect(selectEarnVaults(EMPTY)).toEqual([]);
+    expect(selectEarnVaults(snapshot({ ...unlisted, features: { earn: false } }))).toEqual([]);
+  });
+
+  it("reads this realm's list without throwing", () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot());
+    expect(getEarnVaults()).toEqual([vault]);
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(getEarnVaults()).toEqual([]);
   });
 });
 

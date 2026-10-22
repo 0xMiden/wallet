@@ -71,6 +71,11 @@ describe('earn-flow/data', () => {
       expect(first!.chainId).toBe(second!.chainId);
     });
 
+    it("carries the document's entry of each market, under a unique route id", () => {
+      EARN_VAULT_INFOS.forEach(info => expect(info.listing.marketUid).toBe(info.marketUid));
+      expect(new Set(EARN_VAULT_INFOS.map(info => info.listing.id)).size).toBe(EARN_VAULT_INFOS.length);
+    });
+
     it('has one market that accepts no deposits now', () => {
       expect(EARN_VAULT_INFOS.filter(info => !info.canOpen)).toHaveLength(1);
     });
@@ -112,6 +117,7 @@ describe('earn-flow/data', () => {
     });
 
     it('carries a well-formed APY chart series on every vault', () => {
+      expect(EARN_DATA.vaults.length).toBeGreaterThan(0);
       EARN_DATA.vaults.forEach(vault => assertChartSeries(vault.chartData));
     });
   });

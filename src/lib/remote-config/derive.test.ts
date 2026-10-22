@@ -2,13 +2,15 @@ import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
 import { createPublicClient, getAddress, http, keccak256, toBytes } from 'viem';
 
 import {
+  AAVE_V3_LISTING,
   AAVE_V3_USDC,
   BASE_CHAIN_ID,
+  BASE_EARN_VAULTS,
   BASE_USDC,
   COMPOUND_V3_USDC,
   EULER_V2_USDC,
+  listingFor,
   MORPHO_UNIBTC_USDC,
-  MORPHO_USDC_COLLATERAL,
   poolsPage
 } from 'lib/epoch/testing/pools-fixtures';
 import { TEST_SWAP_PAIRS_RESPONSE } from 'lib/miden/swap/testing/registry';
@@ -48,6 +50,13 @@ jest.mock('viem', () => ({
 
 const NOW = 1_800_000_000_000;
 const RPC = 'https://rpc.testnet.miden.io';
+// The testnet document's one Earn vault: the dummy lender's market of the Sepolia USDC.
+const DUMMY_VAULT = listingFor(
+  { marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+  'dummy-lending-sepolia-usdc',
+  'Dummy Lending USDC',
+  { protocol: 'dummy-lending' }
+);
 const TESTNET: BridgeConfig = {
   network: 'testnet',
   version: 1,
@@ -80,7 +89,8 @@ const TESTNET: BridgeConfig = {
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true },
+  earn: { vaults: [DUMMY_VAULT] }
 };
 const ETH: BridgeToken = {
   midenFaucetId: '0x0b372f2735e33e91216d995bf29b91',
@@ -625,7 +635,7 @@ describe('the Earn market', () => {
   });
 
   it.each([
-    ['a lender key the wallet does not support', [item(11155111, [], 'EULER_V2')]],
+    ['a lender the document does not list', [item(11155111, [], 'EULER_V2')]],
     ['the protocol name in place of its lender key', [item(11155111, [], 'dummy-lending')]],
     ['a lender only on a chain no Epoch route names', [item(84532)]],
     ['no item', []]
@@ -634,16 +644,29 @@ describe('the Earn market', () => {
     expect((await deriveBridgeConfig(withUsdcxChain, deps({ fetch }))).epoch.market).toEqual({ state: 'absent' });
   });
 
-  it('takes the protocol hash of the lender family from the positions fallback', async () => {
-    const fetch = servingPositions([item(11155111, [], 'AAVE_V3'), item(11155111)]);
-    expect((await deriveBridgeConfig(TESTNET, deps({ fetch }))).epoch.market).toEqual({
+  it('takes the first listed vault from the positions fallback, and hashes its listed protocol', async () => {
+    const aave = listingFor(
+      { marketUid: 'AAVE_V3:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+      'aave-v3-sepolia-usdc',
+      'Aave V3 USDC'
+    );
+    const fetch = servingPositions([item(11155111), item(11155111, [], 'AAVE_V3')]);
+    const listed: BridgeConfig = { ...TESTNET, earn: { vaults: [aave, DUMMY_VAULT] } };
+    expect((await deriveBridgeConfig(listed, deps({ fetch }))).epoch.market).toEqual({
       state: 'ok',
       value: {
         ...SEPOLIA_MARKET,
         marketUid: 'AAVE_V3:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-        protocolHash: keccak256(toBytes('aave-v3'))
+        protocolHash: keccak256(toBytes('1delta'))
       }
     });
+  });
+
+  it('skips the market, with no request, while the document lists no vault on an Epoch route', async () => {
+    const fetch = servingPositions([item(11155111)]);
+    const { earn: _earn, ...unlisted } = TESTNET;
+    expect((await deriveBridgeConfig(unlisted, deps({ fetch }))).epoch.market).toEqual({ state: 'skipped' });
+    expect(fetch).not.toHaveBeenCalledWith(SEPOLIA_CATALOG_URL, expect.anything());
   });
 
   it("builds the uid from the lender and the route, whatever form a listed position's uid has", async () => {
@@ -686,7 +709,8 @@ describe('the Earn market from /pools', () => {
           }
         }
       }
-    }
+    },
+    earn: { vaults: [...BASE_EARN_VAULTS] }
   };
   // Answers `/pools` with `pools` and every other route as the health map does; the positions fallback is not in it.
   const servingPools = (pools: () => JsonResponse) =>
@@ -695,15 +719,15 @@ describe('the Earn market from /pools', () => {
       return url in HEALTH ? answer(HEALTH[url]) : answer(null, false);
     });
 
-  it('takes the vault with the highest total APR on the route chain', async () => {
+  it('takes the first listed vault that takes a deposit, whatever its rate', async () => {
     const fetch = servingPools(() =>
-      answer(poolsPage([AAVE_V3_USDC, EULER_V2_USDC, COMPOUND_V3_USDC, MORPHO_UNIBTC_USDC, MORPHO_USDC_COLLATERAL]))
+      answer(poolsPage([MORPHO_UNIBTC_USDC, EULER_V2_USDC, COMPOUND_V3_USDC, AAVE_V3_USDC]))
     );
     expect((await deriveBridgeConfig(onBase, deps({ fetch }))).epoch.market).toEqual({
       state: 'ok',
       value: {
-        marketUid: `${MORPHO_UNIBTC_USDC.lenderKey}:8453:${BASE_USDC.toLowerCase()}`,
-        protocolHash: keccak256(toBytes('morpho-blue')),
+        marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}`,
+        protocolHash: keccak256(toBytes('1delta')),
         underlying: BASE_USDC,
         chainId: BASE_CHAIN_ID
       }
@@ -718,28 +742,40 @@ describe('the Earn market from /pools', () => {
     expect(fetch.mock.calls.some(([requested]) => requested.includes('/positions?'))).toBe(false);
   });
 
-  it('passes over a vault that takes no deposit', async () => {
-    const frozen = { ...MORPHO_UNIBTC_USDC, flags: { ...MORPHO_UNIBTC_USDC.flags, isFrozen: true } };
-    const fetch = servingPools(() => answer(poolsPage([frozen, AAVE_V3_USDC, COMPOUND_V3_USDC])));
+  it('passes over a vault the catalogue does not open', async () => {
+    const frozen = { ...AAVE_V3_USDC, flags: { ...AAVE_V3_USDC.flags, isFrozen: true } };
+    const fetch = servingPools(() => answer(poolsPage([frozen, MORPHO_UNIBTC_USDC, COMPOUND_V3_USDC])));
     expect((await deriveBridgeConfig(onBase, deps({ fetch }))).epoch.market).toMatchObject({
       state: 'ok',
       value: {
         marketUid: `COMPOUND_V3_USDC:8453:${BASE_USDC.toLowerCase()}`,
-        protocolHash: keccak256(toBytes('compound-v3'))
+        protocolHash: keccak256(toBytes('1delta'))
       }
     });
   });
 
-  it('takes the best vault when none takes a deposit', async () => {
-    const closed = (pool: typeof AAVE_V3_USDC) => ({ ...pool, flags: { ...pool.flags, depositsEnabled: false } });
-    const fetch = servingPools(() => answer(poolsPage([closed(AAVE_V3_USDC), closed(COMPOUND_V3_USDC)])));
-    expect((await deriveBridgeConfig(onBase, deps({ fetch }))).epoch.market).toMatchObject({
+  it('passes over a vault whose deposits the document stops', async () => {
+    const stopped: BridgeConfig = {
+      ...onBase,
+      earn: { vaults: [{ ...AAVE_V3_LISTING, depositsEnabled: false }, ...BASE_EARN_VAULTS.slice(1)] }
+    };
+    const fetch = servingPools(() => answer(poolsPage([AAVE_V3_USDC, COMPOUND_V3_USDC])));
+    expect((await deriveBridgeConfig(stopped, deps({ fetch }))).epoch.market).toMatchObject({
       state: 'ok',
       value: { marketUid: `COMPOUND_V3_USDC:8453:${BASE_USDC.toLowerCase()}` }
     });
   });
 
-  it('reads a catalogue of no supported vault as no market', async () => {
+  it('takes the first listed vault the catalogue serves when none takes a deposit', async () => {
+    const closed = (pool: typeof AAVE_V3_USDC) => ({ ...pool, flags: { ...pool.flags, depositsEnabled: false } });
+    const fetch = servingPools(() => answer(poolsPage([closed(COMPOUND_V3_USDC), closed(AAVE_V3_USDC)])));
+    expect((await deriveBridgeConfig(onBase, deps({ fetch }))).epoch.market).toMatchObject({
+      state: 'ok',
+      value: { marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` }
+    });
+  });
+
+  it('reads a catalogue that serves no listed vault as no market', async () => {
     const fetch = servingPools(() => answer(poolsPage([EULER_V2_USDC])));
     expect((await deriveBridgeConfig(onBase, deps({ fetch }))).epoch.market).toEqual({ state: 'absent' });
   });

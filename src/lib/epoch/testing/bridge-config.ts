@@ -2,7 +2,7 @@ import { TEST_SWAP_PAIRS, TEST_SWAP_SECTION } from 'lib/miden/swap/testing/regis
 import type { DerivedBridgeConfig, DerivedChainConfig } from 'lib/remote-config/derive';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import type { BridgeConfig } from 'lib/remote-config/schema';
+import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
 import type { SwapPairs } from 'lib/remote-config/swap-pairs';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
 import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
@@ -23,6 +23,15 @@ export const TEST_EARN_MARKET: EarnMarket = {
   underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
   chainId: TEST_EVM_CHAIN_ID
 };
+/** The testnet document's one Earn vault, as the parser keeps it: the dummy lender's market of the test USDC. */
+export const TEST_EARN_VAULT: EarnVaultConfig = {
+  id: 'dummy-lending-sepolia-usdc',
+  marketUid: TEST_EARN_MARKET.marketUid.toLowerCase(),
+  name: 'Dummy Lending USDC',
+  protocol: 'dummy-lending',
+  depositsEnabled: true
+};
+export const TEST_EARN_VAULTS: readonly EarnVaultConfig[] = [TEST_EARN_VAULT];
 export const TEST_MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
 export const TEST_MIDEN_USDC: MidenUsdc = { faucetId: TEST_MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
 /** The testnet bridge registry's native-ETH faucet: it mints bridged ETH and sends its deliveries. */
@@ -48,13 +57,14 @@ export function remoteConfigValuesMock() {
     findEvmUsdc: jest.fn((): EvmUsdc | null => TEST_EVM_USDC),
     findEpochUsdcAddress: jest.fn((): string | null => TEST_EVM_USDC.address),
     getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
+    getEarnVaults: jest.fn((): readonly EarnVaultConfig[] => TEST_EARN_VAULTS),
     getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)
   };
 }
 
 const circleTestConfig = testBridgeSnapshot().config;
 
-/** The testnet document naming the fixtures above, and the swap solver (`TEST_SWAP_SECTION`). */
+/** The testnet document naming the fixtures above, its Earn vault, and the swap solver (`TEST_SWAP_SECTION`). */
 export const TEST_BRIDGE_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
@@ -84,6 +94,7 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
     }
   },
   features: { earn: true },
+  earn: { vaults: [...TEST_EARN_VAULTS] },
   swap: TEST_SWAP_SECTION
 };
 

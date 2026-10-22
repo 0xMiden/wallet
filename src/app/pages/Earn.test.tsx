@@ -22,7 +22,7 @@ jest.mock('screens/earn-flow/components', () => ({
   EarnAssetMark: ({ asset, network }: { asset: string; network: string }) => (
     <span data-testid="earn-asset-mark" data-asset={asset} data-network={network} />
   ),
-  earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+  earnSubjectTitle: ({ name, protocol }: { name?: string; protocol: string }) => name ?? protocol,
   EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
     `${subject.asset} on ${subject.network}`
 }));
@@ -338,7 +338,7 @@ describe('Earn page', () => {
     expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-ink');
 
     const vaultRow = within(vaultsSection()).getAllByRole('button')[0]!;
-    expect(within(vaultRow).getByText(vaults[0]!.protocol)).toHaveClass('text-ink');
+    expect(within(vaultRow).getByText(vaults[0]!.name ?? '')).toHaveClass('text-ink');
   });
 
   it('navigates to a position detail when its card is tapped', () => {
@@ -391,19 +391,46 @@ describe('Earn page', () => {
     expect(within(firstRow).getByTestId('provider-logo')).toHaveAttribute('data-protocol', first.protocol);
   });
 
-  it('names each Morpho market on its row, so two Morpho USDC vaults on one chain read differently', () => {
+  it("titles each row with the document's name, so two Morpho USDC vaults on one chain read differently", () => {
     render(<Earn />);
 
     const [first, second] = vaults;
     expect(first!.protocol).toBe(second!.protocol);
     const firstRow = screen.getByTestId(`earn-vault-row-${first!.id}`);
     const secondRow = screen.getByTestId(`earn-vault-row-${second!.id}`);
-    expect(within(firstRow).getByText(first!.protocol)).toHaveClass('text-row-title');
-    expect(
-      within(firstRow).getByText(`earnMarketAssetOnNetwork:${first!.marketName},${first!.asset},${first!.network}`)
-    ).toHaveClass('text-caption', 'text-muted', 'truncate');
-    expect(secondRow).toHaveTextContent(`earnMarketAssetOnNetwork:${second!.marketName}`);
+    expect(within(firstRow).getByText(first!.name ?? '')).toHaveClass('text-row-title');
+    expect(within(secondRow).getByText(second!.name ?? '')).toHaveClass('text-row-title');
+    expect(within(firstRow).getByText(`earnVaultAssetOnNetwork:${first!.asset},${first!.network}`)).toHaveClass(
+      'text-caption',
+      'text-muted',
+      'truncate'
+    );
     expect(firstRow.textContent).not.toBe(secondRow.textContent);
+  });
+
+  it("puts the document's about sentence under the name, and nothing for a vault with none", () => {
+    render(<Earn />);
+
+    const compound = vaults.find(vault => vault.listedAbout);
+    expect(compound).toBeDefined();
+    expect(screen.getByTestId(`earn-vault-row-about-${compound!.id}`)).toHaveTextContent(compound!.listedAbout ?? '');
+    expect(screen.queryByTestId(`earn-vault-row-about-${vaults[0]!.id}`)).toBeNull();
+  });
+
+  it('names a market with no document name by its protocol, and its market name beside the asset', () => {
+    const { name: _name, ...unnamed } = vaults[0]!;
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions,
+      vaults: [{ ...unnamed, marketName: 'Morpho uniBTC-USDC 77' }],
+      refetch: jest.fn(),
+      isLoading: false
+    });
+    render(<Earn />);
+
+    const row = screen.getByTestId(`earn-vault-row-${unnamed.id}`);
+    expect(within(row).getByText('Morpho')).toHaveClass('text-row-title');
+    expect(row).toHaveTextContent('earnMarketAssetOnNetwork:Morpho uniBTC-USDC 77,USDC,Base');
   });
 
   it('lists the vaults in the order the hook gives them', () => {
@@ -457,7 +484,5 @@ it('lists the Testnet native funding asset while keeping the vault underlying se
   const row = screen.getByTestId(`earn-vault-row-${vault.id}`);
   expect(row).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
   expect(row).not.toHaveTextContent(`earnVaultAssetOnNetwork:${vault.asset},${vault.network}`);
-  expect(screen.getByTestId(`earn-vault-row-${morpho.id}`)).toHaveTextContent(
-    `earnMarketAssetOnNetwork:${morpho.marketName},USDCx,Miden`
-  );
+  expect(screen.getByTestId(`earn-vault-row-${morpho.id}`)).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
 });

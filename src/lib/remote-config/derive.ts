@@ -9,7 +9,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
-import { earnMarketForVault, readEarnVaults } from 'lib/epoch/pools-read';
+import { earnMarketForVault, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -507,28 +507,37 @@ async function probeDepositTokens(
   });
 }
 
-// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market. The vault
-// catalogue (`/pools`, else the zero account's positions on a host with no `/pools` route) of each route is read. The
-// first route in document order decides: its failed read is the probe's error, and its best vault is the market (the
-// highest `aprTotal` of the vaults that take a deposit, else the highest of all). A route with no vault passes to the
-// next one.
+// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market, and only a
+// market the document lists (`earn.vaults`). The vault catalogue (`/pools`, else the zero account's positions on a
+// host with no `/pools` route) of each route the list names is read; a route it does not name is not read. The first
+// such route in document order decides: its failed read is the probe's error, and its market is the first listed
+// vault, in the list's order, that the document keeps open and the catalogue opens, else the first listed vault the
+// catalogue serves. A route whose listed vaults the catalogue does not serve passes to the next one.
 async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise<Probe<EarnMarket>> {
   const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
+  const listed = config.earn?.vaults ?? [];
   const routes = Object.values(config.supportedEvmChains).flatMap(chain => {
     const usdc = chain.bridges.epoch?.tokens.USDC?.contractAddress;
     return usdc ? [{ chainId: chain.chainId, usdc: getAddress(usdc) }] : [];
   });
-  if (!positionsUrl || routes.length === 0) return { state: 'skipped' };
+  const listedRoutes = routes.filter(route =>
+    listed.some(vault => vault.marketUid.endsWith(`:${route.chainId}:${route.usdc.toLowerCase()}`))
+  );
+  if (!positionsUrl || listedRoutes.length === 0) return { state: 'skipped' };
   return attempt(async () => {
     const reads = await Promise.allSettled(
-      routes.map(route =>
-        readEarnVaults(io.fetch, { positionsUrl, chainId: route.chainId, underlying: route.usdc }, HEALTH_TIMEOUT_MS)
+      listedRoutes.map(route =>
+        readEarnVaults(
+          io.fetch,
+          { positionsUrl, chainId: route.chainId, underlying: route.usdc, listed },
+          HEALTH_TIMEOUT_MS
+        )
       )
     );
     for (const read of reads) {
       if (read.status === 'rejected') throw read.reason;
       const { vaults } = read.value;
-      const best = vaults.find(vault => vault.canOpen) ?? vaults[0];
+      const best = vaults.find(earnVaultTakesDeposits) ?? vaults[0];
       if (best) return earnMarketForVault(best);
     }
     throw new NotDeployedError('Epoch has no supported USDC market');

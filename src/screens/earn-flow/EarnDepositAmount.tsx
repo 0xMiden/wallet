@@ -135,7 +135,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
               vault that accepts no deposits now. */}
           {earnDeposit.state !== 'unavailable' &&
             (vault.canOpen === false ? (
-              <EarnVaultClosedNotice canOpen={vault.canOpen} className="mx-4 mt-4 w-auto shrink-0" />
+              <EarnVaultClosedNotice
+                canOpen={vault.canOpen}
+                depositsEnabled={vault.depositsEnabled}
+                className="mx-4 mt-4 w-auto shrink-0"
+              />
             ) : (
               <EarnCollateralNotice
                 reason={earnCollateral.state === 'resolved' ? null : earnCollateral.state}

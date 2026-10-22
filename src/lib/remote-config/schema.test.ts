@@ -1,27 +1,28 @@
 import { keccak256, toBytes } from 'viem';
 
-import { EARN_LENDER_FAMILIES, EARN_PROTOCOL_STRINGS, parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import { EARN_VAULT_PROTOCOLS, parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
 import testnet from './testing/testnet.json';
 
-describe('EARN_PROTOCOL_STRINGS', () => {
-  it('names one protocol string per lender family', () => {
-    expect(EARN_PROTOCOL_STRINGS).toEqual({
-      DUMMY_LENDING: 'dummy-lending',
-      AAVE_V3: 'aave-v3',
-      COMPOUND_V3: 'compound-v3',
-      MORPHO_BLUE: 'morpho-blue'
-    });
-    expect(Object.keys(EARN_PROTOCOL_STRINGS).sort()).toEqual([...EARN_LENDER_FAMILIES].sort());
+describe('EARN_VAULT_PROTOCOLS', () => {
+  it('names the protocol strings a vault can list', () => {
+    expect(EARN_VAULT_PROTOCOLS).toEqual(['1delta', 'dummy-lending']);
   });
 
   it('keeps the hash the testnet deposits use for the dummy lender', () => {
-    expect(keccak256(toBytes(EARN_PROTOCOL_STRINGS.DUMMY_LENDING))).toBe(
+    expect(keccak256(toBytes('dummy-lending'))).toBe(
       '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9'
     );
   });
 });
 
 type ConfigValue = Parameters<typeof parseBridgeConfig>[0];
+/** The testnet document's one Earn vault, as written: the dummy lender's market of the route's USDC. */
+const DUMMY_VAULT = {
+  id: 'dummy-lending-sepolia-usdc',
+  marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+  name: 'Dummy Lending USDC',
+  protocol: 'dummy-lending'
+};
 const doc = (overrides: Record<string, ConfigValue> = {}) => ({
   network: 'testnet',
   version: 1,
@@ -55,6 +56,7 @@ const doc = (overrides: Record<string, ConfigValue> = {}) => ({
     }
   },
   features: { earn: true },
+  earn: { vaults: [DUMMY_VAULT] },
   mainnetCountdown: { enabled: true, launchAt: '2026-10-26T00:00:00Z' },
   ...overrides
 });
@@ -553,6 +555,184 @@ it('reads a fraction of any length as the same instant', () => {
     parseBridgeConfig(withSection('mainnetCountdown', { launchAt }), 'testnet')?.mainnetCountdown;
   expect(at('2026-10-26T00:00:00.5Z')).toStrictEqual(at('2026-10-26T00:00:00.500Z'));
   expect(at('2026-10-26T00:00:00.5Z')?.launchAt).toBe(Date.UTC(2026, 9, 26, 0, 0, 0, 500));
+});
+
+describe('the Earn vaults', () => {
+  const SEPOLIA_USDC = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+  const withVaults = (vaults: ConfigValue) => doc({ earn: { vaults } });
+  const withVault = (fields: Record<string, ConfigValue>) => withVaults([{ ...DUMMY_VAULT, ...fields }]);
+  const without = (field: string) =>
+    withVaults([Object.fromEntries(Object.entries(DUMMY_VAULT).filter(([key]) => key !== field))]);
+  // A second Epoch-less chain, so a vault can name a listed chain that has no Epoch route.
+  const withArc = (vaults: ConfigValue) => {
+    const base = withVaults(vaults);
+    return {
+      ...base,
+      supportedEvmChains: { ...base.supportedEvmChains, 'arc-testnet': { chainId: 5042002, bridges: {} } }
+    };
+  };
+
+  it('keeps each vault in the document order, its uid in lowercase and its deposits on by default', () => {
+    const aave = {
+      id: 'aave-v3-sepolia-usdc',
+      marketUid: `AAVE_V3:11155111:${SEPOLIA_USDC}`,
+      name: 'Aave V3 USDC',
+      protocol: '1delta',
+      about: 'Lends USDC to Aave V3 borrowers.',
+      risk: 'medium',
+      depositsEnabled: false
+    };
+    expect(parseBridgeConfig(withVaults([DUMMY_VAULT, aave]), 'testnet')?.earn).toStrictEqual({
+      vaults: [
+        {
+          id: 'dummy-lending-sepolia-usdc',
+          marketUid: `dummy_lending:11155111:${SEPOLIA_USDC}`,
+          name: 'Dummy Lending USDC',
+          protocol: 'dummy-lending',
+          depositsEnabled: true
+        },
+        {
+          id: 'aave-v3-sepolia-usdc',
+          marketUid: `aave_v3:11155111:${SEPOLIA_USDC}`,
+          name: 'Aave V3 USDC',
+          protocol: '1delta',
+          about: 'Lends USDC to Aave V3 borrowers.',
+          risk: 'medium',
+          depositsEnabled: false
+        }
+      ]
+    });
+  });
+
+  it('parses the bundled testnet document with its vault', () => {
+    expect(parseBridgeConfig(testnet, 'testnet')?.earn?.vaults.map(vault => vault.id)).toEqual([
+      'dummy-lending-sepolia-usdc'
+    ]);
+  });
+
+  it.each([
+    ['a 64-character name', withVault({ name: 'n'.repeat(64) })],
+    ['a 200-character about', withVault({ about: 'a'.repeat(200) })],
+    ['a name with spaces at its ends, which no rule checks', withVault({ name: ' Dummy ' })],
+    ['a risk of low', withVault({ risk: 'low' })],
+    ['a risk of medium', withVault({ risk: 'medium' })],
+    ['a risk of high', withVault({ risk: 'high' })],
+    ['vaults that all stop deposits', withVault({ depositsEnabled: false })],
+    ['an unknown field', withVault({ logo: 'dummy.png' })]
+  ])('accepts %s', (_label, body) => {
+    expect(parseBridgeConfig(body, 'testnet')?.earn?.vaults).toHaveLength(1);
+  });
+
+  it('accepts as many vaults as the document lists', () => {
+    const vaults = Array.from({ length: 40 }, (_, i) => ({
+      ...DUMMY_VAULT,
+      id: `vault-${i}`,
+      marketUid: `LENDER_${i}:11155111:${SEPOLIA_USDC}`
+    }));
+    expect(parseBridgeConfig(withVaults(vaults), 'testnet')?.earn?.vaults).toHaveLength(40);
+  });
+
+  it('reads a vault on a route this build leaves out, as the config repo reads it', () => {
+    const base = doc();
+    const futureChain = {
+      chainId: 999999999,
+      bridges: {
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: { USDC: { contractAddress: '0x1111111111111111111111111111111111111111' } }
+        }
+      }
+    };
+    const body = {
+      ...base,
+      supportedEvmChains: { ...base.supportedEvmChains, 'future-chain': futureChain },
+      earn: {
+        vaults: [
+          DUMMY_VAULT,
+          { ...DUMMY_VAULT, id: 'future', marketUid: 'AAVE_V3:999999999:0x1111111111111111111111111111111111111111' }
+        ]
+      }
+    };
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed?.supportedEvmChains).not.toHaveProperty('future-chain');
+    expect(parsed?.earn?.vaults.map(vault => vault.id)).toEqual(['dummy-lending-sepolia-usdc', 'future']);
+  });
+
+  it('reads a vault on an Epoch route left out for want of provider values', () => {
+    const body = withSection('epoch', { allocatorUrl: undefined });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed?.supportedEvmChains.sepolia?.bridges).not.toHaveProperty('epoch');
+    expect(parsed?.earn?.vaults).toHaveLength(1);
+  });
+
+  it.each([
+    ['Earn on with no earn section', doc({ earn: undefined })],
+    ['Earn on with an empty vault list', withVaults([])],
+    ['Earn on with no vault list', doc({ earn: {} })],
+    ['an earn section with Earn off', doc({ features: { earn: false } })],
+    ['an earn section with no Earn switch', doc({ features: {} })],
+    ['an earn section that is not an object', doc({ earn: [DUMMY_VAULT] })],
+    ['a vault list that is not an array', withVaults({ dummy: DUMMY_VAULT })],
+    ['a vault that is not an object', withVaults(['dummy-lending-sepolia-usdc'])],
+    ['a vault with no id', without('id')],
+    ['an id with a capital letter', withVault({ id: 'Dummy-lending' })],
+    ['an id that starts with a digit', withVault({ id: '1-dummy' })],
+    ['an id that starts with a hyphen', withVault({ id: '-dummy' })],
+    ['an id with an underscore', withVault({ id: 'dummy_lending' })],
+    ['an empty id', withVault({ id: '' })],
+    ['a numeric id', withVault({ id: 7 })],
+    [
+      'two vaults with one id',
+      withVaults([DUMMY_VAULT, { ...DUMMY_VAULT, marketUid: `AAVE_V3:11155111:${SEPOLIA_USDC}` }])
+    ],
+    ['a vault with no market', without('marketUid')],
+    ['a market of two parts', withVault({ marketUid: `DUMMY_LENDING:${SEPOLIA_USDC}` })],
+    ['a market of four parts', withVault({ marketUid: `DUMMY_LENDING:11155111:${SEPOLIA_USDC}:1` })],
+    ['a lowercase lender key', withVault({ marketUid: `dummy_lending:11155111:${SEPOLIA_USDC}` })],
+    ['a lender key with a hyphen', withVault({ marketUid: `DUMMY-LENDING:11155111:${SEPOLIA_USDC}` })],
+    ['an empty lender key', withVault({ marketUid: `:11155111:${SEPOLIA_USDC}` })],
+    ['a chain id of zero', withVault({ marketUid: `DUMMY_LENDING:0:${SEPOLIA_USDC}` })],
+    ['a chain id with a leading zero', withVault({ marketUid: `DUMMY_LENDING:011155111:${SEPOLIA_USDC}` })],
+    ['a chain id that is not a number', withVault({ marketUid: `DUMMY_LENDING:sepolia:${SEPOLIA_USDC}` })],
+    ['a chain the document does not list', withVault({ marketUid: `DUMMY_LENDING:1:${SEPOLIA_USDC}` })],
+    [
+      'a listed chain with no Epoch route',
+      withArc([{ ...DUMMY_VAULT, marketUid: `DUMMY_LENDING:5042002:${SEPOLIA_USDC}` }])
+    ],
+    [
+      'a token other than the route USDC',
+      withVault({ marketUid: 'DUMMY_LENDING:11155111:0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' })
+    ],
+    [
+      'a checksummed token',
+      withVault({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })
+    ],
+    ['a token without 0x', withVault({ marketUid: `DUMMY_LENDING:11155111:${SEPOLIA_USDC.slice(2)}` })],
+    ['a numeric market', withVault({ marketUid: 11155111 })],
+    ['two vaults with one market', withVaults([DUMMY_VAULT, { ...DUMMY_VAULT, id: 'dummy-again' }])],
+    ['a vault with no name', without('name')],
+    ['an empty name', withVault({ name: '' })],
+    ['a 65-character name', withVault({ name: 'n'.repeat(65) })],
+    ['a numeric name', withVault({ name: 12 })],
+    ['a vault with no protocol', without('protocol')],
+    ['an unknown protocol', withVault({ protocol: 'aave-v3' })],
+    ['a protocol in capitals', withVault({ protocol: '1DELTA' })],
+    ['an empty about', withVault({ about: '' })],
+    ['a 201-character about', withVault({ about: 'a'.repeat(201) })],
+    ['a null about', withVault({ about: null })],
+    ['an unknown risk', withVault({ risk: 'extreme' })],
+    ['a risk in capitals', withVault({ risk: 'Low' })],
+    ['a deposits switch written as text', withVault({ depositsEnabled: 'false' })],
+    ['a null deposits switch', withVault({ depositsEnabled: null })]
+  ])('rejects a document with %s', (_label, body) => {
+    expect(parseBridgeConfig(body, 'testnet')).toBeNull();
+  });
+
+  it('accepts no earn section while Earn is off or absent', () => {
+    expect(parseBridgeConfig(doc({ features: { earn: false }, earn: undefined }), 'testnet')?.earn).toBeUndefined();
+    expect(parseBridgeConfig(doc({ features: {}, earn: undefined }), 'testnet')?.features.earn).toBe(false);
+  });
 });
 
 describe('the Guardian operators', () => {

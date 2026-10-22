@@ -1,4 +1,4 @@
-import { getEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
 
 import {
   carryForward,
@@ -9,8 +9,8 @@ import {
   fetchEarnPositions,
   getEarnDepositEvmAddresses
 } from './positions';
-import { TEST_EARN_MARKET, TEST_POSITIONS_URL } from './testing/bridge-config';
-import { AAVE_V3_USDC, poolsPage } from './testing/pools-fixtures';
+import { TEST_EARN_MARKET, TEST_EARN_VAULT, TEST_POSITIONS_URL } from './testing/bridge-config';
+import { AAVE_V3_USDC, listingFor, poolsPage } from './testing/pools-fixtures';
 
 jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
@@ -18,6 +18,16 @@ jest.mock('lib/remote-config/values', () =>
 jest.mock('lib/miden/repo', () => ({
   transactions: { filter: jest.fn() }
 }));
+
+// The document lists the Aave V3 market of the test route first, then the dummy lender's.
+const AAVE_LISTING = listingFor(
+  { marketUid: 'AAVE_V3:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+  'aave-v3-sepolia-usdc',
+  'Aave V3 USDC'
+);
+beforeEach(() => {
+  jest.mocked(getEarnVaults).mockReturnValue([AAVE_LISTING, TEST_EARN_VAULT]);
+});
 
 const OWNER = '0x1111111111111111111111111111111111111111';
 const OTHER_OWNER = '0x2222222222222222222222222222222222222222';
@@ -258,9 +268,12 @@ describe('fetchEarnPositions', () => {
         underlying: { address: SEPOLIA_USDC, symbol: 'USDC', decimals: 18 },
         depositApr: 2,
         aprTotal: 2,
-        canOpen: true
+        canOpen: true,
+        listing: TEST_EARN_VAULT
       }
     ]);
+    // The listed Aave market the fallback does not serve is reported, so an earlier read's copy is kept.
+    expect(result.droppedVaultKeys).toEqual([AAVE_UID.toLowerCase()]);
     expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, marketUid: DUMMY_UID })]);
   });
 
@@ -311,7 +324,8 @@ describe('fetchEarnPositions', () => {
     serve({ pools: () => answer(poolsPage([null, sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])) });
     const unkeyed = await fetchEarnPositions({ owners: [] });
     expect(unkeyed.vaultDroppedUnkeyed).toBe(true);
-    expect(unkeyed.droppedVaultKeys).toBeUndefined();
+    // No item served the listed Aave market.
+    expect(unkeyed.droppedVaultKeys).toEqual([AAVE_UID.toLowerCase()]);
 
     serve();
     const clean = await fetchEarnPositions({ owners: [] });
@@ -429,7 +443,12 @@ describe('carryForward', () => {
     underlying: { address: SEPOLIA_USDC, symbol: 'USDC', decimals: 18 },
     depositApr: aprTotal,
     aprTotal,
-    canOpen: true
+    canOpen: true,
+    listing: listingFor(
+      { marketUid: `${lenderKey}:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69` },
+      lenderKey.toLowerCase().replaceAll('_', '-'),
+      lenderKey
+    )
   });
   const uid = (lenderKey: string) => vault(lenderKey).marketUid.toLowerCase();
   const read = (over: Partial<EarnPositionsResult>): EarnPositionsResult => ({
@@ -465,7 +484,7 @@ describe('carryForward', () => {
     expect(carried.errors).toBe(next.errors);
   });
 
-  it('brings back every vault shown before when the catalogue read failed, highest total APR first', () => {
+  it('brings back every vault shown before when the catalogue read failed, in their earlier order', () => {
     const previous = read({
       positions: [position(OWNER, 5)],
       vaults: [vault('MORPHO_BLUE_A', 9), vault('MORPHO_BLUE_B', 3)],
@@ -513,10 +532,18 @@ describe('carryForward', () => {
       expect(carryForward(previous, failed).vaults).toEqual([first, second]);
     });
 
-    it('sorts a vault it brings back by total APR', () => {
+    it('puts a vault it brings back at its earlier place in the list', () => {
       const loadedThird = read({ vaults: [third], droppedVaultKeys: [uid('MORPHO_BLUE_A')] });
 
       expect(carryForward(previous, loadedThird).vaults).toEqual([first, third]);
+    });
+
+    it('keeps the list order, not the rate order', () => {
+      const [low, high] = [vault('MORPHO_BLUE_A', 1), vault('MORPHO_BLUE_B', 9)];
+      const before = read({ vaults: [low, high] });
+      const loadedHigh = read({ vaults: [high], droppedVaultKeys: [uid('MORPHO_BLUE_A')] });
+
+      expect(carryForward(before, loadedHigh).vaults).toEqual([low, high]);
     });
   });
 });

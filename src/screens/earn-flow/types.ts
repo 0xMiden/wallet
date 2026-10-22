@@ -30,7 +30,9 @@ export interface EarnPosition {
   withdrawable: string;
   decimals: number;
   protocol: string;
-  /** The name of the market when the protocol alone does not identify it, as on `EarnVault`. */
+  /** The document's name of this position's vault, when the document lists its market. */
+  name?: string;
+  /** The name of the market when neither the document nor the protocol identifies it. */
   marketName?: string;
   asset: string;
   network: string;
@@ -74,18 +76,24 @@ export type EarnRiskLevel = 'low' | 'medium' | 'high';
 export interface EarnVault {
   /** Miden funding asset shown by the listing; `asset` remains the EVM underlying. */
   fundingAsset?: string;
-  /** The slug of the market uid (`marketSlug`). Each market is one vault, so two markets of one lender have two ids. */
+  /** The id the document lists the vault under (`earn.vaults[].id`). Unset (empty) on the placeholder vault. */
   id: string;
-  /** The name of the lender family ("Aave V3", "Morpho"). */
+  /** The document's name of the vault, shown as written in every language. Unset on the placeholder vault. */
+  name?: string;
+  /** The name of the lender family ("Aave V3", "Morpho"), or the lender's own name outside the known families. */
   protocol: string;
-  /**
-   * The name of this market, set only when the protocol alone does not identify it. Morpho Blue has many USDC
-   * markets on one chain, so a Morpho vault shows its lender name ("Morpho uniBTC-USDC 77").
-   */
+  /** The name of this market, when neither the document nor the protocol identifies it. */
   marketName?: string;
-  /** False when the market does not accept deposits now. Unset on the placeholder vault. */
+  /** The document's `about` sentence, shown under the name. Unset when the document gives none. */
+  listedAbout?: string;
+  /**
+   * False when the vault does not take a deposit now: the catalogue does not open it, or the document stops its
+   * deposits. Unset on the placeholder vault.
+   */
   canOpen?: boolean;
-  /** The risk level when the service gives a known label. `risk` holds the text for any other label. */
+  /** False when the document stops new deposits into the vault (`depositsEnabled: false`). */
+  depositsEnabled?: boolean;
+  /** The risk level when the document or the service gives a known label. `risk` holds the text for any other. */
   riskLevel?: EarnRiskLevel;
   /** The vault as the lib read it. The deposit makes its market from this (`earnMarketForVault`). */
   info?: EarnVaultInfo;
@@ -97,6 +105,7 @@ export interface EarnVault {
   tvl: string;
   risk: string;
   audited: boolean;
+  /** The document's `about` when it sets one, else the catalogue's description, else the placeholder. */
   about: string;
   chartData: EarnChartPoint[];
 }

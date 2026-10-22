@@ -13,6 +13,7 @@ import { earnMarketForVault } from './pools-read';
 import { getEpochReadOnlySdk } from './sdk';
 import { TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
+import { AAVE_V3_LISTING } from './testing/pools-fixtures';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   CollateralType: { Miden: 'Miden' },
@@ -614,7 +615,8 @@ describe('openEarnPosition guards', () => {
       underlying: { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
       depositApr: 3.75,
       aprTotal: 5.2,
-      canOpen: true
+      canOpen: true,
+      listing: AAVE_V3_LISTING
     });
 
     await expect(openEarnPosition({ ...baseArgs(), market })).rejects.toThrow('stop');
@@ -625,7 +627,8 @@ describe('openEarnPosition guards', () => {
         intentData: expect.objectContaining({
           outputTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
           destinationChainId: '8453',
-          protocolHashIdentifier: keccak256(toBytes('aave-v3'))
+          // The protocol string the document lists the vault with.
+          protocolHashIdentifier: keccak256(toBytes('1delta'))
         }),
         extraData: expect.objectContaining({ marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' })
       })

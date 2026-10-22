@@ -20,6 +20,8 @@ import { EarnSummary } from './types';
 /** What the earn flow names a vault or a position by: the protocol as the title, and the asset and
  *  network on the line under it, which the mark beside them stands for. Both answer it. */
 export interface EarnSubject {
+  /** The document's name of the vault, when the document lists it. It takes the protocol's place as the title. */
+  name?: string;
   protocol: string;
   /** The market's own name, when the protocol alone does not identify the market (a Morpho market). */
   marketName?: string;
@@ -59,9 +61,10 @@ export const EarnAssetMark: FC<{
 };
 
 /** The title every page of the earn flow puts in its header, so a vault and a position are named
- *  the same way wherever the flow shows them: the protocol, over `EarnSubjectSubtitle`'s asset and
- *  network. Together at the title's size they wrapped to two lines beside the back and the mark. */
-export const earnSubjectTitle = (subject: EarnSubject): string => subject.protocol;
+ *  the same way wherever the flow shows them: the document's name of the vault (as written, never
+ *  translated), else the protocol, over `EarnSubjectSubtitle`'s asset and network. Together at the
+ *  title's size they wrapped to two lines beside the back and the mark. */
+export const earnSubjectTitle = (subject: EarnSubject): string => subject.name ?? subject.protocol;
 
 /**
  * The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". A subject with a market name puts
@@ -81,12 +84,17 @@ export const EarnSubjectSubtitle: FC<{ subject: EarnSubject }> = ({ subject }) =
 };
 
 /**
- * Tells the user that a vault does not accept deposits now, on the pages whose Deposit or Continue it disables.
- * It shows nothing while the vault is open or not yet known.
+ * Tells the user that a vault does not accept deposits now, on the pages whose Deposit or Continue it disables:
+ * the wallet has stopped its deposits (`depositsEnabled` false), or the market does not open them. It shows nothing
+ * while the vault is open or not yet known.
  */
-export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; className?: string }> = ({ canOpen, className }) => {
+export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; depositsEnabled?: boolean; className?: string }> = ({
+  canOpen,
+  depositsEnabled,
+  className
+}) => {
   const { t } = useTranslation();
-  if (canOpen !== false) return null;
+  if (canOpen !== false && depositsEnabled !== false) return null;
   return (
     <Notice
       tone="warning"
@@ -95,7 +103,7 @@ export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; className?: string }
       className={className}
       data-testid="earn-vault-closed-notice"
     >
-      {t('earnVaultClosedBody')}
+      {depositsEnabled === false ? t('earnVaultDepositsPausedBody') : t('earnVaultClosedBody')}
     </Notice>
   );
 };

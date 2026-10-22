@@ -7,7 +7,7 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
 import { EARN_CATALOG_ERROR_OWNER, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import type { BridgeConfig } from 'lib/remote-config/schema';
+import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
 
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -29,6 +29,7 @@ jest.mock('lib/epoch', () => {
     EARN_CATALOG_ERROR_OWNER: positions.EARN_CATALOG_ERROR_OWNER,
     EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
     earnLenderFamily: pools.earnLenderFamily,
+    earnVaultTakesDeposits: pools.earnVaultTakesDeposits,
     fetchEarnPositions: jest.fn(),
     getEarnDepositEvmAddresses: jest.fn()
   };
@@ -55,12 +56,21 @@ jest.mock('lib/remote-config/values', () => {
 
 const POSITIONS_URL = 'https://positions.test';
 const MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+// The document's entry for the market of the fixtures below.
+const LISTING: EarnVaultConfig = {
+  id: 'dummy-lending-sepolia-usdc',
+  marketUid: 'dummy_lending:11155111:0xasset',
+  name: 'Dummy Lending USDC',
+  protocol: 'dummy-lending',
+  depositsEnabled: true
+};
 const READY_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
   'bridge-providers': { epoch: { positionsUrl: POSITIONS_URL }, agglayer: {}, usdcx: {} },
   supportedEvmChains: {},
-  features: { earn: true }
+  features: { earn: true },
+  earn: { vaults: [LISTING] }
 };
 const READY: BridgeConfigSnapshot = {
   network: 'testnet',
@@ -145,7 +155,8 @@ const vault: EarnVaultInfo = {
   underlying: { address: '0xasset', symbol: 'USDC', decimals: 6 },
   depositApr: 5,
   aprTotal: 5,
-  canOpen: true
+  canOpen: true,
+  listing: LISTING
 };
 
 const liveResult: EarnPositionsResult = {
@@ -178,7 +189,8 @@ describe('useEarnPositions', () => {
       amount: '$10.00'
     });
     expect(result.current.vaults[0]).toMatchObject({
-      id: 'dummy-lending-11155111-0xasset',
+      id: 'dummy-lending-sepolia-usdc',
+      name: 'Dummy Lending USDC',
       protocol: 'Dummy Lending',
       fundingAsset: 'USDCx',
       apy: '5.00%',
@@ -193,6 +205,33 @@ describe('useEarnPositions', () => {
     });
     expect(result.current.error).toBe('owner unavailable');
     expect(result.current.isLoading).toBe(false);
+  });
+
+  it('shows the vaults the current document lists, in its order and under its entry, and no other', () => {
+    const other: EarnVaultInfo = {
+      ...vault,
+      marketUid: 'AAVE_V3:11155111:0xasset',
+      lenderKey: 'AAVE_V3',
+      lenderFamily: 'AAVE_V3',
+      listing: { ...LISTING, id: 'aave-v3-sepolia-usdc', marketUid: 'aave_v3:11155111:0xasset', name: 'Aave' }
+    };
+    const unlisted: EarnVaultInfo = { ...vault, marketUid: 'EULER_V2:11155111:0xasset', lenderKey: 'EULER_V2' };
+    const renamed = { ...LISTING, name: 'Dummy Lending (renamed)' };
+    mockConfigSnapshot = {
+      ...READY,
+      config: { ...READY_CONFIG, earn: { vaults: [other.listing, renamed] } }
+    };
+    mockUseRetryableSWR.mockReturnValue({
+      data: { ...liveResult, vaults: [vault, unlisted, other] },
+      isLoading: false
+    });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.vaults.map(item => [item.id, item.name])).toEqual([
+      ['aave-v3-sepolia-usdc', 'Aave'],
+      ['dummy-lending-sepolia-usdc', 'Dummy Lending (renamed)']
+    ]);
   });
 
   it('reports a per-owner positions error as error only, never as a request failure', () => {

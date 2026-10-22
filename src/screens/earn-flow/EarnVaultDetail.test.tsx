@@ -111,7 +111,7 @@ jest.mock('./components', () => {
       label: string;
       meta?: React.ReactNode;
     }) => R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, value, ' ', label, ' ', meta),
-    earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+    earnSubjectTitle: ({ name, protocol }: { name?: string; protocol: string }) => name ?? protocol,
     EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
       `${subject.asset} on ${subject.network}`,
     // The token mark, which names the pair for assistive tech unless it is decorative, as the real one does.
@@ -127,8 +127,13 @@ jest.mock('./components', () => {
         decorative ? null : 'earnAssetOnNetwork'
       ),
     // The closed-vault notice: a probe that shows only for a vault that accepts no deposits, as the real one does.
-    EarnVaultClosedNotice: ({ canOpen }: { canOpen?: boolean }) =>
-      canOpen === false ? R.createElement('div', { 'data-testid': 'earn-vault-closed-notice' }) : null
+    EarnVaultClosedNotice: ({ canOpen, depositsEnabled }: { canOpen?: boolean; depositsEnabled?: boolean }) =>
+      canOpen === false || depositsEnabled === false
+        ? R.createElement('div', {
+            'data-testid': 'earn-vault-closed-notice',
+            'data-deposits-enabled': String(depositsEnabled !== false)
+          })
+        : null
   };
 });
 
@@ -262,6 +267,29 @@ jest.mock('./useEarnPositions', () => ({
         chartData: [
           { label: EARN_PLACEHOLDER, value: 5.9 },
           { label: EARN_PLACEHOLDER, value: 5.9 }
+        ]
+      },
+      // A vault the document names and whose deposits it stops, though the market itself is open.
+      {
+        id: 'aave-v3-base-usdc',
+        name: 'Aave V3 USDC',
+        protocol: 'Aave V3',
+        listedAbout: 'Lends USDC to Aave V3 borrowers on Base.',
+        asset: 'USDC',
+        network: 'Base',
+        apy: '5.12%',
+        aprPercent: 5.12,
+        apyChange24h: EARN_PLACEHOLDER,
+        tvl: '$412.3M',
+        risk: 'Low',
+        riskLevel: 'low',
+        canOpen: false,
+        depositsEnabled: false,
+        audited: false,
+        about: 'Lends USDC to Aave V3 borrowers on Base.',
+        chartData: [
+          { label: EARN_PLACEHOLDER, value: 5.12 },
+          { label: EARN_PLACEHOLDER, value: 5.12 }
         ]
       }
     ],
@@ -425,6 +453,22 @@ describe('EarnVaultDetail', () => {
 
     expect(screen.getByTestId('feature-unavailable-notice')).toBeInTheDocument();
     expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+  });
+
+  it("titles a listed vault with the document's name, and shows its about sentence", () => {
+    render(<EarnVaultDetail vaultId="aave-v3-base-usdc" />);
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave V3 USDC');
+    expect(screen.getByText('Lends USDC to Aave V3 borrowers on Base.')).toBeInTheDocument();
+  });
+
+  it('greys out Deposit and says why for a vault whose deposits the document stops', () => {
+    render(<EarnVaultDetail vaultId="aave-v3-base-usdc" />);
+
+    expect(screen.getByTestId('earn-vault-closed-notice')).toHaveAttribute('data-deposits-enabled', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('draws no closed-vault notice for an open vault', () => {

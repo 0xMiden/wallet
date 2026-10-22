@@ -1,7 +1,13 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { type EarnMarket, findEvmUsdc, getEarnMarket, getEpochPositionsUrl } from 'lib/remote-config/values';
+import {
+  type EarnMarket,
+  findEvmUsdc,
+  getEarnMarket,
+  getEarnVaults,
+  getEpochPositionsUrl
+} from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { type EarnVaultsResult, fetchEarnVaults } from './pools';
@@ -115,7 +121,10 @@ export const EARN_CATALOG_ERROR_OWNER = 'catalog';
 export interface EarnPositionsResult {
   /** Non-zero positions across every queried owner address that loaded. */
   positions: EarnPosition[];
-  /** The vault catalogue (`fetchEarnVaults`), highest `aprTotal` first. Empty when its read failed or was skipped. */
+  /**
+   * The listed vaults the catalogue serves (`fetchEarnVaults`), in the document's order. Empty when its read failed or
+   * was skipped.
+   */
   vaults: EarnVaultInfo[];
   /** Sum of `depositsUSD` across all positions. */
   totalDepositsUSD: number;
@@ -127,7 +136,7 @@ export interface EarnPositionsResult {
    * catalogue read is reported here too, under the owner EARN_CATALOG_ERROR_OWNER.
    */
   errors: { owner: string; error: string }[];
-  /** The lowercase market uid of each catalogue vault that could not be read and was dropped. */
+  /** The lowercase market uid of each listed vault that could not be read or is not served, and was dropped. */
   droppedVaultKeys?: string[];
   /** Set when a dropped catalogue item has no market uid, so no key names it. */
   vaultDroppedUnkeyed?: boolean;
@@ -156,9 +165,11 @@ export function carryForward(
   const carried = previous.vaults.filter(
     vault => !loaded.has(vaultKey(vault)) && (carryEveryVault || dropped.has(vaultKey(vault)))
   );
-  // A stable sort keeps the catalogue order: highest `aprTotal` first.
-  const vaults =
-    carried.length > 0 ? [...next.vaults, ...carried].sort((a, b) => b.aprTotal - a.aprTotal) : next.vaults;
+  // Both reads are in the document's order, so the earlier read's places put a vault it brings back where it was; a
+  // vault only `next` has keeps its place among the others after them. The screens order by the document anyway.
+  const rank = new Map(previous.vaults.map((vault, index) => [vaultKey(vault), index]));
+  const place = (vault: EarnVaultInfo): number => rank.get(vaultKey(vault)) ?? Number.MAX_SAFE_INTEGER;
+  const vaults = carried.length > 0 ? [...next.vaults, ...carried].sort((a, b) => place(a) - place(b)) : next.vaults;
   return { ...next, positions, vaults, totalDepositsUSD: positions.reduce((sum, p) => sum + p.depositsUSD, 0) };
 }
 
@@ -232,13 +243,14 @@ function assertFieldTypes(strings: unknown[], numbers: unknown[]): void {
 }
 
 /**
- * True when `marketUid` names a market of a supported lender family on the default market's chain and token: the
- * markets the vault catalogue lists.
+ * True when `marketUid` names a market on the default market's chain and token that the document lists, or that is
+ * of a lender family the wallet names. The second keeps a position in a market the document has stopped listing in
+ * sight, so it can still be withdrawn.
  */
-function isRouteMarket(marketUid: string, market: EarnMarket): boolean {
+function isRouteMarket(marketUid: string, market: EarnMarket, listed: ReadonlySet<string>): boolean {
   const [lenderKey = '', chainId, token] = marketUid.split(':');
   return (
-    earnLenderFamily(lenderKey) !== undefined &&
+    (listed.has(marketUid.toLowerCase()) || earnLenderFamily(lenderKey) !== undefined) &&
     chainId === String(market.chainId) &&
     token?.toLowerCase() === market.underlying.toLowerCase()
   );
@@ -313,12 +325,12 @@ export interface FetchEarnPositionsArgs {
  * failed catalogue read is in `errors` under EARN_CATALOG_ERROR_OWNER.
  *
  * A position is kept when its market uid is in the catalogue. When no catalogue loaded (the read failed or was
- * skipped), a position is kept when its uid names a supported lender family on the default market's chain and token,
- * so a failed catalogue read never hides a position. It rejects only when the owner lookup fails or the bridge config
+ * skipped), a position is kept when its uid names a market on the default market's chain and token that the document
+ * lists or whose lender family the wallet names, so a failed catalogue read never hides a position. It rejects only when the owner lookup fails or the bridge config
  * names no positions host or Earn market, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const [positionsUrl, market] = [getEpochPositionsUrl(), getEarnMarket()];
+  const [positionsUrl, market, listed] = [getEpochPositionsUrl(), getEarnMarket(), getEarnVaults()];
   const chains = args.chains ?? [market.chainId];
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
@@ -329,6 +341,7 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
       positionsUrl,
       chainId: market.chainId,
       underlying: market.underlying,
+      listed,
       ...(usdc && usdc.chainId === market.chainId
         ? { fallbackUnderlying: { symbol: usdc.symbol, decimals: usdc.decimals } }
         : {})
@@ -340,8 +353,9 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   ]);
 
   const catalogUids = catalog && !catalog.error ? new Set(catalog.vaults.map(vaultKey)) : undefined;
+  const listedUids = new Set(listed.map(vault => vault.marketUid));
   const keeps = (marketUid: string): boolean =>
-    catalogUids ? catalogUids.has(marketUid.toLowerCase()) : isRouteMarket(marketUid, market);
+    catalogUids ? catalogUids.has(marketUid.toLowerCase()) : isRouteMarket(marketUid, market, listedUids);
 
   const positions: EarnPosition[] = [];
   const errors: { owner: string; error: string }[] = [];

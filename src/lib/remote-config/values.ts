@@ -5,7 +5,12 @@ import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import type { AgglayerDepositToken, BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
+import {
+  type AgglayerRecoveryConfig,
+  type EarnVaultConfig,
+  epochCollateralFaucetId,
+  type SupportedEvmChainConfig
+} from './schema';
 import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
@@ -92,6 +97,22 @@ export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsd
 /** Read the market returned by the Epoch positions service. */
 export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
   return okValue(s.derived?.epoch.market);
+}
+
+const NO_EARN_VAULTS: readonly EarnVaultConfig[] = [];
+
+/**
+ * The Earn vaults the document lists (`earn.vaults`), in picker order: the only markets the wallet offers, and the
+ * names it shows for them. Empty while no document is accepted, or when Earn is off.
+ */
+export function selectEarnVaults(s: BridgeConfigSnapshot): readonly EarnVaultConfig[] {
+  return s.config?.earn?.vaults ?? NO_EARN_VAULTS;
+}
+
+/** The listed Earn vault of `marketUid` (in any case), or null when the document lists none for it. */
+export function selectEarnVault(s: BridgeConfigSnapshot, marketUid: string): EarnVaultConfig | null {
+  const key = marketUid.toLowerCase();
+  return selectEarnVaults(s).find(vault => vault.marketUid === key) ?? null;
 }
 
 /**
@@ -236,6 +257,11 @@ export function findEpochUsdcAddress(chainId: number): string | null {
 
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
+}
+
+/** This realm's `selectEarnVaults`: an empty list, never a throw, when the document lists none. */
+export function getEarnVaults(): readonly EarnVaultConfig[] {
+  return selectEarnVaults(getBridgeConfigSnapshot());
 }
 
 export function getAgglayerMidenBridge(chainId?: number): string {

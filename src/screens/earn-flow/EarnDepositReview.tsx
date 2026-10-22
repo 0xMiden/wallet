@@ -15,7 +15,7 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { earnCollateralFaucetId, earnMarketForVault, openEarnPosition } from 'lib/epoch';
+import { earnCollateralFaucetId, earnMarketForVault, earnVaultTakesDeposits, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
@@ -134,7 +134,13 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
     // The deposit goes to the market of the vault on this page, never to another configured market.
     const vaultInfo = found?.info;
-    if (amountBaseUnits === undefined || !collateral || !collateralMatches || !vaultInfo || !vaultInfo.canOpen) {
+    if (
+      amountBaseUnits === undefined ||
+      !collateral ||
+      !collateralMatches ||
+      !vaultInfo ||
+      !earnVaultTakesDeposits(vaultInfo)
+    ) {
       return;
     }
     if (authorization !== undefined && authorization.accountId !== account.publicKey) {
@@ -207,7 +213,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       setSubmitErrorId('earnNoEvmAddress');
       return;
     }
-    if (amountBaseUnits === undefined || !collateralMatches || !found?.info?.canOpen) {
+    if (amountBaseUnits === undefined || !collateralMatches || !found?.info || !earnVaultTakesDeposits(found.info)) {
       setSubmitError(t('earnFailedToOpenPosition'));
       setSubmitErrorId('earnFailedToOpenPosition');
       return;
@@ -285,7 +291,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             <>
               {/* One reason at a time: a vault that accepts no deposits now says that, not the collateral. */}
               {vault.canOpen === false ? (
-                <EarnVaultClosedNotice canOpen={vault.canOpen} />
+                <EarnVaultClosedNotice canOpen={vault.canOpen} depositsEnabled={vault.depositsEnabled} />
               ) : (
                 <EarnCollateralNotice reason={collateralReason} />
               )}

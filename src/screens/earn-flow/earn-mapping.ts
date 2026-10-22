@@ -3,9 +3,11 @@ import {
   earnLenderFamily,
   type EarnLenderFamily,
   type EarnPosition as LibEarnPosition,
-  type EarnVaultInfo
+  type EarnVaultInfo,
+  earnVaultTakesDeposits
 } from 'lib/epoch';
 import { formatUsd, usdFormatterFor } from 'lib/i18n/numbers';
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
 
 import type { EarnPosition, EarnRiskLevel, EarnSummary, EarnVault } from './types';
 
@@ -137,16 +139,22 @@ export function positionSlug(position: LibEarnPosition): string {
   return `${position.owner}-${position.chainId}-${position.marketUid}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
-export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
+/**
+ * The display position of one lending position. `listed` is the document's vault list (`selectEarnVaults`): a
+ * position in a listed market takes that vault's name and route id.
+ */
+export function mapEarnPosition(position: LibEarnPosition, listed: readonly EarnVaultConfig[] = []): EarnPosition {
   const network = networkName(position.chainId);
   const family = earnLenderFamily(position.lenderKey);
   const protocol = protocolName(family, position.lenderName);
-  const marketName = distinguishingMarketName(family, position.lenderName);
+  const listing = listed.find(vault => vault.marketUid === position.marketUid.toLowerCase());
+  // A listed market's name identifies it on its own.
+  const marketName = listing ? undefined : distinguishingMarketName(family, position.lenderName);
   const yearlyUsd = (position.depositsUSD * position.depositApr) / 100;
   return {
     id: positionSlug(position),
     // The vault of the same market, so "Deposit more" opens the market that holds this position.
-    vaultId: marketSlug(position.marketUid),
+    vaultId: listing?.id ?? marketSlug(position.marketUid),
     owner: position.owner,
     marketUid: position.marketUid,
     chainId: position.chainId,
@@ -154,6 +162,7 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
     withdrawable: position.withdrawable,
     decimals: position.decimals,
     protocol,
+    ...(listing ? { name: listing.name } : {}),
     ...(marketName ? { marketName } : {}),
     asset: position.symbol,
     network,
@@ -182,25 +191,29 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
 }
 
 /**
- * Deterministic URL-safe id of a vault: the slug of its market uid. The list screens put it raw into
+ * The URL-safe id of a vault: the id the document lists it under. The list screens put it raw into
  * `/earn/vaults/{id}`, and a position of the same market links to it (`EarnPosition.vaultId`).
  */
 export function vaultSlug(vault: EarnVaultInfo): string {
-  return marketSlug(vault.marketUid);
+  return vault.listing.id;
 }
 
 /**
- * The display vault of one market. The rate is `aprTotal` (base and rewards). `fundingAsset` is the Miden asset
+ * The display vault of one market, named as the document lists it: its `name`, and its `about` and `risk` in place
+ * of the catalogue's when it sets them. The rate is `aprTotal` (base and rewards). `fundingAsset` is the Miden asset
  * that funds a deposit (USDCx on testnet); `asset` stays the EVM underlying.
  */
 export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string): EarnVault {
-  const marketName = distinguishingMarketName(vault.lenderFamily, vault.lenderName);
-  const riskLevel = vault.risk ? riskLevelOf(vault.risk.label) : undefined;
-  const about = vault.about?.trim();
+  const { listing } = vault;
+  const riskLabel = listing.risk ?? vault.risk?.label;
+  const riskLevel = riskLabel === undefined ? undefined : riskLevelOf(riskLabel);
+  const listedAbout = listing.about?.trim();
+  const about = listedAbout || vault.about?.trim();
   return {
     id: vaultSlug(vault),
+    name: listing.name,
     protocol: protocolName(vault.lenderFamily, vault.lenderName),
-    ...(marketName ? { marketName } : {}),
+    ...(listedAbout ? { listedAbout } : {}),
     asset: vault.underlying.symbol,
     ...(fundingAsset ? { fundingAsset } : {}),
     network: networkName(vault.chainId),
@@ -208,11 +221,12 @@ export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string): EarnV
     aprPercent: vault.aprTotal,
     apyChange24h: EARN_PLACEHOLDER,
     tvl: vault.totalDepositsUsd === undefined ? EARN_PLACEHOLDER : formatUsdTotal(vault.totalDepositsUsd),
-    risk: riskText(vault.risk?.label),
+    risk: riskText(riskLabel),
     ...(riskLevel ? { riskLevel } : {}),
     audited: false,
     about: about || EARN_PLACEHOLDER,
-    canOpen: vault.canOpen,
+    canOpen: earnVaultTakesDeposits(vault),
+    depositsEnabled: listing.depositsEnabled,
     info: vault,
     // No APY history endpoint — flat, non-empty series keeps the chart defined.
     chartData: [

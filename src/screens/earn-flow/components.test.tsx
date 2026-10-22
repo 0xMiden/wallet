@@ -11,6 +11,7 @@ import {
   EarnFlowHeader,
   EarnHero,
   EarnSubjectSubtitle,
+  earnSubjectTitle,
   EarnVaultClosedNotice,
   MetricCard,
   EarnSummaryPanel
@@ -483,6 +484,11 @@ it('gives the native funding label its matching USDCx logo and Miden mark', () =
   expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
 });
 
+it("titles a subject with the document's name of its vault, else its protocol", () => {
+  expect(earnSubjectTitle({ ...VAULT, name: 'Aave V3 USDC', protocol: 'Aave V3' })).toBe('Aave V3 USDC');
+  expect(earnSubjectTitle({ ...VAULT, protocol: 'Aave V3' })).toBe('Aave V3');
+});
+
 it('puts the market name first for a subject that has one, so two markets of one protocol read differently', () => {
   mockTranslate.mockClear();
   render(<EarnSubjectSubtitle subject={{ ...VAULT, protocol: 'Morpho', marketName: 'Morpho uniBTC-USDC 77' }} />);
@@ -503,6 +509,15 @@ describe('EarnVaultClosedNotice', () => {
     expect(notice).toHaveClass('mx-4');
     expect(notice).toHaveTextContent('earnVaultClosedTitle');
     expect(notice).toHaveTextContent('earnVaultClosedBody');
+  });
+
+  it('says that the wallet has paused deposits into a vault whose deposits the document stops', () => {
+    render(<EarnVaultClosedNotice canOpen={false} depositsEnabled={false} />);
+
+    const notice = screen.getByTestId('earn-vault-closed-notice');
+    expect(notice).toHaveTextContent('earnVaultClosedTitle');
+    expect(notice).toHaveTextContent('earnVaultDepositsPausedBody');
+    expect(notice).not.toHaveTextContent('earnVaultClosedBody');
   });
 
   it.each([

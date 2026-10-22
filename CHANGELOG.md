@@ -12,6 +12,8 @@
 
 ### Changes
 
+- [CHANGE][all] The wallet-config document's `earn.vaults` list decides which Earn vaults the wallet offers, in which order, under which name, with which protocol hash, and whether each takes deposits (a stopped vault shows a disabled Deposit and a notice); the compiled lender allowlist and protocol strings are gone, a document with Earn on must list at least one vault on an Epoch route, and a deposit's market label uses the listed name.
+- [CHANGE][all] Earn spends the native USDCx on every network, no longer the document's Epoch output faucet off testnet, and a deposit's market reads as its lender family with a shortened Morpho market id ("Morpho d752…6e41d") in the progress pill, the receipt and the history details, clipped rather than overflowing.
 - [CHANGE][all] Earn lists its vaults from the Epoch positions service's `/pools` catalogue, one entry per market, limited for now to USDC markets of Aave V3, Compound V3 and Morpho Blue, with each vault's total rate, deposits and risk; a deposit opens the chosen vault's market, two Morpho markets on one chain are told apart by name, and a vault whose pool refuses deposits says so. A host without `/pools` (testnet) keeps the former lender catalogue.
 - [CHANGE][all] The wallet uses the Epoch intents SDK's mainnet release (1.0.40-mainnet.0), which reports an intent leg's transaction hash as null until the chain records it, and one viem (2.57.10) shared with that SDK; wagmi moves to 3.7.9, the release that builds against that viem.
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.

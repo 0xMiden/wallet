@@ -45,6 +45,16 @@
     "bridgeIn": true,
     "bridgeOut": true
   },
+  "earn": {
+    "vaults": [
+      {
+        "id": "dummy-lending-sepolia-usdc",
+        "marketUid": "DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69",
+        "name": "Dummy Lending USDC",
+        "protocol": "dummy-lending"
+      }
+    ]
+  },
   "bridge-providers": {
     "epoch": {
       "allocatorUrl": "https://testnet-dev.epochprotocol.xyz",

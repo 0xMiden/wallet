@@ -1,21 +1,48 @@
 import { keccak256, toBytes } from 'viem';
 
-import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily, earnMarketForVault, fetchEarnVaults } from './pools';
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
+
+import {
+  EARN_LENDER_FAMILY_NAMES,
+  earnLenderFamily,
+  earnMarketForVault,
+  earnVaultTakesDeposits,
+  fetchEarnVaults
+} from './pools';
 import { EARN_POOLS_MAX_PAGES, EARN_POOLS_PAGE_SIZE, type EarnVaultInfo } from './pools-read';
 import {
+  AAVE_V3_LISTING,
   AAVE_V3_USDC,
   BASE_CHAIN_ID,
+  BASE_EARN_VAULTS,
   BASE_USDC,
+  COMPOUND_V3_LISTING,
   COMPOUND_V3_USDC,
   EULER_V2_USDC,
+  listingFor,
+  MORPHO_UNIBTC_LISTING,
   MORPHO_UNIBTC_USDC,
   MORPHO_USDC_COLLATERAL,
   poolsPage
 } from './testing/pools-fixtures';
 
 const POSITIONS_URL = 'https://positions.test';
-const ROUTE = { positionsUrl: POSITIONS_URL, chainId: BASE_CHAIN_ID, underlying: BASE_USDC };
+/** The Base route, with the document listing `listed`: the Aave V3 market alone unless a test names more. */
+const route = (...listed: EarnVaultConfig[]) => ({
+  positionsUrl: POSITIONS_URL,
+  chainId: BASE_CHAIN_ID,
+  underlying: BASE_USDC,
+  listed: listed.length > 0 ? listed : [AAVE_V3_LISTING]
+});
+const ROUTE = route();
 const ZERO_ACCOUNT = '0x0000000000000000000000000000000000000000';
+// The dummy lender on the Base route, as the positions fallback names it.
+const DUMMY_LISTING = listingFor(
+  { marketUid: `DUMMY_LENDING:${BASE_CHAIN_ID}:${BASE_USDC}` },
+  'dummy-lending-base-usdc',
+  'Dummy Lending USDC',
+  { protocol: 'dummy-lending' }
+);
 
 type Answer = { ok: boolean; status: number; json: () => Promise<unknown> };
 const answer = (body: unknown, status = 200): Answer => ({ ok: status < 400, status, json: async () => body });
@@ -134,41 +161,61 @@ describe('fetchEarnVaults from /pools', () => {
           utilization: 0.8890630186278784,
           risk: { score: 2, label: 'low' },
           canOpen: true,
-          about: AAVE_V3_USDC.termSheet.supply.description
+          about: AAVE_V3_USDC.termSheet.supply.description,
+          listing: AAVE_V3_LISTING
         }
       ]
     });
   });
 
-  it('keeps only the supported families, highest total APR first', async () => {
+  it("keeps only the listed markets, in the list's order, whatever their rate", async () => {
     serve(() =>
-      answer(poolsPage([AAVE_V3_USDC, EULER_V2_USDC, MORPHO_USDC_COLLATERAL, COMPOUND_V3_USDC, MORPHO_UNIBTC_USDC]))
+      answer(poolsPage([MORPHO_UNIBTC_USDC, EULER_V2_USDC, MORPHO_USDC_COLLATERAL, COMPOUND_V3_USDC, AAVE_V3_USDC]))
     );
 
-    const { vaults } = await fetchEarnVaults(ROUTE);
+    const { vaults } = await fetchEarnVaults(route(...BASE_EARN_VAULTS));
 
-    expect(vaults.map(vault => [vault.lenderFamily, vault.marketName, vault.aprTotal])).toEqual([
-      ['MORPHO_BLUE', 'Loan USDC', 38.08331468],
-      ['COMPOUND_V3', 'Loan USDC', 5.38416446],
-      ['AAVE_V3', 'Aave V3 USDC', 5.201192000000001]
+    // The list decides, so a market that pays nothing is offered when it is listed, and Euler is not.
+    expect(vaults.map(vault => [vault.listing.id, vault.lenderFamily, vault.aprTotal])).toEqual([
+      ['aave-v3-base-usdc', 'AAVE_V3', 5.201192000000001],
+      ['compound-v3-base-usdc', 'COMPOUND_V3', 5.38416446],
+      ['morpho-unibtc-base-usdc', 'MORPHO_BLUE', 38.08331468],
+      ['morpho-mxnb-base-usdc', 'MORPHO_BLUE', 0]
     ]);
-    expect(vaults[0]?.lenderName).toBe('Morpho uniBTC-USDC 77');
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('hides a market that pays nothing, which holds collateral only, without logging it', async () => {
-    const zeroTotalWithBaseRate = {
-      ...COMPOUND_V3_USDC,
-      termSheet: { ...COMPOUND_V3_USDC.termSheet, supply: { ...COMPOUND_V3_USDC.termSheet.supply, aprTotal: 0 } }
+  it('offers a listed market of a lender outside the known families', async () => {
+    // Euler's uid names its vault, not the token, so it is listed and read only as a market of that token.
+    const eulerOnUsdc = {
+      ...EULER_V2_USDC,
+      marketUid: `${EULER_V2_USDC.lenderKey}:${BASE_CHAIN_ID}:${BASE_USDC.toLowerCase()}`
     };
-    const noTermSheet = { ...AAVE_V3_USDC, depositRate: 0, termSheet: undefined };
-    serve(() => answer(poolsPage([MORPHO_USDC_COLLATERAL, zeroTotalWithBaseRate, noTermSheet, MORPHO_UNIBTC_USDC])));
+    serve(() => answer(poolsPage([eulerOnUsdc])));
 
-    const result = await fetchEarnVaults(ROUTE);
+    const { vaults } = await fetchEarnVaults(route(listingFor(eulerOnUsdc, 'euler-v2-base-usdc', 'Euler USDC')));
 
-    expect(result.vaults.map(vault => vault.marketUid)).toEqual([MORPHO_UNIBTC_USDC.marketUid]);
-    expect(result.droppedMarketUids).toBeUndefined();
-    expect(console.warn).not.toHaveBeenCalled();
+    expect(vaults).toHaveLength(1);
+    expect(vaults[0]?.lenderKey).toBe('EULER_V2');
+    expect(vaults[0]).not.toHaveProperty('lenderFamily');
+  });
+
+  it('drops and logs a listed vault the catalogue does not serve', async () => {
+    serve(() => answer(poolsPage([AAVE_V3_USDC, EULER_V2_USDC])));
+
+    const result = await fetchEarnVaults(route(AAVE_V3_LISTING, COMPOUND_V3_LISTING));
+
+    expect(result.vaults.map(vault => vault.listing.id)).toEqual(['aave-v3-base-usdc']);
+    expect(result.droppedMarketUids).toEqual([COMPOUND_V3_LISTING.marketUid]);
+    expect(console.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes no request and gives no vault when the document lists none on the route', async () => {
+    const fetchMock = serve(() => answer(poolsPage([AAVE_V3_USDC])));
+    const otherChain = listingFor({ marketUid: `AAVE_V3:1:${BASE_USDC}` }, 'aave-v3-ethereum-usdc', 'Aave V3 USDC');
+
+    expect(await fetchEarnVaults(route(otherChain))).toEqual({ vaults: [] });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('skips a market of another chain or token, and keeps one listed twice once', async () => {
@@ -209,11 +256,11 @@ describe('fetchEarnVaults from /pools', () => {
     };
     serve(() => answer(poolsPage([noTermSheet, noAprTotal])));
 
-    const { vaults } = await fetchEarnVaults(ROUTE);
+    const { vaults } = await fetchEarnVaults(route(AAVE_V3_LISTING, COMPOUND_V3_LISTING));
 
     expect(vaults.map(vault => [vault.lenderKey, vault.aprTotal, vault.canOpen, vault.about])).toEqual([
-      ['COMPOUND_V3_USDC', 5.38416446, true, undefined],
-      ['AAVE_V3', 3.75454844, true, AAVE_V3_USDC.termSheet.supply.description]
+      ['AAVE_V3', 3.75454844, true, AAVE_V3_USDC.termSheet.supply.description],
+      ['COMPOUND_V3_USDC', 5.38416446, true, undefined]
     ]);
   });
 
@@ -271,7 +318,7 @@ describe('fetchEarnVaults from /pools', () => {
     };
     serve(() => answer(poolsPage([stringRate, noLenderName, fractionalDecimals, AAVE_V3_USDC])));
 
-    const result = await fetchEarnVaults(ROUTE);
+    const result = await fetchEarnVaults(route(...BASE_EARN_VAULTS));
 
     expect(result.error).toBeUndefined();
     expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
@@ -285,13 +332,24 @@ describe('fetchEarnVaults from /pools', () => {
   it('drops a market whose uid names another market, and says when a dropped item had no uid', async () => {
     const wrongUid = { ...COMPOUND_V3_USDC, marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` };
     const { marketUid: _marketUid, ...noUid } = MORPHO_UNIBTC_USDC;
-    serve(() => answer(poolsPage([wrongUid, null, noUid, AAVE_V3_USDC])));
+    serve(() => answer(poolsPage([wrongUid, null, noUid])));
+
+    const result = await fetchEarnVaults(route(AAVE_V3_LISTING, MORPHO_UNIBTC_LISTING));
+
+    expect(result.vaults).toEqual([]);
+    // An item with no uid of its own is listed by the market its lender, chain and token make.
+    expect(result.droppedMarketUids).toEqual([AAVE_V3_LISTING.marketUid, MORPHO_UNIBTC_LISTING.marketUid]);
+    expect(result.droppedUnkeyed).toBe(true);
+  });
+
+  it('reads a uid that another item of the same market misnamed as a vault the read has', async () => {
+    const wrongUid = { ...COMPOUND_V3_USDC, marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` };
+    serve(() => answer(poolsPage([wrongUid, AAVE_V3_USDC])));
 
     const result = await fetchEarnVaults(ROUTE);
 
     expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
-    expect(result.droppedMarketUids).toEqual([`aave_v3:8453:${BASE_USDC.toLowerCase()}`]);
-    expect(result.droppedUnkeyed).toBe(true);
+    expect(result.droppedMarketUids).toBeUndefined();
   });
 
   it('reads the next page while a page is full, and stops after a short page', async () => {
@@ -386,7 +444,7 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       })
     );
 
-    const result = await fetchEarnVaults(ROUTE);
+    const result = await fetchEarnVaults(route(DUMMY_LISTING));
 
     expect(requestedUrls(fetchMock)).toEqual([
       expect.stringContaining(`${POSITIONS_URL}/pools?`),
@@ -403,7 +461,8 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       underlying: { address: BASE_USDC, symbol: 'USDC', decimals: 6 },
       depositApr: 2,
       aprTotal: 2,
-      canOpen: true
+      canOpen: true,
+      listing: DUMMY_LISTING
     };
     expect(result).toEqual({ vaults: [expected] });
   });
@@ -414,7 +473,10 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       () => answer({ success: true, data: { items: [positionsCatalogItem('DUMMY_LENDING')] } })
     );
 
-    const { vaults } = await fetchEarnVaults({ ...ROUTE, fallbackUnderlying: { symbol: 'USDC', decimals: 18 } });
+    const { vaults } = await fetchEarnVaults({
+      ...route(DUMMY_LISTING),
+      fallbackUnderlying: { symbol: 'USDC', decimals: 18 }
+    });
 
     expect(vaults[0]?.underlying).toEqual({ address: BASE_USDC, symbol: 'USDC', decimals: 18 });
   });
@@ -435,7 +497,7 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
         })
     );
 
-    const result = await fetchEarnVaults(ROUTE);
+    const result = await fetchEarnVaults(route(AAVE_V3_LISTING, DUMMY_LISTING));
 
     expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['DUMMY_LENDING']);
     expect(result.droppedMarketUids).toEqual([`aave_v3:8453:${BASE_USDC.toLowerCase()}`]);
@@ -468,15 +530,15 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
 });
 
 describe('earnMarketForVault', () => {
-  it("names the vault's uid, its family's protocol hash, the checksummed token and the numeric chain", async () => {
+  it("names the vault's uid, its listed protocol's hash, the checksummed token and the numeric chain", async () => {
     serve(() => answer(poolsPage([MORPHO_UNIBTC_USDC])));
-    const [vault] = (await fetchEarnVaults(ROUTE)).vaults;
+    const [vault] = (await fetchEarnVaults(route(MORPHO_UNIBTC_LISTING))).vaults;
     if (!vault) throw new Error('no vault');
     const lowercaseUsdc: `0x${string}` = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 
     expect(earnMarketForVault({ ...vault, underlying: { ...vault.underlying, address: lowercaseUsdc } })).toEqual({
       marketUid: `${MORPHO_UNIBTC_USDC.lenderKey}:8453:${lowercaseUsdc}`,
-      protocolHash: keccak256(toBytes('morpho-blue')),
+      protocolHash: keccak256(toBytes('1delta')),
       underlying: BASE_USDC,
       chainId: 8453
     });
@@ -494,7 +556,8 @@ describe('earnMarketForVault', () => {
       underlying: { address: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', symbol: 'USDC', decimals: 18 },
       depositApr: 2,
       aprTotal: 2,
-      canOpen: true
+      canOpen: true,
+      listing: { ...DUMMY_LISTING, marketUid: 'dummy_lending:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' }
     });
 
     expect(market).toEqual({
@@ -503,5 +566,17 @@ describe('earnMarketForVault', () => {
       underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
       chainId: 11155111
     });
+  });
+});
+
+describe('earnVaultTakesDeposits', () => {
+  it('takes a deposit only while the catalogue opens the vault and the document keeps its deposits on', async () => {
+    serve(() => answer(poolsPage([AAVE_V3_USDC])));
+    const [vault] = (await fetchEarnVaults(ROUTE)).vaults;
+    if (!vault) throw new Error('no vault');
+
+    expect(earnVaultTakesDeposits(vault)).toBe(true);
+    expect(earnVaultTakesDeposits({ ...vault, canOpen: false })).toBe(false);
+    expect(earnVaultTakesDeposits({ ...vault, listing: { ...vault.listing, depositsEnabled: false } })).toBe(false);
   });
 });

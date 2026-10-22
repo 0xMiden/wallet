@@ -47,25 +47,38 @@ export interface GuardianConfig {
 export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(chain => chain.id);
 
 /**
- * The lender families the Earn code supports. Each family is the lender key Epoch's positions service gives it, or
- * the prefix of its lender keys (`COMPOUND_V3_USDC`, `MORPHO_BLUE_<market id>`).
+ * The protocol strings a listed Earn vault can name. A deposit's `protocolHashIdentifier` is
+ * `keccak256(toBytes(protocol))`. The testnet deposits use the hash of `dummy-lending`.
  */
-export const EARN_LENDER_FAMILIES = ['AAVE_V3', 'COMPOUND_V3', 'MORPHO_BLUE', 'DUMMY_LENDING'] as const;
-export type EarnLenderFamily = (typeof EARN_LENDER_FAMILIES)[number];
+export const EARN_VAULT_PROTOCOLS = ['1delta', 'dummy-lending'] as const;
+export type EarnVaultProtocol = (typeof EARN_VAULT_PROTOCOLS)[number];
+
+/** The risk levels a listed Earn vault can name. */
+export const EARN_VAULT_RISKS = ['low', 'medium', 'high'] as const;
+export type EarnVaultRisk = (typeof EARN_VAULT_RISKS)[number];
+
+/** The longest vault name and `about` sentence the wallet shows. */
+export const MAX_EARN_VAULT_NAME_LENGTH = 64;
+export const MAX_EARN_VAULT_ABOUT_LENGTH = 200;
 
 /**
- * The protocol string of each lender family. A deposit's `protocolHashIdentifier` is `keccak256(toBytes(string))`.
- *
- * The allocator does not use `protocolHashIdentifier` when it quotes (verified 2026-10-22: a zero hash, a random hash
- * and a lender-key hash all get the same route). It looks only for `dummy-lending`. Do not change `dummy-lending`:
- * the testnet deposits use its hash. The mainnet strings are PROVISIONAL until Epoch confirms them.
+ * An Earn vault as the document lists it. The list is the only source of the vaults the wallet offers: a market of
+ * the Epoch catalogue that no entry names is not offered. The text fields are literal: the wallet shows them as
+ * written in every language.
  */
-export const EARN_PROTOCOL_STRINGS: Readonly<Record<EarnLenderFamily, string>> = {
-  DUMMY_LENDING: 'dummy-lending',
-  AAVE_V3: 'aave-v3',
-  COMPOUND_V3: 'compound-v3',
-  MORPHO_BLUE: 'morpho-blue'
-};
+export interface EarnVaultConfig {
+  /** Unique in the list: `^[a-z][a-z0-9-]*$`. The vault's route id (`/earn/vaults/{id}`). */
+  id: string;
+  /** `LENDER_KEY:chainId:underlying`, lowercase; unique in the list. */
+  marketUid: string;
+  name: string;
+  /** The protocol string a deposit hashes into its `protocolHashIdentifier`. */
+  protocol: EarnVaultProtocol;
+  about?: string;
+  risk?: EarnVaultRisk;
+  /** False when the document stops new deposits into the vault. True when the document does not set it. */
+  depositsEnabled: boolean;
+}
 
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;
@@ -178,6 +191,11 @@ export interface BridgeConfig {
    * document names none, and the wallet uses the list it ships with (`lib/miden-chain/guardian-registry`).
    */
   guardians?: GuardianConfig[];
+  /**
+   * The Earn vaults the wallet offers, in picker order. Present, and never empty, exactly when `features.earn` is
+   * true.
+   */
+  earn?: { vaults: EarnVaultConfig[] };
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -192,6 +210,11 @@ const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 // An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+// The Earn vault rules of the config repo's validator (scripts/validate.mjs).
+const EARN_VAULT_ID = /^[a-z][a-z0-9-]*$/;
+const EARN_LENDER_KEY = /^[A-Z0-9_]+$/;
+const EARN_CHAIN_ID = /^[1-9][0-9]*$/;
+const LOWERCASE_EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
@@ -478,6 +501,75 @@ function readGuardians(value: unknown, url: (value: unknown) => string): Guardia
   return guardians;
 }
 
+const member = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
+
+// The USDC contract of each Epoch route, lowercase, by chain id: the markets a vault can name. Read from the document
+// as written, as the config repo's validator reads it, so a chain or route this build leaves out (a newer build's
+// chain, a route with no provider values) still names its vaults. A route with no USDC address names none.
+function epochUsdcByChain(value: unknown): Map<number, string | undefined> {
+  const routes = new Map<number, string | undefined>();
+  if (!isRecord(value)) return routes;
+  for (const entry of Object.values(value)) {
+    const chainId = member(entry, 'chainId');
+    const epoch = member(member(entry, 'bridges'), 'epoch');
+    if (!isPositiveSafeInteger(chainId) || !isRecord(epoch)) continue;
+    const usdc = member(member(member(epoch, 'tokens'), 'USDC'), 'contractAddress');
+    routes.set(chainId, typeof usdc === 'string' ? usdc.toLowerCase() : undefined);
+  }
+  return routes;
+}
+
+// `LENDER_KEY:chainId:underlying` of an Epoch route's own USDC, lowercase.
+function earnMarketUid(value: unknown, routes: Map<number, string | undefined>): string {
+  if (typeof value !== 'string') return invalid();
+  const parts = value.split(':');
+  const [lenderKey = '', chainId = '', underlying = ''] = parts;
+  if (parts.length !== 3 || !EARN_LENDER_KEY.test(lenderKey) || !EARN_CHAIN_ID.test(chainId)) return invalid();
+  if (!LOWERCASE_EVM_ADDRESS.test(underlying) || !Number.isSafeInteger(Number(chainId))) return invalid();
+  const usdc = routes.get(Number(chainId));
+  return usdc !== undefined && usdc === underlying ? value.toLowerCase() : invalid();
+}
+
+// Literal text, shown as written: 1 to `maxLength` characters. Unlike a Guardian's text, neither the config repo's
+// validator nor this parser checks its characters or spaces.
+function earnVaultText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) return invalid();
+  return value;
+}
+
+function oneOf<T extends string>(values: readonly T[], value: unknown): T {
+  return values.find(known => known === value) ?? invalid();
+}
+
+function readEarnVault(value: unknown, routes: Map<number, string | undefined>): EarnVaultConfig {
+  if (!isRecord(value)) return invalid();
+  if (typeof value.id !== 'string' || !EARN_VAULT_ID.test(value.id)) return invalid();
+  const about = read(value, 'about', about => earnVaultText(about, MAX_EARN_VAULT_ABOUT_LENGTH));
+  const risk = read(value, 'risk', risk => oneOf(EARN_VAULT_RISKS, risk));
+  return {
+    id: value.id,
+    marketUid: earnMarketUid(value.marketUid, routes),
+    name: earnVaultText(value.name, MAX_EARN_VAULT_NAME_LENGTH),
+    protocol: oneOf(EARN_VAULT_PROTOCOLS, value.protocol),
+    ...(about === undefined ? {} : { about }),
+    ...(risk === undefined ? {} : { risk }),
+    depositsEnabled: read(value, 'depositsEnabled', requiredBoolean) ?? true
+  };
+}
+
+// The section exists exactly when Earn is on: Earn on with no vault would offer nothing, and vaults with Earn off
+// would be a list nothing reads. Two entries for one id or one market are ambiguous.
+function readEarn(value: unknown, earnEnabled: boolean, chains: unknown): { vaults: EarnVaultConfig[] } | undefined {
+  if (value === undefined) return earnEnabled ? invalid() : undefined;
+  if (!earnEnabled || !isRecord(value) || !Array.isArray(value.vaults) || value.vaults.length === 0) return invalid();
+  const routes = epochUsdcByChain(chains);
+  const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, routes));
+  const ids = new Set(vaults.map(vault => vault.id));
+  const markets = new Set(vaults.map(vault => vault.marketUid));
+  if (ids.size !== vaults.length || markets.size !== vaults.length) return invalid();
+  return { vaults };
+}
+
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
@@ -516,6 +608,9 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const guardians = readGuardians(body.guardians, url);
   const limits = readLimits(body.limits);
   const geo = readGeoBlocks(body.geo, invalid);
+  const features = section(body.features);
+  const earnEnabled = featureSwitch(features, 'earn');
+  const earn = readEarn(body.earn, earnEnabled, body.supportedEvmChains);
   return {
     network,
     version,
@@ -534,17 +629,18 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     },
     supportedEvmChains,
     features: {
-      earn: featureSwitch(section(body.features), 'earn'),
+      earn: earnEnabled,
       ...Object.fromEntries(
         ['fastBridge', 'bridgeIn', 'bridgeOut']
-          .filter(name => section(body.features)[name] !== undefined)
-          .map(name => [name, featureSwitch(section(body.features), name)])
+          .filter(name => features[name] !== undefined)
+          .map(name => [name, featureSwitch(features, name)])
       )
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
     ...(limits === undefined ? {} : { limits }),
     swap: etaUrl === undefined ? {} : { etaUrl },
     ...(guardians === undefined ? {} : { guardians }),
+    ...(earn === undefined ? {} : { earn }),
     ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } }),
     ...(geo === undefined ? {} : { geo })
   };

@@ -1,8 +1,10 @@
 /**
  * Base USDC markets as Epoch's mainnet `/pools` route served them on 2026-10-22, trimmed: the risk breakdown, the
  * oracle feeds, the asset props and most null per-protocol slots are left out. The types are as served: `chainId` is
- * a string, `borrowLiquidityUsd` and `closeFactor` are decimal strings.
+ * a string, `borrowLiquidityUsd` and `closeFactor` are decimal strings. `BASE_EARN_VAULTS` is a document's vault
+ * list over them.
  */
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
 
 export const BASE_CHAIN_ID = 8453;
 export const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
@@ -165,6 +167,41 @@ export const EULER_V2_USDC: PoolFixture = poolFixture({
     'You earn 6.35% (6.35% base), floating with utilization. Withdrawals are instant, up to the liquidity available ' +
     'in the market.'
 });
+
+/** The document's entry for `pool`'s market: protocol `1delta`, deposits on, the uid lowercase as the parser keeps it. */
+export const listingFor = (
+  pool: { marketUid: string },
+  id: string,
+  name: string,
+  overrides: Partial<EarnVaultConfig> = {}
+): EarnVaultConfig => ({
+  id,
+  marketUid: pool.marketUid.toLowerCase(),
+  name,
+  protocol: '1delta',
+  depositsEnabled: true,
+  ...overrides
+});
+
+export const AAVE_V3_LISTING = listingFor(AAVE_V3_USDC, 'aave-v3-base-usdc', 'Aave V3 USDC');
+export const COMPOUND_V3_LISTING = listingFor(COMPOUND_V3_USDC, 'compound-v3-base-usdc', 'Compound III USDC');
+export const MORPHO_UNIBTC_LISTING = listingFor(MORPHO_UNIBTC_USDC, 'morpho-unibtc-base-usdc', 'Morpho uniBTC USDC');
+export const MORPHO_COLLATERAL_LISTING = listingFor(
+  MORPHO_USDC_COLLATERAL,
+  'morpho-mxnb-base-usdc',
+  'Morpho USDC-MXNB'
+);
+
+/**
+ * A Base document's `earn.vaults`: Aave V3, Compound III and two Morpho markets, in that picker order. The Euler
+ * market is not listed, so the wallet never offers it.
+ */
+export const BASE_EARN_VAULTS: readonly EarnVaultConfig[] = [
+  AAVE_V3_LISTING,
+  COMPOUND_V3_LISTING,
+  MORPHO_UNIBTC_LISTING,
+  MORPHO_COLLATERAL_LISTING
+];
 
 /** The `/pools` envelope around `items`. */
 export const poolsPage = (items: unknown[], start = 0) => ({

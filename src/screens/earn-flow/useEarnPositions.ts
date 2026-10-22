@@ -12,7 +12,7 @@ import {
 } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { BridgeConfigUnavailableError, selectEarnMarket } from 'lib/remote-config/values';
+import { BridgeConfigUnavailableError, selectEarnMarket, selectEarnVaults } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 
@@ -119,6 +119,7 @@ export function useEarnPositions(): {
   const config = useBridgeConfigSnapshot();
   const positionsUrl = config.config?.['bridge-providers'].epoch.positionsUrl;
   const marketUid = selectEarnMarket(config)?.marketUid;
+  const listed = selectEarnVaults(config);
   // Only a loading snapshot is a wait: a loaded one that names neither settles at once, as the read would have failed.
   const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, marketUid) : undefined;
   const notOnNetwork =
@@ -208,14 +209,18 @@ export function useEarnPositions(): {
     const failedOwners = new Set(data?.errors.map(({ owner }) => owner));
     const catalogError = data?.errors.find(({ owner }) => owner === EARN_CATALOG_ERROR_OWNER)?.error;
     const loadError = readError ? errorText(readError) : catalogError;
+    // The document decides which vaults show, in which order and under which entry, also for a vault carried from an
+    // earlier read or read before the document changed.
+    const vaults = listed.flatMap(listing => {
+      const vault = data?.vaults.find(item => item.marketUid.toLowerCase() === listing.marketUid);
+      return vault ? [{ ...vault, listing }] : [];
+    });
     return {
       positions: (data?.positions ?? []).map(position => ({
-        ...mapEarnPosition(position),
+        ...mapEarnPosition(position, listed),
         stale: Boolean(readError) || failedOwners.has(position.owner)
       })),
-      vaults: (data?.vaults ?? []).map(vault =>
-        mapEarnVault(vault, config.network === 'testnet' ? 'USDCx' : undefined)
-      ),
+      vaults: vaults.map(vault => mapEarnVault(vault, config.network === 'testnet' ? 'USDCx' : undefined)),
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,
       // Surface a load failure so the UI can show "couldn't load - retry" instead
@@ -230,5 +235,5 @@ export function useEarnPositions(): {
         if (!isValidating) void mutate();
       }
     };
-  }, [data, isLoading, readError, notOnNetwork, isValidating, mutate, config.network]);
+  }, [data, listed, isLoading, readError, notOnNetwork, isValidating, mutate, config.network]);
 }

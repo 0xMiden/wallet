@@ -79,6 +79,8 @@ jest.mock('lib/epoch', () => ({
     underlying: '0xunderlying',
     chainId: Number(vault.chainId)
   })),
+  earnVaultTakesDeposits: (vault: { canOpen: boolean; listing: { depositsEnabled: boolean } }) =>
+    vault.canOpen && vault.listing.depositsEnabled,
   openEarnPosition: jest.fn(() => Promise.resolve())
 }));
 

@@ -1,19 +1,27 @@
 import { getAddress, keccak256, toBytes } from 'viem';
 
-import { EARN_LENDER_FAMILIES, EARN_PROTOCOL_STRINGS, type EarnLenderFamily } from 'lib/remote-config/schema';
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
 import type { EarnMarket } from 'lib/remote-config/values';
 import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
 /**
  * The raw reader of the Earn vault catalogue. The catalogue is the `/pools` route of Epoch's positions service:
- * every market of the route's USDC on one chain, of the lender families the wallet supports.
+ * every market of the route's USDC on one chain. The bridge-config document's `earn.vaults` list decides which of
+ * them the wallet offers, in which order and under which name: a market no entry names is not offered.
  *
- * This module has no wallet state. The caller gives the fetch and the timeout, so the bridge-config derivation
- * (`lib/remote-config/derive`) and the Earn positions read (`./pools`) can both use it without an import cycle.
+ * This module has no wallet state. The caller gives the fetch, the timeout and the document's list, so the
+ * bridge-config derivation (`lib/remote-config/derive`) and the Earn positions read (`./pools`) can both use it
+ * without an import cycle.
  */
 
-export type { EarnLenderFamily };
+/**
+ * The lender families the wallet has a display name for. Each family is the lender key Epoch's positions service
+ * gives it, or the prefix of its lender keys (`COMPOUND_V3_USDC`, `MORPHO_BLUE_<market id>`). They name and mark a
+ * market only: the document's list decides which markets are offered, whatever their lender.
+ */
+export const EARN_LENDER_FAMILIES = ['AAVE_V3', 'COMPOUND_V3', 'MORPHO_BLUE', 'DUMMY_LENDING'] as const;
+export type EarnLenderFamily = (typeof EARN_LENDER_FAMILIES)[number];
 
 /** The display name of each lender family. */
 export const EARN_LENDER_FAMILY_NAMES: Readonly<Record<EarnLenderFamily, string>> = {
@@ -31,13 +39,14 @@ export function earnLenderFamily(lenderKey: string): EarnLenderFamily | undefine
   return EARN_LENDER_FAMILIES.find(family => lenderKey === family || lenderKey.startsWith(`${family}_`));
 }
 
-/** A lending vault the wallet can deposit into: one market of one lender on one chain. */
+/** A lending vault the wallet can deposit into: one market of one lender on one chain, as the document lists it. */
 export interface EarnVaultInfo {
-  /** `LENDER_KEY:chainId:underlying`, lowercase; the vault's identity and the intent's marketUid. */
+  /** `LENDER_KEY:chainId:underlying` as the catalogue names it; the vault's identity and the intent's marketUid. */
   marketUid: string;
   /** The service's lender key, e.g. `AAVE_V3`, `COMPOUND_V3_USDC`, `MORPHO_BLUE_<id>`. */
   lenderKey: string;
-  lenderFamily: EarnLenderFamily;
+  /** Undefined for a lender the wallet has no display name for. */
+  lenderFamily?: EarnLenderFamily;
   /** lenderInfo.name, e.g. "Aave V3", "Morpho uniBTC-USDC 77". */
   lenderName: string;
   /** The market's own name from /pools ("Aave V3 USDC", "Loan USDC"); equals lenderName on the positions fallback. */
@@ -57,35 +66,50 @@ export interface EarnVaultInfo {
   canOpen: boolean;
   /** termSheet.supply.description when served. */
   about?: string;
+  /**
+   * The document's entry for this market: its route id, name, protocol string and deposit switch, and the optional
+   * `about` and `risk` that take the place of the catalogue's.
+   */
+  listing: EarnVaultConfig;
+}
+
+/** True when `vault` takes a deposit now: the catalogue opens it and the document does not stop its deposits. */
+export function earnVaultTakesDeposits(vault: EarnVaultInfo): boolean {
+  return vault.canOpen && vault.listing.depositsEnabled;
 }
 
 /** The market a deposit into `vault` names: marketUid, protocolHash, checksummed underlying, numeric chainId. */
 export function earnMarketForVault(vault: EarnVaultInfo): EarnMarket {
   return {
     marketUid: vault.marketUid,
-    // The family's protocol string, never its lender key (see EARN_PROTOCOL_STRINGS).
-    protocolHash: keccak256(toBytes(EARN_PROTOCOL_STRINGS[vault.lenderFamily])),
+    // The protocol string the document lists the vault with, never its lender key.
+    protocolHash: keccak256(toBytes(vault.listing.protocol)),
     underlying: getAddress(vault.underlying.address),
     chainId: Number(vault.chainId)
   };
 }
 
-/** The chain and token a catalogue read is for. */
+/** The chain and token a catalogue read is for, and the document's vault list. */
 export interface EarnVaultRoute {
   positionsUrl: string;
   chainId: number;
   /** The route's USDC contract on `chainId`, in any case. */
   underlying: string;
+  /** The document's `earn.vaults`. The read keeps only the markets of this route that it names. */
+  listed: readonly EarnVaultConfig[];
   /** The symbol and decimals the positions fallback gives the underlying. The default is USDC with 6 decimals. */
   fallbackUnderlying?: { symbol: string; decimals: number };
 }
 
 export interface EarnVaultsRead {
-  /** The supported vaults, highest `aprTotal` first. */
+  /** The listed vaults the catalogue serves, in the document's order. */
   vaults: EarnVaultInfo[];
   /** `pools` when `/pools` served the catalogue, `positions` when the zero account's positions served it. */
   source: 'pools' | 'positions';
-  /** The lowercase market uid of each supported item that could not be read and was dropped. */
+  /**
+   * The lowercase market uid of each listed vault that was dropped: its catalogue item could not be read, or the
+   * catalogue does not serve it.
+   */
   droppedMarketUids: string[];
   /** True when an item that could not be read had no market uid, so no uid names it. */
   droppedUnkeyed: boolean;
@@ -108,12 +132,21 @@ type ItemRead =
 
 type PageRead = { state: 'ok'; items: unknown[] } | { state: 'unserved'; reason: string };
 
+/** The listed vaults of one route, by lowercase market uid, in the document's order. */
+type RouteListing = Map<string, EarnVaultConfig>;
+
 const field = (record: unknown, key: string): unknown => (isRecord(record) ? record[key] : undefined);
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const optionalNumber = (value: unknown): number | undefined => (isFiniteNumber(value) ? value : undefined);
 const isEvmAddress = (value: unknown): value is string =>
   typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value);
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** The entries of `route.listed` on the route's chain and token. */
+function routeListing(route: EarnVaultRoute): RouteListing {
+  const suffix = `:${route.chainId}:${route.underlying.toLowerCase()}`;
+  return new Map(route.listed.filter(vault => vault.marketUid.endsWith(suffix)).map(vault => [vault.marketUid, vault]));
+}
 
 /** The envelope `{ success: true, data: { items: [...] } }` both routes send, or null for any other body. */
 function envelopeItems(body: unknown): unknown[] | null {
@@ -143,18 +176,26 @@ async function readPoolsPage(fetchFn: JsonFetch, url: string, timeoutMs: number)
   return items ? { state: 'ok', items } : { state: 'unserved', reason: 'pools response is invalid' };
 }
 
-/** A `/pools` item as a vault, or why it is not one. Items of other lenders, chains or tokens are skipped. */
-function readPoolItem(item: unknown, route: EarnVaultRoute): ItemRead {
+/**
+ * A `/pools` item as a vault, or why it is not one. Items of markets the document does not list, and of other
+ * chains or tokens, are skipped. An item is listed when its uid, or the uid its own lender, chain and token make,
+ * is in the listing.
+ */
+function readPoolItem(item: unknown, route: EarnVaultRoute, listing: RouteListing): ItemRead {
   const rawUid = field(item, 'marketUid');
   const marketUid = typeof rawUid === 'string' ? rawUid.toLowerCase() : undefined;
-  const dropped = (reason: string): ItemRead => ({ state: 'dropped', marketUid, reason });
-  if (!isRecord(item)) return dropped('pools item is not an object');
+  if (!isRecord(item)) return { state: 'dropped', marketUid, reason: 'pools item is not an object' };
   const { lenderKey, chainId } = item;
   const asset = field(item.underlyingInfo, 'asset');
   const address = field(asset, 'address');
+  const ownUid =
+    typeof lenderKey === 'string' && typeof chainId === 'string' && isEvmAddress(address)
+      ? `${lenderKey}:${chainId}:${address}`.toLowerCase()
+      : undefined;
+  const listed = listing.get(marketUid ?? '') ?? listing.get(ownUid ?? '');
+  if (!listed) return { state: 'skipped' };
+  const dropped = (reason: string): ItemRead => ({ state: 'dropped', marketUid: listed.marketUid, reason });
   if (typeof lenderKey !== 'string') return dropped('pools item has no lender key');
-  const lenderFamily = earnLenderFamily(lenderKey);
-  if (!lenderFamily) return { state: 'skipped' };
   if (typeof chainId === 'string' && chainId !== String(route.chainId)) return { state: 'skipped' };
   if (typeof address === 'string' && address.toLowerCase() !== route.underlying.toLowerCase()) {
     return { state: 'skipped' };
@@ -176,10 +217,6 @@ function readPoolItem(item: unknown, route: EarnVaultRoute): ItemRead {
   if (!isFiniteNumber(depositApr)) return dropped('pools item has no deposit rate');
   const supply = field(item.termSheet, 'supply');
   const aprTotal = field(supply, 'aprTotal');
-  // A market that pays nothing holds collateral only (Morpho "Collateral USDC", a Compound comet whose base asset is
-  // another token), so it is not an Earn vault.
-  const paidApr = isFiniteNumber(aprTotal) ? aprTotal : depositApr;
-  if (paidApr <= 0) return { state: 'skipped' };
   const flags = item.flags;
   const riskScore = field(item.risk, 'score');
   const riskLabel = field(item.risk, 'label');
@@ -187,12 +224,13 @@ function readPoolItem(item: unknown, route: EarnVaultRoute): ItemRead {
   const totalDepositsUsd = optionalNumber(item.totalDepositsUsd);
   const totalLiquidityUsd = optionalNumber(item.totalLiquidityUsd);
   const utilization = optionalNumber(item.utilization);
+  const lenderFamily = earnLenderFamily(lenderKey);
   return {
     state: 'vault',
     vault: {
       marketUid: builtUid,
       lenderKey,
-      lenderFamily,
+      ...(lenderFamily === undefined ? {} : { lenderFamily }),
       lenderName,
       marketName: typeof item.name === 'string' ? item.name : lenderName,
       // The logo is only decoration, so a logo that is not a string becomes ''.
@@ -212,39 +250,42 @@ function readPoolItem(item: unknown, route: EarnVaultRoute): ItemRead {
         field(flags, 'isFrozen') !== true &&
         field(flags, 'depositsEnabled') === true &&
         field(supply, 'canOpen') !== false,
-      ...(typeof about === 'string' ? { about } : {})
+      ...(typeof about === 'string' ? { about } : {}),
+      listing: listed
     }
   };
 }
 
 /**
- * A chain item of the zero account's `/positions` answer as a vault, or why it is not one. Items of other lenders or
- * chains are skipped. The positions route names no market, so the vault's uid is built from the lender and the route.
+ * A chain item of the zero account's `/positions` answer as a vault, or why it is not one. Items of markets the
+ * document does not list, and of other chains, are skipped. The positions route names no market, so the vault's uid
+ * is built from the lender and the route.
  */
-function readPositionsCatalogItem(item: unknown, route: EarnVaultRoute): ItemRead {
+function readPositionsCatalogItem(item: unknown, route: EarnVaultRoute, listing: RouteListing): ItemRead {
   const lenderInfo = field(item, 'lenderInfo');
   const lenderKey = field(lenderInfo, 'lenderKey');
   const chainId = field(item, 'chainId');
   if (typeof lenderKey !== 'string' || typeof chainId !== 'string') {
     return { state: 'dropped', reason: 'positions item has no lender key or chain' };
   }
-  const lenderFamily = earnLenderFamily(lenderKey);
-  if (!lenderFamily || chainId !== String(route.chainId)) return { state: 'skipped' };
-  // Lowercase, the form earlier deposits sent to Epoch and stored.
+  // The token in lowercase, the form earlier deposits sent to Epoch and stored.
   const marketUid = `${lenderKey}:${chainId}:${route.underlying.toLowerCase()}`;
+  const listed = listing.get(marketUid.toLowerCase());
+  if (!listed || chainId !== String(route.chainId)) return { state: 'skipped' };
   const lenderName = field(lenderInfo, 'name');
   const logoUri = field(lenderInfo, 'logoUri');
   const depositApr = field(field(item, 'aprData'), 'depositApr');
   if (typeof lenderName !== 'string' || !isFiniteNumber(depositApr)) {
-    return { state: 'dropped', marketUid: marketUid.toLowerCase(), reason: 'positions item has no name or APR' };
+    return { state: 'dropped', marketUid: listed.marketUid, reason: 'positions item has no name or APR' };
   }
   const { symbol, decimals } = route.fallbackUnderlying ?? DEFAULT_FALLBACK_UNDERLYING;
+  const lenderFamily = earnLenderFamily(lenderKey);
   return {
     state: 'vault',
     vault: {
       marketUid,
       lenderKey,
-      lenderFamily,
+      ...(lenderFamily === undefined ? {} : { lenderFamily }),
       lenderName,
       marketName: lenderName,
       logoUri: typeof logoUri === 'string' ? logoUri : '',
@@ -252,19 +293,24 @@ function readPositionsCatalogItem(item: unknown, route: EarnVaultRoute): ItemRea
       underlying: { address: getAddress(route.underlying), symbol, decimals },
       depositApr,
       aprTotal: depositApr,
-      canOpen: true
+      canOpen: true,
+      listing: listed
     }
   };
 }
 
-/** The vaults `items` give, deduplicated by uid and highest `aprTotal` first; a malformed item is dropped and logged. */
+/**
+ * The vaults `items` give, deduplicated by uid and in the listing's order. A malformed item is dropped and logged,
+ * and so is a listed vault no item serves.
+ */
 function collectVaults(
   items: unknown[],
   readItem: (item: unknown) => ItemRead,
-  source: EarnVaultsRead['source']
+  source: EarnVaultsRead['source'],
+  listing: RouteListing
 ): EarnVaultsRead {
   const byUid = new Map<string, EarnVaultInfo>();
-  const droppedMarketUids: string[] = [];
+  const dropped = new Set<string>();
   let droppedUnkeyed = false;
   for (const item of items) {
     const read = readItem(item);
@@ -277,15 +323,25 @@ function collectVaults(
       case 'dropped':
         console.warn(`[epoch] Earn ${source} item unreadable, dropped: ${read.reason}`, read.marketUid ?? '');
         if (read.marketUid === undefined) droppedUnkeyed = true;
-        else droppedMarketUids.push(read.marketUid);
+        else dropped.add(read.marketUid);
         break;
       case 'skipped':
       default:
         break;
     }
   }
-  // A stable sort, so equal rates keep the service's order.
-  const vaults = [...byUid.values()].sort((a, b) => b.aprTotal - a.aprTotal);
+  const vaults: EarnVaultInfo[] = [];
+  for (const marketUid of listing.keys()) {
+    const vault = byUid.get(marketUid);
+    if (vault) {
+      vaults.push(vault);
+    } else if (!dropped.has(marketUid)) {
+      console.warn(`[epoch] Earn ${source} catalogue does not serve a listed vault, dropped`, marketUid);
+      dropped.add(marketUid);
+    }
+  }
+  // A uid both read and dropped (two items of one market) is a vault the read has.
+  const droppedMarketUids = [...dropped].filter(marketUid => !byUid.has(marketUid));
   return { vaults, source, droppedMarketUids, droppedUnkeyed };
 }
 
@@ -296,6 +352,7 @@ function collectVaults(
 async function readPositionsFallbackCatalog(
   fetchFn: JsonFetch,
   route: EarnVaultRoute,
+  listing: RouteListing,
   timeoutMs: number
 ): Promise<EarnVaultsRead> {
   const body = await fetchBoundedJson(
@@ -305,21 +362,24 @@ async function readPositionsFallbackCatalog(
   );
   const items = envelopeItems(body);
   if (!items) throw new Error('Epoch positions catalogue response is invalid');
-  return collectVaults(items, item => readPositionsCatalogItem(item, route), 'positions');
+  return collectVaults(items, item => readPositionsCatalogItem(item, route, listing), 'positions', listing);
 }
 
 /**
- * The supported vaults of `route`: its token's markets on its chain, of the lender families the wallet supports.
- * Reads `/pools` page by page until a page is short (at most EARN_POOLS_MAX_PAGES pages), each request bounded by
- * `timeoutMs`. When the first page is not served (a non-OK answer or a body that is not the envelope), reads the
- * positions fallback. Rejects when a request fails or times out, or when a later page or the fallback fails. A
- * malformed item does not fail the read: it is dropped and logged.
+ * The vaults of `route` the document lists, in the list's order: its token's markets on its chain that an entry of
+ * `route.listed` names. With no entry on the route it makes no request and gives no vault. Reads `/pools` page by
+ * page until a page is short (at most EARN_POOLS_MAX_PAGES pages), each request bounded by `timeoutMs`. When the
+ * first page is not served (a non-OK answer or a body that is not the envelope), reads the positions fallback.
+ * Rejects when a request fails or times out, or when a later page or the fallback fails. A malformed item does not
+ * fail the read: it is dropped and logged, as is a listed vault the catalogue does not serve.
  */
 export async function readEarnVaults(
   fetchFn: JsonFetch,
   route: EarnVaultRoute,
   timeoutMs: number
 ): Promise<EarnVaultsRead> {
+  const listing = routeListing(route);
+  if (listing.size === 0) return { vaults: [], source: 'pools', droppedMarketUids: [], droppedUnkeyed: false };
   const items: unknown[] = [];
   for (let page = 0; page < EARN_POOLS_MAX_PAGES; page += 1) {
     const query = new URLSearchParams({
@@ -332,11 +392,11 @@ export async function readEarnVaults(
     });
     const read = await readPoolsPage(fetchFn, `${route.positionsUrl}/pools?${query.toString()}`, timeoutMs);
     if (read.state === 'unserved') {
-      if (page === 0) return readPositionsFallbackCatalog(fetchFn, route, timeoutMs);
+      if (page === 0) return readPositionsFallbackCatalog(fetchFn, route, listing, timeoutMs);
       throw new Error(`Epoch pools page ${page + 1} failed: ${read.reason}`);
     }
     items.push(...read.items);
     if (read.items.length < EARN_POOLS_PAGE_SIZE) break;
   }
-  return collectVaults(items, item => readPoolItem(item, route), 'pools');
+  return collectVaults(items, item => readPoolItem(item, route, listing), 'pools', listing);
 }
