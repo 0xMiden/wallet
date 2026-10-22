@@ -46,6 +46,8 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
 }) => {
   const { t } = useTranslation();
   const [seedPhrase, setSeedPhrase] = useState<string[]>(Array.from({ length: PHRASE_LENGTH }, () => ''));
+  // A paste of more than PHRASE_LENGTH words, which is refused whole (see onInputPaste).
+  const [pasteTooLong, setPasteTooLong] = useState(false);
 
   // Block screenshots/recordings while the user's existing seed phrase is on screen
   // (#417). The import grid renders the mnemonic in plaintext, so gate it on the native
@@ -87,9 +89,16 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       event.preventDefault();
       // cleanWord lowercases + strips whitespace so a mixed-case paste (e.g. from a
       // password manager) still passes the lowercase-only BIP-39 wordlist + checksum
-      // check; filter empties and pad/truncate to exactly PHRASE_LENGTH slots.
+      // check; filter empties and pad to exactly PHRASE_LENGTH slots.
       const clipboardData = event.clipboardData.getData('text').trim();
       const words = clipboardData.split(DELIMITERS).map(cleanWord).filter(Boolean);
+      // A longer phrase (a 24-word one) derives a different wallet than its first 12 words, so cutting
+      // it down would restore or create the wrong account: refuse it and leave the grid as it was.
+      if (words.length > PHRASE_LENGTH) {
+        setPasteTooLong(true);
+        return;
+      }
+      setPasteTooLong(false);
       setSeedPhrase(Array.from({ length: PHRASE_LENGTH }, (_, i) => words[i] ?? ''));
     },
     [setSeedPhrase]
@@ -116,11 +125,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
     <OnboardingStepLayout
       data-testid="import-seed-phrase"
       title={t(titleKey)}
-      description={
-        <>
-          <span>{t(descriptionKey)}</span> <span>{t('onlyMidenSeedPhrasesAreSupported')}</span>
-        </>
-      }
+      description={t(descriptionKey)}
       footer={
         <Button
           id={'submit-button'}
@@ -157,6 +162,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
               onChange={event => {
                 const newSeedPhrase = [...seedPhrase];
                 newSeedPhrase[index] = cleanWord(event.target.value);
+                setPasteTooLong(false);
                 setSeedPhrase(newSeedPhrase);
               }}
             />
@@ -166,6 +172,11 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       {isError && (
         <Notice errorId="importSeedPhraseError" tone="negative" role="alert">
           {t('importSeedPhraseError')}
+        </Notice>
+      )}
+      {pasteTooLong && (
+        <Notice errorId="importSeedPhraseTooLong" tone="negative" role="alert">
+          {t('importSeedPhraseTooLong')}
         </Notice>
       )}
       {isChecksumError && (
