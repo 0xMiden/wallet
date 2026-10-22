@@ -195,7 +195,7 @@ jobs:
       - name: Require executed 1Click test cases
         if: success()
         run: |
-          node -e 'const fs = require("node:fs"); const path = "test-results/one-click-local/results.json"; if (!fs.existsSync(path)) { console.error("1Click Playwright report is missing"); process.exit(1); } const report = JSON.parse(fs.readFileSync(path, "utf8")); const expected = report.stats?.expected; const skipped = report.stats?.skipped; console.log(`1Click expected: ${expected}; skipped: ${skipped}`); if (!Number.isSafeInteger(expected) || expected < 1 || skipped !== 0) process.exit(1);'
+          node -e 'const fs = require("node:fs"); const path = "test-results/one-click-local/results.json"; if (!fs.existsSync(path)) { console.error("1Click Playwright report is missing"); process.exit(1); } const report = JSON.parse(fs.readFileSync(path, "utf8")); const expected = report.stats?.expected; const skipped = report.stats?.skipped; console.log("1Click expected: " + expected + "; skipped: " + skipped); if (!Number.isSafeInteger(expected) || expected < 1 || skipped !== 0) process.exit(1);'
 
       - name: Upload hermetic 1Click results
         if: always()
