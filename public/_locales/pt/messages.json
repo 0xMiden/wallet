@@ -75,14 +75,6 @@
     "message": "Minhas atividades",
     "englishSource": "My activity"
   },
-  "arcadeCoinsShort": {
-    "message": "Moedas",
-    "englishSource": "Coins"
-  },
-  "arcadeActivityShort": {
-    "message": "Atividade",
-    "englishSource": "Activity"
-  },
   "arcadeOpenGame": {
     "message": "Jogo aberto",
     "englishSource": "Open game"
@@ -151,29 +143,9 @@
     "message": "As Game Coins ainda não estão em operação nesta rede.",
     "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadeBrowseGames": {
-    "message": "Navegar pelos jogos",
-    "englishSource": "Browse games"
-  },
-  "arcadeBalancePrivate": {
-    "message": "Seu saldo permanece confidencial.",
-    "englishSource": "Your balance stays private."
-  },
-  "arcadeRankingsPrivate": {
-    "message": "Apenas os saldos que você optar por compartilhar são classificados.",
-    "englishSource": "Only balances you choose to share are ranked."
-  },
   "arcadeActivityScope": {
     "message": "Apenas os jogos listados no Arcade estão incluídos.",
     "englishSource": "Only games listed in Arcade are included."
-  },
-  "arcadeActivityEmptyTitle": {
-    "message": "Ainda não há atividade no jogo",
-    "englishSource": "No game activity yet"
-  },
-  "arcadeActivityEmptyBody": {
-    "message": "As transações que você realiza nos jogos do Arcade aparecem aqui.",
-    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "Finanças",
@@ -7417,5 +7389,33 @@
   "runtimeUnsupportedBody": {
     "message": "A carteira precisa do WebAssembly SIMD, que este navegador ou dispositivo não oferece. Abra a carteira em outro dispositivo ou em um navegador atualizado.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "Moedas",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Atividade",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Navegar pelos jogos",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Seu saldo permanece confidencial.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Apenas os saldos que você optar por compartilhar são classificados.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Ainda não há atividade no jogo",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "As transações que você realiza nos jogos do Arcade aparecem aqui.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   }
 }

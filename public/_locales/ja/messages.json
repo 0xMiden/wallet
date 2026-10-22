@@ -75,14 +75,6 @@
     "message": "私のアクティビティ",
     "englishSource": "My activity"
   },
-  "arcadeCoinsShort": {
-    "message": "コイン",
-    "englishSource": "Coins"
-  },
-  "arcadeActivityShort": {
-    "message": "アクティビティ",
-    "englishSource": "Activity"
-  },
   "arcadeOpenGame": {
     "message": "オープンゲーム",
     "englishSource": "Open game"
@@ -151,29 +143,9 @@
     "message": "ゲームコインは、このネットワーク上ではまだ利用可能になっていません。",
     "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadeBrowseGames": {
-    "message": "ゲームを閲覧する",
-    "englishSource": "Browse games"
-  },
-  "arcadeBalancePrivate": {
-    "message": "残高は非公開のままです。",
-    "englishSource": "Your balance stays private."
-  },
-  "arcadeRankingsPrivate": {
-    "message": "ランク付けの対象となるのは、ユーザーが共有することを選択した残高のみです。",
-    "englishSource": "Only balances you choose to share are ranked."
-  },
   "arcadeActivityScope": {
     "message": "「Arcade」に掲載されているゲームのみが対象となります。",
     "englishSource": "Only games listed in Arcade are included."
-  },
-  "arcadeActivityEmptyTitle": {
-    "message": "まだゲーム活動はありません",
-    "englishSource": "No game activity yet"
-  },
-  "arcadeActivityEmptyBody": {
-    "message": "Arcadeゲームで行った取引は、ここに表示されます。",
-    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "ファイナンス",
@@ -7417,5 +7389,33 @@
   "runtimeUnsupportedBody": {
     "message": "このウォレットには WebAssembly SIMD が必要ですが、このブラウザまたはデバイスでは提供されていません。別のデバイスまたは最新のブラウザでウォレットを開いてください。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "コイン",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "アクティビティ",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "ゲームを閲覧する",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "残高は非公開のままです。",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "ランク付けの対象となるのは、ユーザーが共有することを選択した残高のみです。",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "まだゲーム活動はありません",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Arcadeゲームで行った取引は、ここに表示されます。",
+    "englishSource": "Transactions you make in Arcade games show up here."
   }
 }

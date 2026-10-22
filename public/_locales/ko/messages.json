@@ -75,14 +75,6 @@
     "message": "내 활동",
     "englishSource": "My activity"
   },
-  "arcadeCoinsShort": {
-    "message": "코인",
-    "englishSource": "Coins"
-  },
-  "arcadeActivityShort": {
-    "message": "활동",
-    "englishSource": "Activity"
-  },
   "arcadeOpenGame": {
     "message": "오픈 게임",
     "englishSource": "Open game"
@@ -151,29 +143,9 @@
     "message": "게임 코인은 아직 이 네트워크에서 사용 가능하지 않습니다.",
     "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadeBrowseGames": {
-    "message": "게임 둘러보기",
-    "englishSource": "Browse games"
-  },
-  "arcadeBalancePrivate": {
-    "message": "잔액은 비공개로 유지됩니다.",
-    "englishSource": "Your balance stays private."
-  },
-  "arcadeRankingsPrivate": {
-    "message": "사용자가 공유하기로 선택한 잔액만 순위가 매겨집니다.",
-    "englishSource": "Only balances you choose to share are ranked."
-  },
   "arcadeActivityScope": {
     "message": "아케이드(Arcade)에 등재된 게임만 포함됩니다.",
     "englishSource": "Only games listed in Arcade are included."
-  },
-  "arcadeActivityEmptyTitle": {
-    "message": "아직 게임 활동 없음",
-    "englishSource": "No game activity yet"
-  },
-  "arcadeActivityEmptyBody": {
-    "message": "아케이드 게임에서 수행한 거래 내역이 여기에 표시됩니다.",
-    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "금융",
@@ -7417,5 +7389,33 @@
   "runtimeUnsupportedBody": {
     "message": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "코인",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "활동",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "게임 둘러보기",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "잔액은 비공개로 유지됩니다.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "사용자가 공유하기로 선택한 잔액만 순위가 매겨집니다.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "아직 게임 활동 없음",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "아케이드 게임에서 수행한 거래 내역이 여기에 표시됩니다.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   }
 }

@@ -75,14 +75,6 @@
     "message": "Моя активність",
     "englishSource": "My activity"
   },
-  "arcadeCoinsShort": {
-    "message": "Монети",
-    "englishSource": "Coins"
-  },
-  "arcadeActivityShort": {
-    "message": "Активність",
-    "englishSource": "Activity"
-  },
   "arcadeOpenGame": {
     "message": "Відкрита гра",
     "englishSource": "Open game"
@@ -151,29 +143,9 @@
     "message": "Ігрові монети ще не доступні в цій мережі.",
     "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadeBrowseGames": {
-    "message": "Переглянути ігри",
-    "englishSource": "Browse games"
-  },
-  "arcadeBalancePrivate": {
-    "message": "Ваш баланс залишається конфіденційним.",
-    "englishSource": "Your balance stays private."
-  },
-  "arcadeRankingsPrivate": {
-    "message": "У рейтингу відображаються лише ті залишки, які ви вирішили оприлюднити.",
-    "englishSource": "Only balances you choose to share are ranked."
-  },
   "arcadeActivityScope": {
     "message": "До переліку входять лише ігри, зазначені в розділі «Arcade».",
     "englishSource": "Only games listed in Arcade are included."
-  },
-  "arcadeActivityEmptyTitle": {
-    "message": "Ігрової активності поки що немає",
-    "englishSource": "No game activity yet"
-  },
-  "arcadeActivityEmptyBody": {
-    "message": "Тут відображаються транзакції, які ви здійснюєте в іграх Arcade.",
-    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "Фінанси",
@@ -7417,5 +7389,33 @@
   "runtimeUnsupportedBody": {
     "message": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "Монети",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Активність",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Переглянути ігри",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Ваш баланс залишається конфіденційним.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "У рейтингу відображаються лише ті залишки, які ви вирішили оприлюднити.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Ігрової активності поки що немає",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Тут відображаються транзакції, які ви здійснюєте в іграх Arcade.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   }
 }
