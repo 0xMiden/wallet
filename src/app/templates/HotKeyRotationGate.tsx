@@ -430,7 +430,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
           <div data-testid="hot-key-rotation-import" className="flex w-full flex-col items-center gap-4">
             <ImportHotKeyScreen submitting={importBusy} onSubmit={onImportKeyPair} />
             {importError && (
-              <Notice tone="negative" role="alert" data-testid="hot-key-rotation-import-error">
+              <Notice
+                errorId="importHotKeyError"
+                tone="negative"
+                role="alert"
+                data-testid="hot-key-rotation-import-error"
+              >
                 {importError}
               </Notice>
             )}

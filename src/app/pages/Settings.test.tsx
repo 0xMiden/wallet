@@ -821,16 +821,6 @@ describe('Settings page — guardian account', () => {
     expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
   });
 
-  it('does not offer the encrypted wallet file to a wallet of key-imported Guardian accounts only', () => {
-    setAccount({ type: 'guardian', hdIndex: -1 });
-    const { unmount } = render(<Settings tabSlug={null} />);
-    expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
-    unmount();
-
-    render(<Settings tabSlug="encrypted-wallet-file" />);
-    expect(screen.queryByTestId('encrypted-file-flow')).not.toBeInTheDocument();
-  });
-
   it('shows the guardian settings entry for guardian accounts', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug={null} />);
@@ -1167,8 +1157,8 @@ describe('Settings page — encrypted wallet file gate', () => {
     );
   });
 
-  it('offers neither the row nor the route when every account is a Guardian account', () => {
-    setAccount({ type: 'guardian' });
+  it('offers neither the row nor the route when every account is a key-imported Guardian account', () => {
+    setAccount({ type: 'guardian', hdIndex: -1 });
     const view = render(<Settings tabSlug={null} />);
     expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
 
@@ -1178,8 +1168,8 @@ describe('Settings page — encrypted wallet file gate', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
   });
 
-  it('offers the row as soon as the wallet gains a non-Guardian account', () => {
-    setAccount({ type: 'guardian' });
+  it('offers the row as soon as the wallet gains an account the file restores', () => {
+    setAccount({ type: 'guardian', hdIndex: -1 });
     const view = render(<Settings tabSlug={null} />);
     expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
 
