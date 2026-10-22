@@ -10,6 +10,14 @@ import {
 } from 'lib/walletconnect/native-request-failure';
 
 import {
+  BRIDGE_BALANCE_CHECKS,
+  BRIDGE_ORPHAN_CHECKS,
+  BRIDGE_SOURCE_ROUTES,
+  type BridgeBalanceCheck,
+  type BridgeOrphanCheck,
+  type BridgeSourceRoute
+} from './bridge-receive-failure';
+import {
   USER_ERROR_SURFACES,
   isUserErrorId,
   type UserErrorId,
@@ -129,6 +137,9 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   securityChange?: SecurityChangeAction;
   completionStep?: CompletionStep;
   completionGuard?: CompletionGuard;
+  bridgeBalanceCheck?: BridgeBalanceCheck;
+  bridgeOrphanCheck?: BridgeOrphanCheck;
+  bridgeSourceRoute?: BridgeSourceRoute;
 };
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
@@ -232,7 +243,10 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       proposalGuard: suppliedGuard,
       securityChange: suppliedChange,
       completionStep: suppliedCompletionStep,
-      completionGuard: suppliedCompletionGuard
+      completionGuard: suppliedCompletionGuard,
+      bridgeBalanceCheck: suppliedBalanceCheck,
+      bridgeOrphanCheck: suppliedOrphanCheck,
+      bridgeSourceRoute: suppliedSourceRoute
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -284,6 +298,12 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       const completionGuard = COMPLETION_GUARDS.find(guard => guard === suppliedCompletionGuard);
       if (completionGuard !== undefined) safe.completionGuard = completionGuard;
     }
+    const bridgeBalanceCheck = BRIDGE_BALANCE_CHECKS.find(value => value === suppliedBalanceCheck);
+    if (bridgeBalanceCheck !== undefined) safe.bridgeBalanceCheck = bridgeBalanceCheck;
+    const bridgeOrphanCheck = BRIDGE_ORPHAN_CHECKS.find(value => value === suppliedOrphanCheck);
+    if (bridgeOrphanCheck !== undefined) safe.bridgeOrphanCheck = bridgeOrphanCheck;
+    const bridgeSourceRoute = BRIDGE_SOURCE_ROUTES.find(value => value === suppliedSourceRoute);
+    if (bridgeSourceRoute !== undefined) safe.bridgeSourceRoute = bridgeSourceRoute;
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
     diagnosticsByError.set(error, { ...previous, ...safe, ...nativeDiagnostics(diagnostics) });

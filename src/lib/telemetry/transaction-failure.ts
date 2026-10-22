@@ -881,6 +881,15 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     delete inherited.reownPublished;
     delete inherited.reownBackgrounded;
     annotateCrash(report, inherited);
+    // Each is checked against its closed list there; a value the wallet does not define is dropped.
+    const bridgeSource = failure.bridgeReceive;
+    if (bridgeSource !== undefined) {
+      annotateCrash(report, {
+        bridgeBalanceCheck: bridgeSource.balanceCheck,
+        bridgeOrphanCheck: bridgeSource.orphanCheck,
+        bridgeSourceRoute: bridgeSource.sourceRoute
+      });
+    }
     const native =
       type === 'bridged-receive' && platform === 'android'
         ? bridgeReceiveNativeFailure(failure.bridgeReceive?.cause)
