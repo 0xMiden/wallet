@@ -88,6 +88,42 @@ it('prepares mainnet and the service worker before onboarding', async () => {
   expect(mockFollow).toHaveBeenCalledTimes(1);
 });
 
+it('keeps an active Welcome state while launch preparation is pending', async () => {
+  mockRequired = false;
+  let finishApply!: () => void;
+  mockApply.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        finishApply = resolve;
+      })
+  );
+  const StatefulFlow = ({ inviteOnly }: { inviteOnly: boolean }) => {
+    const [value, setValue] = React.useState('');
+    return (
+      <div>
+        <input aria-label="flow state" value={value} onChange={event => setValue(event.currentTarget.value)} />
+        <span data-testid="invite-only">{String(inviteOnly)}</span>
+      </div>
+    );
+  };
+  const statefulPage = () => (
+    <OnboardingNetwork>{inviteOnly => <StatefulFlow inviteOnly={inviteOnly} />}</OnboardingNetwork>
+  );
+  const view = render(statefulPage());
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'flow state' }), { target: { value: 'preserved state' } });
+  mockRequired = true;
+  view.rerender(statefulPage());
+  await waitFor(() => expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE));
+
+  const flowState = view.container.querySelector<HTMLInputElement>('[aria-label="flow state"]');
+  expect(flowState).toHaveValue('preserved state');
+  expect(flowState?.parentElement?.parentElement).toHaveProperty('inert', true);
+  expect(screen.getByTestId('invite-only')).toHaveTextContent('true');
+
+  await act(async () => finishApply());
+});
+
 it.each([WalletStatus.Locked, WalletStatus.Ready])('keeps an existing wallet on its network (%s)', status => {
   mockStatus = status;
   render(page());
