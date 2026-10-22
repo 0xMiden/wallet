@@ -620,8 +620,8 @@ describe('NFTs on the approval view (#1600)', () => {
     const view = executedBytesToView('execB64');
 
     expect(view.outgoing).toEqual([]);
-    expect(view.outgoingNfts).toHaveLength(1);
-    expect(view.incomingNfts).toHaveLength(1);
+    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22\u2026cc33dd' }]);
+    expect(view.incomingNfts).toEqual([{ faucetId: 'bech32:otherFaucet', assetId: '0x01020304\u2026050607' }]);
     expect(view.unlistedAssets).toBe(0);
   });
 
