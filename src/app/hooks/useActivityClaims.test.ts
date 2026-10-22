@@ -2019,6 +2019,25 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
     expect(result.current.items[0]).not.toMatchObject({ held: true });
     expect(mockRequeue).not.toHaveBeenCalled();
   });
+
+  it('keeps the plain claim, with no submission verdict, when the stored submit error is unrecognized', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-unrecognized' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      {
+        id: 'tx-unrecognized',
+        status: 3,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: 'Note is invalid'
+      }
+    ]);
+
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming' });
+    expect(result.current.items[0]?.submission).toBeUndefined();
+  });
 });
 
 describe('Guardian wait on Activity claims (#1666)', () => {

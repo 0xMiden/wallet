@@ -30,7 +30,6 @@ const row = (overrides: Record<string, unknown> = {}) => ({
 const MESSAGE_KEYS = [
   'submissionRejectedByNetwork',
   'submissionRejectedByGuardian',
-  'submissionRejectedOnDevice',
   'submissionInterrupted',
   'submissionUnanswered'
 ] as const;
@@ -102,12 +101,9 @@ describe('submissionFeedback (#1689)', () => {
     ).toBeUndefined();
   });
 
-  it('keeps a definite client sentence when the device refused, including after the submit stamp', () => {
-    expect(submissionFeedback(row({ error: 'Note is invalid', mayHaveSubmitted: true }))).toMatchObject({
-      kind: 'rejected',
-      messageKey: 'submissionRejectedOnDevice',
-      rowCopy: 'Note is invalid'
-    });
+  it('gives an unrecognized submit error no verdict, with or without the submit stamp', () => {
+    expect(submissionFeedback(row({ error: 'Note is invalid', mayHaveSubmitted: true }))).toBeUndefined();
+    expect(submissionFeedback(row({ error: 'Note is invalid' }))).toBeUndefined();
   });
 
   it('does not install its own deadline', () => {

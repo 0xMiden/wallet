@@ -819,6 +819,42 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  it('gives an unrecognized submit error the existing failed copy and full-error disclosure, not a verdict', async () => {
+    const unrecognized = 'Note is invalid';
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.Failed, stage: 'submitting', type: 'consume', error: unrecognized }),
+      loaded: true
+    };
+    const definite = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(definite.container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(definite.container.textContent).toContain(unrecognized);
+    expect(definite.container.textContent).not.toMatch(/submission(Rejected|Interrupted|Unanswered)/);
+    act(() => definite.root.unmount());
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: unrecognized
+      }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(container.textContent).toContain('transactionUndeterminedHint');
+    expect(container.textContent).not.toMatch(/submission(Rejected|Interrupted|Unanswered)/);
+    expect(container.textContent).not.toContain(unrecognized);
+    const showFullError = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'showFullError');
+    expect(showFullError).toBeTruthy();
+    await act(async () => {
+      showFullError!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(container.textContent).toContain(unrecognized);
+    act(() => root.unmount());
+  });
+
   it("keeps a not-confirmed row's own error one tap away behind Show full error", async () => {
     mockRowState = { row: makeTx({ status: 3, mayHaveSubmitted: true, error: 'Error: 503' }), loaded: true };
 

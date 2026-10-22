@@ -921,10 +921,6 @@
     "message": "The network refused this submission. Try again.",
     "englishSource": "The network refused this submission. Try again."
   },
-  "submissionRejectedOnDevice": {
-    "message": "This device refused the submission. Try again.",
-    "englishSource": "This device refused the submission. Try again."
-  },
   "submissionUnanswered": {
     "message": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
     "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."

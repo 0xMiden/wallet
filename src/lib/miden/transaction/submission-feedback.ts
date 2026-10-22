@@ -15,7 +15,6 @@ export type SubmissionFeedbackKind = 'rejected' | 'interrupted' | 'unanswered';
 export type SubmissionMessageKey =
   | 'submissionRejectedByNetwork'
   | 'submissionRejectedByGuardian'
-  | 'submissionRejectedOnDevice'
   | 'submissionInterrupted'
   | 'submissionUnanswered';
 
@@ -57,8 +56,6 @@ const GRPC_UNKNOWN = [
 const SUBMIT_REQUEST = /grpc request failed for (?:submit_proven_transaction|submit_proven_batch): /;
 const NETWORK_DROP =
   /failed to fetch|load failed|networkerror|network error|connection refused|connection reset|econnreset|err_internet_disconnected|\boffline\b/i;
-const TECHNICAL =
-  /grpc request failed|failed to submit|GUARDIAN HTTP|Guardian request to |RPC error|transport error|TypeError:|Error:|submission of transaction/i;
 
 const grpcKind = (text: string): 'refused' | 'unknown' | undefined => {
   const match = SUBMIT_REQUEST.exec(text);
@@ -88,26 +85,11 @@ const isNoAnswer = (text: string): boolean =>
   carriesIndefiniteSubmitOutcome(text) ||
   /timed out|timeout|deadline exceeded/i.test(text);
 
-const submitShaped = (text: string): boolean =>
-  grpcKind(text) !== undefined ||
-  guardianKind(text) !== undefined ||
-  carriesIndefiniteSubmitOutcome(text) ||
-  /failed to submit /i.test(text);
-
-const pack = (
-  kind: SubmissionFeedbackKind,
-  messageKey: SubmissionMessageKey,
-  raw: string,
-  rowCopy?: string
-): SubmissionFeedback => {
-  const details = raw !== '' && raw !== rowCopy ? raw : undefined;
-  return {
-    kind,
-    messageKey,
-    ...(rowCopy !== undefined && rowCopy !== '' ? { rowCopy } : {}),
-    ...(details !== undefined ? { details } : {})
-  };
-};
+const pack = (kind: SubmissionFeedbackKind, messageKey: SubmissionMessageKey, raw: string): SubmissionFeedback => ({
+  kind,
+  messageKey,
+  ...(raw !== '' ? { details: raw } : {})
+});
 
 /**
  * Copy for a consume that already finished its submit attempt. An in-progress row stays on the
@@ -126,7 +108,6 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
   const prose = `${raw}\n${display}`;
   const classified = grpcKind(raw) ?? (raw === display ? undefined : grpcKind(display));
   const guardian = guardianKind(raw) ?? (raw === display ? undefined : guardianKind(display));
-  const namedSubmit = submitShaped(raw) || submitShaped(display) || carriesIndefiniteSubmitOutcome(prose);
 
   // A proving failure keeps its existing sentence. At submit, that sentence would claim no funds
   // moved, which this screen cannot know.
@@ -140,17 +121,12 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
 
   const dropped = NETWORK_DROP.test(prose);
   const noAnswer = isNoAnswer(raw) || isNoAnswer(display);
-  const atSubmit = row.stage === 'submitting' || namedSubmit;
   if (dropped && (row.stage === 'submitting' || /failed to submit /i.test(prose))) {
     return pack('interrupted', 'submissionInterrupted', raw);
   }
   if (noAnswer && (row.stage === 'submitting' || carriesIndefiniteSubmitOutcome(prose))) {
     return pack('unanswered', 'submissionUnanswered', raw);
   }
-  // A client sentence stored on a Failed submit. A technical "Error: 503" and an Unconfirmed row
-  // keep the existing not-confirmed hint. The submit stamp alone does not hide this sentence.
-  if (atSubmit && row.status === ITransactionStatus.Failed && display !== '' && !TECHNICAL.test(display)) {
-    return pack('rejected', 'submissionRejectedOnDevice', raw, display);
-  }
+  // An error no category recognizes gets no verdict: the row keeps its existing failed or not-confirmed copy.
   return undefined;
 }
