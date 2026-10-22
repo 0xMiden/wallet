@@ -11,7 +11,7 @@ import {
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
 import type { NoteDecodeOptions } from 'lib/miden/note-quarantine';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { toNft, type NftAsset } from 'lib/miden/sdk/nft-asset';
+import { nftKey, toNft, type NftAsset } from 'lib/miden/sdk/nft-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 export type { NftAsset };
@@ -75,8 +75,12 @@ function noteAssets(note: NoteWithAssets | undefined): AssetAmount[] {
   return na ? toAmounts(na.fungibleAssets()) : [];
 }
 
+function noteNftAssets(note: NoteWithAssets | undefined): NonFungibleAsset[] {
+  return note?.assets()?.nonFungibleAssets() ?? [];
+}
+
 function noteNfts(note: NoteWithAssets | undefined): NftAsset[] {
-  return (note?.assets()?.nonFungibleAssets() ?? []).map(toNft);
+  return noteNftAssets(note).map(toNft);
 }
 
 /**
@@ -114,13 +118,15 @@ export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {})
  * The NFTs a summary's NET vault delta moves. One consumed into a created note never touches the vault, so it
  * appears on neither side, exactly as a fungible amount that nets to zero does.
  */
-function netNfts(created: NftAsset[], consumed: NftAsset[]): { leaving: NftAsset[]; entering: NftAsset[] } {
-  const key = (nft: NftAsset) => `${nft.faucetId}|${nft.assetId}`;
-  const createdKeys = new Set(created.map(key));
-  const consumedKeys = new Set(consumed.map(key));
+function netNfts(
+  created: NonFungibleAsset[],
+  consumed: NonFungibleAsset[]
+): { leaving: NftAsset[]; entering: NftAsset[] } {
+  const createdKeys = new Set(created.map(nftKey));
+  const consumedKeys = new Set(consumed.map(nftKey));
   return {
-    leaving: created.filter(nft => !consumedKeys.has(key(nft))),
-    entering: consumed.filter(nft => !createdKeys.has(key(nft)))
+    leaving: created.filter(nft => !consumedKeys.has(nftKey(nft))).map(toNft),
+    entering: consumed.filter(nft => !createdKeys.has(nftKey(nft))).map(toNft)
   };
 }
 
@@ -174,8 +180,8 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
   const { incoming, outgoing } = reconcileFee(toAmounts(added), toAmounts(removed), fee);
   const inputNotes = ts.inputNotes();
   const { leaving, entering } = netNfts(
-    userNotes.flatMap(note => noteNfts(note)),
-    inputNotes.notes().flatMap(note => noteNfts(note.note()))
+    userNotes.flatMap(note => noteNftAssets(note)),
+    inputNotes.notes().flatMap(note => noteNftAssets(note.note()))
   );
   return {
     account: getBech32AddressFromAccountId(delta.id()),

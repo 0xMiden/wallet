@@ -29,7 +29,11 @@ const vaultOf = (removed: any[], added: any[], unlisted = 0) => ({
   numAssets: () => removed.length + added.length + unlisted
 });
 // Marker stand-in for an NFT; the mocked `toNft` below turns it into the sheet's identity.
-const nft = (faucetId: string, assetId: string) => ({ __nft: { faucetId, assetId } });
+// `key` is the complete value word; two NFTs can share the short `assetId` and still differ in it.
+const nft = (faucetId: string, assetId: string, key = `${faucetId}|${assetId}`) => ({
+  __nft: { faucetId, assetId },
+  __key: key
+});
 // A note the fee split will actually recognize. The plain `note()` above has no
 // `metadata()`, so every fixture built from it was invisible to `partitionFeeNote` and the
 // fee behaviour on this security screen went untested in both directions: nothing proved
@@ -66,7 +70,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   canonicalWalletAccountId: jest.fn((id: string) => id.replace(/^hex:/, ''))
 }));
 jest.mock('lib/miden/sdk/nft-asset', () => ({
-  toNft: jest.fn((a: any) => a.__nft)
+  toNft: jest.fn((a: any) => a.__nft),
+  nftKey: jest.fn((a: any) => a.__key)
 }));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length]))
@@ -688,6 +693,26 @@ describe('NFTs on the approval view (#1600)', () => {
 
     expect(view.outgoingNfts).toEqual([]);
     expect(view.incomingNfts).toEqual([]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view does not net two distinct NFTs that share a short asset id', () => {
+    const created = nft('bech32:nftFaucet', '0xaa11bb22\u2026cc33dd', 'word-one');
+    const consumed = nft('bech32:nftFaucet', '0xaa11bb22\u2026cc33dd', 'word-two');
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 2),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [consumed]) }] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [created])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toHaveLength(1);
+    expect(view.incomingNfts).toHaveLength(1);
     expect(view.unlistedAssets).toBe(0);
   });
 

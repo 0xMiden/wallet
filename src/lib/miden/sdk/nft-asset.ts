@@ -23,6 +23,14 @@ export function toNft(asset: NonFungibleAsset): NftAsset {
   };
 }
 
+/**
+ * What makes two NFTs the same one: the faucet and the COMPLETE value word. The short asset id on a sheet drops the
+ * middle of the word, so two distinct NFTs can share it and must never be matched by it.
+ */
+export function nftKey(asset: NonFungibleAsset): string {
+  return `${getBech32AddressFromAccountId(asset.faucetId())}|${asset.intoWord().toHex()}`;
+}
+
 /** What an approval row says for one NFT, shared by every plain-text sheet. */
 export function describeNft(nft: NftAsset, truncateFaucet: (faucetId: string) => string): string {
   return `NFT ${nft.assetId} from faucet ${truncateFaucet(nft.faucetId)}`;
