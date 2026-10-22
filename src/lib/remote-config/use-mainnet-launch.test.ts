@@ -1,3 +1,5 @@
+import React, { useLayoutEffect } from 'react';
+
 import { act, renderHook } from '@testing-library/react';
 
 import { useMainnetLaunched } from './use-mainnet-launch';
@@ -17,19 +19,35 @@ jest.mock('./use-feature-availability', () => ({
 const LAUNCH_AT = Date.parse('2026-10-26T14:00:00Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+}
+
+function restoreVisibility(): void {
+  if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+  else Reflect.deleteProperty(document, 'visibilityState');
+}
+
 describe('useMainnetLaunched', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(LAUNCH_AT - DAY_MS);
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
+    setVisibility('visible');
   });
 
   afterEach(() => {
     jest.useRealTimers();
+    restoreVisibility();
   });
 
   it('is false before the moment and true from the moment on', () => {
-    expect(renderHook(() => useMainnetLaunched()).result.current).toBe(false);
+    const before = renderHook(() => useMainnetLaunched());
+    expect(before.result.current).toBe(false);
+    before.unmount();
+
     jest.setSystemTime(LAUNCH_AT);
     expect(renderHook(() => useMainnetLaunched()).result.current).toBe(true);
   });
@@ -63,7 +81,38 @@ describe('useMainnetLaunched', () => {
     expect(result.current).toBe(true);
   });
 
+  it('catches a forward clock correction when the page becomes visible', () => {
+    setVisibility('hidden');
+    jest.setSystemTime(LAUNCH_AT - 60_000);
+    const { result } = renderHook(() => useMainnetLaunched());
+    expect(result.current).toBe(false);
+
+    act(() => {
+      jest.setSystemTime(LAUNCH_AT + 60_000);
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(result.current).toBe(true);
+  });
+
+  it('rechecks the clock after the first render commits', () => {
+    jest.setSystemTime(LAUNCH_AT - 60_000);
+    const ClockAdvancingWrapper = ({ children }: React.PropsWithChildren) => {
+      useLayoutEffect(() => {
+        jest.setSystemTime(LAUNCH_AT + 60_000);
+      }, []);
+      return React.createElement(React.Fragment, null, children);
+    };
+
+    const { result } = renderHook(() => useMainnetLaunched(), { wrapper: ClockAdvancingWrapper });
+
+    expect(result.current).toBe(true);
+  });
+
   it('reaches a moment further off than one timer can wait', () => {
+    // Hidden, so the advance is the capped chain and not a one-second poll across these weeks.
+    setVisibility('hidden');
     jest.setSystemTime(LAUNCH_AT - 40 * DAY_MS);
     const { result } = renderHook(() => useMainnetLaunched());
 

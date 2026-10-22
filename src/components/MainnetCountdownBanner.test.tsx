@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useMainnetLaunched } from 'lib/remote-config/use-mainnet-launch';
 
 import { MainnetCountdownBanner, formatCountdown } from './MainnetCountdownBanner';
 
@@ -121,6 +122,20 @@ const submitCode = async (code: string = CODE) => {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+}
+
+function restoreVisibility(): void {
+  if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+  else Reflect.deleteProperty(document, 'visibilityState');
+}
+
+const LaunchState = () => (
+  <output data-testid="mainnet-launch-state">{useMainnetLaunched() ? 'launched' : 'pending'}</output>
+);
 
 describe('formatCountdown', () => {
   const launchAt = LAUNCH_AT;
@@ -160,6 +175,30 @@ describe('MainnetCountdownBanner', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    restoreVisibility();
+  });
+
+  it('updates the banner and launch state together when a hidden page becomes visible', () => {
+    setVisibility('hidden');
+    jest.setSystemTime(LAUNCH_AT - 60_000);
+    render(
+      <>
+        <MainnetCountdownBanner />
+        <LaunchState />
+      </>
+    );
+
+    expect(screen.getByTestId('mainnet-countdown')).toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-launch-state')).toHaveTextContent('pending');
+
+    act(() => {
+      jest.setSystemTime(LAUNCH_AT + 60_000);
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(screen.getByTestId('mainnet-switch-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-launch-state')).toHaveTextContent('launched');
   });
 
   it('asks for a mainnet access code once the launch moment has passed, in place of the countdown', () => {

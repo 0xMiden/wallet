@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useState } from 'react';
+import React, { FC, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +9,7 @@ import { TextAction } from 'components/ui/TextAction';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useMainnetLaunchNow } from 'lib/remote-config/use-mainnet-launch';
 import { selectMainnetLaunchAt } from 'lib/remote-config/values';
 
 const SECOND_MS = 1000;
@@ -44,22 +45,13 @@ export function formatCountdown(now: number, launchAt: number): string | null {
  */
 export const MainnetCountdownBanner: FC = () => {
   const { t } = useTranslation();
-  const [now, setNow] = useState(() => Date.now());
-
   const snapshot = useBridgeConfigSnapshot();
   // A wallet on mainnet has nothing to count down to, and nothing to switch to. The effective network
   // decides, so a Developer Settings override to mainnet hides the banner too.
   const onTestNetwork = getTestNetworkNameKey() !== null;
   const launchAt = onTestNetwork ? selectMainnetLaunchAt(snapshot) : null;
+  const now = useMainnetLaunchNow(launchAt);
   const countdown = launchAt === null ? null : formatCountdown(now, launchAt);
-  const ticking = countdown !== null;
-
-  useEffect(() => {
-    if (!ticking) return;
-    setNow(Date.now());
-    const intervalId = setInterval(() => setNow(Date.now()), SECOND_MS);
-    return () => clearInterval(intervalId);
-  }, [ticking]);
 
   if (launchAt === null) return null;
   if (countdown === null) return <MainnetSwitchBanner />;
