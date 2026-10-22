@@ -259,6 +259,48 @@ describe('ChromeWalletPage balance scoping', () => {
     expect(state.balances['account-a'][0].balance).toBe(10);
   });
 
+  it('rejects when a refresh stays in flight past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => undefined)
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: true } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const started = Date.now();
+
+    await expect(wallet.refreshBalancesLanded(1_000)).rejects.toThrow('refreshBalances did not land');
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(state.fetchBalances).not.toHaveBeenCalled();
+  });
+
+  it('rejects waitForBalanceAbove when a refresh stays in flight past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => undefined)
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: true } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    jest.spyOn(wallet, 'triggerSync').mockResolvedValue(undefined);
+    const started = Date.now();
+
+    await expect(wallet.waitForBalanceAbove(0, 1_000)).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it('delegates an unscoped getBalance call without inventing a filter', async () => {
     const state = {
       currentAccount: { publicKey: 'account-a' },
