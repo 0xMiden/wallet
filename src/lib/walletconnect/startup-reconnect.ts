@@ -8,10 +8,13 @@
  * connect button disabled, so the user can neither finish nor start a connection. A fresh install has no stored
  * status, which is why only old installs are hit.
  *
- * So the restore is given `STARTUP_RECONNECT_BOUND_MS`. When it is still `connecting` at the bound and the user has
- * not opened the connect modal, the stored session is forgotten, so the next page load starts `disconnected`, a
- * disconnect is asked of AppKit, and the hook reads the status as `disconnected` from then on, because the
- * disconnect itself can wait on the same stuck provider. Import-free, so it can be tested without AppKit.
+ * So the restore is given `STARTUP_RECONNECT_BOUND_MS`, counted only while the connect modal is closed. When it is
+ * still `connecting` at the bound, the stored session is forgotten, so the next page load starts `disconnected`, a
+ * disconnect is asked of AppKit, and the hook reads `connecting` as `disconnected`, because the disconnect itself
+ * can wait on the same stuck provider. Opening the modal is the user taking over: it pauses the bound and lifts that
+ * override, so their own attempt shows its progress. Closing the modal while the restore has still not settled
+ * starts a fresh bound. The first status other than `connecting` settles the restore for good. Import-free, so it
+ * can be tested without AppKit.
  */
 import type { ConnectionStatus } from '@reown/appkit-controllers';
 
@@ -39,7 +42,7 @@ function publish(next: boolean): void {
   listeners.forEach(listener => listener());
 }
 
-/** True while the startup restore has passed its bound and AppKit still reports `connecting`. */
+/** True while an unsettled startup restore has passed its bound and the connect modal has not been opened since. */
 export function startupReconnectTimedOut(): boolean {
   return timedOut;
 }
@@ -62,7 +65,8 @@ export function effectiveAppKitStatus(status: string | undefined): string | unde
 export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
   if (deps.storedStatus() !== 'connected') return () => {};
   let status: string | undefined = 'connecting';
-  let modalOpened = false;
+  let settled = false;
+  let modalOpen = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const stopTimer = () => {
@@ -72,7 +76,7 @@ export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
   };
   const fire = () => {
     timer = undefined;
-    if (status !== 'connecting' || modalOpened) return;
+    if (settled || modalOpen || status !== 'connecting') return;
     publish(true);
     try {
       deps.forgetSession();
@@ -81,22 +85,34 @@ export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
     }
     deps.disconnect().catch(error => console.warn('[walletconnect] startup reconnect disconnect failed', error));
   };
-  timer = setTimeout(fire, STARTUP_RECONNECT_BOUND_MS);
+  // A running clock keeps its deadline; `fire` never re-arms.
+  const arm = () => {
+    if (settled || modalOpen || status !== 'connecting' || timer !== undefined) return;
+    timer = setTimeout(fire, STARTUP_RECONNECT_BOUND_MS);
+  };
 
   const unsubscribeStatus = deps.subscribeStatus(next => {
     status = next;
-    // A restore that settles, or a connect the user made, ends the bound and the override alike.
+    // The first status other than `connecting` settles the restore: a later `connecting` is the user's own.
     if (next !== 'connecting') {
+      settled = true;
       stopTimer();
       publish(false);
     }
   });
   const unsubscribeModal = deps.subscribeModalOpen(open => {
-    if (!open) return;
-    // The user took over: AppKit's own connect flow sets and clears `connecting` from here.
-    modalOpened = true;
-    stopTimer();
+    if (open) {
+      // The user took over: show their attempt's own `connecting`, even with an earlier disconnect still pending.
+      modalOpen = true;
+      stopTimer();
+      publish(false);
+      return;
+    }
+    if (!modalOpen) return;
+    modalOpen = false;
+    arm();
   });
+  arm();
 
   return () => {
     stopTimer();

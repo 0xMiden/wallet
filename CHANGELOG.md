@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when the stored WalletConnect session cannot be restored at startup: the restore is given ten seconds, after which the stored session is forgotten, so the next open starts disconnected, and Connect is freed for a fresh pairing. A restore that settles, or a connect the user starts, within those seconds is left alone.
+- [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when the stored WalletConnect session cannot be restored at startup: the restore is given ten seconds, after which the stored session is forgotten, so the next open starts disconnected, and Connect is freed for a fresh pairing. A restore that leaves `connecting` is left alone, opening the connect modal pauses the bound and shows that connecting state, and closing the modal while the status is still connecting starts the ten seconds again.
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).

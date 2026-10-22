@@ -114,6 +114,78 @@ describe('boundStartupReconnect', () => {
     expect(effectiveAppKitStatus('connecting')).toBe('connecting');
   });
 
+  it('re-arms when the connect modal closes without a settled status, and opening it ends the override', () => {
+    const h = harness('connected');
+    boundStartupReconnect(h.deps);
+    h.modal(true);
+    h.modal(false);
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS);
+    expect(h.forgetSession).toHaveBeenCalledTimes(1);
+    expect(h.disconnect).toHaveBeenCalledTimes(1);
+    expect(startupReconnectTimedOut()).toBe(true);
+    expect(effectiveAppKitStatus('connecting')).toBe('disconnected');
+
+    // The disconnect never settles; the user opens the modal to pair afresh.
+    h.modal(true);
+    expect(startupReconnectTimedOut()).toBe(false);
+    expect(effectiveAppKitStatus('connecting')).toBe('connecting');
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS * 2);
+    expect(h.disconnect).toHaveBeenCalledTimes(1);
+
+    h.modal(false);
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS);
+    expect(startupReconnectTimedOut()).toBe(true);
+    expect(h.forgetSession).toHaveBeenCalledTimes(2);
+    expect(h.disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a running clock on its original deadline through a close it did not open', () => {
+    const h = harness('connected');
+    boundStartupReconnect(h.deps);
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS - 1);
+    h.modal(false);
+    jest.advanceTimersByTime(1);
+    expect(h.forgetSession).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS * 2);
+    expect(h.forgetSession).toHaveBeenCalledTimes(1);
+
+    h.modal(false);
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS * 2);
+    expect(h.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the restore alone once the status has left connecting', () => {
+    const h = harness('connected');
+    boundStartupReconnect(h.deps);
+    h.modal(true);
+    h.status('connected');
+    h.modal(false);
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS * 2);
+    expect(h.forgetSession).not.toHaveBeenCalled();
+    expect(startupReconnectTimedOut()).toBe(false);
+
+    h.status('connecting');
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS * 2);
+    expect(h.forgetSession).not.toHaveBeenCalled();
+    expect(effectiveAppKitStatus('connecting')).toBe('connecting');
+
+    // The user's own attempt, opened and closed while still connecting, is never bounded.
+    h.modal(true);
+    h.modal(false);
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS * 2);
+    expect(h.forgetSession).not.toHaveBeenCalled();
+  });
+
+  it('does not let a caller shorten the startup bound', () => {
+    const h = harness('connected');
+    Object.assign(h.deps, { boundMs: 50 });
+    boundStartupReconnect(h.deps);
+    jest.advanceTimersByTime(50);
+    expect(h.forgetSession).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS - 50);
+    expect(h.forgetSession).toHaveBeenCalledTimes(1);
+  });
+
   it('lifts the override once the status moves on, so a later connect shows its own progress', () => {
     const h = harness('connected');
     const listener = jest.fn();
@@ -151,15 +223,5 @@ describe('boundStartupReconnect', () => {
     jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS * 2);
     expect(h.forgetSession).not.toHaveBeenCalled();
     expect(startupReconnectTimedOut()).toBe(false);
-  });
-
-  it('does not let a caller shorten the startup bound', () => {
-    const h = harness('connected');
-    Object.assign(h.deps, { boundMs: 50 });
-    boundStartupReconnect(h.deps);
-    jest.advanceTimersByTime(50);
-    expect(h.forgetSession).not.toHaveBeenCalled();
-    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS - 50);
-    expect(h.forgetSession).toHaveBeenCalledTimes(1);
   });
 });
