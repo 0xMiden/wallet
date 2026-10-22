@@ -1,0 +1,507 @@
+import { keccak256, toBytes } from 'viem';
+
+import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily, earnMarketForVault, fetchEarnVaults } from './pools';
+import { EARN_POOLS_MAX_PAGES, EARN_POOLS_PAGE_SIZE, type EarnVaultInfo } from './pools-read';
+import {
+  AAVE_V3_USDC,
+  BASE_CHAIN_ID,
+  BASE_USDC,
+  COMPOUND_V3_USDC,
+  EULER_V2_USDC,
+  MORPHO_UNIBTC_USDC,
+  MORPHO_USDC_COLLATERAL,
+  poolsPage
+} from './testing/pools-fixtures';
+
+const POSITIONS_URL = 'https://positions.test';
+const ROUTE = { positionsUrl: POSITIONS_URL, chainId: BASE_CHAIN_ID, underlying: BASE_USDC };
+const ZERO_ACCOUNT = '0x0000000000000000000000000000000000000000';
+
+type Answer = { ok: boolean; status: number; json: () => Promise<unknown> };
+const answer = (body: unknown, status = 200): Answer => ({ ok: status < 400, status, json: async () => body });
+const notJson = (): Answer => ({
+  ok: true,
+  status: 200,
+  json: async () => {
+    throw new SyntaxError('Unexpected token < in JSON');
+  }
+});
+
+/** Answers `/pools` with `pools(start)` and `/positions` with `positions`, by URL. */
+function serve(pools: (start: number) => Answer, positions: () => Answer = () => answer(null, 404)) {
+  const fetchMock = jest.fn();
+  fetchMock.mockImplementation(async (url: string) => {
+    const parsed = new URL(url);
+    switch (parsed.pathname) {
+      case '/pools':
+        return pools(Number(parsed.searchParams.get('start')));
+      case '/positions':
+        return positions();
+      default:
+        return answer(null, 404);
+    }
+  });
+  global.fetch = fetchMock;
+  return fetchMock;
+}
+
+/** Makes every request run `run`. */
+function serveEvery(run: (url: string, init?: { signal?: AbortSignal }) => Promise<Answer>) {
+  const fetchMock = jest.fn();
+  fetchMock.mockImplementation(run);
+  global.fetch = fetchMock;
+  return fetchMock;
+}
+
+const requestedUrls = (fetchMock: jest.Mock) => fetchMock.mock.calls.map(([url]) => String(url));
+
+// The zero account's positions answer on the testnet host, which has no /pools route.
+const positionsCatalogItem = (lenderKey: string, chainId = String(BASE_CHAIN_ID), depositApr = 2) => ({
+  lender: lenderKey,
+  chainId,
+  aprData: { apr: depositApr, depositApr, borrowApr: 0 },
+  data: [{ positions: [] }],
+  lenderInfo: { lenderKey, name: lenderKey === 'DUMMY_LENDING' ? 'Dummy Lending' : lenderKey, logoUri: '' }
+});
+
+beforeEach(() => {
+  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+describe('earnLenderFamily', () => {
+  it.each([
+    ['AAVE_V3', 'AAVE_V3'],
+    ['COMPOUND_V3_USDC', 'COMPOUND_V3'],
+    [MORPHO_UNIBTC_USDC.lenderKey, 'MORPHO_BLUE'],
+    ['DUMMY_LENDING', 'DUMMY_LENDING']
+  ])('reads %s as %s', (lenderKey, family) => {
+    expect(earnLenderFamily(lenderKey)).toBe(family);
+  });
+
+  it.each(['EULER_V2', 'AAVE_V4_17905DB0E4A3514467539956C084180616AE7B8D', 'AAVE_V30', 'dummy-lending', 'VENUS', ''])(
+    'reads %p as no family',
+    lenderKey => {
+      expect(earnLenderFamily(lenderKey)).toBeUndefined();
+    }
+  );
+
+  it('names every family', () => {
+    expect(EARN_LENDER_FAMILY_NAMES).toEqual({
+      AAVE_V3: 'Aave V3',
+      COMPOUND_V3: 'Compound V3',
+      MORPHO_BLUE: 'Morpho',
+      DUMMY_LENDING: 'Dummy Lending'
+    });
+  });
+});
+
+describe('fetchEarnVaults from /pools', () => {
+  it('requests the route chain and token, and maps a market with every field', async () => {
+    const fetchMock = serve(() => answer(poolsPage([AAVE_V3_USDC])));
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    const [url] = requestedUrls(fetchMock);
+    const query = new URL(url ?? '').searchParams;
+    expect(url?.startsWith(`${POSITIONS_URL}/pools?`)).toBe(true);
+    expect(Object.fromEntries(query)).toEqual({
+      chainId: '8453',
+      underlyings: BASE_USDC,
+      count: String(EARN_POOLS_PAGE_SIZE),
+      start: '0',
+      sortBy: 'depositRate',
+      sortDir: 'DESC'
+    });
+    expect(result).toEqual({
+      vaults: [
+        {
+          marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+          lenderKey: 'AAVE_V3',
+          lenderFamily: 'AAVE_V3',
+          lenderName: 'Aave V3',
+          marketName: 'Aave V3 USDC',
+          logoUri: 'https://raw.githubusercontent.com/1delta-DAO/protocol-icons/main/lender/aave_v3.webp',
+          chainId: '8453',
+          underlying: { address: BASE_USDC, symbol: 'USDC', decimals: 6 },
+          depositApr: 3.75454844,
+          aprTotal: 5.201192000000001,
+          totalDepositsUsd: 195048766.62868062,
+          totalLiquidityUsd: 21638659.032707438,
+          utilization: 0.8890630186278784,
+          risk: { score: 2, label: 'low' },
+          canOpen: true,
+          about: AAVE_V3_USDC.termSheet.supply.description
+        }
+      ]
+    });
+  });
+
+  it('keeps only the supported families, highest total APR first', async () => {
+    serve(() =>
+      answer(poolsPage([AAVE_V3_USDC, EULER_V2_USDC, MORPHO_USDC_COLLATERAL, COMPOUND_V3_USDC, MORPHO_UNIBTC_USDC]))
+    );
+
+    const { vaults } = await fetchEarnVaults(ROUTE);
+
+    expect(vaults.map(vault => [vault.lenderFamily, vault.marketName, vault.aprTotal])).toEqual([
+      ['MORPHO_BLUE', 'Loan USDC', 38.08331468],
+      ['COMPOUND_V3', 'Loan USDC', 5.38416446],
+      ['AAVE_V3', 'Aave V3 USDC', 5.201192000000001]
+    ]);
+    expect(vaults[0]?.lenderName).toBe('Morpho uniBTC-USDC 77');
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('hides a market that pays nothing, which holds collateral only, without logging it', async () => {
+    const zeroTotalWithBaseRate = {
+      ...COMPOUND_V3_USDC,
+      termSheet: { ...COMPOUND_V3_USDC.termSheet, supply: { ...COMPOUND_V3_USDC.termSheet.supply, aprTotal: 0 } }
+    };
+    const noTermSheet = { ...AAVE_V3_USDC, depositRate: 0, termSheet: undefined };
+    serve(() => answer(poolsPage([MORPHO_USDC_COLLATERAL, zeroTotalWithBaseRate, noTermSheet, MORPHO_UNIBTC_USDC])));
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result.vaults.map(vault => vault.marketUid)).toEqual([MORPHO_UNIBTC_USDC.marketUid]);
+    expect(result.droppedMarketUids).toBeUndefined();
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('skips a market of another chain or token, and keeps one listed twice once', async () => {
+    const otherChain = {
+      ...COMPOUND_V3_USDC,
+      chainId: '1',
+      marketUid: `COMPOUND_V3_USDC:1:${BASE_USDC.toLowerCase()}`
+    };
+    const otherToken = {
+      ...COMPOUND_V3_USDC,
+      marketUid: 'COMPOUND_V3_USDC:8453:0x4200000000000000000000000000000000000006',
+      underlyingInfo: {
+        ...COMPOUND_V3_USDC.underlyingInfo,
+        asset: { ...COMPOUND_V3_USDC.underlyingInfo.asset, address: '0x4200000000000000000000000000000000000006' }
+      }
+    };
+    serve(() => answer(poolsPage([otherChain, otherToken, AAVE_V3_USDC, AAVE_V3_USDC])));
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
+    expect(result.droppedMarketUids).toBeUndefined();
+  });
+
+  it('matches the route token in any case', async () => {
+    serve(() => answer(poolsPage([AAVE_V3_USDC])));
+
+    const { vaults } = await fetchEarnVaults({ ...ROUTE, underlying: BASE_USDC.toLowerCase() });
+
+    expect(vaults).toHaveLength(1);
+  });
+
+  it('takes the deposit rate as the total APR when the term sheet has none', async () => {
+    const { termSheet: _termSheet, ...noTermSheet } = COMPOUND_V3_USDC;
+    const noAprTotal = {
+      ...AAVE_V3_USDC,
+      termSheet: { supply: { ...AAVE_V3_USDC.termSheet.supply, aprTotal: '5.2' } }
+    };
+    serve(() => answer(poolsPage([noTermSheet, noAprTotal])));
+
+    const { vaults } = await fetchEarnVaults(ROUTE);
+
+    expect(vaults.map(vault => [vault.lenderKey, vault.aprTotal, vault.canOpen, vault.about])).toEqual([
+      ['COMPOUND_V3_USDC', 5.38416446, true, undefined],
+      ['AAVE_V3', 3.75454844, true, AAVE_V3_USDC.termSheet.supply.description]
+    ]);
+  });
+
+  it.each([
+    ['inactive', { flags: { ...AAVE_V3_USDC.flags, isActive: false } }],
+    ['frozen', { flags: { ...AAVE_V3_USDC.flags, isFrozen: true } }],
+    ['closed to deposits', { flags: { ...AAVE_V3_USDC.flags, depositsEnabled: false } }],
+    ['without flags', { flags: null }],
+    ['closed by its term sheet', { termSheet: { supply: { ...AAVE_V3_USDC.termSheet.supply, canOpen: false } } }]
+  ])('reads a market that is %s as one that takes no deposit', async (_label, change) => {
+    serve(() => answer(poolsPage([{ ...AAVE_V3_USDC, ...change }])));
+
+    const { vaults } = await fetchEarnVaults(ROUTE);
+
+    expect(vaults).toEqual([expect.objectContaining({ lenderKey: 'AAVE_V3', canOpen: false })]);
+  });
+
+  it('leaves out the optional figures it cannot read, and a logo that is not a string', async () => {
+    serve(() =>
+      answer(
+        poolsPage([
+          {
+            ...AAVE_V3_USDC,
+            totalDepositsUsd: '195048766.6',
+            totalLiquidityUsd: null,
+            utilization: undefined,
+            risk: { score: 2 },
+            lenderInfo: { ...AAVE_V3_USDC.lenderInfo, logoURI: null },
+            name: null
+          }
+        ])
+      )
+    );
+
+    const [vault] = (await fetchEarnVaults(ROUTE)).vaults;
+
+    expect(vault).toBeDefined();
+    expect(vault).not.toHaveProperty('totalDepositsUsd');
+    expect(vault).not.toHaveProperty('totalLiquidityUsd');
+    expect(vault).not.toHaveProperty('utilization');
+    expect(vault).not.toHaveProperty('risk');
+    expect(vault?.logoUri).toBe('');
+    expect(vault?.marketName).toBe('Aave V3');
+  });
+
+  it('drops and logs a malformed market, keeps the others and names the dropped uids', async () => {
+    const stringRate = { ...COMPOUND_V3_USDC, depositRate: '5.38' };
+    const noLenderName = { ...MORPHO_UNIBTC_USDC, lenderInfo: { key: MORPHO_UNIBTC_USDC.lenderKey } };
+    const fractionalDecimals = {
+      ...MORPHO_USDC_COLLATERAL,
+      underlyingInfo: {
+        ...MORPHO_USDC_COLLATERAL.underlyingInfo,
+        asset: { ...MORPHO_USDC_COLLATERAL.underlyingInfo.asset, decimals: 6.5 }
+      }
+    };
+    serve(() => answer(poolsPage([stringRate, noLenderName, fractionalDecimals, AAVE_V3_USDC])));
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result.error).toBeUndefined();
+    expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
+    expect(result.droppedMarketUids).toEqual(
+      [COMPOUND_V3_USDC, MORPHO_UNIBTC_USDC, MORPHO_USDC_COLLATERAL].map(item => item.marketUid.toLowerCase())
+    );
+    expect(result.droppedUnkeyed).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledTimes(3);
+  });
+
+  it('drops a market whose uid names another market, and says when a dropped item had no uid', async () => {
+    const wrongUid = { ...COMPOUND_V3_USDC, marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` };
+    const { marketUid: _marketUid, ...noUid } = MORPHO_UNIBTC_USDC;
+    serve(() => answer(poolsPage([wrongUid, null, noUid, AAVE_V3_USDC])));
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
+    expect(result.droppedMarketUids).toEqual([`aave_v3:8453:${BASE_USDC.toLowerCase()}`]);
+    expect(result.droppedUnkeyed).toBe(true);
+  });
+
+  it('reads the next page while a page is full, and stops after a short page', async () => {
+    const fullPage = Array.from({ length: EARN_POOLS_PAGE_SIZE }, () => EULER_V2_USDC);
+    const fetchMock = serve(start => answer(poolsPage(start === 0 ? fullPage : [AAVE_V3_USDC], start)));
+
+    const { vaults } = await fetchEarnVaults(ROUTE);
+
+    expect(requestedUrls(fetchMock).map(url => new URL(url).searchParams.get('start'))).toEqual(['0', '200']);
+    expect(vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
+  });
+
+  it(`reads at most ${EARN_POOLS_MAX_PAGES} pages`, async () => {
+    const fullPage = Array.from({ length: EARN_POOLS_PAGE_SIZE }, () => AAVE_V3_USDC);
+    const fetchMock = serve(start => answer(poolsPage(fullPage, start)));
+
+    const { vaults } = await fetchEarnVaults(ROUTE);
+
+    expect(fetchMock).toHaveBeenCalledTimes(EARN_POOLS_MAX_PAGES);
+    expect(requestedUrls(fetchMock).map(url => new URL(url).searchParams.get('start'))).toEqual([
+      '0',
+      '200',
+      '400',
+      '600',
+      '800'
+    ]);
+    expect(vaults).toHaveLength(1);
+  });
+
+  it('fails the read when a later page fails, with no fallback', async () => {
+    const fullPage = Array.from({ length: EARN_POOLS_PAGE_SIZE }, () => AAVE_V3_USDC);
+    const fetchMock = serve(start => (start === 0 ? answer(poolsPage(fullPage)) : answer(null, 502)));
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result.vaults).toEqual([]);
+    expect(result.error).toContain('Epoch pools page 2 failed');
+    expect(requestedUrls(fetchMock).map(url => new URL(url).pathname)).toEqual(['/pools', '/pools']);
+  });
+
+  it('fails the read on a network error, with no fallback, and never rejects', async () => {
+    const fetchMock = serveEvery(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result).toEqual({ vaults: [], error: 'Failed to fetch' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails a page that stalls at 15 s', async () => {
+    jest.useFakeTimers();
+    serveEvery(
+      (_url, init) =>
+        new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+    );
+    try {
+      let settled = false;
+      const read = fetchEarnVaults(ROUTE).finally(() => {
+        settled = true;
+      });
+
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(await read).toEqual({ vaults: [], error: 'Request timed out after 15000 ms' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('fetchEarnVaults on a host with no /pools route', () => {
+  it.each([
+    ['a 404', () => answer('Cannot GET /pools', 404)],
+    ['a body that is not JSON', notJson],
+    ['an unsuccessful envelope', () => answer({ success: false, error: 'unknown route' })],
+    ['an envelope with no items', () => answer({ success: true, data: { items: null } })]
+  ])("reads the zero account's positions after %s", async (_label, pools) => {
+    const fetchMock = serve(pools, () =>
+      answer({
+        success: true,
+        data: {
+          items: [
+            positionsCatalogItem('DUMMY_LENDING'),
+            positionsCatalogItem('EULER_V2'),
+            positionsCatalogItem('AAVE_V3', '1')
+          ]
+        }
+      })
+    );
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(requestedUrls(fetchMock)).toEqual([
+      expect.stringContaining(`${POSITIONS_URL}/pools?`),
+      `${POSITIONS_URL}/positions?account=${ZERO_ACCOUNT}&chains=${BASE_CHAIN_ID}`
+    ]);
+    const expected: EarnVaultInfo = {
+      marketUid: `DUMMY_LENDING:8453:${BASE_USDC.toLowerCase()}`,
+      lenderKey: 'DUMMY_LENDING',
+      lenderFamily: 'DUMMY_LENDING',
+      lenderName: 'Dummy Lending',
+      marketName: 'Dummy Lending',
+      logoUri: '',
+      chainId: '8453',
+      underlying: { address: BASE_USDC, symbol: 'USDC', decimals: 6 },
+      depositApr: 2,
+      aprTotal: 2,
+      canOpen: true
+    };
+    expect(result).toEqual({ vaults: [expected] });
+  });
+
+  it('gives the underlying the symbol and decimals the caller names', async () => {
+    serve(
+      () => answer(null, 404),
+      () => answer({ success: true, data: { items: [positionsCatalogItem('DUMMY_LENDING')] } })
+    );
+
+    const { vaults } = await fetchEarnVaults({ ...ROUTE, fallbackUnderlying: { symbol: 'USDC', decimals: 18 } });
+
+    expect(vaults[0]?.underlying).toEqual({ address: BASE_USDC, symbol: 'USDC', decimals: 18 });
+  });
+
+  it('drops a positions item it cannot read and keeps the others', async () => {
+    serve(
+      () => answer(null, 404),
+      () =>
+        answer({
+          success: true,
+          data: {
+            items: [
+              { ...positionsCatalogItem('AAVE_V3'), aprData: {} },
+              null,
+              positionsCatalogItem('DUMMY_LENDING', String(BASE_CHAIN_ID), 1)
+            ]
+          }
+        })
+    );
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['DUMMY_LENDING']);
+    expect(result.droppedMarketUids).toEqual([`aave_v3:8453:${BASE_USDC.toLowerCase()}`]);
+    expect(result.droppedUnkeyed).toBe(true);
+  });
+
+  it('fails the read when the fallback fails too', async () => {
+    serve(
+      () => answer(null, 404),
+      () => answer(null, 503)
+    );
+
+    const result = await fetchEarnVaults(ROUTE);
+
+    expect(result.vaults).toEqual([]);
+    expect(result.error).toBe('Remote JSON request failed with HTTP 503');
+  });
+
+  it('fails the read when the fallback answers no envelope', async () => {
+    serve(
+      () => answer(null, 404),
+      () => answer({ success: true })
+    );
+
+    expect(await fetchEarnVaults(ROUTE)).toEqual({
+      vaults: [],
+      error: 'Epoch positions catalogue response is invalid'
+    });
+  });
+});
+
+describe('earnMarketForVault', () => {
+  it("names the vault's uid, its family's protocol hash, the checksummed token and the numeric chain", async () => {
+    serve(() => answer(poolsPage([MORPHO_UNIBTC_USDC])));
+    const [vault] = (await fetchEarnVaults(ROUTE)).vaults;
+    if (!vault) throw new Error('no vault');
+    const lowercaseUsdc: `0x${string}` = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+
+    expect(earnMarketForVault({ ...vault, underlying: { ...vault.underlying, address: lowercaseUsdc } })).toEqual({
+      marketUid: `${MORPHO_UNIBTC_USDC.lenderKey}:8453:${lowercaseUsdc}`,
+      protocolHash: keccak256(toBytes('morpho-blue')),
+      underlying: BASE_USDC,
+      chainId: 8453
+    });
+  });
+
+  it('keeps the testnet hash for the dummy lender', () => {
+    const market = earnMarketForVault({
+      marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      lenderKey: 'DUMMY_LENDING',
+      lenderFamily: 'DUMMY_LENDING',
+      lenderName: 'Dummy Lending',
+      marketName: 'Dummy Lending',
+      logoUri: '',
+      chainId: '11155111',
+      underlying: { address: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', symbol: 'USDC', decimals: 18 },
+      depositApr: 2,
+      aprTotal: 2,
+      canOpen: true
+    });
+
+    expect(market).toEqual({
+      marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
+      underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+      chainId: 11155111
+    });
+  });
+});

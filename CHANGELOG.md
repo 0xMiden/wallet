@@ -12,6 +12,8 @@
 
 ### Changes
 
+- [CHANGE][all] Earn lists its vaults from the Epoch positions service's `/pools` catalogue, one entry per market, limited for now to USDC markets of Aave V3, Compound V3 and Morpho Blue, with each vault's total rate, deposits and risk; a deposit opens the chosen vault's market, two Morpho markets on one chain are told apart by name, and a vault whose pool refuses deposits says so. A host without `/pools` (testnet) keeps the former lender catalogue.
+- [CHANGE][all] The wallet uses the Epoch intents SDK's mainnet release (1.0.40-mainnet.0), which reports an intent leg's transaction hash as null until the chain records it, and one viem (2.57.10) shared with that SDK; wagmi moves to 3.7.9, the release that builds against that viem.
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
 - [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
 - [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.

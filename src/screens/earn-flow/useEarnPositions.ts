@@ -3,7 +3,13 @@ import { useEffect, useMemo } from 'react';
 import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
-import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import {
+  carryForward,
+  EARN_CATALOG_ERROR_OWNER,
+  type EarnPositionsResult,
+  fetchEarnPositions,
+  getEarnDepositEvmAddresses
+} from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { BridgeConfigUnavailableError, selectEarnMarket } from 'lib/remote-config/values';
@@ -33,6 +39,9 @@ function unconfiguredError(positionsUrl: string | undefined, marketUid: string |
   if (!marketUid) return new BridgeConfigUnavailableError('Earn market').message;
   return undefined;
 }
+
+/** The text of a failure that a read rejected with. */
+const errorText = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
 function readsOf(cache: object, id: string): KeyReads {
   const byKey = keyReads.get(cache) ?? new Map<string, KeyReads>();
@@ -83,12 +92,12 @@ export function useEarnPositions(): {
    * error and reports false.
    */
   isLoading: boolean;
-  /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
+  /** Any failure: the request's, one owner's positions, or the vault catalogue's. What the positions surfaces report. */
   error?: string;
   /**
-   * The read's failure: the request's, or every queried owner failing (the catalog query when there are none). Vaults
-   * carried from an earlier load may show beside it. A read in which some owner loaded is not failed, though another
-   * owner's positions may be.
+   * The failure of the vault read: the request's, or the vault catalogue's (reported under EARN_CATALOG_ERROR_OWNER).
+   * What the vault surfaces report. Vaults carried from an earlier load may show beside it. A failed owner does not
+   * set it: the catalogue does not come from the owners, so their failure says nothing about a vault.
    */
   loadError?: string;
   /**
@@ -194,14 +203,11 @@ export function useEarnPositions(): {
   const isLoading = data === undefined && !readError;
 
   return useMemo(() => {
-    // Owner queries never reject, so a full outage resolves with every queried owner failed, while what they loaded
-    // before may still show. Any owner that loaded makes the other owners' errors positions-only.
+    // Owner and catalogue queries never reject: each failure resolves in `errors`, while what loaded before may still
+    // show. An owner's failure is positions-only; the catalogue's failure is the vaults'.
     const failedOwners = new Set(data?.errors.map(({ owner }) => owner));
-    const everyOwnerFailed =
-      data !== undefined &&
-      (data.owners.length > 0 ? data.owners.every(owner => failedOwners.has(owner)) : data.errors.length > 0);
-    const outage = everyOwnerFailed ? data?.errors[0]?.error : undefined;
-    const loadError = readError ? (readError instanceof Error ? readError.message : String(readError)) : outage;
+    const catalogError = data?.errors.find(({ owner }) => owner === EARN_CATALOG_ERROR_OWNER)?.error;
+    const loadError = readError ? errorText(readError) : catalogError;
     return {
       positions: (data?.positions ?? []).map(position => ({
         ...mapEarnPosition(position),

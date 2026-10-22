@@ -1,3 +1,5 @@
+import type { EarnVaultInfo } from 'lib/epoch';
+
 /**
  * The earn screens render pre-formatted display strings, because most of their fields have no
  * producer yet and show a placeholder dash. The `*Usd` / `*Percent` twins beside them are the raw
@@ -15,7 +17,10 @@ export interface EarnSummary {
 
 export interface EarnPosition {
   id: string;
-  /** Id of the vault this position lives in — links "Deposit more" back into `/earn/vaults/{vaultId}/deposit`. */
+  /**
+   * Id of the vault of this position's market (the slug of its market uid). "Deposit more" uses it to open
+   * `/earn/vaults/{vaultId}/deposit` for the same market.
+   */
   vaultId: string;
   /** Raw Epoch fields retained for Smart Withdraw once its SDK methods ship. */
   owner: string;
@@ -25,6 +30,8 @@ export interface EarnPosition {
   withdrawable: string;
   decimals: number;
   protocol: string;
+  /** The name of the market when the protocol alone does not identify it, as on `EarnVault`. */
+  marketName?: string;
   asset: string;
   network: string;
   amount: string;
@@ -61,11 +68,27 @@ export interface ChartDotProps {
   index?: number;
 }
 
+/** The risk levels the earn screens can translate. A different label from the service shows as written. */
+export type EarnRiskLevel = 'low' | 'medium' | 'high';
+
 export interface EarnVault {
   /** Miden funding asset shown by the listing; `asset` remains the EVM underlying. */
   fundingAsset?: string;
+  /** The slug of the market uid (`marketSlug`). Each market is one vault, so two markets of one lender have two ids. */
   id: string;
+  /** The name of the lender family ("Aave V3", "Morpho"). */
   protocol: string;
+  /**
+   * The name of this market, set only when the protocol alone does not identify it. Morpho Blue has many USDC
+   * markets on one chain, so a Morpho vault shows its lender name ("Morpho uniBTC-USDC 77").
+   */
+  marketName?: string;
+  /** False when the market does not accept deposits now. Unset on the placeholder vault. */
+  canOpen?: boolean;
+  /** The risk level when the service gives a known label. `risk` holds the text for any other label. */
+  riskLevel?: EarnRiskLevel;
+  /** The vault as the lib read it. The deposit makes its market from this (`earnMarketForVault`). */
+  info?: EarnVaultInfo;
   asset: string;
   network: string;
   apy: string;

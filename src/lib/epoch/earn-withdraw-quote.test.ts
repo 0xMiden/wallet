@@ -26,7 +26,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({
   getEpochAllocatorUrl: () => 'https://allocator.example',
-  getEarnMarket: () => ({ marketUid: 'DUMMY_LENDING:11155111:0x1111111111111111111111111111111111111111' })
+  getEarnMarket: () => ({ marketUid: 'DUMMY_LENDING:11155111:0x1111111111111111111111111111111111111111', chainId: 11155111 })
 }));
 const token = '0x1111111111111111111111111111111111111111';
 const position = {
@@ -137,6 +137,39 @@ it('requires refresh on expiry, a malformed reviewed amount, payout identity or 
     errors: [{ owner: token, error: 'offline' }]
   });
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
+});
+it('reads the fresh position without the vault catalogue', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  await assertWithdrawalReviewCurrent(q);
+  expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden', owners: [token], skipCatalog: true });
+});
+it("accepts a position in any market on the route's chain, and refuses one on another chain", async () => {
+  // A market of another lender than the default market, on the default market's chain.
+  const otherMarket = { ...position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:11155111:${token}` };
+  jest.mocked(fetchEarnPositions).mockResolvedValue({
+    positions: [
+      {
+        ...otherMarket,
+        symbol: 'USDC',
+        lenderKey: `MORPHO_BLUE_${'ab'.repeat(32)}`,
+        lenderName: 'Morpho',
+        chainId: '11155111',
+        deposits: '10',
+        depositsUSD: 10,
+        depositApr: 2,
+        priceUsd: 1
+      }
+    ],
+    owners: [token],
+    vaults: [],
+    totalDepositsUSD: 10,
+    errors: []
+  });
+  const q = await quoteEarnWithdrawal({ ...args, position: otherMarket }, sdk);
+  await expect(assertWithdrawalReviewCurrent(q)).resolves.toBeUndefined();
+
+  const offRoute = { ...q, position: { ...q.position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:8453:${token}` } };
+  await expect(assertWithdrawalReviewCurrent(offRoute)).rejects.toThrow('earnWithdrawRefresh');
 });
 it('binds the prepared delivery to the reviewed source amount, underlying and minimum', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);

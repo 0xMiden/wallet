@@ -15,7 +15,7 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { earnCollateralFaucetId, openEarnPosition } from 'lib/epoch';
+import { earnCollateralFaucetId, earnMarketForVault, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
@@ -34,7 +34,14 @@ import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { CHART_DOT_RING, CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
+import {
+  EarnAmountUnit,
+  EarnAssetMark,
+  EarnHero,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnVaultClosedNotice
+} from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
@@ -125,7 +132,11 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   };
 
   const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
-    if (amountBaseUnits === undefined || !collateral || !collateralMatches) return;
+    // The deposit goes to the market of the vault on this page, never to another configured market.
+    const vaultInfo = found?.info;
+    if (amountBaseUnits === undefined || !collateral || !collateralMatches || !vaultInfo || !vaultInfo.canOpen) {
+      return;
+    }
     if (authorization !== undefined && authorization.accountId !== account.publicKey) {
       setSpendingLimitChallenge(undefined);
       return;
@@ -148,6 +159,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       await openEarnPosition({
         amount: amountBaseUnits,
         collateral,
+        market: earnMarketForVault(vaultInfo),
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
@@ -195,7 +207,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       setSubmitErrorId('earnNoEvmAddress');
       return;
     }
-    if (amountBaseUnits === undefined || !collateralMatches) {
+    if (amountBaseUnits === undefined || !collateralMatches || !found?.info?.canOpen) {
       setSubmitError(t('earnFailedToOpenPosition'));
       setSubmitErrorId('earnFailedToOpenPosition');
       return;
@@ -271,7 +283,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         footer={
           (loadFailed && !found) || pending ? undefined : (
             <>
-              <EarnCollateralNotice reason={collateralReason} />
+              {/* One reason at a time: a vault that accepts no deposits now says that, not the collateral. */}
+              {vault.canOpen === false ? (
+                <EarnVaultClosedNotice canOpen={vault.canOpen} />
+              ) : (
+                <EarnCollateralNotice reason={collateralReason} />
+              )}
               {submitError && (
                 <Notice errorId={submitErrorId} tone="negative" role="alert" data-testid="earn-deposit-review-error">
                   {submitError}
@@ -283,7 +300,9 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleOpenPosition}
-                disabled={isSubmitting || amountValue <= 0 || !vault.id || !collateralMatches}
+                disabled={
+                  isSubmitting || amountValue <= 0 || !vault.info || vault.canOpen === false || !collateralMatches
+                }
                 className="w-full max-w-none"
               />
             </>

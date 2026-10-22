@@ -377,10 +377,11 @@ describe('Earn page', () => {
       expect(within(row).queryByTestId('chevron-icon')).toBeNull();
     });
 
-    const first = vaults[0]!;
-    const firstRow = rows[0]!;
+    // The Aave V3 vault: a market that its protocol and network identify.
+    const first = vaults[2]!;
+    const firstRow = rows[2]!;
     expect(firstRow).toHaveTextContent(first.protocol);
-    expect(firstRow).toHaveTextContent('earnVaultAssetOnNetwork');
+    expect(firstRow).toHaveTextContent(`earnVaultAssetOnNetwork:${first.asset},${first.network}`);
     expect(firstRow).toHaveTextContent(first.apy);
     // The earn API has no TVL, so the row promises none.
     expect(within(firstRow).queryByText('earnVaultTvl')).toBeNull();
@@ -388,6 +389,30 @@ describe('Earn page', () => {
 
     // Each row also renders a ProviderLogo probe with the vault's protocol.
     expect(within(firstRow).getByTestId('provider-logo')).toHaveAttribute('data-protocol', first.protocol);
+  });
+
+  it('names each Morpho market on its row, so two Morpho USDC vaults on one chain read differently', () => {
+    render(<Earn />);
+
+    const [first, second] = vaults;
+    expect(first!.protocol).toBe(second!.protocol);
+    const firstRow = screen.getByTestId(`earn-vault-row-${first!.id}`);
+    const secondRow = screen.getByTestId(`earn-vault-row-${second!.id}`);
+    expect(within(firstRow).getByText(first!.protocol)).toHaveClass('text-row-title');
+    expect(
+      within(firstRow).getByText(`earnMarketAssetOnNetwork:${first!.marketName},${first!.asset},${first!.network}`)
+    ).toHaveClass('text-caption', 'text-muted', 'truncate');
+    expect(secondRow).toHaveTextContent(`earnMarketAssetOnNetwork:${second!.marketName}`);
+    expect(firstRow.textContent).not.toBe(secondRow.textContent);
+  });
+
+  it('lists the vaults in the order the hook gives them', () => {
+    render(<Earn />);
+
+    const rows = within(vaultsSection()).getAllByRole('button');
+    expect(rows.map(row => row.getAttribute('data-testid'))).toEqual(
+      vaults.map(vault => `earn-vault-row-${vault.id}`)
+    );
   });
 
   it('navigates to a vault detail when its row is tapped', () => {
@@ -427,10 +452,14 @@ describe('Earn page', () => {
 });
 
 it('lists the Testnet native funding asset while keeping the vault underlying separate', () => {
-  const vault = { ...vaults[0]!, fundingAsset: 'USDCx' };
-  mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: [vault] });
+  const vault = { ...vaults[2]!, fundingAsset: 'USDCx' };
+  const morpho = { ...vaults[0]!, fundingAsset: 'USDCx' };
+  mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: [vault, morpho] });
   render(<Earn />);
   const row = screen.getByTestId(`earn-vault-row-${vault.id}`);
   expect(row).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
   expect(row).not.toHaveTextContent(`earnVaultAssetOnNetwork:${vault.asset},${vault.network}`);
+  expect(screen.getByTestId(`earn-vault-row-${morpho.id}`)).toHaveTextContent(
+    `earnMarketAssetOnNetwork:${morpho.marketName},USDCx,Miden`
+  );
 });

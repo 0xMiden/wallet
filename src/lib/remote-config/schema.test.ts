@@ -1,5 +1,25 @@
-import { parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import { keccak256, toBytes } from 'viem';
+
+import { EARN_LENDER_FAMILIES, EARN_PROTOCOL_STRINGS, parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
 import testnet from './testing/testnet.json';
+
+describe('EARN_PROTOCOL_STRINGS', () => {
+  it('names one protocol string per lender family', () => {
+    expect(EARN_PROTOCOL_STRINGS).toEqual({
+      DUMMY_LENDING: 'dummy-lending',
+      AAVE_V3: 'aave-v3',
+      COMPOUND_V3: 'compound-v3',
+      MORPHO_BLUE: 'morpho-blue'
+    });
+    expect(Object.keys(EARN_PROTOCOL_STRINGS).sort()).toEqual([...EARN_LENDER_FAMILIES].sort());
+  });
+
+  it('keeps the hash the testnet deposits use for the dummy lender', () => {
+    expect(keccak256(toBytes(EARN_PROTOCOL_STRINGS.DUMMY_LENDING))).toBe(
+      '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9'
+    );
+  });
+});
 
 type ConfigValue = Parameters<typeof parseBridgeConfig>[0];
 const doc = (overrides: Record<string, ConfigValue> = {}) => ({

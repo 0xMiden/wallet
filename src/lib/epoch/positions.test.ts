@@ -2,13 +2,15 @@ import { getEpochPositionsUrl } from 'lib/remote-config/values';
 
 import {
   carryForward,
+  EARN_CATALOG_ERROR_OWNER,
   type EarnPosition,
   type EarnPositionsResult,
   type EarnVaultInfo,
   fetchEarnPositions,
   getEarnDepositEvmAddresses
 } from './positions';
-import { TEST_POSITIONS_URL } from './testing/bridge-config';
+import { TEST_EARN_MARKET, TEST_POSITIONS_URL } from './testing/bridge-config';
+import { AAVE_V3_USDC, poolsPage } from './testing/pools-fixtures';
 
 jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
@@ -18,19 +20,43 @@ jest.mock('lib/miden/repo', () => ({
 }));
 
 const OWNER = '0x1111111111111111111111111111111111111111';
-const CATALOG_ACCOUNT = '0x0000000000000000000000000000000000000000';
+const OTHER_OWNER = '0x2222222222222222222222222222222222222222';
+const ZERO_ACCOUNT = '0x0000000000000000000000000000000000000000';
+const SEPOLIA_USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
+const DUMMY_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+const AAVE_UID = 'AAVE_V3:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
 
-function apiItem(deposits = '0', depositsUSD = 0) {
+/** A `/pools` market of `lenderKey` on the test route (Sepolia USDC), shaped as the mainnet host serves one. */
+function sepoliaPool(lenderKey: string, name: string, aprTotal: number) {
+  const address = SEPOLIA_USDC.toLowerCase();
   return {
-    lender: 'DUMMY_LENDING',
+    ...AAVE_V3_USDC,
+    marketUid: `${lenderKey}:11155111:${address}`,
+    chainId: '11155111',
+    lenderKey,
+    name,
+    depositRate: aprTotal,
+    lenderInfo: { key: lenderKey, name, logoURI: '' },
+    underlyingInfo: {
+      ...AAVE_V3_USDC.underlyingInfo,
+      asset: { ...AAVE_V3_USDC.underlyingInfo.asset, chainId: '11155111', address, decimals: 18 }
+    },
+    termSheet: { supply: { ...AAVE_V3_USDC.termSheet.supply, aprTotal } }
+  };
+}
+
+/** One chain item of a positions answer: `lenderKey`'s positions in `marketUid`. */
+function apiItem(deposits = '0', depositsUSD = 0, lenderKey = 'DUMMY_LENDING', marketUid = DUMMY_UID) {
+  return {
+    lender: lenderKey,
     chainId: '11155111',
     aprData: { apr: 2, depositApr: 2, borrowApr: 3 },
-    lenderInfo: { lenderKey: 'DUMMY_LENDING', name: 'Dummy Lending', logoUri: '' },
+    lenderInfo: { lenderKey, name: lenderKey === 'DUMMY_LENDING' ? 'Dummy Lending' : lenderKey, logoUri: '' },
     data: [
       {
         positions: [
           {
-            marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+            marketUid,
             deposits,
             debt: '0',
             depositsUSD,
@@ -40,13 +66,13 @@ function apiItem(deposits = '0', depositsUSD = 0) {
               asset: {
                 name: 'USD Coin',
                 symbol: 'USDC',
-                address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+                address: SEPOLIA_USDC,
                 chainId: '11155111',
                 logoURI: null,
                 decimals: 6,
                 assetGroup: 'USDC'
               },
-              prices: { priceUsd: 1, priceChange24h: 0 }
+              prices: { priceUsd: 1 }
             }
           }
         ]
@@ -55,315 +81,311 @@ function apiItem(deposits = '0', depositsUSD = 0) {
   };
 }
 
-describe('fetchEarnPositions', () => {
-  beforeEach(() => {
-    global.fetch = jest.fn();
+type Answer = { ok: boolean; status: number; json: () => Promise<unknown> };
+const answer = (body: unknown, status = 200): Answer => ({ ok: status < 400, status, json: async () => body });
+const positionsAnswer = (items: unknown) => answer({ success: true, data: { items } });
+
+interface Routes {
+  /** The `/pools` answer. By default the Dummy and Aave markets of the test route. */
+  pools?: () => Answer | Promise<Answer>;
+  /** The zero account's positions, the catalogue fallback. */
+  catalog?: () => Answer;
+  /** One owner's positions. */
+  owner?: (owner: string, init?: { signal?: AbortSignal }) => Answer | Promise<Answer>;
+}
+
+function serve(routes: Routes = {}) {
+  const fetchMock = jest.fn();
+  fetchMock.mockImplementation(async (url: string, init?: { signal?: AbortSignal }) => {
+    const parsed = new URL(url);
+    const account = parsed.searchParams.get('account') ?? '';
+    switch (parsed.pathname) {
+      case '/pools':
+        return (
+          routes.pools?.() ??
+          answer(poolsPage([sepoliaPool('AAVE_V3', 'Aave V3', 5), sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)]))
+        );
+      case '/positions':
+        if (account === ZERO_ACCOUNT) return routes.catalog?.() ?? answer(null, 404);
+        return routes.owner?.(account, init) ?? positionsAnswer([]);
+      default:
+        return answer(null, 404);
+    }
+  });
+  global.fetch = fetchMock;
+  return fetchMock;
+}
+
+const requestedPaths = (fetchMock: jest.Mock) =>
+  fetchMock.mock.calls.map(([url]) => {
+    const parsed = new URL(String(url));
+    return `${parsed.pathname}${parsed.searchParams.has('account') ? `?account=${parsed.searchParams.get('account')}` : ''}`;
   });
 
-  it('loads the supported vault catalog for a wallet with no EVM owners', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, data: { items: [apiItem()] } })
-    });
+describe('fetchEarnPositions', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('loads the vault catalogue for a wallet with no EVM owners, with no positions request', async () => {
+    const fetchMock = serve();
 
     const result = await fetchEarnPositions({ owners: [] });
 
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining(`account=${CATALOG_ACCOUNT}`), {
-      signal: expect.any(AbortSignal)
-    });
+    expect(requestedPaths(fetchMock)).toEqual(['/pools']);
+    const query = new URL(String(fetchMock.mock.calls[0]?.[0])).searchParams;
+    expect(query.get('chainId')).toBe('11155111');
+    expect(query.get('underlyings')).toBe(TEST_EARN_MARKET.underlying);
     expect(result.owners).toEqual([]);
     expect(result.positions).toEqual([]);
-    expect(result.vaults).toHaveLength(1);
-    expect(result.vaults[0]).toMatchObject({ lenderKey: 'DUMMY_LENDING', chainId: '11155111', depositApr: 2 });
+    expect(result.errors).toEqual([]);
+    expect(result.vaults.map(vault => [vault.marketUid, vault.aprTotal])).toEqual([
+      [AAVE_UID, 5],
+      [DUMMY_UID, 2]
+    ]);
   });
 
   it('reads the positions host and the market chain the config names', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, data: { items: [] } })
-    });
+    const fetchMock = serve();
 
     await fetchEarnPositions({ owners: [OWNER] });
 
-    expect(global.fetch).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111`, {
+    expect(fetchMock).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111`, {
       signal: expect.any(AbortSignal)
     });
+    expect(requestedPaths(fetchMock).sort()).toEqual(['/pools', `/positions?account=${OWNER}`]);
   });
 
   it('rejects before any request while the config names no positions host', async () => {
+    const fetchMock = serve();
     jest.mocked(getEpochPositionsUrl).mockImplementationOnce(() => {
       throw new Error('no positions host');
     });
 
     await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toThrow('no positions host');
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('maps funded positions and preserves withdrawal inputs', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, data: { items: [apiItem('12.5', 12.5)] } })
-    });
+    serve({ owner: () => positionsAnswer([apiItem('12.5', 12.5)]) });
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
     expect(result.totalDepositsUSD).toBe(12.5);
-    expect(result.positions[0]).toMatchObject({
-      owner: OWNER,
-      deposits: '12.5',
-      withdrawable: '12.5',
-      underlyingAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69'
-    });
+    expect(result.positions).toEqual([
+      {
+        owner: OWNER,
+        marketUid: DUMMY_UID,
+        lenderKey: 'DUMMY_LENDING',
+        lenderName: 'Dummy Lending',
+        chainId: '11155111',
+        deposits: '12.5',
+        withdrawable: '12.5',
+        depositsUSD: 12.5,
+        depositApr: 2,
+        symbol: 'USDC',
+        underlyingAddress: SEPOLIA_USDC,
+        decimals: 6,
+        priceUsd: 1
+      }
+    ]);
   });
 
-  it('isolates malformed and failed API responses as per-owner errors', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, data: { items: null } })
+  it('keeps the funded positions of every catalogue market, matching the uid in any case', async () => {
+    serve({
+      owner: () =>
+        positionsAnswer([
+          apiItem('12.5', 12.5),
+          apiItem('3', 3, 'AAVE_V3', `AAVE_V3:11155111:${SEPOLIA_USDC}`),
+          apiItem('0', 0, 'AAVE_V3', AAVE_UID)
+        ])
     });
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
+    expect(result.positions.map(position => [position.marketUid, position.deposits])).toEqual([
+      [DUMMY_UID, '12.5'],
+      [`AAVE_V3:11155111:${SEPOLIA_USDC}`, '3']
+    ]);
+    expect(result.totalDepositsUSD).toBe(15.5);
+  });
+
+  it('leaves out a position in a market the catalogue does not list', async () => {
+    serve({
+      pools: () => answer(poolsPage([sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])),
+      owner: () =>
+        positionsAnswer([
+          apiItem('12.5', 12.5),
+          apiItem('3', 3, 'AAVE_V3', AAVE_UID),
+          apiItem('4', 4, 'EULER_V2', 'EULER_V2:11155111:0x4c1aeda9b43efcf1da1d1755b18802aabe90f61e')
+        ])
+    });
+
+    const result = await fetchEarnPositions({ owners: [OWNER] });
+
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID]);
+  });
+
+  it("reads the testnet catalogue from the zero account's positions, where the host has no /pools route", async () => {
+    const fetchMock = serve({
+      pools: () => answer('Cannot GET /pools', 404),
+      catalog: () => positionsAnswer([apiItem()]),
+      owner: () => positionsAnswer([apiItem('12.5', 12.5)])
+    });
+
+    const result = await fetchEarnPositions({ owners: [OWNER] });
+
+    expect(requestedPaths(fetchMock).sort()).toEqual([
+      '/pools',
+      `/positions?account=${ZERO_ACCOUNT}`,
+      `/positions?account=${OWNER}`
+    ]);
+    expect(result.errors).toEqual([]);
+    expect(result.vaults).toEqual([
+      {
+        marketUid: DUMMY_UID,
+        lenderKey: 'DUMMY_LENDING',
+        lenderFamily: 'DUMMY_LENDING',
+        lenderName: 'Dummy Lending',
+        marketName: 'Dummy Lending',
+        logoUri: '',
+        chainId: '11155111',
+        // The symbol and decimals the config's read of the token gives.
+        underlying: { address: SEPOLIA_USDC, symbol: 'USDC', decimals: 18 },
+        depositApr: 2,
+        aprTotal: 2,
+        canOpen: true
+      }
+    ]);
+    expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, marketUid: DUMMY_UID })]);
+  });
+
+  it('reports a failed catalogue read under its own label, and keeps the positions of supported markets', async () => {
+    serve({
+      pools: () => answer(null, 503),
+      catalog: () => answer(null, 503),
+      owner: () =>
+        positionsAnswer([
+          apiItem('12.5', 12.5),
+          apiItem('3', 3, 'AAVE_V3', AAVE_UID),
+          apiItem('4', 4, 'EULER_V2', 'EULER_V2:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'),
+          apiItem('5', 5, 'AAVE_V3', 'AAVE_V3:84532:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69')
+        ])
+    });
+
+    const result = await fetchEarnPositions({ owners: [OWNER] });
+
+    expect(result.errors).toEqual([
+      { owner: EARN_CATALOG_ERROR_OWNER, error: 'Remote JSON request failed with HTTP 503' }
+    ]);
+    expect(result.vaults).toEqual([]);
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
+  });
+
+  it('reads no catalogue when told to skip it, and keeps the positions of supported markets', async () => {
+    const fetchMock = serve({
+      owner: () => positionsAnswer([apiItem('12.5', 12.5), apiItem('3', 3, 'AAVE_V3', AAVE_UID)])
+    });
+
+    const result = await fetchEarnPositions({ owners: [OWNER], skipCatalog: true });
+
+    expect(requestedPaths(fetchMock)).toEqual([`/positions?account=${OWNER}`]);
+    expect(result.errors).toEqual([]);
+    expect(result.vaults).toEqual([]);
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
+  });
+
+  it('names the catalogue vaults a read dropped, and says when one had no uid', async () => {
+    const malformed = { ...sepoliaPool('AAVE_V3', 'Aave V3', 5), depositRate: '5' };
+    serve({ pools: () => answer(poolsPage([malformed, sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])) });
+    const keyed = await fetchEarnPositions({ owners: [] });
+    expect(keyed.vaults.map(vault => vault.marketUid)).toEqual([DUMMY_UID]);
+    expect(keyed.droppedVaultKeys).toEqual([AAVE_UID.toLowerCase()]);
+    expect(keyed.vaultDroppedUnkeyed).toBeUndefined();
+    expect(keyed.errors).toEqual([]);
+
+    serve({ pools: () => answer(poolsPage([null, sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])) });
+    const unkeyed = await fetchEarnPositions({ owners: [] });
+    expect(unkeyed.vaultDroppedUnkeyed).toBe(true);
+    expect(unkeyed.droppedVaultKeys).toBeUndefined();
+
+    serve();
+    const clean = await fetchEarnPositions({ owners: [] });
+    expect(clean.droppedVaultKeys).toBeUndefined();
+    expect(clean.vaultDroppedUnkeyed).toBeUndefined();
+  });
+
+  it('isolates malformed and failed API responses as per-owner errors', async () => {
+    serve({
+      owner: owner =>
+        owner === OTHER_OWNER ? answer(null, 429) : answer({ success: true, data: { items: null } })
+    });
+
+    const result = await fetchEarnPositions({ owners: [OWNER, OTHER_OWNER] });
+
     expect(result.positions).toEqual([]);
-    expect(result.errors).toEqual([{ owner: OWNER, error: 'positions request unsuccessful' }]);
+    expect(result.errors).toEqual([
+      { owner: OWNER, error: 'positions request unsuccessful' },
+      { owner: OTHER_OWNER, error: 'positions request failed (429)' }
+    ]);
+    expect(result.vaults).toHaveLength(2);
   });
 
   it("settles an owner whose payload cannot be read as that owner's error, while the others load", async () => {
-    const unreadable = '0x2222222222222222222222222222222222222222';
     // A readable item first, so keeping any of this owner's items would show here.
-    const readable = { ...apiItem('7', 7), lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' } };
     const lackingLenderInfo = { ...apiItem('3', 3), lenderInfo: undefined };
-    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
-      ok: true,
-      json: async () => ({
-        success: true,
-        data: { items: url.includes(unreadable) ? [readable, lackingLenderInfo] : [apiItem('12.5', 12.5)] }
-      })
-    }));
+    serve({
+      owner: owner =>
+        positionsAnswer(owner === OTHER_OWNER ? [apiItem('7', 7), lackingLenderInfo] : [apiItem('12.5', 12.5)])
+    });
 
-    const result = await fetchEarnPositions({ owners: [unreadable, OWNER] });
+    const result = await fetchEarnPositions({ owners: [OTHER_OWNER, OWNER] });
 
-    expect(result.errors).toEqual([{ owner: unreadable, error: 'positions response unreadable' }]);
+    expect(result.errors).toEqual([{ owner: OTHER_OWNER, error: 'positions response unreadable' }]);
     expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
-    expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining(`positions response unreadable for ${OTHER_OWNER}`),
+      expect.any(Error)
+    );
   });
 
-  describe('an owner whose payload has a field of the wrong type', () => {
-    const malformed = '0x2222222222222222222222222222222222222222';
-    const otherLender = { lenderKey: 'OTHER_LENDING', name: 'Other', logoUri: '' };
-    const thirdLender = { ...apiItem('4', 4), lenderInfo: { lenderKey: 'THIRD_LENDING', name: 'Third', logoUri: '' } };
-    const loadWith = (items: object[]) =>
-      (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: { items: url.includes(malformed) ? items : [apiItem('12.5', 12.5)] }
-        })
-      }));
+  it("settles a funded position with no USD value as that owner's error", async () => {
+    const funded = apiItem('3', 3);
+    const noUsd = {
+      ...funded,
+      data: funded.data.map(group => ({ positions: group.positions.map(pos => ({ ...pos, depositsUSD: null })) }))
+    };
+    serve({ owner: owner => positionsAnswer(owner === OTHER_OWNER ? [noUsd] : [apiItem('12.5', 12.5)]) });
 
-    beforeEach(() => {
-      jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    });
+    const result = await fetchEarnPositions({ owners: [OTHER_OWNER, OWNER] });
 
-    afterEach(() => {
-      jest.restoreAllMocks();
-    });
-
-    it('drops the vault of an unfunded item with no APRs and keeps the owner', async () => {
-      loadWith([{ ...apiItem(), aprData: {}, lenderInfo: otherLender }, thirdLender]);
-
-      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.positions).toEqual([
-        expect.objectContaining({ owner: malformed, lenderKey: 'THIRD_LENDING', deposits: '4' }),
-        expect.objectContaining({ owner: OWNER, deposits: '12.5' })
-      ]);
-      expect(result.vaults).toEqual([
-        expect.objectContaining({ lenderKey: 'THIRD_LENDING' }),
-        expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })
-      ]);
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(malformed), expect.any(Error));
-    });
-
-    it("settles a funded position with no USD value as that owner's error", async () => {
-      const funded = apiItem('3', 3);
-      loadWith([
-        {
-          ...funded,
-          data: funded.data.map(group => ({ positions: group.positions.map(pos => ({ ...pos, depositsUSD: null })) })),
-          lenderInfo: otherLender
-        }
-      ]);
-
-      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
-
-      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
-      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
-      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
-      expect(result.totalDepositsUSD).toBe(12.5);
-      expect(console.warn).toHaveBeenCalledWith(
-        expect.stringContaining(`positions response unreadable for ${malformed}`),
-        expect.any(TypeError)
-      );
-    });
-
-    it('keeps a funded item whose vault has no APR', async () => {
-      loadWith([{ ...apiItem('3', 3), aprData: { depositApr: 2, borrowApr: 3 }, lenderInfo: otherLender }]);
-
-      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.positions).toEqual([
-        expect.objectContaining({ owner: malformed, lenderKey: 'OTHER_LENDING', deposits: '3' }),
-        expect.objectContaining({ owner: OWNER, deposits: '12.5' })
-      ]);
-      expect(result.vaults).toEqual([
-        expect.objectContaining({ lenderKey: 'OTHER_LENDING' }),
-        expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })
-      ]);
-    });
-
-    it('drops a vault whose chain id is not a string and keeps the owner', async () => {
-      loadWith([{ ...apiItem(), chainId: 11155111 }, thirdLender]);
-
-      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.positions).toContainEqual(
-        expect.objectContaining({ owner: malformed, lenderKey: 'THIRD_LENDING' })
-      );
-      expect(result.vaults).toEqual([
-        expect.objectContaining({ lenderKey: 'THIRD_LENDING' }),
-        expect.objectContaining({ lenderKey: 'DUMMY_LENDING', chainId: '11155111' })
-      ]);
-    });
-
-    it('loads a vault whose lender has no logo, with an empty one', async () => {
-      loadWith([{ ...apiItem(), lenderInfo: { lenderKey: 'OTHER_LENDING', name: 'Other' } }]);
-
-      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.vaults).toContainEqual(expect.objectContaining({ lenderKey: 'OTHER_LENDING', logoUri: '' }));
-    });
-
-    it('logs the fold, naming the owner', async () => {
-      loadWith([{ ...apiItem(), aprData: {} }]);
-
-      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
-
-      expect(result.errors).toEqual([{ owner: malformed, error: 'positions response unreadable' }]);
-      expect(console.warn).toHaveBeenCalledWith(
-        expect.stringContaining(`positions response unreadable for ${malformed}`),
-        expect.any(Error)
-      );
-    });
-
-    it('names each vault a read dropped, through an owner or the catalog, and says when one had no key', async () => {
-      const unreadableVault = { ...apiItem(), aprData: {}, lenderInfo: otherLender };
-      loadWith([unreadableVault, thirdLender]);
-      const keyed = await fetchEarnPositions({ owners: [malformed, OWNER] });
-      expect(keyed.droppedVaultKeys).toEqual(['OTHER_LENDING:11155111']);
-      expect(keyed.vaultDroppedUnkeyed).toBeUndefined();
-
-      loadWith([{ ...apiItem(), chainId: 11155111 }, thirdLender]);
-      const unkeyed = await fetchEarnPositions({ owners: [malformed, OWNER] });
-      expect(unkeyed.vaultDroppedUnkeyed).toBe(true);
-      expect(unkeyed.droppedVaultKeys).toBeUndefined();
-
-      (global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, data: { items: [unreadableVault, apiItem()] } })
-      });
-      expect((await fetchEarnPositions({ owners: [] })).droppedVaultKeys).toEqual(['OTHER_LENDING:11155111']);
-
-      loadWith([thirdLender]);
-      const clean = await fetchEarnPositions({ owners: [malformed, OWNER] });
-      expect(clean.droppedVaultKeys).toBeUndefined();
-      expect(clean.vaultDroppedUnkeyed).toBeUndefined();
-    });
-
-    it('drops only the vault of an item with no lender info, as one whose key could not be read', async () => {
-      loadWith([{ ...apiItem(), lenderInfo: undefined }, thirdLender]);
-
-      const result = await fetchEarnPositions({ owners: [malformed, OWNER] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.positions).toContainEqual(
-        expect.objectContaining({ owner: malformed, lenderKey: 'THIRD_LENDING' })
-      );
-      expect(result.vaultDroppedUnkeyed).toBe(true);
-    });
-
-    it('drops only a null catalog item, as one whose key could not be read', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, data: { items: [null, apiItem()] } })
-      });
-
-      const result = await fetchEarnPositions({ owners: [] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
-      expect(result.vaultDroppedUnkeyed).toBe(true);
-    });
-
-    it("settles the catalog query's item with no APRs as the catalog's error, with no vaults", async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, data: { items: [{ ...apiItem(), aprData: {} }] } })
-      });
-
-      const result = await fetchEarnPositions({ owners: [] });
-
-      expect(result.errors).toEqual([{ owner: CATALOG_ACCOUNT, error: 'positions response unreadable' }]);
-      expect(result.vaults).toEqual([]);
-    });
-
-    it('keeps a catalog vault that reports only a deposit APR', async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, data: { items: [{ ...apiItem(), aprData: { depositApr: 2 } }] } })
-      });
-
-      const result = await fetchEarnPositions({ owners: [] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.vaults).toEqual([
-        { lenderKey: 'DUMMY_LENDING', lenderName: 'Dummy Lending', logoUri: '', chainId: '11155111', depositApr: 2 }
-      ]);
-    });
-
-    it("drops only a malformed catalog item's vault and loads the others", async () => {
-      (global.fetch as jest.Mock).mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: { items: [{ ...apiItem(), aprData: {}, lenderInfo: otherLender }, apiItem()] }
-        })
-      });
-
-      const result = await fetchEarnPositions({ owners: [] });
-
-      expect(result.errors).toEqual([]);
-      expect(result.vaults).toEqual([expect.objectContaining({ lenderKey: 'DUMMY_LENDING' })]);
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(CATALOG_ACCOUNT), expect.any(Error));
-    });
+    expect(result.errors).toEqual([{ owner: OTHER_OWNER, error: 'positions response unreadable' }]);
+    expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
+    expect(result.totalDepositsUSD).toBe(12.5);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining(`positions response unreadable for ${OTHER_OWNER}`),
+      expect.any(TypeError)
+    );
   });
 
   it("settles an owner whose request stalls as that owner's error at 15 s, while the others load", async () => {
     jest.useFakeTimers();
-    const stalled = '0x2222222222222222222222222222222222222222';
     // A stalled request ends only when its signal aborts, as a real fetch does.
-    (global.fetch as jest.Mock).mockImplementation((url: string, init?: { signal?: AbortSignal }) =>
-      url.includes(stalled)
-        ? new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
-        : Promise.resolve({ ok: true, json: async () => ({ success: true, data: { items: [apiItem('12.5', 12.5)] } }) })
-    );
+    serve({
+      owner: (owner, init) =>
+        owner === OTHER_OWNER
+          ? new Promise((_resolve, reject) =>
+              init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+            )
+          : positionsAnswer([apiItem('12.5', 12.5)])
+    });
     try {
       let settled = false;
-      const read = fetchEarnPositions({ owners: [OWNER, stalled] }).finally(() => {
+      const read = fetchEarnPositions({ owners: [OWNER, OTHER_OWNER] }).finally(() => {
         settled = true;
       });
 
@@ -374,7 +396,7 @@ describe('fetchEarnPositions', () => {
 
       const result = await read;
       expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, deposits: '12.5' })]);
-      expect(result.errors).toEqual([{ owner: stalled, error: 'Request timed out after 15000 ms' }]);
+      expect(result.errors).toEqual([{ owner: OTHER_OWNER, error: 'Request timed out after 15000 ms' }]);
     } finally {
       jest.useRealTimers();
     }
@@ -382,10 +404,9 @@ describe('fetchEarnPositions', () => {
 });
 
 describe('carryForward', () => {
-  const OTHER = '0x2222222222222222222222222222222222222222';
   const position = (owner: string, depositsUSD: number): EarnPosition => ({
     owner,
-    marketUid: 'DUMMY_LENDING:11155111:0xasset',
+    marketUid: DUMMY_UID,
     lenderKey: 'DUMMY_LENDING',
     lenderName: 'Dummy Lending',
     chainId: '11155111',
@@ -394,87 +415,109 @@ describe('carryForward', () => {
     depositsUSD,
     depositApr: 2,
     symbol: 'USDC',
-    underlyingAddress: '0xasset',
+    underlyingAddress: SEPOLIA_USDC,
     decimals: 6,
     priceUsd: 1
   });
-  const vault = (lenderKey: string, depositApr = 2): EarnVaultInfo => ({
+  const vault = (lenderKey: string, aprTotal = 2): EarnVaultInfo => ({
+    marketUid: `${lenderKey}:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69`,
     lenderKey,
+    lenderFamily: 'MORPHO_BLUE',
     lenderName: lenderKey,
+    marketName: 'Loan USDC',
     logoUri: '',
     chainId: '11155111',
-    depositApr
+    underlying: { address: SEPOLIA_USDC, symbol: 'USDC', decimals: 18 },
+    depositApr: aprTotal,
+    aprTotal,
+    canOpen: true
   });
+  const uid = (lenderKey: string) => vault(lenderKey).marketUid.toLowerCase();
   const read = (over: Partial<EarnPositionsResult>): EarnPositionsResult => ({
     positions: [],
     vaults: [],
     totalDepositsUSD: 0,
-    owners: [OWNER, OTHER],
+    owners: [OWNER, OTHER_OWNER],
     errors: [],
     ...over
   });
+  const catalogFailure = { owner: EARN_CATALOG_ERROR_OWNER, error: 'Remote JSON request failed with HTTP 503' };
 
-  it("brings back a failed owner's positions and the vaults the read lacks, from what was loaded before", () => {
+  it("brings back a failed owner's positions, and no vault while the catalogue loaded", () => {
     const previous = read({
-      positions: [position(OWNER, 5), position(OTHER, 7)],
-      vaults: [vault('DUMMY_LENDING', 1), vault('OTHER_LENDING')],
+      positions: [position(OWNER, 5), position(OTHER_OWNER, 7)],
+      vaults: [vault('MORPHO_BLUE_A', 1), vault('MORPHO_BLUE_B')],
       totalDepositsUSD: 12
     });
     const next = read({
       positions: [position(OWNER, 6)],
-      vaults: [vault('DUMMY_LENDING')],
+      vaults: [vault('MORPHO_BLUE_A')],
       totalDepositsUSD: 6,
-      errors: [{ owner: OTHER, error: 'positions request failed (429)' }]
+      errors: [{ owner: OTHER_OWNER, error: 'positions request failed (429)' }]
     });
 
     const carried = carryForward(previous, next);
 
-    // The owner that loaded shows this read's positions and vaults alone.
-    expect(carried.positions).toEqual([position(OWNER, 6), position(OTHER, 7)]);
-    expect(carried.vaults).toEqual([vault('DUMMY_LENDING'), vault('OTHER_LENDING')]);
+    // The owner that loaded shows this read's positions alone.
+    expect(carried.positions).toEqual([position(OWNER, 6), position(OTHER_OWNER, 7)]);
+    expect(carried.vaults).toEqual([vault('MORPHO_BLUE_A')]);
     expect(carried.totalDepositsUSD).toBe(13);
     expect(carried.owners).toBe(next.owners);
     expect(carried.errors).toBe(next.errors);
   });
 
-  it('returns the read as it is when no owner failed, or nothing was loaded before', () => {
-    const previous = read({ positions: [position(OTHER, 7)], vaults: [vault('OTHER_LENDING')], totalDepositsUSD: 7 });
-    const loaded = read({ positions: [position(OWNER, 6)], vaults: [vault('DUMMY_LENDING')], totalDepositsUSD: 6 });
-    const failed = read({ errors: [{ owner: OWNER, error: 'positions request failed (429)' }] });
+  it('brings back every vault shown before when the catalogue read failed, highest total APR first', () => {
+    const previous = read({
+      positions: [position(OWNER, 5)],
+      vaults: [vault('MORPHO_BLUE_A', 9), vault('MORPHO_BLUE_B', 3)],
+      totalDepositsUSD: 5
+    });
+    const next = read({ positions: [position(OWNER, 6)], totalDepositsUSD: 6, errors: [catalogFailure] });
+
+    const carried = carryForward(previous, next);
+
+    expect(carried.vaults).toEqual([vault('MORPHO_BLUE_A', 9), vault('MORPHO_BLUE_B', 3)]);
+    // The catalogue failure hides no position: this read's positions stand.
+    expect(carried.positions).toEqual([position(OWNER, 6)]);
+    expect(carried.totalDepositsUSD).toBe(6);
+    expect(carried.errors).toBe(next.errors);
+  });
+
+  it('returns the read as it is when nothing failed, or nothing was loaded before', () => {
+    const previous = read({ positions: [position(OTHER_OWNER, 7)], vaults: [vault('MORPHO_BLUE_B')] });
+    const loaded = read({ positions: [position(OWNER, 6)], vaults: [vault('MORPHO_BLUE_A')], totalDepositsUSD: 6 });
+    const failed = read({ errors: [catalogFailure] });
 
     expect(carryForward(previous, loaded)).toBe(loaded);
     expect(carryForward(undefined, failed)).toBe(failed);
   });
 
-  it('brings back the vault a read dropped, with no owner failed, and no positions', () => {
-    const previous = read({ positions: [position(OTHER, 7)], vaults: [vault('OTHER_LENDING')], totalDepositsUSD: 7 });
-    const loaded = read({ positions: [position(OWNER, 6)], vaults: [vault('DUMMY_LENDING')], totalDepositsUSD: 6 });
-
-    const carried = carryForward(previous, { ...loaded, droppedVaultKeys: ['OTHER_LENDING:11155111'] });
-
-    expect(carried.vaults).toEqual([vault('DUMMY_LENDING'), vault('OTHER_LENDING')]);
-    expect(carried.positions).toEqual([position(OWNER, 6)]);
-    expect(carried.totalDepositsUSD).toBe(6);
-    expect(carryForward(previous, loaded).vaults).toEqual([vault('DUMMY_LENDING')]);
-  });
-
   describe('when a read that keeps one of three vaults dropped the second', () => {
-    const [first, second, third] = [vault('DUMMY_LENDING'), vault('OTHER_LENDING'), vault('THIRD_LENDING')];
+    const [first, second, third] = [vault('MORPHO_BLUE_A', 9), vault('MORPHO_BLUE_B', 5), vault('MORPHO_BLUE_C', 1)];
     const previous = read({ vaults: [first, second, third] });
-    const dropped = read({ vaults: [first], droppedVaultKeys: ['OTHER_LENDING:11155111'] });
+    const dropped = read({ vaults: [first], droppedVaultKeys: [uid('MORPHO_BLUE_B')] });
 
-    it('brings back that vault alone', () => {
-      expect(carryForward(previous, dropped).vaults).toEqual([first, second]);
+    it('brings back that vault alone, with no positions', () => {
+      const carried = carryForward(previous, dropped);
+
+      expect(carried.vaults).toEqual([first, second]);
+      expect(carried.positions).toEqual([]);
     });
 
     it('brings back every vault the read lacks when a dropped vault had no key', () => {
       expect(carryForward(previous, { ...dropped, vaultDroppedUnkeyed: true }).vaults).toEqual([first, second, third]);
     });
 
-    it('brings back every vault the read lacks when an owner failed', () => {
-      const failed = { ...dropped, errors: [{ owner: OTHER, error: 'positions request failed (429)' }] };
+    it('brings back only that vault when an owner failed', () => {
+      const failed = { ...dropped, errors: [{ owner: OTHER_OWNER, error: 'positions request failed (429)' }] };
 
-      expect(carryForward(previous, failed).vaults).toEqual([first, second, third]);
+      expect(carryForward(previous, failed).vaults).toEqual([first, second]);
+    });
+
+    it('sorts a vault it brings back by total APR', () => {
+      const loadedThird = read({ vaults: [third], droppedVaultKeys: [uid('MORPHO_BLUE_A')] });
+
+      expect(carryForward(previous, loadedThird).vaults).toEqual([first, third]);
     });
   });
 });

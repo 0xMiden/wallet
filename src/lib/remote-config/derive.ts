@@ -7,8 +7,9 @@ import {
   RpcClient,
   SlotAndKeys
 } from '@miden-sdk/miden-sdk/lazy';
-import { createPublicClient, getAddress, http, keccak256, parseAbi, toBytes } from 'viem';
+import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
+import { earnMarketForVault, readEarnVaults } from 'lib/epoch/pools-read';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -19,10 +20,8 @@ import { getChain } from 'lib/walletconnect/config';
 import {
   type AgglayerDepositTokenConfig,
   type BridgeConfig,
-  EARN_LENDER_KEYS,
   epochCollateralFaucetId,
-  type EvmAddress,
-  SUPPORTED_EARN_PROTOCOLS
+  type EvmAddress
 } from './schema';
 import { parseSwapPairs, SWAP_PAIRS_PATH, type SwapPairs, type SwapPairsToken } from './swap-pairs';
 import type { EarnMarket } from './values';
@@ -513,30 +512,11 @@ async function probeDepositTokens(
   });
 }
 
-// The checksummed form of a 20-byte hex address, or null for anything else.
-const checksummed = (value: string | undefined): EvmAddress | null =>
-  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value) ? getAddress(`0x${value.slice(2)}`) : null;
-
-// The uid of a listed USDC position whose chain, underlying and the chain and token its uid names are all the route's.
-function listedMarketUid(groups: unknown, route: { chainId: number; usdc: EvmAddress }): string | undefined {
-  if (!Array.isArray(groups)) return undefined;
-  for (const group of groups) {
-    if (!isRecord(group) || !Array.isArray(group.positions)) continue;
-    for (const position of group.positions) {
-      if (!isRecord(position) || typeof position.marketUid !== 'string' || !isRecord(position.underlyingInfo)) continue;
-      const asset = position.underlyingInfo.asset;
-      if (!isRecord(asset) || asset.symbol !== 'USDC' || typeof asset.address !== 'string') continue;
-      const [, uidChain, uidToken] = position.marketUid.split(':');
-      if (checksummed(asset.address) !== route.usdc || checksummed(uidToken) !== route.usdc) continue;
-      if (uidChain === String(route.chainId)) return position.marketUid;
-    }
-  }
-  return undefined;
-}
-
-// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market. The zero
-// account holds no position, so a supported lender listed on a route's chain is the market; a position it does list
-// lends its uid only when that uid names the route's chain and token.
+// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market. The vault
+// catalogue (`/pools`, else the zero account's positions on a host with no `/pools` route) of each route is read. The
+// first route in document order decides: its failed read is the probe's error, and its best vault is the market (the
+// highest `aprTotal` of the vaults that take a deposit, else the highest of all). A route with no vault passes to the
+// next one.
 async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise<Probe<EarnMarket>> {
   const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
   const routes = Object.values(config.supportedEvmChains).flatMap(chain => {
@@ -545,30 +525,16 @@ async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise
   });
   if (!positionsUrl || routes.length === 0) return { state: 'skipped' };
   return attempt(async () => {
-    const body = await fetchBoundedJson(
-      io.fetch,
-      `${positionsUrl}/positions?account=0x0000000000000000000000000000000000000000&chains=${routes.map(route => route.chainId).join(',')}`,
-      { maxBytes: 512 * 1024, timeoutMs: HEALTH_TIMEOUT_MS }
+    const reads = await Promise.allSettled(
+      routes.map(route =>
+        readEarnVaults(io.fetch, { positionsUrl, chainId: route.chainId, underlying: route.usdc }, HEALTH_TIMEOUT_MS)
+      )
     );
-    if (!isRecord(body) || body.success !== true || !isRecord(body.data) || !Array.isArray(body.data.items)) {
-      throw new Error('Epoch market response is invalid');
-    }
-    for (const item of body.data.items) {
-      if (!isRecord(item) || !isRecord(item.lenderInfo)) continue;
-      const lenderKey = item.lenderInfo.lenderKey;
-      const protocol = SUPPORTED_EARN_PROTOCOLS.find(candidate => EARN_LENDER_KEYS[candidate] === lenderKey);
-      const route = routes.find(route => String(route.chainId) === item.chainId);
-      if (!protocol || !route) continue;
-      return {
-        // Lowercase when built: the form earlier deposits sent to Epoch and stored.
-        marketUid:
-          listedMarketUid(item.data, route) ??
-          `${EARN_LENDER_KEYS[protocol]}:${route.chainId}:${route.usdc.toLowerCase()}`,
-        // The protocol's name, never its lender key.
-        protocolHash: keccak256(toBytes(protocol)),
-        underlying: route.usdc,
-        chainId: route.chainId
-      };
+    for (const read of reads) {
+      if (read.status === 'rejected') throw read.reason;
+      const { vaults } = read.value;
+      const best = vaults.find(vault => vault.canOpen) ?? vaults[0];
+      if (best) return earnMarketForVault(best);
     }
     throw new NotDeployedError('Epoch has no supported USDC market');
   });

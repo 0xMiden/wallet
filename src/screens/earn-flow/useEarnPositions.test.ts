@@ -4,8 +4,8 @@ import { act, cleanup, render, renderHook, waitFor } from '@testing-library/reac
 import { SWRConfig, useSWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
-import type { EarnPositionsResult } from 'lib/epoch';
-import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
+import { EARN_CATALOG_ERROR_OWNER, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
 
@@ -21,11 +21,18 @@ jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
 }));
 
-jest.mock('lib/epoch', () => ({
-  carryForward: jest.requireActual<typeof import('lib/epoch/positions')>('lib/epoch/positions').carryForward,
-  fetchEarnPositions: jest.fn(),
-  getEarnDepositEvmAddresses: jest.fn()
-}));
+jest.mock('lib/epoch', () => {
+  const positions = jest.requireActual<typeof import('lib/epoch/positions')>('lib/epoch/positions');
+  const pools = jest.requireActual<typeof import('lib/epoch/pools-read')>('lib/epoch/pools-read');
+  return {
+    carryForward: positions.carryForward,
+    EARN_CATALOG_ERROR_OWNER: positions.EARN_CATALOG_ERROR_OWNER,
+    EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
+    earnLenderFamily: pools.earnLenderFamily,
+    fetchEarnPositions: jest.fn(),
+    getEarnDepositEvmAddresses: jest.fn()
+  };
+});
 
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: unknown[]) => mockUseRetryableSWR(...args)
@@ -126,13 +133,19 @@ const position = {
   priceUsd: 1
 };
 
-const vault = {
+// The fallback catalogue's vault of the same market as the position.
+const vault: EarnVaultInfo = {
+  marketUid: 'DUMMY_LENDING:11155111:0xasset',
   lenderKey: 'DUMMY_LENDING',
+  lenderFamily: 'DUMMY_LENDING',
   lenderName: 'Dummy Lending',
+  marketName: 'Dummy Lending',
   logoUri: '',
   chainId: '11155111',
-  apr: 5,
-  depositApr: 5
+  underlying: { address: '0xasset', symbol: 'USDC', decimals: 6 },
+  depositApr: 5,
+  aprTotal: 5,
+  canOpen: true
 };
 
 const liveResult: EarnPositionsResult = {
@@ -165,11 +178,15 @@ describe('useEarnPositions', () => {
       amount: '$10.00'
     });
     expect(result.current.vaults[0]).toMatchObject({
-      id: 'dummy-lending-11155111',
+      id: 'dummy-lending-11155111-0xasset',
       protocol: 'Dummy Lending',
       fundingAsset: 'USDCx',
-      apy: '5.00%'
+      apy: '5.00%',
+      canOpen: true,
+      info: vault
     });
+    // The position links to the vault of its own market.
+    expect(result.current.positions[0]?.vaultId).toBe(result.current.vaults[0]?.id);
     expect(result.current.summary).toMatchObject({
       totalDepositedUsd: 10,
       blendedApyPercent: 5
@@ -189,31 +206,46 @@ describe('useEarnPositions', () => {
     expect(result.current).toHaveProperty('loadError', undefined);
   });
 
-  it('reports a read with no vaults and only owner failures as a failed load', () => {
+  it('reports a failed vault catalogue read as a failed load, with no owner to query', () => {
     mockUseRetryableSWR.mockReturnValue({
-      data: { ...liveResult, positions: [], vaults: [], totalDepositsUSD: 0, owners: [] },
+      data: {
+        ...liveResult,
+        positions: [],
+        vaults: [],
+        totalDepositsUSD: 0,
+        owners: [],
+        errors: [{ owner: EARN_CATALOG_ERROR_OWNER, error: 'Epoch pools page 2 failed' }]
+      },
       isLoading: false
     });
 
     const { result } = renderHook(() => useEarnPositions());
 
-    expect(result.current.loadError).toBe('owner unavailable');
-    expect(result.current.error).toBe('owner unavailable');
+    expect(result.current.loadError).toBe('Epoch pools page 2 failed');
+    expect(result.current.error).toBe('Epoch pools page 2 failed');
   });
 
-  it('reports a failed load only when every queried owner failed, whatever vaults it shows', () => {
+  it('reports a failed load for a failed catalogue read only, never for failed owners', () => {
     const twoOwners = { ...liveResult, owners: ['0xabcdef', '0xother'] };
-    mockUseRetryableSWR.mockReturnValue({ data: twoOwners, isLoading: false });
-    const { result, rerender } = renderHook(() => useEarnPositions());
-
-    expect(result.current.loadError).toBeUndefined();
-
     const bothFailed = [...liveResult.errors, { owner: '0xabcdef', error: 'positions request failed (429)' }];
     mockUseRetryableSWR.mockReturnValue({ data: { ...twoOwners, errors: bothFailed }, isLoading: false });
+    const { result, rerender } = renderHook(() => useEarnPositions());
+
+    // Every owner failed, but the catalogue loaded: the vaults are current, and the positions report the failure.
+    expect(result.current.vaults).toHaveLength(1);
+    expect(result.current.loadError).toBeUndefined();
+    expect(result.current.error).toBe('owner unavailable');
+
+    const catalogFailed = [{ owner: EARN_CATALOG_ERROR_OWNER, error: 'vault catalogue request threw' }];
+    mockUseRetryableSWR.mockReturnValue({
+      data: { ...twoOwners, vaults: [], errors: catalogFailed },
+      isLoading: false
+    });
     rerender();
 
-    expect(result.current.vaults).toHaveLength(1);
-    expect(result.current.loadError).toBe('owner unavailable');
+    expect(result.current.loadError).toBe('vault catalogue request threw');
+    // A catalogue failure marks no position stale: it names no owner.
+    expect(result.current.positions[0]?.stale).toBe(false);
   });
 
   it('reports a request failure as both loadError and error', () => {
@@ -898,7 +930,7 @@ describe('useEarnPositions', () => {
       expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps what its sole owner last loaded when a Retry finds that owner failed, stale until a read loads it', async () => {
+    it('keeps what its sole owner and the catalogue last loaded when a Retry finds both failed, stale until a read loads it', async () => {
       jest
         .mocked(fetchEarnPositions)
         .mockResolvedValueOnce(liveResult)
@@ -907,7 +939,10 @@ describe('useEarnPositions', () => {
           vaults: [],
           totalDepositsUSD: 0,
           owners: ['0xabcdef'],
-          errors: [{ owner: '0xabcdef', error: 'positions request failed (429)' }]
+          errors: [
+            { owner: '0xabcdef', error: 'positions request failed (429)' },
+            { owner: EARN_CATALOG_ERROR_OWNER, error: 'Epoch pools page 1 failed (429)' }
+          ]
         })
         .mockResolvedValueOnce(liveResult);
       const { result } = renderInCache();
@@ -918,7 +953,7 @@ describe('useEarnPositions', () => {
 
       expect(result.current.positions).toHaveLength(1);
       expect(result.current.vaults).toHaveLength(1);
-      expect(result.current.loadError).toBe('positions request failed (429)');
+      expect(result.current.loadError).toBe('Epoch pools page 1 failed (429)');
       expect(result.current.positions[0]?.stale).toBe(true);
 
       await act(async () => result.current.refetch());

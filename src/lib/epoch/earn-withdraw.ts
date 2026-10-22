@@ -1,4 +1,4 @@
-import { EpochIntentSDK, TaskType, ActionType } from '@epoch-protocol/epoch-intents-sdk';
+import { EpochIntentSDK, TaskType, ActionType, type IntentTransactionStatus } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 } from 'uuid';
 import { type Address, getAddress } from 'viem';
 import { sepolia } from 'viem/chains';
@@ -471,19 +471,21 @@ function matchesPreparedExecution(row: ITransaction, captured: IEarnWithdrawPrep
 
 const allocationLockKey = (attemptId: string, nonce: string): string => `allocation:${attemptId}:${nonce}`;
 
-function positiveStatus(value: unknown): value is { chainId: number; status: string; transactionHash: string }[] {
+// A leg the chain has not recorded yet carries a null transaction hash.
+function positiveStatus(value: unknown): value is IntentTransactionStatus[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every(
-      entry =>
-        entry !== null &&
-        typeof entry === 'object' &&
+    value.every(entry => {
+      if (entry === null || typeof entry !== 'object') return false;
+      const transactionHash: unknown = Reflect.get(entry, 'transactionHash');
+      return (
         Number.isSafeInteger(Reflect.get(entry, 'chainId')) &&
         typeof Reflect.get(entry, 'status') === 'string' &&
         Reflect.get(entry, 'status').length > 0 &&
-        typeof Reflect.get(entry, 'transactionHash') === 'string'
-    )
+        (transactionHash === null || typeof transactionHash === 'string')
+      );
+    })
   );
 }
 
@@ -551,7 +553,7 @@ export function pollEarnWithdrawDelivery(args: {
             registrationBackoff = Math.min(registrationBackoff * 2, 300_000);
           });
       }
-      const applyDelivery = async (results: { chainId: number; status: string; transactionHash: string }[]) => {
+      const applyDelivery = async (results: IntentTransactionStatus[]) => {
         if (!context.isCurrent()) return;
         const fresh = await liveWithdrawal(txId, expected);
         if (!context.isCurrent()) return;
@@ -857,7 +859,8 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
     // Source retries get fresh availability and a fresh quote for the saved selected amount.
     // Retain the original floor; a worse route requires the user to start another review.
     if (!/^\d+$/.test(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
-    const fresh = await fetchEarnPositions({ accountId: row.accountId, owners: [ei.evmOwner] });
+    // No catalogue read: a retry needs only the position, and a failed catalogue read must not stop it.
+    const fresh = await fetchEarnPositions({ accountId: row.accountId, owners: [ei.evmOwner], skipCatalog: true });
     const position = fresh.positions.find(
       p =>
         p.owner.toLowerCase() === ei.evmOwner.toLowerCase() && p.marketUid.toLowerCase() === ei.marketUid.toLowerCase()

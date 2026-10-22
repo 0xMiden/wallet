@@ -46,11 +46,26 @@ export interface GuardianConfig {
 /** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
 export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(chain => chain.id);
 
-/** Earn protocols the Earn code supports. */
-export const SUPPORTED_EARN_PROTOCOLS = ['dummy-lending'] as const;
-export type EarnProtocol = (typeof SUPPORTED_EARN_PROTOCOLS)[number];
-/** The lender key Epoch's positions service names each protocol by; it also leads the protocol's market uids. */
-export const EARN_LENDER_KEYS: Readonly<Record<EarnProtocol, string>> = { 'dummy-lending': 'DUMMY_LENDING' };
+/**
+ * The lender families the Earn code supports. Each family is the lender key Epoch's positions service gives it, or
+ * the prefix of its lender keys (`COMPOUND_V3_USDC`, `MORPHO_BLUE_<market id>`).
+ */
+export const EARN_LENDER_FAMILIES = ['AAVE_V3', 'COMPOUND_V3', 'MORPHO_BLUE', 'DUMMY_LENDING'] as const;
+export type EarnLenderFamily = (typeof EARN_LENDER_FAMILIES)[number];
+
+/**
+ * The protocol string of each lender family. A deposit's `protocolHashIdentifier` is `keccak256(toBytes(string))`.
+ *
+ * The allocator does not use `protocolHashIdentifier` when it quotes (verified 2026-10-22: a zero hash, a random hash
+ * and a lender-key hash all get the same route). It looks only for `dummy-lending`. Do not change `dummy-lending`:
+ * the testnet deposits use its hash. The mainnet strings are PROVISIONAL until Epoch confirms them.
+ */
+export const EARN_PROTOCOL_STRINGS: Readonly<Record<EarnLenderFamily, string>> = {
+  DUMMY_LENDING: 'dummy-lending',
+  AAVE_V3: 'aave-v3',
+  COMPOUND_V3: 'compound-v3',
+  MORPHO_BLUE: 'morpho-blue'
+};
 
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;

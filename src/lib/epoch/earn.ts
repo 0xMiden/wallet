@@ -11,7 +11,7 @@ import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/t
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
-import { type EarnMarket, getEarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
+import { type EarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
@@ -205,7 +205,8 @@ export const EARN_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reve
 export interface EpochLegStatus {
   chainId?: number;
   status?: string;
-  transactionHash?: string;
+  // The SDK reports null for a leg the chain has not recorded yet.
+  transactionHash?: string | null;
 }
 
 export type EarnIntentOutcome = 'pending' | 'done' | 'failed';
@@ -331,6 +332,8 @@ export interface OpenEarnPositionArgs {
   collateral: MidenUsdc;
   /** 0x EVM address that will own the lending position. */
   evmAddress: string;
+  /** The market of the vault the user chose (`earnMarketForVault`). The deposit names its uid and protocol hash. */
+  market: EarnMarket;
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
   deps: BridgeNoteDeps;
@@ -359,7 +362,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
   const evmRecipient = args.evmAddress;
 
-  const market = getEarnMarket();
+  const { market } = args;
   const allocatorUrl = getEpochAllocatorUrl();
   const sdk = await getEpochReadOnlySdk(evmRecipient, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();

@@ -33,6 +33,7 @@ function dependencies(): Partial<DeriveDeps> {
                 {
                   lender: 'DUMMY_LENDING',
                   chainId: '11155111',
+                  aprData: { apr: 2, depositApr: 2, borrowApr: 0 },
                   data: [{ positions: [] }],
                   lenderInfo: { lenderKey: 'DUMMY_LENDING', name: 'Dummy Lending', logoUri: '' }
                 }

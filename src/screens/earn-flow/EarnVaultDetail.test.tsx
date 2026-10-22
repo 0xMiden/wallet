@@ -125,7 +125,10 @@ jest.mock('./components', () => {
           'data-decorative': String(Boolean(decorative))
         },
         decorative ? null : 'earnAssetOnNetwork'
-      )
+      ),
+    // The closed-vault notice: a probe that shows only for a vault that accepts no deposits, as the real one does.
+    EarnVaultClosedNotice: ({ canOpen }: { canOpen?: boolean }) =>
+      canOpen === false ? R.createElement('div', { 'data-testid': 'earn-vault-closed-notice' }) : null
   };
 });
 
@@ -210,6 +213,8 @@ jest.mock('./useEarnPositions', () => ({
         apyChange24h: '+0.12% (24h)',
         tvl: '$1.2B',
         risk: 'Low',
+        riskLevel: 'low',
+        canOpen: true,
         audited: true,
         about: 'About the audited vault.',
         chartData: [
@@ -228,6 +233,7 @@ jest.mock('./useEarnPositions', () => ({
         apyChange24h: '-0.05% (24h)',
         tvl: '$500M',
         risk: 'Medium',
+        riskLevel: 'medium',
         audited: false,
         about: 'About the unaudited vault.',
         chartData: [
@@ -236,7 +242,28 @@ jest.mock('./useEarnPositions', () => ({
           { label: 'F3', value: 3.0 }
         ]
       },
-      mockFreshVault
+      mockFreshVault,
+      // A Morpho market that accepts no deposits now.
+      {
+        id: 'v-closed',
+        protocol: 'Morpho',
+        marketName: 'Morpho cbBTC-USDC 86',
+        asset: 'USDC',
+        network: 'Base',
+        apy: '5.90%',
+        aprPercent: 5.9,
+        apyChange24h: EARN_PLACEHOLDER,
+        tvl: '$812.3M',
+        risk: 'High',
+        riskLevel: 'high',
+        canOpen: false,
+        audited: false,
+        about: EARN_PLACEHOLDER,
+        chartData: [
+          { label: EARN_PLACEHOLDER, value: 5.9 },
+          { label: EARN_PLACEHOLDER, value: 5.9 }
+        ]
+      }
     ],
     ...mockLoadState,
     refetch: mockRefetch
@@ -304,7 +331,7 @@ describe('EarnVaultDetail', () => {
 
     // Stats: audited → "✓ yes" with the ink value class.
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
-    expect(metricValue('earnRiskLabel')).toHaveTextContent('Low');
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('earnRiskLow');
     const audited = metricValue('earnAuditedLabel');
     expect(audited).toHaveTextContent('✓ yes');
     expect(audited).toHaveAttribute('data-value-class', 'text-ink');
@@ -340,7 +367,7 @@ describe('EarnVaultDetail', () => {
     const audited = metricValue('earnAuditedLabel');
     expect(audited).toHaveTextContent('no');
     expect(audited).toHaveAttribute('data-value-class', '');
-    expect(metricValue('earnRiskLabel')).toHaveTextContent('Medium');
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('earnRiskMedium');
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$500M');
 
     expect(screen.getByText('About the unaudited vault.')).toBeInTheDocument();
@@ -381,6 +408,48 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  it('greys out Deposit and says why for a vault that accepts no deposits now', () => {
+    render(<EarnVaultDetail vaultId="v-closed" />);
+
+    expect(screen.getByTestId('earn-vault-closed-notice')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('says one reason at a time: no closed-vault notice while Earn deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId="v-closed" />);
+
+    expect(screen.getByTestId('feature-unavailable-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+  });
+
+  it('draws no closed-vault notice for an open vault', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+  });
+
+  it('draws each known risk level in its status ink, and an unknown label as written in the card ink', () => {
+    const { unmount } = render(<EarnVaultDetail vaultId="v-audited" />);
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', 'text-positive-tint-ink');
+    unmount();
+
+    const medium = render(<EarnVaultDetail vaultId="v-unaudited" />);
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', 'text-pending-tint-ink');
+    medium.unmount();
+
+    const high = render(<EarnVaultDetail vaultId="v-closed" />);
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('earnRiskHigh');
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', 'text-negative-tint-ink');
+    high.unmount();
+
+    render(<EarnVaultDetail vaultId="v-fresh" />);
+    expect(metricValue('earnRiskLabel')).toHaveTextContent(/^Low$/);
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', '');
   });
 
   it('holds Deposit, with no notice, while availability is loading', () => {

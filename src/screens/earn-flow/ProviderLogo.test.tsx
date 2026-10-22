@@ -21,6 +21,16 @@ describe('ProviderLogo', () => {
     expect(wrapper).toHaveAttribute('aria-hidden', 'true');
   });
 
+  it('draws the Aave logo for a versioned Aave name, and not for a name that only starts with the letters', () => {
+    const { container, unmount } = render(<ProviderLogo protocol="Aave V3" />);
+    expect(container.querySelector('img')).toHaveAttribute('src', 'svg-url-stub');
+    unmount();
+
+    const other = render(<ProviderLogo protocol="Aavex" />);
+    expect(other.container.querySelector('img')).toBeNull();
+    expect(other.container.firstChild).toHaveTextContent('A');
+  });
+
   it('renders the first character fallback for a non-Aave protocol', () => {
     const { container } = render(<ProviderLogo protocol="Compound" />);
 

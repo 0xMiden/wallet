@@ -225,6 +225,8 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
         </span>
       )
     },
+    // A market with its own name (a Morpho market) says which of the protocol's markets holds the position.
+    ...(position.marketName ? [{ label: t('earnMarketLabel'), value: position.marketName }] : []),
     { label: t('network'), value: position.network },
     { label: t('position'), value: t('earnAssetOnNetwork', { asset: position.asset, network: position.network }) },
     { label: t('route'), value: position.route },

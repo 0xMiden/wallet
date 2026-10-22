@@ -17,7 +17,7 @@ import { navigate } from 'lib/woozie';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
 
-import { EarnFlowHeader } from './components';
+import { EarnFlowHeader, EarnVaultClosedNotice } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
@@ -97,9 +97,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   // A deposit is a transaction, and the fee comes out of this account's own vault
   // in the native asset -- holding USDC alone is not enough to move it.
   const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
-  // Continue also needs the vault itself (the placeholder has no id to deposit into) and Earn deposits to be up.
+  // Continue also needs the vault itself (the placeholder has no id to deposit into), a vault that accepts deposits
+  // now, and Earn deposits to be up.
   const isValidAmount =
     earnDeposit.state === 'available' &&
+    vault.canOpen !== false &&
     collateral !== null &&
     token.scaleIsKnown &&
     hasAmount &&
@@ -129,13 +131,17 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
             />
           )}
           <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 w-auto shrink-0" />
-          {/* One reason at a time: a deposit that is down already says why Continue is dead. */}
-          {earnDeposit.state !== 'unavailable' && (
-            <EarnCollateralNotice
-              reason={earnCollateral.state === 'resolved' ? null : earnCollateral.state}
-              className="mx-4 mt-4 w-auto shrink-0"
-            />
-          )}
+          {/* One reason at a time: a deposit that is down already says why Continue is dead, and so does a
+              vault that accepts no deposits now. */}
+          {earnDeposit.state !== 'unavailable' &&
+            (vault.canOpen === false ? (
+              <EarnVaultClosedNotice canOpen={vault.canOpen} className="mx-4 mt-4 w-auto shrink-0" />
+            ) : (
+              <EarnCollateralNotice
+                reason={earnCollateral.state === 'resolved' ? null : earnCollateral.state}
+                className="mx-4 mt-4 w-auto shrink-0"
+              />
+            ))}
           <div className="min-h-0 flex-1">
             <SelectAmount
               accent="earn"
