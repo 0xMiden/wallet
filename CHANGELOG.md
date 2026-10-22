@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] Importing a recovery phrase that has no Guardian backup says so and offers a new account with that phrase after a reused-phrase warning, instead of failing or silently creating one; a lookup that could not reach every Guardian offers a retry and is never treated as not found; a pasted phrase longer than 12 words is rejected instead of cut to 12 (#882, #1298).
 - [FIX][all] A dApp request to consume a P2ID note addressed to another account is refused before the approval sheet, instead of failing after approval (BREAD-WALLET-5D).
 - [FIX][all] Guardian transaction history recovered from the guardian names the recipient of a P2ID payment again, reading the note's current four-item storage layout.
 - [FIX][all] Crash reports for a failed inbound bridge now name which wallet or network error it was (a chain, provider or RPC class, or a receipt wait that ran out of time), whether its balance was too low or could not be read, and, for a deposit the App closed before recording, how the App knew no screen still owned it and which USDCx route it recorded (BREAD-WALLET-2V, -2W, -2Y, -3S)

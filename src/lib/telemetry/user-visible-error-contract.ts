@@ -121,6 +121,8 @@ export const USER_ERROR_IDS = Object.freeze<
     'importHotKeyInvalid',
     'importHotKeyNoAccount',
     'importSeedPhraseError',
+    'importSeedPhraseTooLong',
+    'importSeedPhraseTooLong',
     'incorrectPasscode',
     'incorrectPassword',
     'insufficientFeeAsset',
