@@ -197,11 +197,11 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
                 {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
               </div>
             ))}
-            {view.outgoingNfts.map(a => (
-              <NftRow key={`nft-out-${a.faucetId}-${a.assetId}`} nft={a} sign="-" isVerified={isVerified} />
+            {view.outgoingNfts.map((a, i) => (
+              <NftRow key={`nft-out-${i}-${a.faucetId}-${a.assetId}`} nft={a} sign="-" isVerified={isVerified} />
             ))}
-            {view.incomingNfts.map(a => (
-              <NftRow key={`nft-in-${a.faucetId}-${a.assetId}`} nft={a} sign="+" isVerified={isVerified} />
+            {view.incomingNfts.map((a, i) => (
+              <NftRow key={`nft-in-${i}-${a.faucetId}-${a.assetId}`} nft={a} sign="+" isVerified={isVerified} />
             ))}
             {view.unlistedAssets > 0 && (
               <div className="flex flex-row items-start gap-x-2 w-full my-2" data-testid="tx-unlisted-assets">
