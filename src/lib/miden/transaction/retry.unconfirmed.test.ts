@@ -798,7 +798,7 @@ describe('the refusal copy (#1081)', () => {
 describe('the Guardian hold (#1081)', () => {
   const kept = (capturedAt: number) => entry({ candidateKept: true, guardianProposalNonce: 9, capturedAt });
 
-  it('refuses while a kept candidate is under 600 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
+  it('refuses while a kept candidate is under 1080 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
     const expected = guardianHoldRetryMessage(NOW + 980);
     expect(await refusal()).toHaveProperty('message', expected);
