@@ -4,10 +4,14 @@
 
 ### Fixes
 
+- [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
+- [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
+- [FIX][extension] Crash reports for work the extension stopped on a time limit now say whose limit it was, which limit, and whether the work had started, without any identifier or duration.
 - [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
 
 ### Changes
 
+- [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.
 - [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
 - [CHANGE][all] Profile and My badges polish: every badge has its own illustrated medallion; Profile shows the address as one copy chip with a network tag and opens My badges from a progress card; My badges leads with Earned / Locked / Coming soon counts, an earned fraction beside All badges, and the Mainnet note at the foot of the page.
 - [CHANGE][extension] The EVM wallet connect modal on the extension opens on the WalletConnect QR code and hides the browser-extension, EIP-6963 and Coinbase wallets and the "All Wallets" grid, since an extension page cannot reach another extension's wallet.
@@ -22,6 +26,7 @@
 - [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
 - [CHANGE][all] Each pull request posts a UI smoothness result: carousel feel against the base, the slowest scripted tap, and how the settings list scrolls, each with a difference in percent. The carousel score is the median of six passes from Overview to Swap, with the main thread slowed 4×. The tap and the list are not slowed, so the tap keeps the 200ms and 500ms bands. The comment is informational and does not block merge.
 - [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
+- [CHANGE][ci] The dApp E2E harness also runs the test dApp in the wallet's iOS and Android in-app browsers, on two simulators and two emulators against the branch's network, on single-sig and Guardian accounts: the page takes its commands over a long poll, its requests are answered on the approval sheet by test id, and a slim set of connect, read, sign, write, refusal and 120 s auto-decline cells is judged by the same records and gate as the Chrome legs, each mobile leg labelled with the presentation path its in-app browser ran.
 
 ### Features
 

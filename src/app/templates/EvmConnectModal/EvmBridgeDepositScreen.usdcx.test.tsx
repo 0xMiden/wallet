@@ -1970,8 +1970,15 @@ jest.mock('lib/dexie-live-query', () => {
 });
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'synthetic-native' }));
 jest.mock('lib/store', () => ({
-  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, never> }) => T) =>
-    selector({ assetsMetadata: {} })
+  useWalletStore: <T,>(
+    selector: (state: { assetsMetadata: Record<string, never>; tokenPrices: Record<string, never> }) => T
+  ) => selector({ assetsMetadata: {}, tokenPrices: {} })
+}));
+// The bridge-in ceiling reads the receiving account's balances; with no ceiling in the document it holds nothing.
+jest.mock('lib/miden/front', () => ({
+  ...jest.requireActual<typeof import('lib/miden/front')>('lib/miden/front'),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => ({ data: [], isLoading: false })
 }));
 jest.mock('./UsdcxDepositSteps', () => ({ UsdcxDepositSteps: () => null }));
 jest.mock('./UsdcxExecuteAction', () => ({ UsdcxExecuteAction: () => null }));

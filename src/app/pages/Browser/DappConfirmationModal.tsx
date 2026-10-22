@@ -285,6 +285,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                     {transactionMessages.map((msg, i) => (
                       <div
                         key={i}
+                        data-testid="dapp-confirmation-message"
                         className="border-b border-border-light py-1 text-xs text-text-muted last:border-b-0 last:pb-0 first:pt-0"
                       >
                         {msg}
@@ -354,6 +355,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               <div className="flex shrink-0 gap-3 border-t border-border-light px-6 py-5">
                 <button
                   type="button"
+                  data-testid="dapp-confirmation-deny"
                   onClick={handleDeny}
                   className="flex-1 rounded-full border-2 border-orange-500 bg-surface-solid px-6 py-3 text-sm font-semibold text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10"
                 >
@@ -361,6 +363,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 </button>
                 <button
                   ref={approveButtonRef}
+                  data-testid="dapp-confirmation-approve"
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove}

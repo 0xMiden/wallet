@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "Ошибка при внесении депозита через мост",
   "bridgeDepositBalanceTooLow": "В вашем подключенном кошельке на $network$ хранится $balance$ $token$, что меньше суммы, необходимой для этого депозита. Ничего не было отправлено.",
   "bridgeDepositBalanceReadFailed": "Не удалось проверить баланс $token$ в сети $network$. Ничего не было отправлено.",
+  "bridgeDepositBalanceCapExceeded": "На этом счете может храниться не более $cap$ долларов США. На нем находится $held$ долларов США, и этот депозит добавляет $deposit$ долларов США. Введите меньшую сумму.",
+  "bridgeDepositBalanceCapUnpriced": "На этом счете может храниться не более $cap$ долларов США, а у $token$ в данный момент нет цены, поэтому невозможно проверить соответствие депозита по нему. Попробуйте позже.",
   "bridgeDepositSubmitted": "Мост запущен!",
   "bridgeDepositDeliveryDescription": "Исходная транзакция подтверждена. Ваши средства появятся в Miden после завершения доставки через мост.",
   "viewOnEtherscan": "Просмотреть на Etherscan",
@@ -1587,5 +1589,7 @@
   "walletAccessRestrictedTitle": "Кошелёк недоступен в вашем регионе",
   "walletAccessRestrictedBody": "Кошелёк недоступен в вашем текущем местоположении.",
   "walletAccessUnavailableTitle": "Не удалось проверить доступность",
-  "walletAccessUnavailableBody": "Проверьте подключение и попробуйте ещё раз."
+  "walletAccessUnavailableBody": "Проверьте подключение и попробуйте ещё раз.",
+  "runtimeUnsupportedTitle": "Этот браузер или устройство не поддерживает работу кошелька",
+  "runtimeUnsupportedBody": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере."
 }
