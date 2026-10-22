@@ -5003,6 +5003,31 @@
     "message": "Zwrot środków",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "Zablokowana wypłata",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Wypłata z tej transakcji swapowej ciągle się nie udaje, ponieważ to konto nie może uiścić opłaty sieciowej niezbędnej do jej odebrania. Portfel próbuje ponownie raz dziennie, ale możesz spróbować jeszcze raz już teraz.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Wypłata z tej transakcji swapowej ciągle się nie udaje, ponieważ nie udało się nawiązać połączenia z siecią. Portfel próbuje ponownie raz dziennie, ale możesz spróbować jeszcze raz już teraz.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Wypłata z tej transakcji swapowej ciągle się nie udaje. Portfel próbuje ponownie raz dziennie, ale możesz spróbować jeszcze raz już teraz.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Ponowna próba wypłaty",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "Zwrócone · $time$",
     "englishSource": "Returned · $time$",

@@ -5003,6 +5003,30 @@
     "message": "資金の返還",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "ペイアウトが滞っている",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "このスワップからの支払い処理が失敗し続けているのは、このアカウントが受け取りに必要なネットワーク手数料を支払えないためです。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "このスワップによる払い出しが、Guardianで繰り返し失敗しています。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "このスワップからの支払い処理が失敗し続けているのは、ネットワークに接続できなかったためです。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "このスワップからの支払い処理が繰り返し失敗しています。ウォレットは1日1回再試行しますが、今すぐ再試行することも可能です。",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "支払いの再試行",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "返却済み · $time$",
     "englishSource": "Returned · $time$",
