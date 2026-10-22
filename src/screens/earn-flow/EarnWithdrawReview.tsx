@@ -1,10 +1,13 @@
 import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 
+import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { formatUnits } from 'viem';
 
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
+import { amountCaptionClassName, amountFigureClassName } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
@@ -116,6 +119,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       : undefined;
   const expectedReceipt = quote && formatUnits(BigInt(quote.expectedAtomic), quote.destinationDecimals);
   const minimumReceipt = quote && formatUnits(BigInt(quote.minimumAtomic), quote.destinationDecimals);
+  const receiptDisplay =
+    quote && expectedReceipt ? formatMoneyAmount(expectedReceipt, 'receives', quote.destinationSymbol) : undefined;
   const compact = (value: string, symbol: string) => {
     const display = formatMoneyAmount(value, 'receives', symbol);
     return display === formatMoneyAmount(value, 'typed', symbol)
@@ -225,19 +230,20 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
                 expectedReceipt && quote ? (
                   <>
                     <span className="text-hero-name text-muted">≈ </span>
-                    {formatMoneyAmount(expectedReceipt, 'receives', quote.destinationSymbol)}
+                    {receiptDisplay}
                   </>
                 ) : (
                   EARN_PLACEHOLDER
                 )
               }
-              valueClassName="text-ink break-words"
-              unit={quote && <EarnAmountUnit symbol={quote.destinationSymbol} />}
+              // The deposit review's hero: the amount step's caption and entry sizes over the compact unit.
+              className="mt-7"
+              labelClassName={amountCaptionClassName}
+              figureClassName={classNames('mt-3 text-ink break-words', amountFigureClassName(receiptDisplay))}
+              unit={quote && <EarnAmountUnit symbol={quote.destinationSymbol} compact />}
               label={t('youReceive')}
               layout="label-first"
-            >
-              <p className="mt-2 text-caption text-muted face-heading">{t('earnWithdrawDeliverySummary')}</p>
-            </EarnHero>
+            />
 
             {/* Keep the financial choices visible. Exact amounts and route context stay available in Details. */}
             {(validation || quoteError) && (
@@ -261,7 +267,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
                 }}
               />
             )}
-            <DetailCard face="heading">
+            <DetailCard surface="outline" face="heading">
               <DetailRow
                 label={t('earnWithdrawYouWithdraw')}
                 sub={amount === position.withdrawable ? t('earnWithdrawAll') : undefined}
@@ -274,6 +280,16 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
                 {remainingLabel}
               </DetailRow>
               <DetailRow label={t('earnWithdrawMinimumReceipt')}>{minimumLabel}</DetailRow>
+              {/* Where and when the payout lands, as the send review's Network row: the network's mark beside its name. */}
+              <DetailRow label={t('earnWithdrawArrivesOn')}>
+                <span className="flex items-center gap-1.5">
+                  <NetworkLogo kind="miden" />
+                  {t('earnWithdrawArrivesOnValue', { network: t('miden') })}
+                </span>
+              </DetailRow>
+              <DetailRow label={t('earnWithdrawGas')}>
+                <span className="text-positive-tint-ink">{t('earnWithdrawGasSponsored')}</span>
+              </DetailRow>
               <DetailDisclosure
                 title={t('details')}
                 summary={`${position.network} → Miden`}

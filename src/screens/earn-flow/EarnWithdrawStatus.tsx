@@ -129,6 +129,8 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           className="mt-4 face-heading"
         />
         <ReceiptRows
+          surface="outline"
+          face="heading"
           className="mt-4"
           rows={[
             { label: t('route'), value: 'Sepolia → Miden' },
