@@ -141,7 +141,8 @@ export function positionSlug(position: LibEarnPosition): string {
 
 /**
  * The display position of one lending position. `listed` is the document's vault list (`selectEarnVaults`): a
- * position in a listed market takes that vault's name and route id.
+ * position in a listed market takes that vault's name and route id. A market the document does not list has no
+ * vault id; the id is never derived from the market uid.
  */
 export function mapEarnPosition(position: LibEarnPosition, listed: readonly EarnVaultConfig[] = []): EarnPosition {
   const network = networkName(position.chainId);
@@ -153,8 +154,8 @@ export function mapEarnPosition(position: LibEarnPosition, listed: readonly Earn
   const yearlyUsd = (position.depositsUSD * position.depositApr) / 100;
   return {
     id: positionSlug(position),
-    // The vault of the same market, so "Deposit more" opens the market that holds this position.
-    vaultId: listing?.id ?? marketSlug(position.marketUid),
+    // The document's route id when it lists this market. Deposit more stays off when it does not.
+    vaultId: listing?.id ?? '',
     owner: position.owner,
     marketUid: position.marketUid,
     chainId: position.chainId,

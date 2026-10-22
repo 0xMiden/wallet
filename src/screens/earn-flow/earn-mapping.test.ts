@@ -104,11 +104,11 @@ describe('mapEarnPosition', () => {
     expect(ui.name).toBe('Dummy Lending USDC');
   });
 
-  it('links a position in a market the document does not list to the slug of its uid, with no name', () => {
+  it('does not invent a vault id for an unlisted position', () => {
     const ui = mapEarnPosition(
       libPosition({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })
     );
-    expect(ui.vaultId).toBe('dummy-lending-11155111-0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69');
+    expect(ui.vaultId).toBe('');
     expect(ui).not.toHaveProperty('name');
   });
 

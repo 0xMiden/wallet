@@ -215,11 +215,17 @@ export function useEarnPositions(): {
       const vault = data?.vaults.find(item => item.marketUid.toLowerCase() === listing.marketUid);
       return vault ? [{ ...vault, listing }] : [];
     });
+    // Deposit more opens a vault this screen is showing. A position whose route id is not among them has none.
+    const renderedVaultIds = new Set(vaults.map(vault => vault.listing.id));
     return {
-      positions: (data?.positions ?? []).map(position => ({
-        ...mapEarnPosition(position, listed),
-        stale: Boolean(readError) || failedOwners.has(position.owner)
-      })),
+      positions: (data?.positions ?? []).map(position => {
+        const mapped = mapEarnPosition(position, listed);
+        return {
+          ...mapped,
+          vaultId: renderedVaultIds.has(mapped.vaultId) ? mapped.vaultId : '',
+          stale: Boolean(readError) || failedOwners.has(position.owner)
+        };
+      }),
       vaults: vaults.map(vault => mapEarnVault(vault, config.network === 'testnet' ? 'USDCx' : undefined)),
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,

@@ -224,7 +224,7 @@ describe('fetchEarnPositions', () => {
     expect(result.totalDepositsUSD).toBe(15.5);
   });
 
-  it('leaves out a position in a market the catalogue does not list', async () => {
+  it('keeps a funded known-family position when the catalogue does not list it', async () => {
     serve({
       pools: () => answer(poolsPage([sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])),
       owner: () =>
@@ -237,7 +237,7 @@ describe('fetchEarnPositions', () => {
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID]);
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
   });
 
   it("reads the testnet catalogue from the zero account's positions, where the host has no /pools route", async () => {

@@ -324,10 +324,11 @@ export interface FetchEarnPositionsArgs {
  * payload that cannot be read or has a copied field of the wrong type, with none of that owner's positions kept. A
  * failed catalogue read is in `errors` under EARN_CATALOG_ERROR_OWNER.
  *
- * A position is kept when its market uid is in the catalogue. When no catalogue loaded (the read failed or was
- * skipped), a position is kept when its uid names a market on the default market's chain and token that the document
- * lists or whose lender family the wallet names, so a failed catalogue read never hides a position. It rejects only when the owner lookup fails or the bridge config
- * names no positions host or Earn market, before any request.
+ * A position is kept when the catalogue that loaded contains its market uid, or when its uid names a market on the
+ * default market's chain and token that the document lists or whose lender family the wallet names. A catalogue that
+ * loaded does not replace that route rule, so a market it omitted stays when the route already matches it. An
+ * unknown-family position the catalogue did not serve stays out. It rejects only when the owner lookup fails or the
+ * bridge config names no positions host or Earn market, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
   const [positionsUrl, market, listed] = [getEpochPositionsUrl(), getEarnMarket(), getEarnVaults()];
@@ -354,8 +355,10 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
 
   const catalogUids = catalog && !catalog.error ? new Set(catalog.vaults.map(vaultKey)) : undefined;
   const listedUids = new Set(listed.map(vault => vault.marketUid));
+  // A loaded catalogue adds the markets it served. It does not replace the route rule, so a funded position whose
+  // market the catalogue omitted stays when the document lists it or its lender family is known.
   const keeps = (marketUid: string): boolean =>
-    catalogUids ? catalogUids.has(marketUid.toLowerCase()) : isRouteMarket(marketUid, market, listedUids);
+    catalogUids?.has(marketUid.toLowerCase()) === true || isRouteMarket(marketUid, market, listedUids);
 
   const positions: EarnPosition[] = [];
   const errors: { owner: string; error: string }[] = [];

@@ -234,6 +234,15 @@ describe('useEarnPositions', () => {
     ]);
   });
 
+  it('clears Deposit more when the catalogue has no rendered vault for a listed position', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: { ...liveResult, vaults: [] }, isLoading: false });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.vaults).toEqual([]);
+    expect(result.current.positions[0]?.vaultId).toBe('');
+  });
+
   it('reports a per-owner positions error as error only, never as a request failure', () => {
     mockUseRetryableSWR.mockReturnValue({ data: liveResult, isLoading: false });
 
