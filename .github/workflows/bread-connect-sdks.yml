@@ -43,6 +43,23 @@ jobs:
       # The install's postinstall builds packages/bread-connect, which the adapter builds against.
       - name: Run Install
         uses: ./.github/actions/yarn-install
+      - name: Check Capacitor adapter behavior
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-capacitor-js"
+          mkdir -p "$proof"
+          yarn jest packages/bread-connect-capacitor/src/index.test.ts \
+            packages/bread-connect-capacitor/src/transport.test.ts \
+            packages/bread-connect-capacitor/src/wallet.test.ts \
+            packages/bread-connect-capacitor/src/native-opener.test.ts \
+            --maxWorkers=2 --json --outputFile="$proof/jest.json" 2>&1 | tee "$proof/test.log"
+      - name: Preserve Capacitor adapter behavior proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-capacitor-js-proof
+          path: ${{ runner.temp }}/bread-connect-capacitor-js/
+          if-no-files-found: error
       - name: Build the Capacitor adapter
         run: yarn tsc --project packages/bread-connect-capacitor/tsconfig.json
       - name: Pack both packages
@@ -81,22 +98,66 @@ jobs:
       - name: Run the Swift SDK tests
         working-directory: packages/bread-connect-swift
         run: swift test
+      - name: Test the production Capacitor native opener
+        run: |
+          set -euo pipefail
+          harness="$RUNNER_TEMP/bread-connect-capacitor-native"
+          source=packages/bread-connect-capacitor/ios/Sources/BreadConnectPlugin/NativeOpenAttempt.swift
+          tests=packages/bread-connect-capacitor/ios/Tests/NativeOpenAttemptTests.swift
+          mkdir -p "$harness/Sources/BreadConnectPlugin" "$harness/Tests/BreadConnectPluginTests"
+          cp "$source" "$harness/Sources/BreadConnectPlugin/"
+          cp "$tests" "$harness/Tests/BreadConnectPluginTests/"
+          cmp "$source" "$harness/Sources/BreadConnectPlugin/NativeOpenAttempt.swift"
+          cmp "$tests" "$harness/Tests/BreadConnectPluginTests/NativeOpenAttemptTests.swift"
+          shasum -a 256 "$source" "$tests" \
+            "$harness/Sources/BreadConnectPlugin/NativeOpenAttempt.swift" \
+            "$harness/Tests/BreadConnectPluginTests/NativeOpenAttemptTests.swift" | tee "$harness/source-sha256.txt"
+          cat > "$harness/Package.swift" <<'EOF'
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(name: "CapacitorNativeOpenerProof", targets: [
+              .target(name: "BreadConnectPlugin"),
+              .testTarget(name: "BreadConnectPluginTests", dependencies: ["BreadConnectPlugin"])
+          ])
+          EOF
+          swift test --package-path "$harness" 2>&1 | tee "$harness/test.log"
       - name: Build the Swift SDK for iOS
         working-directory: packages/bread-connect-swift
         run: |
+          set -euo pipefail
+          products="$RUNNER_TEMP/bread-connect-sdk-ios"
           xcodebuild build \
             -scheme BreadConnect \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$products" \
             CODE_SIGNING_ALLOWED=NO
+          modules="$(find "$products/Build/Products/Debug-iphonesimulator/BreadConnect.swiftmodule" -type f -name '*.swiftmodule' -size +0c)"
+          test -n "$modules"
+          printf '%s\n' "$modules"
       - name: Build the Capacitor plugin for iOS
         working-directory: packages/bread-connect-capacitor
         run: |
+          set -euo pipefail
+          products="$RUNNER_TEMP/bread-connect-capacitor-ios"
           xcodebuild build \
             -scheme MidenSdkBreadConnectCapacitor \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$products" \
             CODE_SIGNING_ALLOWED=NO
+          modules="$(find "$products/Build/Products/Debug-iphonesimulator/BreadConnectPlugin.swiftmodule" -type f -name '*.swiftmodule' -size +0c)"
+          test -n "$modules"
+          printf '%s\n' "$modules"
+      - name: Preserve Capacitor native helper proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-capacitor-swift-proof
+          path: |
+            ${{ runner.temp }}/bread-connect-capacitor-native/source-sha256.txt
+            ${{ runner.temp }}/bread-connect-capacitor-native/test.log
+          if-no-files-found: error
 
   kotlin:
     name: Kotlin SDK
@@ -118,11 +179,20 @@ jobs:
       - name: Run the Kotlin SDK unit tests
         working-directory: packages/bread-connect-kotlin
         run: ./gradlew testDebugUnitTest --console=plain
+      - name: Check Kotlin SDK API compatibility
+        id: kotlin_api_lint
+        working-directory: packages/bread-connect-kotlin
+        run: ./gradlew lintDebug --console=plain
+      - name: Show Kotlin SDK API compatibility failures
+        if: failure() && steps.kotlin_api_lint.outcome == 'failure'
+        working-directory: packages/bread-connect-kotlin
+        run: cat build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
       # The plugin compiles against @capacitor/android, which only an app's
       # node_modules provides, so a throwaway build fetches that one package at the
       # version the wallet uses.
-      - name: Compile the Capacitor plugin for Android
+      - name: Compile and test the Capacitor plugin for Android
         run: |
+          set -euo pipefail
           build="$(mktemp -d)"
           version="$(node -p "require('./package.json').dependencies['@capacitor/android']")"
           (cd "$build" && npm pack "@capacitor/android@$version" --silent >/dev/null)
@@ -146,4 +216,166 @@ jobs:
           }
           EOF
           echo 'android.useAndroidX=true' > "$build/gradle.properties"
-          packages/bread-connect-kotlin/gradlew -p "$build" :bread-connect-capacitor:compileDebugJavaWithJavac --console=plain
+          sha256sum \
+            packages/bread-connect-capacitor/android/src/main/java/com/miden/breadconnect/NativeOpenAttempt.java \
+            packages/bread-connect-capacitor/android/src/test/java/com/miden/breadconnect/NativeOpenAttemptTest.java
+          packages/bread-connect-kotlin/gradlew -p "$build" \
+            :bread-connect-capacitor:compileDebugJavaWithJavac \
+            :bread-connect-capacitor:testDebugUnitTest --console=plain
+          for name in BreadConnectPlugin NativeOpenAttempt; do
+            classes="$(find packages/bread-connect-capacitor/android/build -type f -name "$name.class" -size +0c)"
+            test -n "$classes"
+            printf '%s\n' "$classes"
+          done
+          classes="$(find packages/bread-connect-kotlin/build -type f -name BreadConnect.class -size +0c)"
+          test -n "$classes"
+          printf '%s\n' "$classes"
+      - name: Preserve native JVM test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-native-junit
+          path: |
+            packages/bread-connect-kotlin/build/test-results/testDebugUnitTest/*.xml
+            packages/bread-connect-capacitor/android/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: error
+
+  kotlin-android:
+    name: Kotlin SDK Android instrumentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Prepare Android instrumentation runtime
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-package-opener-android"
+          mkdir -p "$proof"
+          git show -s --format='%H%n%T%n%P' HEAD > "$proof/source.txt"
+          sha256sum .github/workflows/bread-connect-sdks.yml \
+            packages/bread-connect-kotlin/build.gradle \
+            packages/bread-connect-kotlin/gradle/wrapper/gradle-wrapper.properties \
+            packages/bread-connect-kotlin/src/androidTest/AndroidManifest.xml \
+            packages/bread-connect-kotlin/src/androidTest/kotlin/com/miden/breadconnect/PackageOpenerInstrumentationTest.kt \
+            packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/Android.kt \
+            packages/bread-connect-kotlin/src/main/kotlin/com/miden/breadconnect/BreadConnect.kt > "$proof/source.sha256"
+          sudo apt-get update 2>&1 | tee "$proof/apt-update.log"
+          sudo apt-get install --no-install-recommends -y libpulse0 2>&1 | tee "$proof/apt-install.log"
+          sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0' 'platform-tools' \
+            emulator 'system-images;android-28;default;x86_64' 2>&1 | tee "$proof/sdk-install.log"
+      - name: Run concrete PackageOpener Android cases
+        id: android_test
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-package-opener-android"
+          emulator_pid=''
+          cleanup() {
+            result=$?
+            trap - EXIT
+            if [[ -n "$emulator_pid" ]]; then
+              kill "$emulator_pid" 2>/dev/null || true
+              wait "$emulator_pid" 2>/dev/null || true
+            fi
+            exit "$result"
+          }
+          trap cleanup EXIT
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/bread-connect-sdk-avd"
+          export ANDROID_SERIAL=emulator-5554
+          mkdir -p "$ANDROID_AVD_HOME"
+          avdmanager create avd --force --name bread_connect_sdk \
+            --package 'system-images;android-28;default;x86_64' --device pixel_2 </dev/null
+          sudo chmod 666 /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -avd bread_connect_sdk -port 5554 \
+            -no-window -noaudio -no-snapshot -no-boot-anim -gpu swiftshader \
+            -memory 2048 -cores 2 > "$proof/emulator.log" 2>&1 &
+          emulator_pid=$!
+          timeout 90 "$ANDROID_HOME/platform-tools/adb" wait-for-device
+          booted=0
+          for ((n=0; n<150; n++)); do
+            if [[ "$("$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; then
+              booted=1
+              break
+            fi
+            kill -0 "$emulator_pid"
+            sleep 2
+          done
+          [[ "$booted" == 1 ]]
+          "$ANDROID_HOME/platform-tools/adb" shell pm list libraries > "$proof/android-libraries.txt"
+          for name in android.test.base android.test.runner android.test.mock; do
+            grep -Fx "library:$name" "$proof/android-libraries.txt"
+          done
+          cd packages/bread-connect-kotlin
+          set +e
+          ./gradlew connectedDebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.class=com.miden.breadconnect.PackageOpenerInstrumentationTest \
+            --rerun-tasks --no-build-cache --no-daemon --max-workers=2 --console=plain \
+            2>&1 | tee "$proof/gradle.log"
+          codes=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${codes[0]}" > "$proof/gradle.natural.exit"
+          printf '%s\n' "${codes[1]}" > "$proof/gradle.tee.exit"
+          (( codes[1] == 0 ))
+          exit "${codes[0]}"
+      - name: Require all six Android cases
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/bread-connect-package-opener-android"
+          sha256sum --check "$proof/source.sha256"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os, xml.etree.ElementTree as ET
+          proof = Path(os.environ['RUNNER_TEMP']) / 'bread-connect-package-opener-android'
+          root = Path('packages/bread-connect-kotlin/build/outputs/androidTest-results/connected')
+          files = sorted(root.rglob('TEST-*.xml'))
+          expected = {
+              'testStoppedAttemptDoesNotReadCertificatesOrStartActivities',
+              'testCancelledWalletHandoffDoesNotAdmitMarket',
+              'testCancelledMarketHandoffDoesNotAdmitHttpsStore',
+              'testFreshOwnedRequestCanOpenAfterAnEarlierCancellation',
+              'testLiveGuardedDirectOpenerKeepsBothStoreFallbacks',
+              'testOwnedConcreteDispatchKeepsItsGuardWhilePublicDirectOpenStaysUnowned',
+          }
+          cases, suites = [], []
+          for path in files:
+              document = ET.parse(path).getroot()
+              suites.extend(s.attrib for s in document.iter('testsuite'))
+              for case in document.iter('testcase'):
+                  cases.append({'class': case.attrib['classname'], 'name': case.attrib['name'],
+                                'nonpass': [n.tag for n in case if n.tag in {'failure', 'error', 'skipped'}]})
+          (proof / 'inventory.json').write_text(json.dumps({'files': [str(p) for p in files],
+                                                           'suites': suites, 'cases': cases}, indent=2) + '\n')
+          assert files and suites, 'missing connected Android JUnit results'
+          assert len(cases) == 6 and {c['name'] for c in cases} == expected, 'Android case inventory changed'
+          assert all(c['class'] == 'com.miden.breadconnect.PackageOpenerInstrumentationTest' for c in cases)
+          assert sum(int(s['tests']) for s in suites) == 6
+          assert all(int(s[k]) == 0 for s in suites for k in ['failures', 'errors', 'skipped'])
+          assert not any(c['nonpass'] for c in cases), 'Android cases failed, errored or skipped'
+          assert (proof / 'gradle.natural.exit').read_text().strip() == '0'
+          assert (proof / 'gradle.tee.exit').read_text().strip() == '0'
+          PY
+      - name: Preserve Android instrumentation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bread-connect-package-opener-android
+          path: |
+            ${{ runner.temp }}/bread-connect-package-opener-android/
+            packages/bread-connect-kotlin/build/outputs/androidTest-results/connected/
+            packages/bread-connect-kotlin/build/reports/androidTests/connected/
+          if-no-files-found: error
+          include-hidden-files: true

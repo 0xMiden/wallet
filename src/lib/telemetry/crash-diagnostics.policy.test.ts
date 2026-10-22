@@ -1,7 +1,40 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CONFIRMATION_HANDLER_STATES } from './crash-diagnostics';
+import {
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS
+} from 'lib/walletconnect/native-request-failure';
+
+import {
+  BACKGROUND_AGES,
+  COMPLETION_GUARDS,
+  COMPLETION_STEPS,
+  CONFIRMATION_HANDLER_STATES,
+  CONFIRMATION_REGISTRY_STATES,
+  CONFIRMATION_REQUEST_SHAPES,
+  GUARDIAN_SIGNER_IN_SET,
+  GUARDIAN_SIGNING_KEYS,
+  HOT_KEY_ROTATION_PENDING,
+  PAGE_NAVIGATIONS,
+  PAGE_VISIBILITY,
+  PROPOSAL_GUARDS,
+  PROPOSAL_STEPS,
+  SECURITY_CHANGE_ACTIONS,
+  STORAGE_OPERATIONS,
+  STORAGE_OWNERS
+} from './crash-diagnostics';
+import {
+  DIAGNOSTIC_DURATIONS,
+  DIAGNOSTIC_END_OUTCOMES,
+  DIAGNOSTIC_LOG_EVENTS,
+  DIAGNOSTIC_OPERATIONS,
+  DIAGNOSTIC_STEP_OUTCOMES,
+  DIAGNOSTIC_STEPS
+} from './diagnostic-log-contract';
 import {
   RELAY_CONNECTIVITY,
   RELAY_FAILURE_BUCKETS,
@@ -10,6 +43,7 @@ import {
   RELAY_TRIGGERS,
   RELAY_VISIBILITY
 } from './relay-diagnostics';
+import { USER_ERROR_IDS, USER_ERROR_SURFACES } from './user-visible-error';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
 
 const crashReportPolicy = (): string => {
@@ -30,22 +64,75 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['storage owner', STORAGE_OWNERS],
+  ['storage operation', STORAGE_OPERATIONS],
+  ['page visibility', PAGE_VISIBILITY],
+  ['which message it was', USER_ERROR_IDS],
+  ['which kind of display showed it', USER_ERROR_SURFACES],
   ['shared memory could still grow', SHARED_MEMORY_PROBES],
   ["the App's own pages", EXTENSION_VIEW_COUNTS],
   ['the state the background held for that approval', CONFIRMATION_HANDLER_STATES],
+  ['the shape of the id the request carried', CONFIRMATION_REQUEST_SHAPES],
+  ['what the background still remembered of recent approvals', CONFIRMATION_REGISTRY_STATES],
+  ['how long the background had been running', BACKGROUND_AGES],
+  ['how the approval window was last loaded', PAGE_NAVIGATIONS],
   ['reconnected to the background', ['true', 'false']],
+  ['the preparation step that failed', PROPOSAL_STEPS],
+  ['which check refused it', PROPOSAL_GUARDS],
+  ['which security change failed', SECURITY_CHANGE_ACTIONS],
+  ['two fixed events', DIAGNOSTIC_LOG_EVENTS],
+  ['the operation it is about', DIAGNOSTIC_OPERATIONS],
+  ['the step it describes', DIAGNOSTIC_STEPS],
+  ['how that step ended', DIAGNOSTIC_STEP_OUTCOMES],
+  ['how the operation ended', DIAGNOSTIC_END_OUTCOMES],
+  ['how long it took, as a range', DIAGNOSTIC_DURATIONS],
+  ['the finishing step that failed', COMPLETION_STEPS],
+  ['which finishing check refused it', COMPLETION_GUARDS],
+  ["is one of the account's signers on chain", GUARDIAN_SIGNER_IN_SET],
+  ["which of the account's keys signed it", GUARDIAN_SIGNING_KEYS],
+  ['still waiting for its everyday key to be replaced', HOT_KEY_ROTATION_PENDING],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],
   ['which App window it was', RELAY_SURFACES],
   ['whether the connect-wallet screen was open in that window', RELAY_TRIGGERS],
   ['whether the relay had connected in that window before', ['true', 'false']],
-  ['how many relay failures that window had seen', RELAY_FAILURE_BUCKETS]
+  ['how many relay failures that window had seen', RELAY_FAILURE_BUCKETS],
+  ['; native origin', REOWN_NATIVE_ORIGINS],
+  ['; wallet response code', REOWN_WALLET_RESPONSE_CODES],
+  ['; request age', REOWN_REQUEST_AGES],
+  ['; publication observation', REOWN_PUBLICATIONS],
+  ['; background observation', REOWN_BACKGROUND_ANSWERS]
 ];
 
 it.each(FIELDS)('the privacy policy lists exactly the values a crash report can carry after "%s"', (phrase, values) => {
   expect(new Set(listedAfter(crashReportPolicy(), phrase))).toEqual(new Set(values));
 });
+
+const mutationCases = FIELDS.flatMap(([phrase, values]) => values.map(value => ({ phrase, value })));
+
+it.each(mutationCases)(
+  'detects a missing $value or an extra value only in the list for "$phrase"',
+  ({ phrase, value }) => {
+    const policy = crashReportPolicy();
+    const at = policy.indexOf(phrase);
+    const open = at === -1 ? -1 : policy.indexOf('(', at + phrase.length);
+    const close = open === -1 ? -1 : policy.indexOf(')', open);
+    const list = policy.slice(open, close);
+    const missing = policy.slice(0, open) + list.replace(`\`${value}\``, '') + policy.slice(close);
+    const extra = policy.slice(0, close) + ', `unlisted_storage_value`' + policy.slice(close);
+    expect(missing).not.toBe(policy);
+    expect(extra).not.toBe(policy);
+    for (const [registered, values] of FIELDS) {
+      expect(new Set(listedAfter(missing, registered))).toEqual(
+        new Set(registered === phrase ? values.filter(listed => listed !== value) : values)
+      );
+      expect(new Set(listedAfter(extra, registered))).toEqual(
+        new Set(registered === phrase ? [...values, 'unlisted_storage_value'] : values)
+      );
+    }
+  }
+);
 
 it("tells a value missing from one field's list, or listed but never sent, from a correct list", () => {
   const policy = crashReportPolicy();

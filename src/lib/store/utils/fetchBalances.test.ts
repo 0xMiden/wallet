@@ -15,7 +15,16 @@ import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
 
-import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
+import {
+  __resetUnresolvedFaucetsForTest,
+  balanceReadStateForTest,
+  fetchBalances,
+  fetchingAddresses
+} from './fetchBalances';
+
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
@@ -1058,5 +1067,59 @@ describe('actual native balance with a separate legacy display selection', () =>
     expect(native.balance).toBe(1);
     expect(native.metadata.decimals).toBe(8);
     expect(native.fiatPrice).toBe(1);
+  });
+});
+
+describe('the read-only E2E balance read state', () => {
+  beforeEach(() => {
+    currentHold = null;
+    fetchingAddresses.clear();
+    __resetSyncFuseStateForTests();
+  });
+
+  afterEach(() => {
+    currentHold = null;
+    fetchingAddresses.clear();
+    __resetSyncFuseStateForTests();
+  });
+
+  it('reports a free lock and an unfused address without starting a balance read', () => {
+    const calls = mockGetAccount.mock.calls.length;
+    expect(balanceReadStateForTest('acct')).toEqual({
+      inFlight: false,
+      fused: false,
+      fuseUntilMs: null,
+      network: expect.stringMatching(/^mainnet:/),
+      lock: null
+    });
+    expect(mockGetAccount).toHaveBeenCalledTimes(calls);
+  });
+
+  it('reports the address in flight, lit fuse and paused lock without changing them', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      fetchingAddresses.add('acct');
+      currentHold = { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 };
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('balances');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("consecutive watchdog evictions of 'balances'"));
+      const until = syncFuseUntilMs('balances');
+      const calls = mockGetAccount.mock.calls.length;
+      const expected = {
+        inFlight: true,
+        fused: true,
+        fuseUntilMs: until,
+        network: expect.stringMatching(/^mainnet:/),
+        lock: { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 }
+      };
+      expect(balanceReadStateForTest('acct')).toEqual(expected);
+      expect(balanceReadStateForTest('other')).toEqual({ ...expected, inFlight: false });
+      expect(fetchingAddresses.has('acct')).toBe(true);
+      expect(syncFuseUntilMs('balances')).toBe(until);
+      expect(currentHold).toEqual(expected.lock);
+      expect(mockGetAccount).toHaveBeenCalledTimes(calls);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -1,8 +1,6 @@
 name: Earn E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: earn-e2e-${{ github.ref }}
@@ -12,7 +10,7 @@ permissions:
   # The linked-PR injections list a dispatched branch's open pull request and read its description.
   pull-requests: read
 jobs:
-  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # Heavy job runs on workflow_dispatch (Release E2E's nightly on main), not on pull_request.
   # The workflow still triggers on PRs so earn-e2e-gate (the required check) can
   # report green when the suite is skipped.
   earn-e2e:
@@ -148,6 +146,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: yarn test:e2e:blockchain:build
       - name: Install xvfb
@@ -193,9 +194,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
         # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: earn-e2e-report
           path: test-results/

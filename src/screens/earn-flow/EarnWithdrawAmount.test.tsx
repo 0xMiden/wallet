@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 
 import EarnWithdrawAmount from './EarnWithdrawAmount';
@@ -105,4 +106,32 @@ it('revalidates a reduced available balance and stale positions', () => {
   mockStale = true;
   view.rerender(<EarnWithdrawAmount positionId="p" />);
   expect(screen.getByRole('button', { name: 'max' })).toBeDisabled();
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+describe('user-visible amount errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+  it.each([
+    ['0', 'earnWithdrawPositive'],
+    ['11', 'earnWithdrawAboveAvailable'],
+    ['1.1234567890123456789', 'earnWithdrawPrecision']
+  ])('reports invalid amount %s by its closed key', (value, id) => {
+    render(<EarnWithdrawAmount positionId="p" />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), { target: { value } });
+    expect(screen.getByText(id)).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'field']]);
+  });
+  it('does not report the empty or valid amount', () => {
+    render(<EarnWithdrawAmount positionId="p" />);
+    act(() => jest.advanceTimersByTime(1000));
+    fireEvent.change(screen.getByRole('textbox', { name: 'earnWithdrawAmount' }), { target: { value: '1' } });
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
 });

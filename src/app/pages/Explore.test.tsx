@@ -5,20 +5,13 @@ import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
-  publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
-  testSnapshotWithSwapPairs
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
 } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import {
-  TEST_SWAP_TOKENS,
-  TEST_TOKEN_IBTC,
-  TEST_TOKEN_IETH,
-  testSwapPairsToken
-} from 'lib/miden/swap/testing/registry';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -37,6 +30,18 @@ afterAll(() => _setSwapTokensForTest(undefined));
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// Set verified price assets directly. Swap metadata does not set price assets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
+  mockVerifiedPriceAssets.set(TEST_TOKEN_IBTC.faucetId, 'BTC');
+});
+
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
@@ -388,7 +393,7 @@ describe('Explore', () => {
   });
 
   describe('base rendering', () => {
-    it('reorders stable balances when the configured price symbols change', async () => {
+    it('reorders stable balances when the verified price assets change', async () => {
       _setSwapTokensForTest(undefined);
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       mockAllBalances = [
@@ -401,26 +406,19 @@ describe('Explore', () => {
       };
       const listedIds = () => screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
       try {
-        await renderExplore();
+        const view = await renderExplore();
         expect(listedIds()).toEqual([TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]);
 
-        act(() => {
-          mockBridgeSnapshot = testSnapshotWithSwapPairs({
-            tokens: [
-              testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: 'BTC' }),
-              testSwapPairsToken({ ...TEST_TOKEN_IBTC, priceSymbol: 'ETH' })
-            ],
-            pairs: []
-          });
-          publishMockBridgeSnapshot();
-        });
+        mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'BTC');
+        mockVerifiedPriceAssets.set(TEST_TOKEN_IBTC.faucetId, 'ETH');
+        view.rerender(<Explore />);
         expect(listedIds()).toEqual([TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]);
       } finally {
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
       }
     });
 
-    it('updates price readiness on a config-only change with an unchanged empty feed', async () => {
+    it('updates price readiness on a verified price asset change with an unchanged empty feed', async () => {
       _setSwapTokensForTest(undefined);
       mockedHasUnquotedDefaultPrice.mockReturnValue(true);
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
@@ -428,16 +426,11 @@ describe('Explore', () => {
       mockTokenPrices = {};
       mockPortfolioTotal = new BigNumber(100);
       try {
-        await renderExplore();
+        const view = await renderExplore();
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
 
-        act(() => {
-          mockBridgeSnapshot = testSnapshotWithSwapPairs({
-            tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: undefined })],
-            pairs: []
-          });
-          publishMockBridgeSnapshot();
-        });
+        mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
+        view.rerender(<Explore />);
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
       } finally {
         mockedHasUnquotedDefaultPrice.mockReturnValue(false);
@@ -1565,6 +1558,23 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
       const ids = mockInitiateConsumeTransaction.mock.calls.map(c => c[1].id);
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
+    });
+
+    it('claims a backlog at most MAX_NOTES_PER_UNATTENDED_CLAIM notes to a transaction (#1644)', async () => {
+      mockAutoConsume = true;
+      mockInitiateConsumeNotesTransaction.mockResolvedValue('batch-tx');
+      mockClaimableNotes = Array.from({ length: 20 }, (_unused, index) =>
+        makeNote(`n${String(index).padStart(2, '0')}`, 'faucet-native', false)
+      );
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction.mock.calls.map(call => call[1].length)).toEqual([8, 8, 4]);
+      const queued = mockInitiateConsumeNotesTransaction.mock.calls.flatMap(call =>
+        call[1].map((n: { id: string }) => n.id)
+      );
+      expect(new Set(queued).size).toBe(20);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
     });
   });
 

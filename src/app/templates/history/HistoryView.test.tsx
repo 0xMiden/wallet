@@ -41,7 +41,8 @@ jest.mock('app/icons/v2', () => ({
     Convert: 'Convert',
     Earn: 'Earn',
     More: 'More',
-    ArrowUpDown: 'ArrowUpDown'
+    ArrowUpDown: 'ArrowUpDown',
+    Key: 'Key'
   }
 }));
 
@@ -77,60 +78,73 @@ jest.mock('framer-motion', () => {
 // ActivityRow: flatten every visual prop buildRowProps produces onto data-*
 // attributes so each branch's output is directly assertable, and forward
 // onClick so the navigate wiring can be exercised.
-jest.mock('components/ui', () => ({
-  ActivityRow: ({
-    icon,
-    iconBg,
-    title,
-    subtitle,
-    amount,
-    status,
-    onClick,
-    className,
-    leading
-  }: {
-    icon: React.ReactNode;
-    iconBg?: string;
-    title: string;
-    subtitle?: string;
-    amount?: {
-      value: string;
-      symbol?: string;
-      direction?: string;
-      preformatted?: boolean;
-      extra?: { key: string; value: string; symbol?: string }[];
-    };
-    status: string;
-    onClick?: () => void;
-    className?: string;
-    leading?: React.ReactNode;
-  }) => (
-    <div
-      data-testid="activity-row"
-      className={className}
-      data-title={title}
-      data-subtitle={subtitle ?? ''}
-      data-iconbg={iconBg ?? ''}
-      data-amount-value={amount?.value ?? ''}
-      data-amount-symbol={amount?.symbol ?? ''}
-      data-amount-direction={amount?.direction ?? ''}
-      data-amount-preformatted={amount?.preformatted ? 'yes' : 'no'}
-      // Flattened as `key:value symbol|…` so both the contents AND the order
-      // (the row renders them unsorted, first-seen) are assertable.
-      data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
-      data-status={status}
-      data-clickable={onClick ? 'yes' : 'no'}
-      onClick={onClick}
-    >
-      {leading}
-      {icon}
-    </div>
-  ),
-  // The real card, so the surface it draws onto each row is asserted as rendered.
-  Card: jest.requireActual('components/ui/Card').Card,
-  // The initial-loading placeholder; stub it to a marker.
-  Spinner: () => <div data-testid="activity-spinner" />
-}));
+let mockRealActivityRow = false;
+jest.mock('components/ui', () => {
+  const legacy = {
+    ActivityRow: ({
+      icon,
+      iconBg,
+      title,
+      subtitle,
+      amount,
+      status,
+      onClick,
+      className,
+      leading
+    }: {
+      icon: React.ReactNode;
+      iconBg?: string;
+      title: string;
+      subtitle?: string;
+      amount?: {
+        value: string;
+        symbol?: string;
+        direction?: string;
+        preformatted?: boolean;
+        extra?: { key: string; value: string; symbol?: string }[];
+      };
+      status: string;
+      onClick?: () => void;
+      className?: string;
+      leading?: React.ReactNode;
+    }) => (
+      <div
+        data-testid="activity-row"
+        className={className}
+        data-title={title}
+        data-subtitle={subtitle ?? ''}
+        data-iconbg={iconBg ?? ''}
+        data-amount-value={amount?.value ?? ''}
+        data-amount-symbol={amount?.symbol ?? ''}
+        data-amount-direction={amount?.direction ?? ''}
+        data-amount-preformatted={amount?.preformatted ? 'yes' : 'no'}
+        // Flattened as `key:value symbol|…` so both the contents AND the order
+        // (the row renders them unsorted, first-seen) are assertable.
+        data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
+        data-status={status}
+        data-clickable={onClick ? 'yes' : 'no'}
+        onClick={onClick}
+      >
+        {leading}
+        {icon}
+      </div>
+    ),
+    // The real card, so the surface it draws onto each row is asserted as rendered.
+    Card: jest.requireActual('components/ui/Card').Card,
+    // The initial-loading placeholder; stub it to a marker.
+    Spinner: () => <div data-testid="activity-spinner" />
+  };
+  return {
+    ...legacy,
+    ActivityRow: (props: React.ComponentProps<typeof import('components/ui/ActivityRow').ActivityRow>) =>
+      mockRealActivityRow
+        ? React.createElement(
+            jest.requireActual<typeof import('components/ui/ActivityRow')>('components/ui/ActivityRow').ActivityRow,
+            props
+          )
+        : React.createElement(legacy.ActivityRow, { ...props, status: props.status ?? '' })
+  };
+});
 
 // EmptyState: minimal stand-in — a heading for the title plus the same `icon`
 // testid shape the row-icon mock above uses, so existing assertions
@@ -869,8 +883,9 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('renders the failed-by-icon row with neutral amount and underscore address', () => {
     renderFull();
     const row = rowByTitle('Failed by icon');
-    // Failed rows use the raw failed-cross SVG (not the Icon component).
-    expect(row.querySelector('svg')).not.toBeNull();
+    // Failed rows use the raw failed-cross SVG (not the Icon component). Every svg is one mock, so the cross's
+    // size tells it from the swap glyph.
+    expect(row.querySelector('svg')).toHaveClass('w-3.5', 'h-3.5');
     expect(row).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
     // Underscore address → slice(0,6)…slice(-7).
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1_…address');
@@ -1498,9 +1513,43 @@ describe('HistoryView Guardian ops', () => {
     for (const title of ['Guardian switched', 'Device key rotated', 'Account secured']) {
       const row = rowByTitle(title);
       expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
-      expect(row.querySelector('svg')).not.toBeNull();
-      expect(within(row).queryByTestId('icon')).toBeNull();
+      expect(iconNameIn(row)).toBe('Key');
+      expect(row.querySelector('svg')).toBeNull();
     }
+  });
+
+  it('keeps the red cross for a failed Guardian op and the swap glyph for a bridge row', () => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
+      outAmount: '10',
+      providerLabel: 'AggLayer',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    const entries = [
+      makeEntry({
+        key: 'failed-switch',
+        txType: 'switch-guardian',
+        message: 'Guardian failed',
+        transactionIcon: 'FAILED'
+      }),
+      makeEntry({ key: 'bridge', txType: 'bridged-send', txId: 'bridge-tx' })
+    ];
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    const failed = rowByTitle('Guardian failed');
+    expect(failed).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
+    // Every svg is one mock, so each glyph is told apart by the size its branch draws it at.
+    expect(failed.querySelector('svg')).toHaveClass('w-3.5', 'h-3.5');
+    expect(failed.querySelector('svg')).not.toHaveClass('w-5');
+    expect(within(failed).queryByTestId('icon')).toBeNull();
+    const bridge = rowByTitle('bridgeRowTitle');
+    expect(bridge.querySelector('svg')).toHaveClass('w-5', 'h-5');
+    expect(bridge.querySelector('svg')).not.toHaveClass('w-3.5');
+    expect(within(bridge).queryByTestId('icon')).toBeNull();
   });
 });
 
@@ -1551,7 +1600,7 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status', 'failed');
     for (const row of screen.getAllByTestId('activity-row').slice(0, 3)) {
       expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
-      expect(row.querySelector('svg')).not.toBeNull();
+      expect(iconNameIn(row)).toBe('Key');
     }
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
@@ -1669,6 +1718,21 @@ describe('HistoryView swap settlement status', () => {
     });
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', status);
+  });
+
+  it('reads a stuck payout claim as paybackStuck ahead of its pending settlement (#1644)', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'MDN',
+      requestedToken: 'ETH',
+      requestedAmount: '0.5',
+      amount: '10',
+      message: 'swap settled',
+      swapSettlement: 'pending',
+      paybackClaimStuck: { failedClaimId: 'payback-claim-1', reason: 'fee' }
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'paybackStuck');
   });
 });
 
@@ -1931,5 +1995,103 @@ describe('HistoryView - its tab shown again', () => {
 
     rerender(view(true, true, true, loadMore));
     expect(mockScroller.props?.loadMore).toBe(loadMore);
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible history load errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockT.mockImplementation((key: string) =>
+      key === 'tokenActivityLoadError' ? 'Visible activity read failure' : key
+    );
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    mockT.mockImplementation((key: string) => key);
+    mockRealActivityRow = false;
+  });
+
+  it.each([false, true])(
+    'reports the actual empty error card once with tokenActivityLoadError, token=%s',
+    async token => {
+      render(<HistoryView {...baseProps} entries={[]} loadError tokenId={token ? 'synthetic-token' : undefined} />);
+      expect(screen.getByRole('alert')).toHaveTextContent('Visible activity read failure');
+      await expectErrorAfterDwell('tokenActivityLoadError', 'inline');
+    }
+  );
+
+  it('reports the actual partial-history notice once with tokenActivityLoadError', async () => {
+    render(<HistoryView {...baseProps} entries={[makeEntry({ key: 'kept' })]} loadError />);
+    expect(screen.getByTestId('history-load-error-notice')).toHaveTextContent('Visible activity read failure');
+    await expectErrorAfterDwell('tokenActivityLoadError', 'inline');
+  });
+
+  it.each(['retry', 'unmount'])('cancels a short error episode on %s before 1000 ms', async control => {
+    const onRetry = jest.fn();
+    const view = render(<HistoryView {...baseProps} entries={[]} loadError onRetry={onRetry} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible activity read failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'retry') {
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      view.rerender(<HistoryView {...baseProps} entries={[]} initialLoading />);
+    } else view.unmount();
+    expect(onRetry).toHaveBeenCalledTimes(control === 'retry' ? 1 : 0);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps loading, empty activity and a persisted Failed badge silent', async () => {
+    const view = render(<HistoryView {...baseProps} entries={[]} initialLoading />);
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+    view.rerender(<HistoryView {...baseProps} entries={[]} />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    mockRealActivityRow = true;
+    view.rerender(
+      <HistoryView
+        {...baseProps}
+        fullHistory
+        entries={[
+          makeEntry({
+            key: 'old-failure',
+            type: HistoryEntryType.PendingTransaction,
+            status: 3,
+            message: 'Transaction failed',
+            transactionIcon: 'FAILED'
+          })
+        ]}
+      />
+    );
+    expect(screen.getByTestId('activity-row-status')).toHaveTextContent('failed');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

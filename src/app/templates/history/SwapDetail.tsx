@@ -12,8 +12,10 @@ import { Status, StatusBadge } from 'components/ui/StatusBadge';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import HashChip from '../HashChip';
 import { DetailSection } from './DetailSection';
@@ -75,7 +77,13 @@ interface SwapDetailProps {
   offerCancelOrder: boolean;
   isCancellingOrder: boolean;
   cancelOrderError: string | null;
+  cancelOrderErrorId?: UserErrorId | null;
   onCancelOrder: () => void;
+  /** Retry for a stuck payout claim (`entry.paybackClaimStuck`); the notice shows without it, the button does not. */
+  isRetryingPayback?: boolean;
+  paybackRetryError?: string | null;
+  paybackRetryErrorId?: UserErrorId | null;
+  onRetryPayback?: () => void;
 }
 
 interface SwapNoteRowProps {
@@ -88,6 +96,13 @@ interface SwapNoteRowProps {
   requestedSymbol?: string;
   requestedFaucetId?: string;
 }
+
+const PAYBACK_STUCK_REASON_KEYS: Record<PaybackClaimStuckReason, string> = {
+  fee: 'swapPaybackStuckFee',
+  guardian: 'swapPaybackStuckGuardian',
+  network: 'swapPaybackStuckNetwork',
+  other: 'swapPaybackStuckOther'
+};
 
 const progressPercentage = (filledAmount: bigint, requestedAmount: bigint): number => {
   if (requestedAmount <= 0n || filledAmount <= 0n) return 0;
@@ -268,7 +283,12 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   offerCancelOrder,
   isCancellingOrder,
   cancelOrderError,
-  onCancelOrder
+  cancelOrderErrorId,
+  onCancelOrder,
+  isRetryingPayback = false,
+  paybackRetryError = null,
+  paybackRetryErrorId = null,
+  onRetryPayback
 }) => {
   const { t } = useTranslation();
   const progressTransition = useMotion(springs.standard);
@@ -305,7 +325,9 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   // (`HistoryDetails`), which needs a Queued or a Failed row: an order can only
   // be open once its place-order transaction has COMPLETED, so the two bars are
   // never both filled.
-  const showFooter = showClaimRoute || offerCancelOrder || reclaiming || cancelOrderError !== null;
+  const paybackStuck = entry.paybackClaimStuck;
+  const showFooter =
+    showClaimRoute || offerCancelOrder || reclaiming || cancelOrderError !== null || paybackStuck !== undefined;
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
   const hasSettlementRows = settledTransactions.length > 0 || reclaimedTransactions.length > 0;
 
@@ -353,6 +375,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               isCancelled={entry.isCancelled}
               isUnconfirmed={entry.isUnconfirmed}
               swapSettlement={entry.swapSettlement}
+              paybackClaimStuck={paybackStuck !== undefined}
               testId="history-status-pill"
             />
           </div>
@@ -528,7 +551,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
       {showFooter && (
         <div className="shrink-0 space-y-3 pb-4 pt-3">
           {cancelOrderError && (
-            <Notice tone="negative" role="alert" data-testid="swap-cancel-order-error">
+            <Notice tone="negative" errorId={cancelOrderErrorId} role="alert" data-testid="swap-cancel-order-error">
               {cancelOrderError}
             </Notice>
           )}
@@ -539,6 +562,28 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             <Notice tone="warning" role="status" data-testid="swap-cancel-order-pending">
               {t('swapCancelOrderPending')}
             </Notice>
+          )}
+          {/* A warning, not an error: the claim keeps being retried once a day (#313), and Retry runs it now. */}
+          {paybackStuck && (
+            <Notice tone="warning" role="status" data-testid="swap-payback-stuck">
+              {t(PAYBACK_STUCK_REASON_KEYS[paybackStuck.reason])}
+            </Notice>
+          )}
+          {paybackRetryError && (
+            <Notice tone="negative" errorId={paybackRetryErrorId} role="alert" data-testid="swap-retry-payback-error">
+              {paybackRetryError}
+            </Notice>
+          )}
+          {paybackStuck && onRetryPayback && (
+            <Button
+              data-testid="swap-retry-payback-button"
+              variant={ButtonVariant.Primary}
+              title={t('swapRetryPayback')}
+              isLoading={isRetryingPayback}
+              disabled={isRetryingPayback}
+              onClick={onRetryPayback}
+              className="max-w-none"
+            />
           )}
           {showClaimRoute && (
             <Button

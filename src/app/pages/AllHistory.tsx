@@ -25,7 +25,8 @@ type AllHistoryProps = {
 /**
  * The filter the location names: the page's own record of a pick, or a link's, e.g.
  * `/history?filter=pending&view=list` - which is where every received-transfer notification and the
- * home prompt now land (`ACTIVITY_PENDING_PATH`). Only an id the segmented control offers is accepted.
+ * home prompt now land (`ACTIVITY_PENDING_PATH`). Only an id the segmented control offers is accepted,
+ * so a link to a removed chip (`sent`, `received`, `faucet`) names no filter and the page shows All.
  */
 function filterFromSearch(
   search: string,
@@ -81,9 +82,10 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     () => [
       { id: 'all', label: t('all') },
       { id: 'pending', label: t('pending') },
-      { id: 'sent', label: t('sent') },
-      { id: 'received', label: t('received') },
-      { id: 'faucet', label: t('faucet') }
+      { id: 'transfer', label: t('transfer') },
+      { id: 'swap', label: t('swap') },
+      { id: 'earn', label: t('earn') },
+      { id: 'others', label: t('others') }
     ],
     [t]
   );

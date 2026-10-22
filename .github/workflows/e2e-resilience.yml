@@ -6,13 +6,12 @@ name: Infra Resilience E2E (Chrome)
 # note-transport from run-note-transport.sh (both HOST processes on 0.16); only
 # the two guardians come from docker-compose.local.yml.
 #
-# Trigger: push to main (post-merge signal), manual dispatch, and a nightly cron.
-# This is NOT a required pre-merge PR gate (spec decision) — a full docker stack
-# per PR is too costly; it runs after merge and nightly to catch resilience
+# Trigger: its own nightly cron (main's scheduled run, so Release E2E does not
+# dispatch it on its nightly), manual dispatch, and Release E2E's on-demand and
+# release runs. This is NOT a required pre-merge PR gate (spec decision) - a full
+# docker stack per PR is too costly; it runs nightly to catch resilience
 # regressions over time.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   schedule:
     # Nightly at 05:00 UTC (after the stress suite's 04:00).
@@ -136,6 +135,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Drop apt repositories this repo never installs from

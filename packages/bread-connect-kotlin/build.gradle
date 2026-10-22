@@ -9,6 +9,7 @@ android {
 
     defaultConfig {
         minSdk 24
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
 
     compileOptions {
@@ -25,6 +26,12 @@ dependencies {
     implementation 'org.bouncycastle:bcprov-jdk18on:1.80'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0'
     api 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3'
+
+    androidTestCompileOnly files(androidComponents.sdkComponents.sdkDirectory.map { sdk ->
+        ['android.test.base', 'android.test.runner', 'android.test.mock'].collect { name ->
+            sdk.file("platforms/android-36/optional/${name}.jar")
+        }
+    })
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0'

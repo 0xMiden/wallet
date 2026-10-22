@@ -273,6 +273,7 @@ describe('IntercomClient', () => {
       operation: 'intercom_request',
       requestType: MidenMessageType.DAppGetPayloadRequest,
       confirmationHandler: 'expired',
+      pageNavigation: 'unknown',
       portReconnected: false
     });
 
@@ -288,8 +289,45 @@ describe('IntercomClient', () => {
       operation: 'intercom_request',
       requestType: MidenMessageType.DAppGetPayloadRequest,
       confirmationHandler: 'unknown',
+      pageNavigation: 'unknown',
       portReconnected: true
     });
+  });
+
+  it("adds the background's labels and how this page was loaded to an approval's Not Found", async () => {
+    await flushPromises();
+    const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: ['V1StGXR8_Z5jdHi6B-myT'] };
+    Object.defineProperty(performance, 'getEntriesByType', {
+      configurable: true,
+      value: (type: string) => (type === 'navigation' ? [{ type: 'reload' }] : [])
+    });
+    try {
+      const failed = client.request(payloadRequest).catch(error => error);
+      await flushPromises();
+      deliverToPort(0, {
+        type: MessageType.Err,
+        reqId: 0,
+        data: [
+          'Not Found',
+          undefined,
+          'Error',
+          undefined,
+          { code: 'confirmation_unknown:array_with_string:empty:under_10s' }
+        ]
+      });
+      expect(snapshotCrashDiagnostics(await failed)).toEqual({
+        operation: 'intercom_request',
+        requestType: MidenMessageType.DAppGetPayloadRequest,
+        confirmationHandler: 'unknown',
+        confirmationRequestShape: 'array_with_string',
+        confirmationRegistry: 'empty',
+        backgroundAge: 'under_10s',
+        pageNavigation: 'reload',
+        portReconnected: false
+      });
+    } finally {
+      Reflect.deleteProperty(performance, 'getEntriesByType');
+    }
   });
 
   it('increments reqId for each request', async () => {

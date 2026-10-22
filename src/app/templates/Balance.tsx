@@ -6,8 +6,7 @@ import CSSTransition from 'react-transition-group/CSSTransition';
 
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { tokenQuote } from 'lib/miden/swap/tokens';
+import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 
@@ -27,30 +26,9 @@ const Balance = memo<BalanceProps>(({ children }) => {
   return useMemo(() => {
     // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
     void bridgeConfig;
-    // A token whose decimals were never resolved contributes a `balance` that was
-    // divided by the placeholder's guessed 6, so it can be off by a factor of a
-    // trillion. Folding that into the portfolio total does not make the total
-    // partly wrong — it makes it meaningless, and unlike a single row there is no
-    // way for the user to see which asset spoiled it. Leaving such an asset out
-    // understates the total; including it can invent one.
-    //
-    // A token with no quote is left out too: it has no dollar value to add, so the portfolio total
-    // is the value of what can be priced. When something is held and nothing can be valued there
-    // is no total at all, rather than a $0.00 that reads as an empty wallet.
-    let totalFiat = 0;
-    let holdsAnything = false;
-    let valuedAnything = false;
-    for (const token of allTokenBalances) {
-      if (!(token.balance > 0)) continue;
-      // The card sums what Home lists, and a hidden token is not listed (#813).
-      if (isHidden(token.tokenId)) continue;
-      holdsAnything = true;
-      if (!hasKnownScale(token.metadata)) continue;
-      const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
-      if (!quote) continue;
-      valuedAnything = true;
-      totalFiat += token.balance * quote.price;
-    }
+    // The card sums what Home lists, and a hidden token is not listed (#813). What counts and what is left out is
+    // `valuedBalanceTotal`'s rule, shared with the bridge-in ceiling.
+    const { totalFiat, holdsAnything, valuedAnything } = valuedBalanceTotal(allTokenBalances, tokenPrices, isHidden);
     const childNode = children(holdsAnything && !valuedAnything ? null : new BigNumber(totalFiat));
     const exist = true;
 

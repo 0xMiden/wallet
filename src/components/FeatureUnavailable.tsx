@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice, type NoticeVariant } from 'components/ui/Notice';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 export interface FeatureUnavailableNoticeProps {
   availability: FeatureAvailability;
@@ -29,18 +30,25 @@ export function FeatureUnavailableNotice({
   'data-testid': dataTestId = 'feature-unavailable-notice'
 }: FeatureUnavailableNoticeProps): JSX.Element | null {
   const { t } = useTranslation();
+  useUserVisibleError(
+    availability.state === 'unavailable' && availability.reason !== 'restricted'
+      ? 'bridgeFeatureUnavailableBody'
+      : null,
+    'notice'
+  );
   if (availability.state !== 'unavailable') return null;
+  const restricted = availability.reason === 'restricted';
   return (
     <Notice
       tone="warning"
       variant={variant}
       icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-      title={t('bridgeFeatureUnavailableTitle')}
+      title={t(restricted ? 'geoRestrictedTitle' : 'bridgeFeatureUnavailableTitle')}
       className={className}
       id={id}
       data-testid={dataTestId}
     >
-      {t('bridgeFeatureUnavailableBody')}
+      {t(restricted ? 'geoRestrictedBody' : 'bridgeFeatureUnavailableBody')}
     </Notice>
   );
 }

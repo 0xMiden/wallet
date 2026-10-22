@@ -8,6 +8,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { withdrawalAmountError } from 'lib/epoch/withdraw-amount';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle } from './components';
@@ -69,6 +70,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 maxLength={116}
                 allowNegativeValue
                 formatValueOnBlur={false}
+                errorId={validation && isUserErrorId(validation) ? validation : null}
                 error={amount && validation ? t(validation, { decimals: position.decimals }) : undefined}
                 tokenSelector={
                   <div className="flex flex-wrap items-center justify-between gap-2">

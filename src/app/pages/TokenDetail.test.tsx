@@ -23,7 +23,20 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
 
-// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
 
@@ -462,7 +475,7 @@ describe('TokenDetail', () => {
   it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
     configure({
       balances: [{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
-      tokenPrices: { ETH: { price: 3000, change24h: 1.5, percentageChange24h: 0.05 } }
+      tokenPrices: { ETH: { price: 3000, change24h: 45, percentageChange24h: 1.5 } }
     });
     render(<TokenDetail tokenId={TEST_TOKEN_IETH.faucetId} />);
 
@@ -531,9 +544,8 @@ describe('TokenDetail', () => {
     }
   });
 
-  // E2E builds price the fixture symbol TST by symbol, and the feed never lists it, so with the
-  // switch on it takes the nominal rate: a dollar figure, with no market to chart.
-  it('shows the nominal fiat line and no price section off mainnet for the E2E fixture token', () => {
+  // The E2E fixture has no market quote, even when the nominal display setting is on.
+  it('shows no fiat line or price section without a quote for the E2E fixture token', () => {
     const previousE2e = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
@@ -546,7 +558,9 @@ describe('TokenDetail', () => {
         'mtst1fixture'
       );
 
-      expect(within(screen.getByTestId('token-detail-hero')).getByText('$12.50')).toBeInTheDocument();
+      const hero = screen.getByTestId('token-detail-hero');
+      expect(within(hero).getByText('12.50')).toBeInTheDocument();
+      expect(hero.querySelector('p')).toBeNull();
       expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
     } finally {
       mockedHasUnquotedDefaultPrice.mockReturnValue(false);
@@ -816,7 +830,7 @@ describe('TokenDetail', () => {
     });
 
     it('renders a positive 24h change with a plus sign and the formatted price', () => {
-      renderPage({ priceInfo: { price: 12.3456, change24h: 3.2 } });
+      renderPage({ priceInfo: { price: 12.3456, change24h: 0.38, percentageChange24h: 3.2 } });
 
       // `tokenDetailChange24h` interpolates `{{change}}` = sign + toFixed(1).
       expect(screen.getByText('tokenDetailChange24h_+3.2')).toBeInTheDocument();
@@ -825,9 +839,20 @@ describe('TokenDetail', () => {
     });
 
     it('renders a negative 24h change without a plus sign', () => {
-      renderPage({ priceInfo: { price: 2000, change24h: -1.5 } });
+      renderPage({ priceInfo: { price: 2000, change24h: -30.46, percentageChange24h: -1.5 } });
 
       expect(screen.getByText('tokenDetailChange24h_-1.5')).toBeInTheDocument();
+    });
+
+    it('shows the percent change, not the USD change, for a large-price token', () => {
+      // A realistic BTC quote: down $335.30 in USD, which is -0.405% of the price 24h ago. The pill
+      // once read the USD figure as a percent and showed "-335.3%".
+      renderPage({ priceInfo: { price: 82365.071, change24h: -335.3, percentageChange24h: -0.40541 } });
+
+      const pill = screen.getByTestId('token-detail-price-change');
+      expect(pill).toHaveTextContent('tokenDetailChange24h_-0.4');
+      expect(pill).not.toHaveTextContent('335');
+      expect(pill).toHaveClass('text-negative-tint-ink');
     });
 
     it.each([
@@ -836,8 +861,9 @@ describe('TokenDetail', () => {
       // Rounds to 0.0 as shown, so neutral and unsigned rather than a red "-0.0%".
       [-0.04, 'text-ink', '0.0'],
       [0, 'text-ink', '0.0']
-    ])('tones a %p change as a status pill (%s)', (change24h, inkClass, label) => {
-      renderPage({ priceInfo: { price: 2000, change24h } });
+    ])('tones a %p change as a status pill (%s)', (percentageChange24h, inkClass, label) => {
+      // A USD change far from the percent, so a pill that read `change24h` would fail.
+      renderPage({ priceInfo: { price: 2000, change24h: percentageChange24h * 100, percentageChange24h } });
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent(`tokenDetailChange24h_${label}`);

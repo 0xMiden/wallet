@@ -14,6 +14,7 @@ import { intercom } from 'lib/miden/back/defaults';
 import {
   handleOffscreenSignRequest,
   handleOffscreenStageEvent,
+  handleOffscreenSubmitGate,
   markOpStarted,
   midenClientProxy,
   reloadOffscreenEndpointOverrides
@@ -25,6 +26,7 @@ import {
   OFFSCREEN_PROVE_MARKER,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
+  OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
   type OffscreenSignRequest,
@@ -360,6 +362,20 @@ function registerOffscreenSignHandler(): void {
       // listener is shared with signing, which must not fail because of it.
       void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
       return false;
+    }
+    // The Guardian leaf's submit gate (#1644): answered only once the crossing is recorded, and refused on any fault, so
+    // the leaf never submits on an answer that did not come from the handler.
+    if (m.type === OFFSCREEN_SUBMIT_GATE) {
+      if (typeof m.op_id !== 'string') return false;
+      handleOffscreenSubmitGate({
+        target: SW_TARGET,
+        type: OFFSCREEN_SUBMIT_GATE,
+        op_id: m.op_id,
+        evidence: parseSubmitEvidence(m.evidence)
+      }).then(sendResponse, (err: unknown) =>
+        sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) })
+      );
+      return true;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
     handleOffscreenSignRequest(msg as OffscreenSignRequest, swSignCallback).then(sendResponse, (err: unknown) => {

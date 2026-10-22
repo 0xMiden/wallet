@@ -1,0 +1,115 @@
+name: E2E Mainnet Nightly
+
+# One Chrome job against Miden mainnet, from origin/main. It restores two long-lived
+# accounts, sends one base unit of the native asset each way, then loops the minimum
+# bridge on every mainnet route: USDCx on Arc, Base, Arbitrum and Ethereum, and native
+# ETH over AggLayer. The loops check every chain first and send nothing if any one of
+# them cannot cover tonight and tomorrow.
+#
+# Until the accounts on issue 1629 are funded, a scheduled run fails without moving
+# funds, since the accounts hold none.
+
+on:
+  # After e2e-resilience.yml at 05:00 UTC.
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+
+jobs:
+  mainnet-nightly:
+    name: Chrome mainnet round trip
+    runs-on: warp-ubuntu-latest-x64-8x
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 210 || 180 }}
+    env:
+      E2E_NETWORK: mainnet
+      E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+      E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      - name: Install miden-client-cli
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
+
+      - name: Install xvfb
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
+      - name: Build the extension for mainnet
+        run: yarn test:e2e:blockchain:build
+
+      - name: Run the mainnet round trip, then the bridge loops
+        run: |
+          xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
+          xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
+
+      - name: Publish the spend summary
+        if: always()
+        run: |
+          if [ -f test-results/mainnet-spend.json ]; then
+            {
+              echo '### Mainnet spend'
+              echo '```json'
+              cat test-results/mainnet-spend.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-nightly-${{ github.run_id }}
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: ignore

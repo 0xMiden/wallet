@@ -2,6 +2,7 @@ import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 import { evmChainSlug } from './chains';
+import { type GeoBlocks, readGeoBlocks } from './geo';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
@@ -60,6 +61,15 @@ export interface MainnetCountdownConfig {
   launchAt?: number;
 }
 
+/**
+ * The ceilings the document puts on bridge transfers. `bridgeInMaxBalanceUsd` is the most the receiving account may
+ * hold, in US dollars, once a bridge-in lands: the wallet refuses a deposit that takes the account's valued balance
+ * past it. Absent means no ceiling.
+ */
+export interface BridgeLimitsConfig {
+  bridgeInMaxBalanceUsd?: number;
+}
+
 export interface RouteSwitches {
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
@@ -69,9 +79,24 @@ export interface EpochChainConfig extends RouteSwitches {
   tokens: { USDC?: { contractAddress: EvmAddress; outputs: string[] } };
 }
 
+export interface AgglayerDepositTokenConfig {
+  contractAddress: EvmAddress;
+}
+
 export interface AgglayerChainConfig extends RouteSwitches {
   contractAddress: EvmAddress;
   midenBridgeId: string;
+  /**
+   * The ERC-20 source tokens the document lists for a deposit, by the symbol the picker shows. Native ETH is never
+   * listed: the wallet finds it in the bridge's faucet registry, which is also what verifies each token here.
+   * Absent when the document lists none.
+   */
+  tokens?: Record<string, AgglayerDepositTokenConfig>;
+  /**
+   * A Blockscout API root (`.../api/v2`) that lists an address's ERC-20 holdings on this chain. On a test network the
+   * picker offers the connected wallet's holdings through it; absent, and on mainnet, only `tokens` are offered.
+   */
+  tokenApiUrl?: string;
 }
 
 export type UsdcxDepositConfig =
@@ -119,12 +144,19 @@ export interface BridgeConfig {
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
   features: { earn: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
   /**
+   * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
+   * blocks the feature. A withdrawal of an existing Earn position is not a start.
+   */
+  geo?: GeoBlocks;
+  /**
    * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
    * way in directly. False or absent: Welcome shows the create and recover flows, and the logo taps
    * unlock the invite-only way in.
    */
   onboarding?: { inviteOnly: boolean };
   mainnetCountdown?: MainnetCountdownConfig;
+  /** Only there when the document sets a `limits` section. */
+  limits?: BridgeLimitsConfig;
   swap?: SwapConfig;
   /**
    * The network's Guardian operators in picker order, the first being the default. Never empty. Absent means the
@@ -135,6 +167,9 @@ export interface BridgeConfig {
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
+// An ERC-20 symbol as the deposit picker shows it: 1 to 11 upper-case ASCII letters or digits. The same rule as the
+// config repo's validator (scripts/validate.mjs).
+const AGGLAYER_TOKEN_SYMBOL = /^[A-Z0-9]{1,11}$/;
 // Lower-case letters and digits in groups joined by single hyphens.
 const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // C0 controls, DEL and C1 controls: none belongs in a line of text the wallet shows.
@@ -218,6 +253,19 @@ function readCountdown(value: unknown): MainnetCountdownConfig {
 
 type ConfigValue = Parameters<typeof section>[0];
 
+// A ceiling in US dollars: a finite number above zero. A malformed ceiling fails the document, since a ceiling the
+// wallet silently dropped would let a deposit through that the operator meant to refuse.
+function usdCeiling(value: ConfigValue): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return invalid();
+  return value;
+}
+
+function readLimits(value: ConfigValue): BridgeLimitsConfig | undefined {
+  if (value === undefined) return undefined;
+  const bridgeInMaxBalanceUsd = read(section(value), 'bridgeInMaxBalanceUsd', usdCeiling);
+  return bridgeInMaxBalanceUsd === undefined ? undefined : { bridgeInMaxBalanceUsd };
+}
+
 function requiredBoolean(value: ConfigValue): boolean {
   return typeof value === 'boolean' ? value : invalid();
 }
@@ -259,12 +307,30 @@ function epochChain(value: ConfigValue): EpochChainConfig | undefined {
   };
 }
 
-function agglayerChain(value: ConfigValue): AgglayerChainConfig {
+// A map keyed by symbol, each entry an EVM address, no address twice: the rules the config repo's validator applies.
+function agglayerDepositTokens(value: ConfigValue): Record<string, AgglayerDepositTokenConfig> {
+  const tokens: Record<string, AgglayerDepositTokenConfig> = {};
+  const addresses = new Set<string>();
+  for (const [symbol, token] of Object.entries(section(value))) {
+    if (!AGGLAYER_TOKEN_SYMBOL.test(symbol)) return invalid();
+    const contractAddress = evmAddress(section(token).contractAddress);
+    if (addresses.has(contractAddress)) return invalid();
+    addresses.add(contractAddress);
+    tokens[symbol] = { contractAddress };
+  }
+  return tokens;
+}
+
+function agglayerChain(value: ConfigValue, url: (value: ConfigValue) => string): AgglayerChainConfig {
   const bridge = section(value);
+  const tokens = read(bridge, 'tokens', agglayerDepositTokens);
+  const tokenApiUrl = read(bridge, 'tokenApiUrl', url);
   return {
     ...switches(bridge),
     contractAddress: evmAddress(bridge.contractAddress),
-    midenBridgeId: midenAccountId(bridge.midenBridgeId)
+    midenBridgeId: midenAccountId(bridge.midenBridgeId),
+    ...(tokens === undefined ? {} : { tokens }),
+    ...(tokenApiUrl === undefined ? {} : { tokenApiUrl })
   };
 }
 
@@ -312,7 +378,10 @@ function usdcxChain(value: ConfigValue): UsdcxChainConfig | undefined {
   };
 }
 
-function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainConfig> {
+function supportedChains(
+  value: ConfigValue,
+  url: (value: ConfigValue) => string
+): Record<string, SupportedEvmChainConfig> {
   const chains: Record<string, SupportedEvmChainConfig> = {};
   const ids = new Set<number>();
   // Chains skipped, or whose xreserve deposit was left out: an executor deposit through one is left out too.
@@ -331,7 +400,7 @@ function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainCo
     ids.add(item.chainId);
     const bridges = section(item.bridges);
     const epoch = read(bridges, 'epoch', epochChain);
-    const agglayer = read(bridges, 'agglayer', agglayerChain);
+    const agglayer = read(bridges, 'agglayer', value => agglayerChain(value, url));
     const usdcx = read(bridges, 'usdcx', usdcxChain);
     if (section(bridges.usdcx).deposit !== undefined && !usdcx?.deposit) incomplete.add(slug);
     chains[slug] = {
@@ -419,7 +488,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const irisUrl = read(usdcx, 'irisUrl', url);
   const swap = section(body.swap);
   const etaUrl = read(swap, 'etaUrl', url);
-  const supportedEvmChains = supportedChains(body.supportedEvmChains);
+  const supportedEvmChains = supportedChains(body.supportedEvmChains, url);
   // A route without the provider values it runs on is left out; so is a token output nothing declares.
   for (const { bridges } of Object.values(supportedEvmChains)) {
     if (bridges.epoch && (!allocatorUrl || !positionsUrl)) delete bridges.epoch;
@@ -430,6 +499,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
   }
   const guardians = readGuardians(body.guardians, url);
+  const limits = readLimits(body.limits);
+  const geo = readGeoBlocks(body.geo, invalid);
   return {
     network,
     version,
@@ -456,9 +527,11 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       )
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
+    ...(limits === undefined ? {} : { limits }),
     swap: etaUrl === undefined ? {} : { etaUrl },
     ...(guardians === undefined ? {} : { guardians }),
-    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } })
+    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } }),
+    ...(geo === undefined ? {} : { geo })
   };
 }
 

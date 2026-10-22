@@ -21,6 +21,8 @@ export default defineConfig({
     '**/guardian-*.ios.spec.ts',
     '**/bridge-in-*.ios.spec.ts',
     '**/dapp-browser.*.spec.ts',
+    // The dApp in-app browser journey runs via playwright.ios.dapp-e2e.config.ts on a live network.
+    '**/dapp-inapp.*.spec.ts',
     '**/usdcx-live-*.ios.spec.ts'
   ],
   // 25 min per test. WASM prove on the simulator is slow (~60-90s per consume),

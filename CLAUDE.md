@@ -388,6 +388,10 @@ listed against it are the PREVIOUS commit's.
   Dispatchable: `e2e-blockchain`, `e2e-android`, `e2e-bridge`, `e2e-bridge-in`,
   `e2e-resilience`. NOT dispatchable (push-only, so they need a fresh commit):
   `coverage-badge` (Badges), Build Production, CodeQL.
+- **The E2E suites no longer run on push at all** (#1714): Release E2E
+  (`release-e2e.yml`) dispatches the testnet suites nightly and per release, and
+  Next E2E (devnet) dispatches next's `e2e-blockchain.yml`. Re-run the set with
+  `gh workflow run release-e2e.yml --repo 0xMiden/wallet --ref main -f ref=main`.
 
 ## Important Notes
 

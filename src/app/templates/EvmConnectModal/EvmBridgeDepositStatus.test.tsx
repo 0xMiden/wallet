@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
@@ -13,7 +13,7 @@ import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 
 /**
- * Mirrors `EarnWithdrawStatus.test.tsx` — this screen's own processing/failed body moved onto
+ * Mirrors `EarnWithdrawStatus.test.tsx` - this screen's own processing/failed body moved onto
  * the same `Hero` shape, so it gets the same coverage: processing vs. failed title, and the
  * recorded-error vs. generic-fallback message.
  */
@@ -49,8 +49,12 @@ jest.mock('lib/shared/format', () => ({
     jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals)
 }));
 
+let mockTranslatedFallback = false;
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string) =>
+      mockTranslatedFallback && key === 'transactionErrorDescription' ? 'Visible generic bridge failure' : key
+  })
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
@@ -218,7 +222,7 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByText('bridgeDepositProcessingDescription')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
     expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 USDC → Miden');
-    // A bridge row is the slate wherever it is drawn, so its arrow is too — not the badge's
+    // A bridge row is the slate wherever it is drawn, so its arrow is too - not the badge's
     // default, which is the Send flow's blue.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
 
@@ -228,7 +232,7 @@ describe('EvmBridgeDepositStatus', () => {
 
   it('names the pending wallet confirmation while the deposit waits for the next prompt', () => {
     // #1290: between the approve landing and the bridge prompt opening the wallet is silent for
-    // several seconds, and the generic processing copy reads as "done" — users left mid-flow.
+    // several seconds, and the generic processing copy reads as "done" - users left mid-flow.
     mockRowState = { row: makeRow(makeInputs()), loaded: true };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} awaitingNextConfirmation />);
 
@@ -599,6 +603,27 @@ describe('EvmBridgeDepositStatus', () => {
       expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12.5 USDC');
     });
 
+    it('names a Slow ERC-20 deposit by its own symbol', () => {
+      mockRowState = {
+        row: makeRow(
+          makeInputs({
+            provider: 'agglayer',
+            sourceAmount: '1.5',
+            sourceSymbol: 'WBTC',
+            outputAmount: '1.5',
+            outputSymbol: 'WBTC',
+            phase: 'delivering',
+            agglayerDelivery: { originToken: '0x00000000000000000000000000000000000000d1' }
+          }),
+          { faucetId: '' }
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('1.5 WBTC → 1.5 WBTC');
+    });
+
     it('keeps a Slow ETH deposit on ETH', () => {
       mockRowState = {
         row: makeRow(
@@ -618,5 +643,149 @@ describe('EvmBridgeDepositStatus', () => {
 
       expect(screen.getByTestId('summary-badge').textContent).toBe('0.015 ETH → 0.015 ETH');
     });
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible watched bridge failures', () => {
+  const show = (phase: IBridgedReceivePhase, error?: string, id = 'bridge-1') => {
+    mockRowState = { loaded: true, row: makeRow(makeInputs({ phase, error }), { id }) };
+  };
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockTranslatedFallback = true;
+    jest.useFakeTimers();
+    mockRowState = { loaded: false };
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    mockTranslatedFallback = false;
+  });
+
+  it.each([
+    [
+      'raw reason',
+      'private deposit 42 https://synthetic.invalid/0xabc',
+      'private deposit 42 https://synthetic.invalid/0xabc',
+      'raw_bridge_deposit_failed'
+    ],
+    ['empty reason', '', 'Visible generic bridge failure', 'transactionErrorDescription'],
+    ['generic fallback', undefined, 'Visible generic bridge failure', 'transactionErrorDescription']
+  ])('reports an observed live failure with %s once', async (_label, error, copy, id) => {
+    show('submitting');
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    show('failed', error);
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveTextContent(copy!);
+    await expectErrorAfterDwell(id!, 'status_screen');
+  });
+
+  it('keeps the same raw failure episode when only its displayed details change', async () => {
+    show('submitting');
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    show('failed', 'private first reason');
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+    show('failed', 'private updated reason');
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    expect(screen.getByText('private updated reason')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(499);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_deposit_failed', 'status_screen']]);
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_deposit_failed', 'status_screen']]);
+  });
+
+  it.each(['already failed', 'first loaded', 'reopened', 'selected row changed'])(
+    'keeps the %s persisted failure quiet',
+    async scenario => {
+      if (scenario !== 'first loaded')
+        show(scenario === 'selected row changed' ? 'submitting' : 'failed', 'past failure');
+      const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+      if (scenario === 'reopened') {
+        view.unmount();
+        render(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+      } else {
+        const nextId = scenario === 'selected row changed' ? 'bridge-2' : 'bridge-1';
+        show('failed', 'past failure', nextId);
+        view.rerender(<EvmBridgeDepositStatus txId={nextId} onDone={jest.fn()} />);
+      }
+      expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveTextContent('past failure');
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    }
+  );
+
+  it.each(['recover', 'unmount', 'row change'])('cancels a watched failure on %s before dwell', async action => {
+    show('submitting');
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    show('failed', 'short failure');
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (action === 'unmount') view.unmount();
+    else {
+      const nextId = action === 'row change' ? 'bridge-2' : 'bridge-1';
+      show('submitting', undefined, nextId);
+      view.rerender(<EvmBridgeDepositStatus txId={nextId} onDone={jest.fn()} />);
+    }
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(screen.queryByText('short failure')).not.toBeInTheDocument();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps loading, signing and the next-confirmation wait quiet', async () => {
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    show('submitting');
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} awaitingNextConfirmation />);
+    expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveAttribute('role', 'status');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    show('delivering');
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={jest.fn()} />);
+    expect(screen.getByTestId('success-layout')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

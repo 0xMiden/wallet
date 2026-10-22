@@ -24,9 +24,6 @@ name: E2E dApp Browser
 # a follow-up rather than bundled into a new-suite PR.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       suite:
@@ -134,6 +131,9 @@ jobs:
       # install/launch hang for the full test timeout. `simctl boot` is
       # asynchronous — globalSetup's bootstatus gate later confirms
       # readiness, which by then is long since done.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
@@ -298,27 +298,32 @@ jobs:
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build debug APK
         run: yarn test:e2e:android:build
 
       # Reclaim the Gradle daemon's heap before two emulators start competing
       # for the runner's RAM.
       - name: Stop the Gradle daemon
-        run: cd android && ./gradlew --stop || true
+        working-directory: android
+        run: ./gradlew --stop || true
 
       - name: Run dApp browser E2E (Android)
         run: yarn test:e2e:android:dapp:run
 
       - name: Collect emulator logs on failure
         if: failure()
+        timeout-minutes: 10
         run: |
-          adb devices || true
+          timeout 15s adb devices || true
           for serial in emulator-5554 emulator-5556; do
             echo "::group::$serial — app process"
-            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            timeout 15s adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
             echo "::endgroup::"
             echo "::group::$serial — wallet/webview lines"
-            adb -s "$serial" logcat -d 2>/dev/null \
+            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
               | grep -iE "miden|chromium|console|fatal|ANR" | tail -200 || true
             echo "::endgroup::"
           done

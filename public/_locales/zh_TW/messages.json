@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "此轉帳無法使用此路徑。您可以選擇其他可用的路徑繼續操作。此畫面尚未提交任何交易。",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "此轉帳無法使用此路徑，且目前亦無其他可用路徑。此畫面尚未提交任何交易。",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "透過 Agglayer 繼續",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "透過 Epoch 繼續",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "銷毀 USDCx",
     "englishSource": "Burn USDCx"
@@ -86,16 +110,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "該金額低於faucet的最低銷毀門檻。",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "該錢包的銷毀腳本與 USDCx 的 faucet 不符。",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "請至少轉出 $amount$ USDCx。",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "無法讀取 USDCx faucet 的銷毀政策。請重新開啟審查以再次嘗試。",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "USDCx 的「faucet」目前尚無相關資訊。請重新開啟審查以再次嘗試。",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "向 $network$ 網路發送超過 $amount$ 的 USDCx：Circle 的手續費將從支付金額中扣除。",
@@ -708,9 +733,33 @@
     "message": "你的私人錢包里程碑。",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "賺取",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "鎖定",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "即將推出",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "徽章收藏",
-    "englishSource": "Badge collection"
+    "message": "所有標籤",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "僅限 Mainnet",
@@ -721,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "徽章可在 Mainnet 解鎖。測試活動不計入。",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "徽章需在主網（Mainnet）上解鎖。測試環境中的活動不計入其中。",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$，已獲得",
@@ -907,6 +956,22 @@
   "transactionRestoredHint": {
     "message": "此操作是從備份還原而來，因此錢包無法檢查操作是否成功，也無法重新嘗試。請在重複操作前檢查錢包。",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
+  },
+  "submissionInterrupted": {
+    "message": "提交過程中網路連線中斷。錢包無法確認是否已成功傳送。該操作仍可能完成，請先確認後再嘗試。",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "您的「Guardian」拒絕了此提交。請重新嘗試。",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "系統拒絕了此提交。請重新嘗試。",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "此提交未收到任何回應。錢包無法確認該操作是否成功傳送。該操作仍可能完成，因此請先確認後再嘗試。",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
   },
   "showFullError": {
     "message": "顯示完整錯誤訊息",
@@ -1817,6 +1882,10 @@
   "other": {
     "message": "其他",
     "englishSource": "Other"
+  },
+  "others": {
+    "message": "其他",
+    "englishSource": "Others"
   },
   "thousandFormat": {
     "message": "$thousand$ k",
@@ -3257,6 +3326,26 @@
     "message": "您隨時可以再次輪替您的「Guardian」——請妥善保管您的恢復短語，這是進行此操作的必要條件。",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "您的新「Guardian」將進行共同簽署",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "新任「Guardian」經確認後將進行一次共同簽署",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "沒有任何內容被移動",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "保持可聯繫狀態",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "隨時可再次切換",
+    "englishSource": "Switch again anytime"
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "請進行驗證以批准此 Guardian 切換。",
     "englishSource": "Authenticate to approve this Guardian switch."
@@ -3320,6 +3409,18 @@
   "hotKeyRotationFailedGeneric": {
     "message": "在輪替您的日常金鑰時發生了錯誤。您的資金是安全的，現在可以重試。",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationStartOver": {
+    "message": "重新開始",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "要移除這個錢包並重新開始嗎？",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "此操作會將錢包從該裝置中移除，以便您日後能重新還原錢包，例如使用不同的「guardian」網址。您的資金仍保留在網路上。您需要使用復原短語來還原錢包。",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "每日金鑰輪替尚未確認",
@@ -3821,6 +3922,15 @@
     "message": "我們無法自動偵測您的 guardian。請選擇您所使用的網址，或手動輸入其網址。",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
+  "guardianStateBehindChain": {
+    "message": "$name$ 認識此帳戶，但並未持有該帳戶的最新狀態。若您已將帳戶移交給另一位 guardian，請輸入該 guardian 的 URL。",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianProbePartialFailure": {
     "message": "$count$ 無法連線至 guardian(s)，因此偵測結果可能不完整。",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
@@ -4039,6 +4149,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "此外部服務目前暫停運作。請稍後再試。",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "此網路不支援「Swap」功能",
@@ -4864,6 +4982,30 @@
     "message": "退還資金",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "提領受阻",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "此筆掉期交易的款項發放持續失敗，是因為該帳戶無法支付網路手續費以領取款項。錢包每天會嘗試一次，或者您現在可以重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "此筆掉期交易的款項發放持續在您的 Guardian 處失敗。錢包每天會嘗試一次，您也可以現在重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "此筆掉期交易的款項發放持續失敗，原因是無法連線至網路。錢包每天會嘗試一次，您也可以現在重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "此筆掉期交易的款項撥付屢次失敗。錢包每天會嘗試一次，您也可以現在重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "重新嘗試支付",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "已退回 · $time$",
     "englishSource": "Returned · $time$",
@@ -5158,6 +5300,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "此帳戶最多可持有 $cap$ 美元。目前持有 $held$ 美元，本次存款將增加 $deposit$ 美元。請輸入較小的金額。",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "此帳戶最多可持有 $cap$ 美元，且 $token$ 目前無價格，因此無法據此核對存款金額。請稍後再試。",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "橋接已啟動！",
     "englishSource": "Bridge initiated!"
@@ -5250,8 +5419,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "約 20 分鐘",
-    "englishSource": "~20 min"
+    "message": "~2 分鐘",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1 分鐘",
@@ -6811,6 +6980,14 @@
     "message": "Bridge in",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "無法載入橋接器的代幣清單，因此可能有部分代幣遺漏。請稍後重試。",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "該橋接服務並未將此代幣上架至此網路。",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "連接您的錢包",
     "englishSource": "Connect your wallet"
@@ -7044,5 +7221,37 @@
   "webViewStartFailedAction": {
     "message": "請重新嘗試",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "正在檢查可用性",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "請稍候，我們正在檢查你所在的地區是否可以使用錢包。",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "你所在的地區無法使用錢包",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "你目前所在的位置無法使用錢包。",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "無法檢查可用性",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "請檢查網路連線後重試。",
+    "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "此瀏覽器或裝置無法執行該錢包",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "此錢包需要 WebAssembly SIMD，而此瀏覽器或裝置並未提供此功能。請在另一台裝置上或使用最新版本的瀏覽器開啟錢包。",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }
