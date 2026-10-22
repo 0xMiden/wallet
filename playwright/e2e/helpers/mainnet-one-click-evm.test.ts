@@ -1,6 +1,7 @@
 import { isAddress, isHash, isHex, type Address, type Hash, type Hex } from 'viem';
 
 import { assertOneClickQuoteBinding, ONE_CLICK_EVM_CHAIN_IDS } from '../../../src/lib/one-click/client';
+import { buildEvmOneClickTransaction } from '../../../src/lib/one-click/evm-transfer';
 import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import {
@@ -147,10 +148,12 @@ function bind(sender: ReturnType<typeof makeSender>): { request: OneClickQuoteRe
 }
 
 function transaction(patch: Partial<CounterpartyTransaction> = {}): CounterpartyTransaction {
+  const built = buildEvmOneClickTransaction(asset, deposit, '1000000', account);
+  if (!built.to) throw new Error('The production transfer builder omitted its target');
   return {
-    to: token,
-    data: testHex(`0xa9059cbb${'0'.repeat(24)}${deposit.slice(2)}${'0'.repeat(48)}0f4240`),
-    value: 0n,
+    to: testAddress(built.to),
+    data: testHex(built.data ?? '0x'),
+    value: built.value === undefined ? 0n : BigInt(built.value),
     ...patch
   };
 }
@@ -243,6 +246,33 @@ describe('mainnet 1Click EVM sender', () => {
     sender.bind(pair.request, pair.quote);
     await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow(/quote has expired/);
     expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('uses the earlier signed request cutoff when it expires during balance and fee reads', async () => {
+    let now = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const signedCutoff = new Date(now + 2_000).toISOString();
+    const providerExpiry = new Date(now + 60_000).toISOString();
+    const client = makeClient({
+      estimateGas: jest.fn(async () => {
+        now = Date.parse(signedCutoff);
+        return 50_000n;
+      })
+    });
+    const broadcast = jest.fn(async () => testHash(`0x${'aa'.repeat(32)}`));
+    const sender = makeSender({ holding: makeHolding(client), broadcast });
+    const pair = quotePair();
+    pair.request.deadline = signedCutoff;
+    pair.quote.quoteRequest.deadline = signedCutoff;
+    pair.quote.quote.deadline = providerExpiry;
+    sender.bind(pair.request, pair.quote);
+
+    try {
+      await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow(/expired/);
+      expect(broadcast).not.toHaveBeenCalled();
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('broadcasts the checked transaction once and reports its successful receipt fee', async () => {

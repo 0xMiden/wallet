@@ -208,6 +208,7 @@ describe('EVM 1Click wallet submission', () => {
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
     const deadline = '2099-10-22T10:00:02.000Z';
     const { request, quote } = signedDeposit(deadline);
+    quote.quote.deadline = '2099-10-22T10:01:00.000Z';
     let switched = false;
     const wallet = providerWith(async method => {
       if (method === 'eth_chainId') return switched ? '0x2105' : '0x5';
@@ -225,6 +226,32 @@ describe('EVM 1Click wallet submission', () => {
     expect(wallet.request).toHaveBeenCalledTimes(4);
     expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
     nowSpy.mockRestore();
+  });
+
+  it('rechecks the signed request cutoff after the fresh balance read', async () => {
+    let now = Date.parse('2099-10-22T10:00:00.000Z');
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const signedCutoff = '2099-10-22T10:00:02.000Z';
+    const { request, quote } = signedDeposit(signedCutoff);
+    quote.quote.deadline = '2099-10-22T10:01:00.000Z';
+    const wallet = providerWith(async method => {
+      if (method === 'eth_chainId') return '0x2105';
+      if (method === 'eth_accounts') return [account];
+      return null;
+    });
+    mockAssertFunded.mockImplementationOnce(async () => {
+      now = Date.parse(signedCutoff);
+      return {};
+    });
+
+    try {
+      await expect(submitEvmOneClickDeposit({ provider: wallet, account, request, quote, config })).rejects.toThrow(
+        'expired'
+      );
+      expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('returns a known-broadcast error with the hash when persistence fails after wallet submission', async () => {

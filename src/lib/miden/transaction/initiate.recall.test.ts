@@ -123,7 +123,25 @@ const send = (recallBlocks?: number) =>
 beforeEach(() => jest.clearAllMocks());
 
 describe('initiateSendTransaction — reclaim window bounds', () => {
-  it('persists the signed 1Click route on the ordinary send row before queueing', async () => {
+  it.each([
+    ['request cutoff first', 20, 40],
+    ['provider expiry first', 40, 20]
+  ])('persists the earlier %s separately on the ordinary send row', async (_label, requestMinutes, providerMinutes) => {
+    const signedRequestDeadline = new Date(Date.now() + requestMinutes * 60_000).toISOString();
+    const providerExpiry = new Date(Date.now() + providerMinutes * 60_000).toISOString();
+    const expectedFundingDeadline = new Date(
+      Math.min(Date.parse(signedRequestDeadline), Date.parse(providerExpiry))
+    ).toISOString();
+    const tracking = {
+      ...oneClickMetadata,
+      request: { ...oneClickMetadata.request, deadline: signedRequestDeadline },
+      quote: {
+        ...oneClickMetadata.quote,
+        quoteRequest: { ...oneClickMetadata.quote.quoteRequest, deadline: signedRequestDeadline },
+        quote: { ...oneClickMetadata.quote.quote, deadline: providerExpiry }
+      }
+    };
+    Reflect.set(tracking, 'fundingDeadline', expectedFundingDeadline);
     await Reflect.apply(initiateSendTransaction, undefined, [
       sender,
       recipient,
@@ -134,16 +152,25 @@ describe('initiateSendTransaction — reclaim window bounds', () => {
       undefined,
       undefined,
       undefined,
-      oneClickMetadata
+      tracking
     ]);
 
     expect(mockAdd).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'send',
         secondaryAccountId: recipient,
-        extraInputs: expect.objectContaining({ oneClick: oneClickMetadata })
+        extraInputs: expect.objectContaining({ oneClick: tracking })
       })
     );
+    const [row] = mockAdd.mock.calls[0];
+    expect(row.extraInputs?.oneClick).toMatchObject({
+      fundingDeadline: expectedFundingDeadline,
+      request: { deadline: signedRequestDeadline },
+      quote: {
+        quoteRequest: { deadline: signedRequestDeadline },
+        quote: { deadline: providerExpiry }
+      }
+    });
   });
 
   it.each([

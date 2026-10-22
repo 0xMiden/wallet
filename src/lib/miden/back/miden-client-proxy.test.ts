@@ -2813,7 +2813,13 @@ const sendTx = () => ({
   noteType: 'public',
   amount: 1000n, // a BigInt — proves the DTO ships amount as a string, never JSON.stringify(tx)
   delegateTransaction: false,
-  extraInputs: { recallBlocks: 100 },
+  extraInputs: {
+    recallBlocks: 100,
+    oneClick: {
+      fundingDeadline: '2026-10-22T12:00:00.000Z',
+      quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+    }
+  },
   status: 0,
   initiatedAt: 0,
   displayIcon: 'SEND'
@@ -2903,7 +2909,13 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
       noteType: 'public',
       amount: '1000',
       delegateTransaction: false,
-      extraInputs: { recallBlocks: 100 }
+      extraInputs: {
+        recallBlocks: 100,
+        oneClick: {
+          fundingDeadline: '2026-10-22T12:00:00.000Z',
+          quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+        }
+      }
     });
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);

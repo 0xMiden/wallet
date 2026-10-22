@@ -5,7 +5,7 @@ import { assertOneClickQuoteBinding, parseOneClickQuoteResponse } from './client
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
 import dryFixture from './test-fixtures-dry.json';
 import wetFixture from './test-fixtures-wet.json';
-import type { OneClickQuoteResponse } from './types';
+import type { OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
 const secretKey = new Uint8Array(32).fill(7);
 const publicKey = ed25519.getPublicKey(secretKey);
@@ -98,10 +98,54 @@ describe('OneClick quote signature', () => {
     ).toThrow('requested route');
   });
 
-  it('rejects unsigned app fee edits before callers can rely on the configured fee', () => {
+  it('leaves unsigned app fee edits outside the signed quote payload', () => {
     const response = signedResponse(false);
+    const signedHash = hashOneClickQuote(response);
     response.quoteRequest.appFees = [{ recipient: 'attacker.near', fee: 999 }];
+    expect(hashOneClickQuote(response)).toBe(signedHash);
     expect(verifyOneClickQuoteSignature(response, `ed25519:${bs58.encode(publicKey)}`)).toBe(true);
+  });
+
+  it('binds the unchanged wet fixture before the signed request cutoff even when provider expiry is later', () => {
+    const response = parseOneClickQuoteResponse(wetFixture);
+    const request: OneClickQuoteRequest = {
+      amount: '1000000',
+      originAsset: {
+        assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
+        blockchain: 'eth',
+        symbol: 'USDC',
+        decimals: 6
+      },
+      destinationAsset: { assetId: 'nep141:base.omft.near', blockchain: 'base', symbol: 'ETH', decimals: 18 },
+      refundTo: '0x1111111111111111111111111111111111111111',
+      recipient: '0x2222222222222222222222222222222222222222',
+      deadline: '2026-10-22T12:15:00.000Z',
+      slippageTolerance: 100
+    };
+    const config = {
+      serviceUrl: 'https://proxy.example',
+      midenAssets: [],
+      appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
+    };
+    const requestPayload = JSON.stringify(response.quoteRequest);
+    const quotePayload = JSON.stringify(response.quote);
+    const signedHash = hashOneClickQuote(response);
+    const signedSignature = response.signature;
+
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
+    try {
+      expect(() => assertOneClickQuoteBinding(request, response, false, config)).not.toThrow();
+      expect(JSON.stringify(response.quoteRequest)).toBe(requestPayload);
+      expect(JSON.stringify(response.quote)).toBe(quotePayload);
+      expect(hashOneClickQuote(response)).toBe(signedHash);
+      expect(response.signature).toBe(signedSignature);
+      expect(verifyOneClickQuoteSignature(response)).toBe(true);
+
+      jest.setSystemTime(new Date(request.deadline));
+      expect(() => assertOneClickQuoteBinding(request, response, false, config)).toThrow(/expired|incomplete/i);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('rejects invalid and oversized Base58 keys', () => {

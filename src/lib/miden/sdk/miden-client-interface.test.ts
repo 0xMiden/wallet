@@ -1053,7 +1053,12 @@ describe('MidenClientInterface', () => {
           faucetId: 'faucet',
           noteType: 'public' as any,
           amount: BigInt(1),
-          extraInputs: { oneClick: { quote: { quote: { deadline: '2000-01-01T00:00:00.000Z' } } } }
+          extraInputs: {
+            oneClick: {
+              fundingDeadline: '2000-01-01T00:00:00.000Z',
+              quote: { quote: { deadline: '2099-01-01T00:00:00.000Z' } }
+            }
+          }
         } as any,
         stage => {
           stages.push(stage);

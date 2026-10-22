@@ -2522,7 +2522,12 @@ describe('guardian leaf records the submit crossing', () => {
       secondaryAccountId: 'deposit-address',
       faucetId: 'f',
       amount: '1',
-      extraInputs: { oneClick: { quote: { quote: { deadline: '2000-01-01T00:00:00.000Z' } } } }
+      extraInputs: {
+        oneClick: {
+          fundingDeadline: '2000-01-01T00:00:00.000Z',
+          quote: { quote: { deadline: '2099-01-01T00:00:00.000Z' } }
+        }
+      }
     };
     const { inline, service } = arrange('one-click-expired-inline', row);
 

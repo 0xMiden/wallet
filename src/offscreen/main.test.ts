@@ -3242,7 +3242,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       noteType: 'public',
       amount: '1000',
       delegateTransaction: false,
-      extraInputs: { recallBlocks: 100 }
+      extraInputs: {
+        recallBlocks: 100,
+        oneClick: {
+          fundingDeadline: '2026-10-22T12:00:00.000Z',
+          quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+        }
+      }
     };
     const ret = capturedListener!(callReq({ method: 'sendTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
     expect(ret).toBe(true);
@@ -3258,7 +3264,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(receivedTx.accountId).toBe('mtst1qacc');
     expect(receivedTx.secondaryAccountId).toBe('mtst1qrecipient');
     expect(receivedTx.noteType).toBe('public');
-    expect(receivedTx.extraInputs).toEqual({ recallBlocks: 100 });
+    expect(receivedTx.extraInputs).toEqual({
+      recallBlocks: 100,
+      oneClick: {
+        fundingDeadline: '2026-10-22T12:00:00.000Z',
+        quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+      }
+    });
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');

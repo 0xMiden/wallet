@@ -139,6 +139,37 @@ describe('1Click durable tracking', () => {
     });
   });
 
+  it.each([
+    ['request cutoff first', 20, 40],
+    ['provider expiry first', 40, 20]
+  ])(
+    'persists the earlier %s separately from the signed deadlines',
+    async (_label, requestMinutes, providerMinutes) => {
+      const signedRequestDeadline = new Date(Date.now() + requestMinutes * 60_000).toISOString();
+      const providerExpiry = new Date(Date.now() + providerMinutes * 60_000).toISOString();
+      const signedRequest = { ...inboundInput.request, deadline: signedRequestDeadline };
+      const signedQuote: OneClickQuoteResponse = {
+        ...inboundInput.quote,
+        quoteRequest: { ...inboundInput.quote.quoteRequest, deadline: signedRequestDeadline },
+        quote: { ...inboundInput.quote.quote, deadline: providerExpiry }
+      };
+
+      await persistOneClickTrackingRow({ ...inboundInput, request: signedRequest, quote: signedQuote });
+
+      const [row] = addTransaction.mock.calls[0];
+      expect(row.extraInputs?.oneClick).toMatchObject({
+        fundingDeadline: new Date(
+          Date.parse(signedRequestDeadline) < Date.parse(providerExpiry) ? signedRequestDeadline : providerExpiry
+        ).toISOString(),
+        request: { deadline: signedRequestDeadline },
+        quote: {
+          quoteRequest: { deadline: signedRequestDeadline },
+          quote: { deadline: providerExpiry }
+        }
+      });
+    }
+  );
+
   it('refuses to persist a quote whose Miden destination is another account', async () => {
     await expect(persistOneClickTrackingRow({ ...inboundInput, accountAddress: 'different-account' })).rejects.toThrow(
       'not bound to the selected Miden account'
@@ -162,6 +193,60 @@ describe('1Click durable tracking', () => {
       expect.objectContaining({ direction: 'miden-to-evm', quote: expect.any(Object) })
     );
   });
+
+  it('refuses funding when the signed request cutoff has passed even if provider expiry remains live', async () => {
+    const expiredDeadline = new Date(Date.now() - 1_000).toISOString();
+    const liveProviderExpiry = new Date(Date.now() + 60_000).toISOString();
+    const signedRequest = { ...request, deadline: expiredDeadline };
+    const signedQuote: OneClickQuoteResponse = {
+      ...quote,
+      quoteRequest: { ...quote.quoteRequest, deadline: expiredDeadline },
+      quote: { ...quote.quote, deadline: liveProviderExpiry }
+    };
+
+    await expect(initiateOneClickMidenDeposit({ ...input, request: signedRequest, quote: signedQuote })).rejects.toThrow(
+      /expired/i
+    );
+    expect(initiateSend).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['request cutoff first', 20, 40],
+    ['provider expiry first', 40, 20]
+  ])(
+    'passes the earlier %s as funding metadata without changing the quote',
+    async (_label, requestMinutes, providerMinutes) => {
+      const signedRequestDeadline = new Date(Date.now() + requestMinutes * 60_000).toISOString();
+      const providerExpiry = new Date(Date.now() + providerMinutes * 60_000).toISOString();
+      const signedRequest = { ...request, deadline: signedRequestDeadline };
+      const signedQuote: OneClickQuoteResponse = {
+        ...quote,
+        quoteRequest: { ...quote.quoteRequest, deadline: signedRequestDeadline },
+        quote: { ...quote.quote, deadline: providerExpiry }
+      };
+
+      await initiateOneClickMidenDeposit({ ...input, request: signedRequest, quote: signedQuote });
+
+      expect(initiateSend).toHaveBeenCalledWith(
+        'miden-account-id',
+        'miden-deposit-address',
+        'miden-faucet',
+        expect.anything(),
+        1000000n,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        expect.objectContaining({
+          fundingDeadline: new Date(
+            Date.parse(signedRequestDeadline) < Date.parse(providerExpiry) ? signedRequestDeadline : providerExpiry
+          ).toISOString(),
+          request: { deadline: signedRequestDeadline },
+          quote: signedQuote
+        })
+      );
+    }
+  );
 
   it.each([
     ['KNOWN_DEPOSIT_TX', 'known-deposit-tx'],
