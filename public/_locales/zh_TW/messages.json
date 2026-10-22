@@ -7439,9 +7439,102 @@
     "message": "每週 10 GC",
     "englishSource": "10 GC each week"
   },
+  "arcadeClaimState_reclaimable": {
+    "message": "該請求可被撤回。請檢視網路手續費，以取回其原生預算。",
+    "englishSource": "The request can be recovered. Review the network fee to return its native budget."
+  },
+  "arcadeRecoverBudget": {
+    "message": "恢復請求預算",
+    "englishSource": "Recover request budget"
+  },
+  "arcadePreviousBudgetWeek": {
+    "message": "來自$date$（UTC）當週的未使用請求預算。",
+    "englishSource": "Unused request budget from the week of $date$ (UTC).",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeClaimPreparationFailed": {
+    "message": "無法處理此申領。請檢查您的原生手續費餘額並重試。",
+    "englishSource": "Could not prepare this claim. Check your native fee balance and try again."
+  },
+  "arcadeReviewClaim": {
+    "message": "每週申領審查",
+    "englishSource": "Review weekly claim"
+  },
+  "arcadeReviewReclaim": {
+    "message": "審查預算恢復",
+    "englishSource": "Review budget recovery"
+  },
+  "arcadeClaimAllocation": {
+    "message": "GC 分配",
+    "englishSource": "GC allocation"
+  },
+  "arcadeClaimAllocationAmount": {
+    "message": "10 GC",
+    "englishSource": "10 GC"
+  },
+  "arcadeClaimAllocationWeek": {
+    "message": "分配週開始",
+    "englishSource": "Allocation week starting"
+  },
+  "arcadeClaimRequestFee": {
+    "message": "請求網路手續費",
+    "englishSource": "Request network fee"
+  },
+  "arcadeClaimIssuerBudget": {
+    "message": "發行方執行預算",
+    "englishSource": "Issuer execution budget"
+  },
+  "arcadeClaimReceiptFeeBudget": {
+    "message": "網路手續費預算收據",
+    "englishSource": "Receipt network fee budget"
+  },
+  "arcadeClaimReviewExpires": {
+    "message": "授權已過期",
+    "englishSource": "Approval expires"
+  },
+  "arcadeClaimReviewExpired": {
+    "message": "此報價已過期。請關閉此檢視並重新查詢當前手續費。",
+    "englishSource": "This quote expired. Close this review and check again for current fees."
+  },
+  "arcadeConfirmClaim": {
+    "message": "確認聲明",
+    "englishSource": "Confirm claim"
+  },
+  "arcadeConfirmReclaim": {
+    "message": "確認恢復",
+    "englishSource": "Confirm recovery"
+  },
+  "arcadeCancelReview": {
+    "message": "取消",
+    "englishSource": "Cancel"
+  },
+  "arcadeReclaimNetworkFee": {
+    "message": "恢復網路手續費",
+    "englishSource": "Recovery network fee"
+  },
+  "arcadeReclaimRecoverableBudget": {
+    "message": "扣除恢復費用前的預算",
+    "englishSource": "Budget before recovery fee"
+  },
+  "arcadeClaimBudgetExplanation": {
+    "message": "您需以原生代幣支付這些費用，此費用與 10 GC 的分配額度分開計算。發行方僅使用其實際的執行手續費，並將未使用的發行方預算連同您的 GC 收據一併退還。兌換收據需支付額外的網路手續費；其預算僅為預估金額。",
+    "englishSource": "You fund these costs in the native token, separately from the 10 GC allocation. The issuer uses only its actual execution fee and returns the unused issuer budget with your GC receipt. Consuming the receipt requires a separate network fee; its budget is an estimate."
+  },
+  "arcadeReclaimBudgetExplanation": {
+    "message": "將未使用的預算退還至您的錢包，並扣除恢復網路手續費。恢復流程不會交付 GC。",
+    "englishSource": "Returns the unused budget to your wallet, less the recovery network fee. Recovery does not deliver GC."
+  },
+  "arcadeClaimWeekExplanation": {
+    "message": "此項核准適用於以 UTC 顯示的分配週。週日提交且於週一兌現的申領仍計入前一週；週一的新配額則另行計算。",
+    "englishSource": "This approval is for the allocation week shown in UTC. A Sunday claim delivered on Monday still counts toward the earlier week; the new Monday allowance is separate."
+  },
   "arcadeWeeklyRules": {
-    "message": "週一 UTC 00:00 於合作夥伴主網重置。未使用的 GC 可結轉；錯過的週數不會累積。您需支付網路手續費。",
-    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+    "message": "每週每個帳戶限用 10 GC，於週一 00:00 UTC 重置。未使用的 GC 可結轉至下週；錯過的週數不會累積。網路手續費由您自行負擔。",
+    "englishSource": "10 GC per account each week, resetting Monday 00:00 UTC. Unspent GC carries over; missed weeks do not stack. You fund the network fees."
   },
   "arcadeChecking": {
     "message": "正在核對每週津貼……",

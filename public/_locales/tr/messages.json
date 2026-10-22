@@ -7439,9 +7439,102 @@
     "message": "Her hafta 10 GC",
     "englishSource": "10 GC each week"
   },
+  "arcadeClaimState_reclaimable": {
+    "message": "Talep geri alınabilir. Ağ ücretini gözden geçirerek orijinal bütçesine geri dönün.",
+    "englishSource": "The request can be recovered. Review the network fee to return its native budget."
+  },
+  "arcadeRecoverBudget": {
+    "message": "Talep bütçesini geri kazanma",
+    "englishSource": "Recover request budget"
+  },
+  "arcadePreviousBudgetWeek": {
+    "message": "$date$ (UTC) haftasından kalan kullanılmamış istek bütçesi.",
+    "englishSource": "Unused request budget from the week of $date$ (UTC).",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeClaimPreparationFailed": {
+    "message": "Bu talebi hazırlayamadı. Yerel ücret bakiyenizi kontrol edin ve tekrar deneyin.",
+    "englishSource": "Could not prepare this claim. Check your native fee balance and try again."
+  },
+  "arcadeReviewClaim": {
+    "message": "Haftalık talebi gözden geçirin",
+    "englishSource": "Review weekly claim"
+  },
+  "arcadeReviewReclaim": {
+    "message": "Bütçe geri kazanımını gözden geçirin",
+    "englishSource": "Review budget recovery"
+  },
+  "arcadeClaimAllocation": {
+    "message": "GC tahsisi",
+    "englishSource": "GC allocation"
+  },
+  "arcadeClaimAllocationAmount": {
+    "message": "10 GC",
+    "englishSource": "10 GC"
+  },
+  "arcadeClaimAllocationWeek": {
+    "message": "Tahsis haftası başlıyor",
+    "englishSource": "Allocation week starting"
+  },
+  "arcadeClaimRequestFee": {
+    "message": "Ağ ücreti talebi",
+    "englishSource": "Request network fee"
+  },
+  "arcadeClaimIssuerBudget": {
+    "message": "İhraççının işlem bütçesi",
+    "englishSource": "Issuer execution budget"
+  },
+  "arcadeClaimReceiptFeeBudget": {
+    "message": "Ağ ücreti bütçesinin alınması",
+    "englishSource": "Receipt network fee budget"
+  },
+  "arcadeClaimReviewExpires": {
+    "message": "Onay süresi doldu",
+    "englishSource": "Approval expires"
+  },
+  "arcadeClaimReviewExpired": {
+    "message": "Bu fiyat teklifi geçerliliğini yitirmiştir. Bu incelemeyi kapatın ve güncel ücretleri tekrar kontrol edin.",
+    "englishSource": "This quote expired. Close this review and check again for current fees."
+  },
+  "arcadeConfirmClaim": {
+    "message": "Talebi onayla",
+    "englishSource": "Confirm claim"
+  },
+  "arcadeConfirmReclaim": {
+    "message": "Geri kazanımı onaylayın",
+    "englishSource": "Confirm recovery"
+  },
+  "arcadeCancelReview": {
+    "message": "İptal",
+    "englishSource": "Cancel"
+  },
+  "arcadeReclaimNetworkFee": {
+    "message": "Kurtarma ağı ücreti",
+    "englishSource": "Recovery network fee"
+  },
+  "arcadeReclaimRecoverableBudget": {
+    "message": "Geri kazanım ücreti öncesi bütçe",
+    "englishSource": "Budget before recovery fee"
+  },
+  "arcadeClaimBudgetExplanation": {
+    "message": "Bu maliyetleri, 10 GC tahsisinden ayrı olarak yerel token ile karşılarsınız. İhraççı yalnızca gerçek işlem ücretini kullanır ve kullanılmayan ihraççı bütçesini GC makbuzunuzla birlikte iade eder. Makbuzu kullanmak için ayrı bir ağ ücreti gerekir; makbuzdaki bütçe tahmini bir tutardır.",
+    "englishSource": "You fund these costs in the native token, separately from the 10 GC allocation. The issuer uses only its actual execution fee and returns the unused issuer budget with your GC receipt. Consuming the receipt requires a separate network fee; its budget is an estimate."
+  },
+  "arcadeReclaimBudgetExplanation": {
+    "message": "Kullanılmayan bütçeyi, kurtarma ağ ücreti düşüldükten sonra cüzdanınıza iade eder. Kurtarma işlemi GC sağlamaz.",
+    "englishSource": "Returns the unused budget to your wallet, less the recovery network fee. Recovery does not deliver GC."
+  },
+  "arcadeClaimWeekExplanation": {
+    "message": "Bu onay, UTC'de gösterilen tahsis haftası içindir. Pazar günü talep edilen ancak Pazartesi günü teslim edilen bir talep, yine de önceki haftaya sayılır; yeni Pazartesi tahsisi ayrıdır.",
+    "englishSource": "This approval is for the allocation week shown in UTC. A Sunday claim delivered on Monday still counts toward the earlier week; the new Monday allowance is separate."
+  },
   "arcadeWeeklyRules": {
-    "message": "Partner Mainnet'te Pazartesi 00:00 UTC'de sıfırlanır. Harcanmamış GC'ler bir sonraki döneme devredilir; kaçırılan haftalar birikmez. Ağ ücretlerini siz ödersiniz.",
-    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+    "message": "Hesap başına haftada 10 GC, her Pazartesi 00:00 UTC'de sıfırlanır. Harcanmamış GC'ler bir sonraki haftaya devredilir; kaçırılan haftalar birikmez. Ağ ücretlerini siz karşılarsınız.",
+    "englishSource": "10 GC per account each week, resetting Monday 00:00 UTC. Unspent GC carries over; missed weeks do not stack. You fund the network fees."
   },
   "arcadeChecking": {
     "message": "Haftalık harçlığı kontrol ediyorum…",

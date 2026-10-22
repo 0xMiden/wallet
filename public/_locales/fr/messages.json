@@ -7439,9 +7439,102 @@
     "message": "10 GC par semaine",
     "englishSource": "10 GC each week"
   },
+  "arcadeClaimState_reclaimable": {
+    "message": "La demande peut être récupérée. Vérifiez les frais de réseau pour rétablir le budget d’origine.",
+    "englishSource": "The request can be recovered. Review the network fee to return its native budget."
+  },
+  "arcadeRecoverBudget": {
+    "message": "Récupérer le budget de la demande",
+    "englishSource": "Recover request budget"
+  },
+  "arcadePreviousBudgetWeek": {
+    "message": "Budget de requêtes inutilisé de la semaine du $date$ (UTC).",
+    "englishSource": "Unused request budget from the week of $date$ (UTC).",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeClaimPreparationFailed": {
+    "message": "Impossible de traiter cette demande. Vérifiez le solde de vos frais en devise locale et réessayez.",
+    "englishSource": "Could not prepare this claim. Check your native fee balance and try again."
+  },
+  "arcadeReviewClaim": {
+    "message": "Examiner les demandes hebdomadaires",
+    "englishSource": "Review weekly claim"
+  },
+  "arcadeReviewReclaim": {
+    "message": "Examen de la récupération budgétaire",
+    "englishSource": "Review budget recovery"
+  },
+  "arcadeClaimAllocation": {
+    "message": "Attribution de GC",
+    "englishSource": "GC allocation"
+  },
+  "arcadeClaimAllocationAmount": {
+    "message": "10 GC",
+    "englishSource": "10 GC"
+  },
+  "arcadeClaimAllocationWeek": {
+    "message": "Début de la semaine d’allocation",
+    "englishSource": "Allocation week starting"
+  },
+  "arcadeClaimRequestFee": {
+    "message": "Demander les frais de réseau",
+    "englishSource": "Request network fee"
+  },
+  "arcadeClaimIssuerBudget": {
+    "message": "Budget d’exécution de l’émetteur",
+    "englishSource": "Issuer execution budget"
+  },
+  "arcadeClaimReceiptFeeBudget": {
+    "message": "Budget des frais de réseau liés aux reçus",
+    "englishSource": "Receipt network fee budget"
+  },
+  "arcadeClaimReviewExpires": {
+    "message": "L’autorisation expire",
+    "englishSource": "Approval expires"
+  },
+  "arcadeClaimReviewExpired": {
+    "message": "Ce devis a expiré. Fermez cette page et vérifiez à nouveau les frais en vigueur.",
+    "englishSource": "This quote expired. Close this review and check again for current fees."
+  },
+  "arcadeConfirmClaim": {
+    "message": "Confirmer la réclamation",
+    "englishSource": "Confirm claim"
+  },
+  "arcadeConfirmReclaim": {
+    "message": "Confirmer la récupération",
+    "englishSource": "Confirm recovery"
+  },
+  "arcadeCancelReview": {
+    "message": "Annuler",
+    "englishSource": "Cancel"
+  },
+  "arcadeReclaimNetworkFee": {
+    "message": "Frais de réseau de récupération",
+    "englishSource": "Recovery network fee"
+  },
+  "arcadeReclaimRecoverableBudget": {
+    "message": "Budget avant frais de recouvrement",
+    "englishSource": "Budget before recovery fee"
+  },
+  "arcadeClaimBudgetExplanation": {
+    "message": "Vous financez ces coûts dans le jeton natif, indépendamment de l’allocation de 10 GC. L’émetteur n’utilise que ses frais d’exécution réels et vous restitue le budget inutilisé avec votre reçu GC. L’utilisation du reçu nécessite des frais de réseau distincts ; son budget est une estimation.",
+    "englishSource": "You fund these costs in the native token, separately from the 10 GC allocation. The issuer uses only its actual execution fee and returns the unused issuer budget with your GC receipt. Consuming the receipt requires a separate network fee; its budget is an estimate."
+  },
+  "arcadeReclaimBudgetExplanation": {
+    "message": "Le budget non utilisé est reversé sur votre portefeuille, déduction faite des frais de récupération du réseau. La récupération ne donne pas lieu à la délivrance de GC.",
+    "englishSource": "Returns the unused budget to your wallet, less the recovery network fee. Recovery does not deliver GC."
+  },
+  "arcadeClaimWeekExplanation": {
+    "message": "Cette approbation concerne la semaine d’allocation indiquée en UTC. Une demande effectuée le dimanche et traitée le lundi est toujours comptabilisée pour la semaine précédente ; le nouveau quota du lundi est distinct.",
+    "englishSource": "This approval is for the allocation week shown in UTC. A Sunday claim delivered on Monday still counts toward the earlier week; the new Monday allowance is separate."
+  },
   "arcadeWeeklyRules": {
-    "message": "Réinitialisation le lundi à 00 h 00 UTC sur le Mainnet des partenaires. Les GC non dépensés sont reportés ; les semaines manquées ne s’accumulent pas. Vous payez les frais de réseau.",
-    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+    "message": "10 GC par compte chaque semaine, réinitialisation le lundi à 00 h 00 UTC. Les GC non utilisés sont reportés ; les semaines manquées ne s’accumulent pas. Vous prenez en charge les frais de réseau.",
+    "englishSource": "10 GC per account each week, resetting Monday 00:00 UTC. Unspent GC carries over; missed weeks do not stack. You fund the network fees."
   },
   "arcadeChecking": {
     "message": "Vérification de l'allocation hebdomadaire…",

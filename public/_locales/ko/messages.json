@@ -7439,9 +7439,102 @@
     "message": "매주 10 GC",
     "englishSource": "10 GC each week"
   },
+  "arcadeClaimState_reclaimable": {
+    "message": "요청은 복구할 수 있습니다. 네트워크 수수료를 검토하여 원래 예산으로 되돌리십시오.",
+    "englishSource": "The request can be recovered. Review the network fee to return its native budget."
+  },
+  "arcadeRecoverBudget": {
+    "message": "회복 요청 예산",
+    "englishSource": "Recover request budget"
+  },
+  "arcadePreviousBudgetWeek": {
+    "message": "$date$(UTC) 주간의 미사용 요청 예산.",
+    "englishSource": "Unused request budget from the week of $date$ (UTC).",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeClaimPreparationFailed": {
+    "message": "이 청구를 처리할 수 없습니다. 기본 수수료 잔액을 확인한 후 다시 시도해 주십시오.",
+    "englishSource": "Could not prepare this claim. Check your native fee balance and try again."
+  },
+  "arcadeReviewClaim": {
+    "message": "주간 청구 내역 검토",
+    "englishSource": "Review weekly claim"
+  },
+  "arcadeReviewReclaim": {
+    "message": "예산 복구 검토",
+    "englishSource": "Review budget recovery"
+  },
+  "arcadeClaimAllocation": {
+    "message": "GC 할당",
+    "englishSource": "GC allocation"
+  },
+  "arcadeClaimAllocationAmount": {
+    "message": "10 GC",
+    "englishSource": "10 GC"
+  },
+  "arcadeClaimAllocationWeek": {
+    "message": "할당 주간 시작",
+    "englishSource": "Allocation week starting"
+  },
+  "arcadeClaimRequestFee": {
+    "message": "네트워크 수수료 요청",
+    "englishSource": "Request network fee"
+  },
+  "arcadeClaimIssuerBudget": {
+    "message": "발행자 실행 예산",
+    "englishSource": "Issuer execution budget"
+  },
+  "arcadeClaimReceiptFeeBudget": {
+    "message": "네트워크 수수료 예산 수령",
+    "englishSource": "Receipt network fee budget"
+  },
+  "arcadeClaimReviewExpires": {
+    "message": "승인 만료",
+    "englishSource": "Approval expires"
+  },
+  "arcadeClaimReviewExpired": {
+    "message": "이 견적은 만료되었습니다. 이 검토를 닫고 현재 수수료를 다시 확인하십시오.",
+    "englishSource": "This quote expired. Close this review and check again for current fees."
+  },
+  "arcadeConfirmClaim": {
+    "message": "주장 확인",
+    "englishSource": "Confirm claim"
+  },
+  "arcadeConfirmReclaim": {
+    "message": "복구 확인",
+    "englishSource": "Confirm recovery"
+  },
+  "arcadeCancelReview": {
+    "message": "취소",
+    "englishSource": "Cancel"
+  },
+  "arcadeReclaimNetworkFee": {
+    "message": "복구 네트워크 수수료",
+    "englishSource": "Recovery network fee"
+  },
+  "arcadeReclaimRecoverableBudget": {
+    "message": "회수 수수료 전 예산",
+    "englishSource": "Budget before recovery fee"
+  },
+  "arcadeClaimBudgetExplanation": {
+    "message": "이러한 비용은 10 GC 할당량과는 별도로 네이티브 토큰으로 지불합니다. 발행자는 실제 실행 수수료만 사용하고, 미사용 발행자 예산은 GC 영수증과 함께 반환합니다. 영수증을 사용하려면 별도의 네트워크 수수료가 필요하며, 해당 예산은 예상치입니다.",
+    "englishSource": "You fund these costs in the native token, separately from the 10 GC allocation. The issuer uses only its actual execution fee and returns the unused issuer budget with your GC receipt. Consuming the receipt requires a separate network fee; its budget is an estimate."
+  },
+  "arcadeReclaimBudgetExplanation": {
+    "message": "복구 시 복구 네트워크 수수료를 제외한 미사용 예산을 지갑으로 반환합니다. 복구 과정에서는 GC가 지급되지 않습니다.",
+    "englishSource": "Returns the unused budget to your wallet, less the recovery network fee. Recovery does not deliver GC."
+  },
+  "arcadeClaimWeekExplanation": {
+    "message": "이 승인은 UTC 기준으로 표시된 할당 주간에 적용됩니다. 일요일에 청구되어 월요일에 전달된 건은 여전히 이전 주에 포함되며, 새로운 월요일 할당량은 별도로 처리됩니다.",
+    "englishSource": "This approval is for the allocation week shown in UTC. A Sunday claim delivered on Monday still counts toward the earlier week; the new Monday allowance is separate."
+  },
   "arcadeWeeklyRules": {
-    "message": "파트너 메인넷에서 매주 월요일 00:00 UTC에 초기화됩니다. 미사용 GC는 이월되며, 놓친 주는 누적되지 않습니다. 네트워크 수수료는 사용자가 부담합니다.",
-    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+    "message": "계정당 매주 10 GC가 제공되며, 매주 월요일 00:00 UTC에 초기화됩니다. 사용하지 않은 GC는 다음 주로 이월되지만, 놓친 주는 누적되지 않습니다. 네트워크 수수료는 사용자가 부담합니다.",
+    "englishSource": "10 GC per account each week, resetting Monday 00:00 UTC. Unspent GC carries over; missed weeks do not stack. You fund the network fees."
   },
   "arcadeChecking": {
     "message": "주간 수당 확인 중…",

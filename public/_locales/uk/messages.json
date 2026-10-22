@@ -7439,9 +7439,102 @@
     "message": "10 GC щотижня",
     "englishSource": "10 GC each week"
   },
+  "arcadeClaimState_reclaimable": {
+    "message": "Запит можна відновити. Перегляньте комісію мережі, щоб повернути її початковий бюджет.",
+    "englishSource": "The request can be recovered. Review the network fee to return its native budget."
+  },
+  "arcadeRecoverBudget": {
+    "message": "Відновити бюджет запиту",
+    "englishSource": "Recover request budget"
+  },
+  "arcadePreviousBudgetWeek": {
+    "message": "Невикористаний бюджет запитів за тиждень, починаючи з $date$ (UTC).",
+    "englishSource": "Unused request budget from the week of $date$ (UTC).",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeClaimPreparationFailed": {
+    "message": "Не вдалося підготувати цю заявку. Перевірте баланс комісій у вашій валюті та спробуйте ще раз.",
+    "englishSource": "Could not prepare this claim. Check your native fee balance and try again."
+  },
+  "arcadeReviewClaim": {
+    "message": "Переглядайте щотижневі заявки",
+    "englishSource": "Review weekly claim"
+  },
+  "arcadeReviewReclaim": {
+    "message": "Перегляд відновлення бюджету",
+    "englishSource": "Review budget recovery"
+  },
+  "arcadeClaimAllocation": {
+    "message": "Розподіл GC",
+    "englishSource": "GC allocation"
+  },
+  "arcadeClaimAllocationAmount": {
+    "message": "10 GC",
+    "englishSource": "10 GC"
+  },
+  "arcadeClaimAllocationWeek": {
+    "message": "Початок тижня розподілу",
+    "englishSource": "Allocation week starting"
+  },
+  "arcadeClaimRequestFee": {
+    "message": "Запит на комісію мережі",
+    "englishSource": "Request network fee"
+  },
+  "arcadeClaimIssuerBudget": {
+    "message": "Бюджет на виконання емітента",
+    "englishSource": "Issuer execution budget"
+  },
+  "arcadeClaimReceiptFeeBudget": {
+    "message": "Бюджет на сплату мережевих комісій",
+    "englishSource": "Receipt network fee budget"
+  },
+  "arcadeClaimReviewExpires": {
+    "message": "Термін дії схвалення закінчується",
+    "englishSource": "Approval expires"
+  },
+  "arcadeClaimReviewExpired": {
+    "message": "Цей котирування втратило чинність. Закрийте цей огляд і перевірте актуальні комісії ще раз.",
+    "englishSource": "This quote expired. Close this review and check again for current fees."
+  },
+  "arcadeConfirmClaim": {
+    "message": "Підтвердити претензію",
+    "englishSource": "Confirm claim"
+  },
+  "arcadeConfirmReclaim": {
+    "message": "Підтвердити відновлення",
+    "englishSource": "Confirm recovery"
+  },
+  "arcadeCancelReview": {
+    "message": "Скасувати",
+    "englishSource": "Cancel"
+  },
+  "arcadeReclaimNetworkFee": {
+    "message": "Комісія мережі за відновлення",
+    "englishSource": "Recovery network fee"
+  },
+  "arcadeReclaimRecoverableBudget": {
+    "message": "Бюджет до вирахування комісії за відновлення",
+    "englishSource": "Budget before recovery fee"
+  },
+  "arcadeClaimBudgetExplanation": {
+    "message": "Ви покриваєте ці витрати у нативному токені, окремо від виділених 10 GC. Емітент використовує лише фактичну комісію за виконання та повертає невикористаний бюджет емітента разом із вашою квитанцією GC. Використання квитанції вимагає окремої мережевої комісії; її бюджет є орієнтовним.",
+    "englishSource": "You fund these costs in the native token, separately from the 10 GC allocation. The issuer uses only its actual execution fee and returns the unused issuer budget with your GC receipt. Consuming the receipt requires a separate network fee; its budget is an estimate."
+  },
+  "arcadeReclaimBudgetExplanation": {
+    "message": "Повертає невикористаний бюджет у ваш гаманець за вирахуванням комісії мережі за відновлення. Процес відновлення не передбачає видачу GC.",
+    "englishSource": "Returns the unused budget to your wallet, less the recovery network fee. Recovery does not deliver GC."
+  },
+  "arcadeClaimWeekExplanation": {
+    "message": "Це затвердження стосується тижня розподілу, зазначеного за UTC. Заявка, подана в неділю та доставлена в понеділок, все ще зараховується до попереднього тижня; новий ліміт на понеділок є окремим.",
+    "englishSource": "This approval is for the allocation week shown in UTC. A Sunday claim delivered on Monday still counts toward the earlier week; the new Monday allowance is separate."
+  },
   "arcadeWeeklyRules": {
-    "message": "Скидання відбувається в понеділок о 00:00 за UTC у партнерській мережі Mainnet. Невитрачені GC переносяться; пропущені тижні не сумуються. Ви сплачуєте мережеві комісії.",
-    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+    "message": "10 GC на рахунок щотижня, обнулення відбувається в понеділок о 00:00 за UTC. Невитрачені GC переносяться на наступний тиждень; пропущені тижні не сумуються. Ви оплачуєте мережеві комісії.",
+    "englishSource": "10 GC per account each week, resetting Monday 00:00 UTC. Unspent GC carries over; missed weeks do not stack. You fund the network fees."
   },
   "arcadeChecking": {
     "message": "Перевірка щотижневої добової…",

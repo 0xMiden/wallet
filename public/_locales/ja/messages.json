@@ -7439,9 +7439,102 @@
     "message": "毎週10 GC",
     "englishSource": "10 GC each week"
   },
+  "arcadeClaimState_reclaimable": {
+    "message": "リクエストは復元可能です。ネットワーク手数料を確認し、元の予算を戻してください。",
+    "englishSource": "The request can be recovered. Review the network fee to return its native budget."
+  },
+  "arcadeRecoverBudget": {
+    "message": "リカバリーリクエストの予算",
+    "englishSource": "Recover request budget"
+  },
+  "arcadePreviousBudgetWeek": {
+    "message": "$date$（UTC）の週における未使用のリクエスト予算。",
+    "englishSource": "Unused request budget from the week of $date$ (UTC).",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeClaimPreparationFailed": {
+    "message": "この請求を処理できませんでした。現地通貨の残高を確認してから、もう一度お試しください。",
+    "englishSource": "Could not prepare this claim. Check your native fee balance and try again."
+  },
+  "arcadeReviewClaim": {
+    "message": "週次請求の確認",
+    "englishSource": "Review weekly claim"
+  },
+  "arcadeReviewReclaim": {
+    "message": "予算回復の見直し",
+    "englishSource": "Review budget recovery"
+  },
+  "arcadeClaimAllocation": {
+    "message": "GCの割り当て",
+    "englishSource": "GC allocation"
+  },
+  "arcadeClaimAllocationAmount": {
+    "message": "10 GC",
+    "englishSource": "10 GC"
+  },
+  "arcadeClaimAllocationWeek": {
+    "message": "割り当て週の開始",
+    "englishSource": "Allocation week starting"
+  },
+  "arcadeClaimRequestFee": {
+    "message": "ネットワーク手数料の請求",
+    "englishSource": "Request network fee"
+  },
+  "arcadeClaimIssuerBudget": {
+    "message": "発行者の執行予算",
+    "englishSource": "Issuer execution budget"
+  },
+  "arcadeClaimReceiptFeeBudget": {
+    "message": "ネットワーク手数料の予算受領",
+    "englishSource": "Receipt network fee budget"
+  },
+  "arcadeClaimReviewExpires": {
+    "message": "承認の有効期限が切れる",
+    "englishSource": "Approval expires"
+  },
+  "arcadeClaimReviewExpired": {
+    "message": "この見積もりの有効期限が切れています。このレビューを閉じて、最新の手数料を再度ご確認ください。",
+    "englishSource": "This quote expired. Close this review and check again for current fees."
+  },
+  "arcadeConfirmClaim": {
+    "message": "主張の確認",
+    "englishSource": "Confirm claim"
+  },
+  "arcadeConfirmReclaim": {
+    "message": "復旧の確認",
+    "englishSource": "Confirm recovery"
+  },
+  "arcadeCancelReview": {
+    "message": "キャンセル",
+    "englishSource": "Cancel"
+  },
+  "arcadeReclaimNetworkFee": {
+    "message": "リカバリーネットワーク手数料",
+    "englishSource": "Recovery network fee"
+  },
+  "arcadeReclaimRecoverableBudget": {
+    "message": "回収手数料を差し引く前の予算",
+    "englishSource": "Budget before recovery fee"
+  },
+  "arcadeClaimBudgetExplanation": {
+    "message": "これらの費用は、10 GCの割り当てとは別に、ネイティブトークンで支払います。発行者は実際の実行手数料のみを使用し、未使用の発行者予算はGCレシートとともに返還されます。レシートの利用には別途ネットワーク手数料が必要であり、その予算は概算です。",
+    "englishSource": "You fund these costs in the native token, separately from the 10 GC allocation. The issuer uses only its actual execution fee and returns the unused issuer budget with your GC receipt. Consuming the receipt requires a separate network fee; its budget is an estimate."
+  },
+  "arcadeReclaimBudgetExplanation": {
+    "message": "未使用の予算からリカバリーネットワーク手数料を差し引いた額を、ウォレットに返還します。リカバリーではGCは提供されません。",
+    "englishSource": "Returns the unused budget to your wallet, less the recovery network fee. Recovery does not deliver GC."
+  },
+  "arcadeClaimWeekExplanation": {
+    "message": "この承認は、UTCで表示されている割り当て週を対象としています。日曜日に請求され、月曜日に配信された分は、依然として前の週の割り当てにカウントされます。月曜日の新しい割り当てはこれとは別扱いとなります。",
+    "englishSource": "This approval is for the allocation week shown in UTC. A Sunday claim delivered on Monday still counts toward the earlier week; the new Monday allowance is separate."
+  },
   "arcadeWeeklyRules": {
-    "message": "リセットは、パートナーメインネットの月曜日 00:00 UTC に行われます。未使用の GC は繰り越されますが、見逃した週は累積されません。ネットワーク手数料はお客様のご負担となります。",
-    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+    "message": "アカウントごとに毎週10 GCが支給され、UTC月曜日00:00にリセットされます。未使用のGCは翌週に繰り越されますが、受け取りを逃した週分は累積されません。ネットワーク手数料はご自身でご負担ください。",
+    "englishSource": "10 GC per account each week, resetting Monday 00:00 UTC. Unspent GC carries over; missed weeks do not stack. You fund the network fees."
   },
   "arcadeChecking": {
     "message": "週ごとの手当を確認中…",
