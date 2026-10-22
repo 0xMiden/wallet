@@ -1,5 +1,6 @@
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { carriesIndefiniteSubmitOutcome, isApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
+import { SUBMIT_UNKNOWN_OUTCOME_STATUSES, submitGrpcStatus } from 'lib/telemetry/transaction-failure';
 
 import {
   isUserCancelledTransaction,
@@ -29,41 +30,16 @@ export interface SubmissionFeedback {
 
 type FeedbackRow = Pick<ITransaction, 'status' | 'stage' | 'error' | 'rawError'>;
 
-// miden-client 0.17.3 GrpcError Display prefixes for a submit call. The same list lives in
-// transaction-failure.ts for crash reports; this copy only decides which sentence to show.
-const GRPC_REFUSED = [
-  'resource not found',
-  'invalid request parameters',
-  'permission denied',
-  'resource already exists',
-  "request was rate-limited or the node's resources are exhausted; retry after a delay",
-  'precondition failed',
-  'operation was attempted past the valid range',
-  'the requested method is not implemented by this version of the Miden node',
-  'request was rejected as unauthenticated; check your credentials and connection settings'
-] as const;
-
-const GRPC_UNKNOWN = [
-  'Miden node is unavailable; check that the node is running and reachable',
-  'Miden node returned an internal error; this is likely a node-side issue',
-  'operation was cancelled',
-  'operation was aborted',
-  'unrecoverable data loss or corruption',
-  'request to Miden node timed out; the node may be under heavy load',
-  'unknown error: '
-] as const;
-
-const SUBMIT_REQUEST = /grpc request failed for (?:submit_proven_transaction|submit_proven_batch): /;
 const NETWORK_DROP =
   /failed to fetch|load failed|networkerror|network error|connection refused|connection reset|econnreset|err_internet_disconnected|\boffline\b/i;
 
+const UNKNOWN_OUTCOME: ReadonlySet<string> = new Set(SUBMIT_UNKNOWN_OUTCOME_STATUSES);
+
+// Telemetry's submit-request extraction and gRPC table, so the miden-client prefixes are listed once.
 const grpcKind = (text: string): 'refused' | 'unknown' | undefined => {
-  const match = SUBMIT_REQUEST.exec(text);
-  if (match === null) return undefined;
-  const kind = text.slice(match.index + match[0].length);
-  if (GRPC_REFUSED.some(prefix => kind.startsWith(prefix))) return 'refused';
-  if (GRPC_UNKNOWN.some(prefix => kind.startsWith(prefix))) return 'unknown';
-  return 'unknown';
+  const status = submitGrpcStatus(text);
+  if (status === undefined) return undefined;
+  return UNKNOWN_OUTCOME.has(status) ? 'unknown' : 'refused';
 };
 
 const guardianKind = (text: string): 'rejected' | 'unanswered' | undefined => {

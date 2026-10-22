@@ -47,6 +47,24 @@ describe('submissionFeedback (#1689)', () => {
     });
   });
 
+  it('reads a submit gRPC status through the shared table, including the encryption-key request', () => {
+    const during = (endpoint: string, kind: string) =>
+      `failed to submit proven transaction: RPC error: grpc request failed for ${endpoint}: ${kind}`;
+    expect(
+      submissionFeedback(row({ error: during('get_transaction_encryption_key', 'permission denied') }))
+    ).toMatchObject({ kind: 'rejected', messageKey: 'submissionRejectedByNetwork' });
+    expect(
+      submissionFeedback(row({ error: during('get_transaction_encryption_key', 'operation was aborted') }))
+    ).toMatchObject({ kind: 'unanswered', messageKey: 'submissionUnanswered' });
+    expect(submissionFeedback(row({ error: during('submit_proven_batch', 'resource already exists') }))).toMatchObject({
+      kind: 'rejected',
+      messageKey: 'submissionRejectedByNetwork'
+    });
+    expect(
+      submissionFeedback(row({ error: during('submit_proven_transaction', 'a status no table lists') }))
+    ).toMatchObject({ kind: 'unanswered', messageKey: 'submissionUnanswered' });
+  });
+
   it('explains an explicit Guardian refusal', () => {
     expect(submissionFeedback(row({ error: GUARDIAN_REFUSAL, mayHaveSubmitted: true }))).toMatchObject({
       kind: 'rejected',
