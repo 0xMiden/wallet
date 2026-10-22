@@ -366,6 +366,7 @@ function mockParseAccountRef(id: string) {
   const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
   return { toString: () => `sdk-${parsed}` };
 }
+const mockRandomFeeSalt = jest.fn((): unknown => 'SALT');
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => {
     if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
@@ -377,7 +378,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
   // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
   // nothing downstream inspects it.
-  randomFeeSalt: () => 'SALT',
+  randomFeeSalt: () => mockRandomFeeSalt(),
   // Mirrors the real helper, so each test sees exactly which account and salt reach the SDK.
   feeAwareRequestBuilder: (
     client: {
@@ -2444,6 +2445,17 @@ describe('generateTransaction — Guardian routing', () => {
       expect(txStore[0]?.status).toBe(ITransactionStatus.Failed);
       expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_build' });
       expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+    });
+
+    it('names a failed fee salt of a new swap request as the swap request build', async () => {
+      const { run, newPswapCreateTransactionRequest } = arrangeSwap();
+      const error = privateSwapFailure();
+      mockRandomFeeSalt.mockImplementationOnce(() => {
+        throw error;
+      });
+      await run();
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_build' });
+      expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
     });
 
     it('names a failed write of the built swap request before any proposal', async () => {

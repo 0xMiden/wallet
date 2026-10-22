@@ -3691,12 +3691,12 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
-        // Resolved BEFORE the lock: the reads drive their own RpcClient through the
-        // WASM module and re-entering it under the client lock traps.
-        const swapFeeSalt = randomFeeSalt();
         const requestBytes = await swapStep('request_build', () =>
-          withProposalStep('swap_request_build', () =>
-            withWasmClientLock(async hold => {
+          withProposalStep('swap_request_build', () => {
+            // Resolved BEFORE the lock: the reads drive their own RpcClient through the
+            // WASM module and re-entering it under the client lock traps.
+            const swapFeeSalt = randomFeeSalt();
+            return withWasmClientLock(async hold => {
               // The offered asset has to carry the vault key of the slot it is
               // actually held in — the callback flag is part of that key, and the
               // PSWAP builder always produces the Disabled variant. Read the vault
@@ -3749,8 +3749,8 @@ const generateGuardianTransaction = async (
                 GUARDIAN_EXPIRATION_DELTA_BLOCKS,
                 baseBuilder
               ).serialize();
-            })
-          )
+            });
+          })
         );
         transaction.requestBytes = requestBytes;
         await swapStep('request_persist', () =>
