@@ -6,6 +6,9 @@
 
 - [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
 
+- [FIX][all] The Earn tab shows the "Not available where you are" notice at the top, above Total earned, when Earn is not offered in your location, instead of only inside a vault (#1753).
+- [FIX][all] The token page's 24h change pill shows the percentage change, not the dollar change with a percent sign.
+- [FIX][all] The eligibility service enables Swap for Near Intents with an explicit switch and valid 1Click mapping, and supports manual deployment from the wallet main branch independently of wallet releases.
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
@@ -14,6 +17,7 @@
 
 ### Changes
 
+- [CHANGE][all] A failed Guardian swap's crash report names which preparation step failed: building or saving the new swap order, rebuilding its request at the current network height, or saving the rebuilt request once the guardian prepared it, in fixed values only; the privacy policy lists them.
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
 - [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
 - [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.
