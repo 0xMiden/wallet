@@ -57,7 +57,8 @@ function hasOneClickSwap(document) {
   }
   const localHttp =
     document.network === 'localnet' &&
-    serviceUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(serviceUrl.hostname);
+    serviceUrl.protocol === 'http:' &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(serviceUrl.hostname);
   if (
     (serviceUrl.protocol !== 'https:' && !localHttp) ||
     serviceUrl.username ||

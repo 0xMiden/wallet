@@ -445,7 +445,7 @@ Architecture: preserve the PSWAP form when both networks are Miden. Add remote-c
 - [ ] Run focused guarded checks and current-source CI coverage/build; add cost-bounded mainnet swap-out/swap-back E2E using existing funded accounts.
 - [x] Add mocked testnet 1Click E2E alongside mainnet, following the existing Epoch test harness.
 - [x] Gate the entire integration with wallet-config features.nearIntents, default false, plus an explicit false mainnet flag in the config repository.
-- [ ] Run the requested four-seat Council review and fix actionable findings.
+- [x] Run the requested four-seat Council review and fix actionable findings; plan 6 passed all four seats and review-fix round 6 is complete.
 - [ ] Prepare the feature PR and final evidence, retaining external activation requirements.
 
 ## Integration contracts
@@ -458,7 +458,7 @@ Delivery note IDs must be resolved from the provider's destination transaction h
 
 ## Verification constraints
 
-Use ~/.codex/bin/ci-local for local checks, at most two workers. Full suites, coverage and builds run in CI; global coverage thresholds remain 95% for all metrics. Record expected red proofs before fixes. The mainnet E2E harness must reuse existing funded accounts and recycle principal with an out-and-back swap. A live run remains unavailable until Miden is listed and activation prerequisites are configured. No merge or deployment is authorized. Screenshots are capped at 1800px and reviewed for affected UI states. Review dependency sources must be available before paid panels.
+Use ~/.codex/bin/ci-local for local checks, at most two workers. Full suites, coverage and builds run in CI; global coverage thresholds remain 95% for all metrics. Record expected red proofs before fixes. The mainnet E2E harness must reuse existing funded accounts and recycle principal with an out-and-back swap. A live run remains unavailable until Miden is listed and activation prerequisites are configured. No wallet PR merge or wallet deployment is authorized. Screenshots are capped at 1800px and reviewed for affected UI states. Review dependency sources must be available before paid panels.
 
 ## Review
 
@@ -477,3 +477,15 @@ Implementation frozen for finished-code review. Focused guarded tests, type chec
 2026-10-22 recovery: the initial finished-code panel is incomplete and preserved. The user selected fixing confirmed issues then a fresh four-seat review. Config PR24 completed review with zero findings and CI152/152 passes. Wallet preflight175/175 passes across8suites; dedicated mocked Chrome and visual acceptance remain CI gates. Eligibility now needs to recognize explicitly enabled 1Click-only routes while preserving place restrictions.
 
 2026-10-22 authorization update: the user explicitly requested deployment of the matching feature-eligibility service after tests and finished-code review. Keep nearIntents false. This authorizes that service deployment only; wallet PR merge/release and the new partner proxy deployment are not authorized.
+# NEAR Intents eligibility service deployment
+
+The service must recognize explicitly enabled valid 1Click-only configurations while preserving existing location restrictions and default-off behavior. Prepare a service-only deployment from protected main without a wallet release.
+
+- [x] Carry over the validated capability predicate and its regressions.
+- [x] Add a manual-main deployment path pinned to the workflow commit, retaining the protected environment and release-tag path.
+- [ ] Verify worker tests, workflow contracts and CI dry run.
+- [ ] Complete independent finished-code review and fix actionable findings.
+- [ ] Open the service-only PR and follow normal branch protection before deployment.
+- [ ] Deploy the reviewed service and verify its live revision, retaining nearIntents false.
+
+Service validation: the frozen fix snapshot passed 145 Node tests with zero skips in CI. All five targeted mutations failed at their named assertions. The existing daily query cap is 10,000 and the deployment input now preserves it. Final branch CI, independent verification, protected merge and live deployment remain pending.

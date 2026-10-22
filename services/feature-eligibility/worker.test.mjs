@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import { createService } from './worker.mjs';
+import { resolveDeploymentSource } from '../../scripts/feature-eligibility-deploy-source.mjs';
 
 class MemoryStorage {
   values = new Map();
@@ -158,7 +163,7 @@ for (const [name, features, swap] of [
   ['invalid service URL', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, serviceUrl: 'http://one-click.example' } }],
   ['invalid asset mapping', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [{ assetId: 'miden:usdc', faucetId: 'bad', decimals: 6 }] } }],
   ['invalid additional mapping', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { assetId: 'miden:bad', faucetId: 'bad', decimals: 6 }] } }],
-  ['duplicate asset mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, ...oneClick.midenAssets] } }],
+  ['duplicate asset mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }] } }],
   ['duplicate faucet mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }] } }]
 ]) {
   test(`does not enable Near Intents for ${name}`, async () => {
@@ -518,4 +523,138 @@ test('cleanup traverses multiple bounded pages without deleting active callers',
   assert.equal(h.storage.values.get('cleanup-cursor'), 'caller:127');
   await h.guard.alarm();
   assert.deepEqual([...h.storage.values.keys()], ['caller:zzz']);
+});
+
+test('manual main deployment selects only the workflow SHA and rejects untrusted refs', async () => {
+  const sha = 'a'.repeat(40);
+  assert.deepEqual(
+    resolveDeploymentSource({
+      eventName: 'workflow_dispatch',
+      ref: 'refs/heads/main',
+      source: 'main',
+      sha
+    }),
+    { mode: 'main', ref: sha, message: `Wallet eligibility main ${sha}` }
+  );
+
+  for (const input of [
+    { eventName: 'workflow_dispatch', ref: 'refs/heads/feature', sha },
+    { eventName: 'push', ref: 'refs/heads/main', sha },
+    { eventName: 'workflow_call', ref: 'refs/tags/v1.2.3', sha },
+    { eventName: 'workflow_dispatch', ref: 'refs/heads/main', sha, releaseTag: 'v1.2.3' }
+  ]) {
+    assert.throws(() => resolveDeploymentSource({ ...input, source: 'main' }));
+  }
+});
+
+test('published release tag selection accepts output-safe tags and rejects unsafe output', async () => {
+  assert.deepEqual(
+    resolveDeploymentSource({
+      eventName: 'workflow_call',
+      ref: 'refs/tags/v1.2.3',
+      releaseTag: 'v1.2.3'
+    }),
+    { mode: 'published-release', ref: 'refs/tags/v1.2.3', message: 'Wallet release v1.2.3' }
+  );
+  for (const releaseTag of ['', 'v1.2.3\rDEPLOYMENT_SOURCE=main', 'v1.2.3\nDEPLOYMENT_SOURCE=main', 'x'.repeat(256), undefined, 123]) {
+    assert.throws(() => resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }));
+  }
+  for (const releaseTag of ['v1[unsafe]', 'release with spaces', 'x'.repeat(255)]) {
+    assert.deepEqual(
+      resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }),
+      { mode: 'published-release', ref: `refs/tags/${releaseTag}`, message: `Wallet release ${releaseTag}` }
+    );
+  }
+
+  const workflow = readFileSync(
+    new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
+    'utf8'
+  );
+  assert.match(workflow, /node scripts\/feature-eligibility-deploy-source\.mjs/);
+  assert.match(workflow, /ref: \$\{\{ steps\.source\.outputs\.ref \}\}/);
+  assert.match(workflow, /if: steps\.source\.outputs\.mode == 'published-release'/);
+  assert.match(workflow, /getReleaseByTag/);
+  assert.match(workflow, /release\.draft \|\| !release\.published_at/);
+  assert.match(workflow, /\$GITHUB_EVENT_NAME" == release && "\$revision" != "\$GITHUB_SHA/);
+});
+
+test('reusable deployment inputs omit source while manual deployment retains its choice and release caller', () => {
+  const workflow = readFileSync(
+    new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
+    'utf8'
+  );
+  const callInputs = workflow.match(/  workflow_call:\n([\s\S]*?)\n  workflow_dispatch:/)?.[1];
+  const dispatchInputs = workflow.match(/  workflow_dispatch:\n([\s\S]*?)\npermissions:/)?.[1];
+  assert.ok(callInputs);
+  assert.doesNotMatch(callInputs, /deployment_source:/);
+  assert.match(callInputs, /release_tag:\n        type: string\n        required: true/);
+  assert.ok(dispatchInputs);
+  assert.match(dispatchInputs, /deployment_source:\n[\s\S]*?type: choice\n[\s\S]*?options:\n          - published-release\n          - main/);
+  assert.match(dispatchInputs, /release_tag:\n[\s\S]*?required: false/);
+  const releaseWallet = readFileSync(new URL('../../.github/workflows/release-wallet.yml', import.meta.url), 'utf8');
+  const eligibilityCaller = releaseWallet.match(/  eligibility:\n([\s\S]*?)\n\n  chrome:/)?.[1];
+  assert.match(eligibilityCaller, /release_tag: \$\{\{ github\.event\.release\.tag_name \}\}/);
+  assert.doesNotMatch(eligibilityCaller, /deployment_source:/);
+});
+
+test('deployment resolver step maps each workflow input and context value exactly', () => {
+  const workflow = readFileSync(
+    new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
+    'utf8'
+  );
+  const sourceStep = workflow.match(/      - name: Resolve deployment source\n([\s\S]*?)\n      - name: Require a published release/);
+  assert.ok(sourceStep);
+  for (const mapping of [
+    /DEPLOYMENT_SOURCE: \$\{\{ inputs\.deployment_source \|\| 'published-release' \}\}/,
+    /RELEASE_TAG: \$\{\{ inputs\.release_tag \}\}/,
+    /DEPLOY_EVENT_NAME: \$\{\{ github\.event_name \}\}/,
+    /DEPLOY_WORKFLOW_REF: \$\{\{ github\.ref \}\}/,
+    /DEPLOY_WORKFLOW_SHA: \$\{\{ github\.sha \}\}/
+  ]) assert.match(sourceStep[1], mapping);
+});
+
+test('deployment resolver CLI writes exact outputs and rejects untrusted manual inputs', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'eligibility-deploy-source-'));
+  const outputPath = join(directory, 'github-output');
+  const scriptPath = new URL('../../scripts/feature-eligibility-deploy-source.mjs', import.meta.url);
+  const run = values => {
+    writeFileSync(outputPath, '');
+    const result = spawnSync(process.execPath, [scriptPath.pathname], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GITHUB_OUTPUT: outputPath,
+        DEPLOY_EVENT_NAME: values.eventName ?? '',
+        DEPLOY_WORKFLOW_REF: values.ref ?? '',
+        DEPLOYMENT_SOURCE: values.source ?? '',
+        RELEASE_TAG: values.releaseTag ?? '',
+        DEPLOY_WORKFLOW_SHA: values.sha ?? ''
+      }
+    });
+    return { ...result, output: readFileSync(outputPath, 'utf8') };
+  };
+  try {
+    const sha = 'a'.repeat(40);
+    const main = run({ eventName: 'workflow_dispatch', ref: 'refs/heads/main', source: 'main', sha });
+    assert.equal(main.status, 0, main.stderr);
+    assert.equal(main.output, `mode=main\nref=${sha}\nmessage=Wallet eligibility main ${sha}\n`);
+
+    const release = run({ eventName: 'workflow_call', ref: 'refs/tags/v1.2.3', releaseTag: 'v1.2.3' });
+    assert.equal(release.status, 0, release.stderr);
+    assert.equal(release.output, 'mode=published-release\nref=refs/tags/v1.2.3\nmessage=Wallet release v1.2.3\n');
+
+    for (const values of [
+      { eventName: 'push', ref: 'refs/heads/main', source: 'main', sha },
+      { eventName: 'workflow_dispatch', ref: 'refs/heads/feature', source: 'main', sha },
+      { eventName: 'workflow_dispatch', ref: 'refs/heads/main', source: 'main', sha, releaseTag: 'v1.2.3' },
+      { eventName: 'workflow_dispatch', ref: 'refs/heads/main', source: 'main' },
+      { eventName: 'workflow_dispatch', ref: 'refs/heads/main', source: 'main', sha: 'bad' }
+    ]) {
+      const rejected = run(values);
+      assert.notEqual(rejected.status, 0);
+      assert.equal(rejected.output, '');
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
