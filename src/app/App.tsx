@@ -40,6 +40,7 @@ import * as Woozie from 'lib/woozie';
 import '../i18n';
 
 import ConfirmPage from './ConfirmPage';
+import { RuntimeSupportGate } from './RuntimeSupportGate';
 import { WalletAccessGate } from './WalletAccessGate';
 // Lock-up checks are extension-only (uses webextension-polyfill)
 if (isExtension()) {
@@ -86,47 +87,49 @@ const App: FC<AppProps> = ({ env }) => {
         <DialogsProvider>
           <Suspense fallback={<RootSuspenseFallback />}>
             <AwaitI18N />
-            <WalletAccessGate>
-              <AppProvider env={env}>
-                <Dialogs />
+            <RuntimeSupportGate>
+              <WalletAccessGate>
+                <AppProvider env={env}>
+                  <Dialogs />
 
-                <DisableOutlinesForClick />
+                  <DisableOutlinesForClick />
 
-                <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
-                  <BootAnimation>
-                    {/* Vaul's shouldScaleBackground scales the element carrying
-                    data-vaul-drawer-wrapper while a bottom sheet is open
-                    (transform + transient border-radius/overflow, all managed
-                    by vaul). Must wrap the whole app surface. */}
-                    <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
-                      {env.confirmWindow ? (
-                        <ConfirmPage />
-                      ) : checkIsMobile() ? (
-                        // The DappBrowserProvider owns the embedded dApp webview lifecycle
-                        // and the bubble host. It must live ABOVE PageRouter so it survives
-                        // tab navigation - a parked dApp's bubble stays interactive even
-                        // when the user moves to a different tab.
-                        <DappBrowserProvider>
+                  <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
+                    <BootAnimation>
+                      {/* Vaul's shouldScaleBackground scales the element carrying
+                      data-vaul-drawer-wrapper while a bottom sheet is open
+                      (transform + transient border-radius/overflow, all managed
+                      by vaul). Must wrap the whole app surface. */}
+                      <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
+                        {env.confirmWindow ? (
+                          <ConfirmPage />
+                        ) : checkIsMobile() ? (
+                          // The DappBrowserProvider owns the embedded dApp webview lifecycle
+                          // and the bubble host. It must live ABOVE PageRouter so it survives
+                          // tab navigation - a parked dApp's bubble stays interactive even
+                          // when the user moves to a different tab.
+                          <DappBrowserProvider>
+                            <UpdateNotificationProvider>
+                              <HotKeyRotationGate />
+                              <GuardianRecoveryProvider />
+                              <OpenLinkPrompt />
+                              <BreadConnectPrompt />
+                              <PageRouter />
+                            </UpdateNotificationProvider>
+                          </DappBrowserProvider>
+                        ) : (
                           <UpdateNotificationProvider>
                             <HotKeyRotationGate />
                             <GuardianRecoveryProvider />
-                            <OpenLinkPrompt />
-                            <BreadConnectPrompt />
                             <PageRouter />
                           </UpdateNotificationProvider>
-                        </DappBrowserProvider>
-                      ) : (
-                        <UpdateNotificationProvider>
-                          <HotKeyRotationGate />
-                          <GuardianRecoveryProvider />
-                          <PageRouter />
-                        </UpdateNotificationProvider>
-                      )}
-                    </div>
-                  </BootAnimation>
-                </AwaitFonts>
-              </AppProvider>
-            </WalletAccessGate>
+                        )}
+                      </div>
+                    </BootAnimation>
+                  </AwaitFonts>
+                </AppProvider>
+              </WalletAccessGate>
+            </RuntimeSupportGate>
           </Suspense>
         </DialogsProvider>
       </ErrorBoundary>

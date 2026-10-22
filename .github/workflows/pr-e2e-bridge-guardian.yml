@@ -1,8 +1,6 @@
 name: Guardian Bridge-Out E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: bridge-guardian-e2e-${{ github.ref }}
@@ -199,9 +197,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
         # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: bridge-guardian-e2e-report
           path: test-results/

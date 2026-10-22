@@ -38,6 +38,22 @@ function adbAnswers(reply: (args: string[]) => AdbReply): { args: string[]; time
   return calls;
 }
 
+function bootAnswers(reply: (command: string) => AdbReply | undefined = () => undefined) {
+  const defaults: Record<string, AdbReply> = {
+    'getprop sys.boot_completed': { stdout: '1\n' },
+    'getprop init.svc.bootanim': { stdout: 'stopped' },
+    'getprop ro.boot.debug.sf.nobootanimation': { stdout: '1\n' },
+    'getprop debug.sf.nobootanimation': { stdout: '' },
+    'pm path android': { stdout: 'package:/system/framework/framework-res.apk\n' },
+    'pm list packages com.google.android.gms': { stdout: 'package:com.google.android.gms\n' },
+    'pgrep -f com.google.android.gms.persistent': { stdout: '4242\n' }
+  };
+  return adbAnswers(args => {
+    const command = args.slice(3).join(' ');
+    return reply(command) ?? defaults[command] ?? { error: new Error('unexpected adb command: ' + command) };
+  });
+}
+
 const isDumpsys = (args: string[]): boolean => args.includes('dumpsys');
 
 describe('listsPackageTask', () => {
@@ -65,6 +81,234 @@ describe('EmulatorControl', () => {
     run.mockReset();
   });
   afterEach(() => jest.useRealTimers());
+
+  describe('ensureBooted', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('keeps the API 34 stopped-animation path and waits five seconds for GMS', async () => {
+      const calls = bootAnswers(command =>
+        command === 'getprop init.svc.bootanim' ? { stdout: 'stopped\n' } : undefined
+      );
+      const ready = new EmulatorControl().ensureBooted(SERIAL).then(
+        () => 'ready',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(301_000);
+      expect(await ready).toBe('ready');
+      const commands = calls.map(call => call.args.slice(3).join(' '));
+      expect(commands.filter(command => command.includes('nobootanimation'))).toEqual([]);
+      expect(commands.indexOf('pm path android')).toBeLessThan(
+        commands.indexOf('pm list packages com.google.android.gms')
+      );
+      expect(commands.filter(command => command.startsWith('pgrep'))).toHaveLength(6);
+    });
+
+    it('keeps the stopped-animation AOSP path without polling for absent GMS', async () => {
+      const calls = bootAnswers(command =>
+        command === 'getprop init.svc.bootanim'
+          ? { stdout: 'stopped' }
+          : command === 'pm list packages com.google.android.gms'
+            ? { stdout: '' }
+            : undefined
+      );
+      await expect(new EmulatorControl().ensureBooted(SERIAL)).resolves.toBeUndefined();
+      expect(calls.some(call => call.args.includes('pgrep'))).toBe(false);
+      expect(calls.some(call => call.args.slice(3).join(' ') === 'pm path android')).toBe(true);
+    });
+
+    it.each(['ro.boot.debug.sf.nobootanimation', 'debug.sf.nobootanimation'])(
+      'accepts empty animation only with %s set to 1, then settles installed GMS',
+      async property => {
+        const calls = bootAnswers(command =>
+          command === 'getprop init.svc.bootanim'
+            ? { stdout: '' }
+            : command === 'getprop ro.boot.debug.sf.nobootanimation'
+              ? { stdout: property === 'ro.boot.debug.sf.nobootanimation' ? '1' : '' }
+              : command === 'getprop debug.sf.nobootanimation'
+                ? { stdout: property === 'debug.sf.nobootanimation' ? '1' : '' }
+                : undefined
+        );
+        const ready = new EmulatorControl().ensureBooted(SERIAL).then(
+          () => 'ready',
+          (error: unknown) => error
+        );
+        await jest.advanceTimersByTimeAsync(301_000);
+        expect(await ready).toBe('ready');
+        expect(calls.some(call => call.args.slice(3).join(' ') === 'getprop ' + property)).toBe(true);
+        expect(calls.filter(call => call.args.includes('pgrep'))).toHaveLength(6);
+        expect(console.log).toHaveBeenCalledWith(expect.stringContaining(property + '="1"'));
+      }
+    );
+
+    it('fails boot-completed with its last property value before checking animation', async () => {
+      const calls = bootAnswers(command => (command === 'getprop sys.boot_completed' ? { stdout: '0' } : undefined));
+      const failure = new EmulatorControl().ensureBooted(SERIAL).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(301_000);
+      expect(await failure).toEqual(
+        expect.objectContaining({
+          message: expect.stringMatching(/boot-completed.*300000ms.*sys.boot_completed="0"/)
+        })
+      );
+      expect(calls.some(call => call.args.includes('init.svc.bootanim'))).toBe(false);
+    });
+
+    it.each(['running', ''])(
+      'fails animation %p without GMS instead of masking exhaustion as success',
+      async animation => {
+        const calls = bootAnswers(command =>
+          command === 'getprop init.svc.bootanim'
+            ? { stdout: animation }
+            : command.includes('nobootanimation')
+              ? { stdout: '0' }
+              : command === 'pm list packages com.google.android.gms'
+                ? { stdout: '' }
+                : undefined
+        );
+        const failure = new EmulatorControl().ensureBooted(SERIAL).catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(301_000);
+        expect(await failure).toEqual(
+          expect.objectContaining({
+            message: expect.stringContaining('animation')
+          })
+        );
+        expect(await failure).toEqual(
+          expect.objectContaining({
+            message: expect.stringContaining('init.svc.bootanim=' + JSON.stringify(animation))
+          })
+        );
+        expect(calls.some(call => call.args.includes('pm'))).toBe(false);
+      }
+    );
+
+    it('does not accept a running animation even when its disabled flag is set', async () => {
+      const calls = bootAnswers(command =>
+        command === 'getprop init.svc.bootanim' ? { stdout: 'running' } : undefined
+      );
+      const failure = new EmulatorControl().ensureBooted(SERIAL).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(301_000);
+      expect(await failure).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining('init.svc.bootanim="running"')
+        })
+      );
+      expect(calls.some(call => call.args.includes('pm'))).toBe(false);
+    });
+
+    it('does not treat a failed animation property read as an empty disabled animation', async () => {
+      const calls = bootAnswers(command =>
+        command === 'getprop init.svc.bootanim' ? { error: new Error('animation property unavailable') } : undefined
+      );
+      const failure = new EmulatorControl().ensureBooted(SERIAL).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(301_000);
+      expect(await failure).toEqual(
+        expect.objectContaining({
+          message: expect.stringMatching(/animation.*last=.*animation property unavailable/)
+        })
+      );
+      expect(calls.some(call => call.args.includes('pm'))).toBe(false);
+    });
+
+    it.each([{ stdout: '' }, { error: new Error('package service unavailable') }])(
+      'requires a responsive package manager before skipping absent GMS (%p)',
+      async reply => {
+        const calls = bootAnswers(command =>
+          command === 'pm path android'
+            ? reply
+            : command === 'pm list packages com.google.android.gms'
+              ? { stdout: '' }
+              : undefined
+        );
+        const failure = new EmulatorControl().ensureBooted(SERIAL).catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(301_000);
+        expect(await failure).toEqual(
+          expect.objectContaining({
+            message: expect.stringMatching(/package-manager.*last=/)
+          })
+        );
+        expect(calls.some(call => call.args.slice(3).join(' ') === 'pm list packages com.google.android.gms')).toBe(
+          false
+        );
+      }
+    );
+
+    it('keeps package-query errors in the package-manager phase rather than inferring absent GMS', async () => {
+      bootAnswers(command =>
+        command === 'pm list packages com.google.android.gms'
+          ? { error: new Error('GMS package query failed') }
+          : undefined
+      );
+      const failure = new EmulatorControl().ensureBooted(SERIAL).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(301_000);
+      expect(await failure).toEqual(
+        expect.objectContaining({
+          message: expect.stringMatching(/package-manager.*last=.*GMS package query failed/)
+        })
+      );
+    });
+
+    it('names GMS and its last empty process value when installed GMS never appears', async () => {
+      bootAnswers(command => (command.startsWith('pgrep') ? { stdout: '' } : undefined));
+      const failure = new EmulatorControl().ensureBooted(SERIAL).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(301_000);
+      expect(await failure).toEqual(
+        expect.objectContaining({
+          message: expect.stringMatching(/gms-settle.*last=.*persistent=""/)
+        })
+      );
+    });
+
+    it('shares the original budget across phases and bounds late adb calls by the time left', async () => {
+      const started = Date.now();
+      const calls = bootAnswers(command =>
+        command === 'getprop sys.boot_completed' && Date.now() - started < 299_000 ? { stdout: '0' } : undefined
+      );
+      let finished = false;
+      const failure = new EmulatorControl().ensureBooted(SERIAL).then(
+        () => {
+          finished = true;
+          return 'unexpectedly ready';
+        },
+        (error: unknown) => {
+          finished = true;
+          return error;
+        }
+      );
+      await jest.advanceTimersByTimeAsync(301_000);
+      expect(finished).toBe(true);
+      expect(await failure).toEqual(
+        expect.objectContaining({
+          message: expect.stringMatching(/gms-settle.*300000ms.*persistent="4242"/)
+        })
+      );
+      expect(
+        calls.filter(call => call.args.includes('pm') || call.args.includes('pgrep')).map(call => call.timeout)
+      ).toEqual([1_000, 1_000, 1_000]);
+    });
+
+    it('restarts the five-second GMS settle interval after a failed process read', async () => {
+      let processReads = 0;
+      bootAnswers(command => {
+        if (!command.startsWith('pgrep')) return undefined;
+        processReads += 1;
+        return processReads === 3 ? { error: new Error('process restarted') } : { stdout: '4242' };
+      });
+      let settled = false;
+      const ready = new EmulatorControl().ensureBooted(SERIAL).then(() => {
+        settled = true;
+      });
+      await jest.advanceTimersByTimeAsync(7_000);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await ready;
+      expect(settled).toBe(true);
+      expect(processReads).toBe(9);
+    });
+  });
 
   describe('terminate', () => {
     it('force-stops, then waits until the task has left the hierarchy', async () => {

@@ -21,6 +21,7 @@ import {
   getEvmUsdcAddress,
   getMidenUsdc,
   selectEarnMarket,
+  selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
   selectInviteOnlyOnboarding,
   selectMidenUsdc,
@@ -267,6 +268,14 @@ describe('selectors', () => {
     expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: false } }))).toBe(false);
     expect(selectInviteOnlyOnboarding(snapshot())).toBeNull();
     expect(selectInviteOnlyOnboarding(EMPTY)).toBeNull();
+  });
+
+  it('selects the bridge-in balance ceiling the document sets, and null when it sets none', () => {
+    expect(selectBridgeInMaxBalanceUsd(snapshot({ ...CONFIG, limits: { bridgeInMaxBalanceUsd: 1232.462 } }))).toBe(
+      1232.462
+    );
+    expect(selectBridgeInMaxBalanceUsd(snapshot())).toBeNull();
+    expect(selectBridgeInMaxBalanceUsd(EMPTY)).toBeNull();
   });
 });
 

@@ -1,8 +1,6 @@
 name: Swap E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: swap-e2e-${{ github.ref }}
@@ -12,7 +10,7 @@ permissions:
   # The linked-PR injections list a dispatched branch's open pull request and read its description.
   pull-requests: read
 jobs:
-  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # Heavy job runs on workflow_dispatch (Release E2E's nightly on main), not on pull_request.
   # The workflow still triggers on PRs so swap-e2e-gate (the required check) can
   # report green when the suite is skipped. A swap regression is caught on the
   # merge commit, not on every PR.
@@ -171,9 +169,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip on main pushes and manual verification runs;
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
         # on PRs, upload only when the run failed.
-        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: swap-e2e-report
           path: test-results/

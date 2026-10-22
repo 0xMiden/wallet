@@ -189,6 +189,10 @@
   "transactionNotConfirmedHint": "Le portefeuille n’a pas pu confirmer si cette opération a abouti. Elle pourrait encore se terminer ; vérifiez donc le portefeuille après sa synchronisation avant de réessayer.",
   "transactionUndeterminedHint": "Le portefeuille n’a pas pu déterminer si cette opération a abouti et ne la vérifie pas. Vérifiez le portefeuille avant de réessayer.",
   "transactionRestoredHint": "Cette opération a été restaurée à partir d’une sauvegarde ; le portefeuille ne peut donc pas vérifier si elle a abouti ni la réessayer. Vérifiez le portefeuille avant de répéter l’opération.",
+  "submissionInterrupted": "La connexion a été interrompue pendant l’envoi de cette demande. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle pourrait tout de même aboutir ; veuillez donc vérifier avant de réessayer.",
+  "submissionRejectedByGuardian": "Votre « Guardian » a refusé cette soumission. Réessayez.",
+  "submissionRejectedByNetwork": "Le réseau a rejeté cette soumission. Veuillez réessayer.",
+  "submissionUnanswered": "Aucune réponse n’a été reçue suite à cette soumission. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle peut encore aboutir, veuillez donc vérifier avant de réessayer.",
   "showFullError": "Afficher l'erreur complète",
   "hideFullError": "Masquer l'erreur complète",
   "noteDeliveryPendingTitle": "Livraison non confirmée",
@@ -1175,6 +1179,8 @@
   "bridgeDepositFailed": "Échec du dépôt via le pont",
   "bridgeDepositBalanceTooLow": "Votre portefeuille connecté contient $balance$ $token$ sur $network$, ce qui est inférieur au montant requis pour ce dépôt. Rien n’a été envoyé.",
   "bridgeDepositBalanceReadFailed": "Impossible de vérifier le solde de votre $token$ sur $network$. Rien n’a été envoyé.",
+  "bridgeDepositBalanceCapExceeded": "Ce compte peut contenir au maximum $cap$ USD. Il contient $held$ USD et ce dépôt ajoute $deposit$ USD. Saisissez un montant inférieur.",
+  "bridgeDepositBalanceCapUnpriced": "Ce compte peut contenir au maximum $cap$ USD, et $token$ n’a pas de cours pour le moment ; le dépôt ne peut donc pas être validé par rapport à ce montant. Veuillez réessayer plus tard.",
   "bridgeDepositSubmitted": "Pont lancé !",
   "bridgeDepositDeliveryDescription": "La transaction source est confirmée. Vos fonds apparaîtront sur Miden une fois la livraison via le pont terminée.",
   "viewOnEtherscan": "Consulter sur Etherscan",
@@ -1587,5 +1593,7 @@
   "walletAccessRestrictedTitle": "Portefeuille indisponible dans votre région",
   "walletAccessRestrictedBody": "Le portefeuille n’est pas disponible depuis votre position actuelle.",
   "walletAccessUnavailableTitle": "Impossible de vérifier la disponibilité",
-  "walletAccessUnavailableBody": "Vérifiez votre connexion et réessayez."
+  "walletAccessUnavailableBody": "Vérifiez votre connexion et réessayez.",
+  "runtimeUnsupportedTitle": "Ce navigateur ou cet appareil ne peut pas exécuter le portefeuille",
+  "runtimeUnsupportedBody": "Le portefeuille nécessite WebAssembly SIMD, ce que ce navigateur ou cet appareil ne prend pas en charge. Ouvrez le portefeuille sur un autre appareil ou dans un navigateur à jour."
 }

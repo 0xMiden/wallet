@@ -957,6 +957,22 @@
     "message": "이 작업은 백업에서 복원된 것이므로, 지갑은 작업이 정상적으로 완료되었는지 확인하거나 재시도할 수 없습니다. 작업을 반복하기 전에 지갑 상태를 확인하십시오.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "이 내용을 제출하는 도중 연결이 끊어졌습니다. 지갑에서는 전송이 완료되었는지 확인할 수 없습니다. 여전히 완료될 수 있으므로, 다시 시도하기 전에 확인해 주십시오.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "귀하의 Guardian가 이 제출을 거부했습니다. 다시 시도해 주십시오.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "네트워크에서 이 제출을 거부했습니다. 다시 시도해 주세요.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "이 제출에 대한 응답이 돌아오지 않았습니다. 지갑에서는 제출이 정상적으로 처리되었는지 확인할 수 없습니다. 아직 완료될 수 있으므로, 다시 시도하기 전에 확인해 보십시오.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "전체 오류 보기",
     "englishSource": "Show full error"
@@ -5260,6 +5276,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "이 계좌에는 최대 $cap$ USD까지 보관할 수 있습니다. 현재 $held$ USD가 예치되어 있으며, 이번 입금으로 $deposit$ USD가 추가됩니다. 더 적은 금액을 입력하십시오.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "이 계좌는 최대 $cap$ USD까지 보유할 수 있으며, 현재 $token$의 가격이 없으므로 입금액을 해당 토큰 기준으로 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "브릿지 시작되었습니다!",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7221,13 @@
   "walletAccessUnavailableBody": {
     "message": "연결을 확인하고 다시 시도해 주세요.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "이 브라우저나 기기에서는 지갑을 실행할 수 없습니다.",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

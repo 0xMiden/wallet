@@ -189,6 +189,10 @@
   "transactionNotConfirmedHint": "Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamadı. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce cüzdanın senkronizasyonu tamamlandıktan sonra kontrol edin.",
   "transactionUndeterminedHint": "Cüzdan, işlemin başarılı olup olmadığını belirleyemedi ve bunu kontrol etmiyor. Tekrar denemeden önce cüzdanı kontrol edin.",
   "transactionRestoredHint": "Bu işlem bir yedekten geri yüklendi, bu nedenle cüzdan işlemin başarılı olup olmadığını kontrol edemez veya yeniden deneme yapamaz. Tekrar etmeden önce cüzdanı kontrol edin.",
+  "submissionInterrupted": "Bu işlem gönderilirken bağlantı kesildi. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu yüzden tekrar denemeden önce kontrol edin.",
+  "submissionRejectedByGuardian": "Guardian'ınız bu gönderimi reddetti. Lütfen tekrar deneyin.",
+  "submissionRejectedByNetwork": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
+  "submissionUnanswered": "Bu gönderimden herhangi bir yanıt alınamadı. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce kontrol edin.",
   "showFullError": "Hatanın tamamını göster",
   "hideFullError": "Hatanın tamamını gizle",
   "noteDeliveryPendingTitle": "Teslimat onaylanmadı",
@@ -1175,6 +1179,8 @@
   "bridgeDepositFailed": "Köprü yatırımı başarısız oldu",
   "bridgeDepositBalanceTooLow": "Bağlı cüzdanınızda $balance$ tutarında $token$, $network$ ağında bulunmaktadır; bu tutar, bu para yatırma işlemi için gereken miktardan daha azdır. Hiçbir şey gönderilmedi.",
   "bridgeDepositBalanceReadFailed": "$network$ ağındaki $token$ bakiyenizi kontrol edilemedi. Hiçbir şey gönderilmedi.",
+  "bridgeDepositBalanceCapExceeded": "Bu hesap en fazla $cap$ USD tutabilir. Şu anda $held$ USD tutmaktadır ve bu para yatırma işlemiyle $deposit$ USD eklenecektir. Daha düşük bir tutar girin.",
+  "bridgeDepositBalanceCapUnpriced": "Bu hesap en fazla $cap$ USD tutabilir ve $token$'ın şu anda bir fiyatı bulunmadığından, para yatırma işlemi bu değerle karşılaştırılamaz. Daha sonra tekrar deneyin.",
   "bridgeDepositSubmitted": "Köprü başlatıldı!",
   "bridgeDepositDeliveryDescription": "Kaynak işlem onaylandı. Köprü aktarımı tamamlandığında paranız Miden'de görünecektir.",
   "viewOnEtherscan": "Etherscan'da görüntüle",
@@ -1587,5 +1593,7 @@
   "walletAccessRestrictedTitle": "Cüzdan bölgenizde kullanılamıyor",
   "walletAccessRestrictedBody": "Cüzdan bulunduğunuz konumda kullanılamıyor.",
   "walletAccessUnavailableTitle": "Kullanılabilirlik kontrol edilemedi",
-  "walletAccessUnavailableBody": "Bağlantınızı kontrol edip tekrar deneyin."
+  "walletAccessUnavailableBody": "Bağlantınızı kontrol edip tekrar deneyin.",
+  "runtimeUnsupportedTitle": "Bu tarayıcı veya cihaz cüzdanı çalıştıramıyor",
+  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın."
 }

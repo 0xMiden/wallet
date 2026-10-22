@@ -189,6 +189,10 @@
   "transactionNotConfirmedHint": "钱包无法确认此操作是否已成功。该操作仍可能完成，因此请在再次尝试前，待钱包同步完成后检查其状态。",
   "transactionUndeterminedHint": "钱包无法确定此操作是否成功，且不会进行验证。请检查钱包后再尝试。",
   "transactionRestoredHint": "此次是从备份中恢复的，因此钱包无法检查操作是否成功，也无法重试。请在重复操作前检查钱包。",
+  "submissionInterrupted": "提交过程中连接中断。钱包无法确认操作是否成功。该操作仍可能完成，因此请先检查后再尝试。",
+  "submissionRejectedByGuardian": "您的Guardian拒绝了此提交。请重试。",
+  "submissionRejectedByNetwork": "该网络拒绝了此提交。请重试。",
+  "submissionUnanswered": "此次提交未收到任何响应。钱包无法确认提交是否成功。该操作仍可能完成，因此请在重试前先进行确认。",
   "showFullError": "显示完整错误信息",
   "hideFullError": "隐藏完整错误信息",
   "noteDeliveryPendingTitle": "交付未确认",
@@ -1175,6 +1179,8 @@
   "bridgeDepositFailed": "桥接存款失败",
   "bridgeDepositBalanceTooLow": "您已连接的钱包在$network$上持有$balance$的$token$，该金额低于本次存款所需。未发送任何资金。",
   "bridgeDepositBalanceReadFailed": "无法在$network$上查询您的$token$余额。未发送任何内容。",
+  "bridgeDepositBalanceCapExceeded": "该账户最多可持有$cap$美元。当前持有$held$美元，本次存款将增加$deposit$美元。请输入较小的金额。",
+  "bridgeDepositBalanceCapUnpriced": "该账户最多可持有$cap$美元，且$token$当前无价格，因此无法根据该代币核对存款。请稍后再试。",
   "bridgeDepositSubmitted": "桥接已启动！",
   "bridgeDepositDeliveryDescription": "源交易已确认。当跨链转账完成后，您的资金将显示在 Miden 上。",
   "viewOnEtherscan": "在 Etherscan 上查看",
@@ -1587,5 +1593,7 @@
   "walletAccessRestrictedTitle": "你所在地区无法使用钱包",
   "walletAccessRestrictedBody": "你当前所在位置无法使用钱包。",
   "walletAccessUnavailableTitle": "无法检查可用性",
-  "walletAccessUnavailableBody": "请检查网络连接后重试。"
+  "walletAccessUnavailableBody": "请检查网络连接后重试。",
+  "runtimeUnsupportedTitle": "此浏览器或设备无法运行该钱包",
+  "runtimeUnsupportedBody": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。"
 }

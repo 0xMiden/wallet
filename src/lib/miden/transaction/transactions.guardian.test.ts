@@ -41,6 +41,7 @@ import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mo
 import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { WalletAccount } from 'lib/shared/types';
 import { captureDiagnosticLog } from 'lib/telemetry/crash';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { _resetDiagnosticLogLimitsForTest } from 'lib/telemetry/diagnostic-log';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -365,6 +366,7 @@ function mockParseAccountRef(id: string) {
   const parsed = /^0x/i.test(ref) ? ref.toLowerCase() : ref;
   return { toString: () => `sdk-${parsed}` };
 }
+const mockRandomFeeSalt = jest.fn((): unknown => 'SALT');
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => {
     if (id.includes('_') || /^0x/i.test(id)) throw new Error(`Invalid bech32 account: ${id}`);
@@ -376,7 +378,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
   // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
   // nothing downstream inspects it.
-  randomFeeSalt: () => 'SALT',
+  randomFeeSalt: () => mockRandomFeeSalt(),
   // Mirrors the real helper, so each test sees exactly which account and salt reach the SDK.
   feeAwareRequestBuilder: (
     client: {
@@ -409,9 +411,24 @@ jest.mock('../sdk/native-prover-mobile', () => ({
 // The offscreen leaf, reached only while a test turns the offscreen client on; the proxy's own reads stay inline,
 // since it reads the flag once, at load.
 const mockDispatchGuardianPipeline = jest.fn();
+
+// The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
+// gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it.
+const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
+  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+  try {
+    const result = await mockDispatchGuardianPipeline(...a);
+    await gate?.();
+    return result;
+  } catch (error) {
+    if (!hasErrorBeforeSubmit(error)) await gate?.();
+    throw error;
+  }
+};
 jest.mock('../back/miden-client-proxy', () => ({
   ...jest.requireActual('../back/miden-client-proxy'),
-  dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a)
+  dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a)
 }));
 jest.mock('../back/offscreen-prover', () => ({
   ...jest.requireActual('../back/offscreen-prover'),
@@ -2411,6 +2428,87 @@ describe('generateTransaction — Guardian routing', () => {
         ['operation_step', 'proposal_execute', 'failed'],
         ['operation_end', undefined, 'failed']
       ]);
+    });
+
+    // The crash diagnostics of the same steps (Sentry BREAD-WALLET-35): the error the swap fails with carries the
+    // preparation step, and nothing from its message.
+    const privateSwapFailure = () =>
+      new Error(`swap of 987654321 for ${PRIVATE_ADDRESS} at 0x${'cd'.repeat(32)} via https://private.example/path`);
+
+    const rejectRequestWrite = (when: (row: Record<string, unknown>) => boolean, error: Error) => {
+      const repo: { transactions: { where: jest.Mock } } = jest.requireMock('lib/miden/repo');
+      const where = repo.transactions.where.getMockImplementation();
+      repo.transactions.where.mockImplementation((query: { id: string }) => ({
+        ...where?.(query),
+        modify: jest.fn(async (fn: (tx: Record<string, unknown>) => void) => {
+          const row = txStore.find(r => r.id === query.id);
+          if (!row) return;
+          const draft = { ...row };
+          fn(draft);
+          if (draft.requestBytes !== row.requestBytes && when(row)) throw error;
+          fn(row);
+        })
+      }));
+      return () => repo.transactions.where.mockImplementation(where);
+    };
+
+    it('names a failed swap request build on the error the swap fails with', async () => {
+      const { run, newPswapCreateTransactionRequest, multisigService } = arrangeSwap();
+      const error = privateSwapFailure();
+      newPswapCreateTransactionRequest.mockRejectedValueOnce(error);
+      await run();
+      expect(txStore[0]?.status).toBe(ITransactionStatus.Failed);
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_build' });
+      expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+    });
+
+    it('names a failed fee salt of a new swap request as the swap request build', async () => {
+      const { run, newPswapCreateTransactionRequest } = arrangeSwap();
+      const error = privateSwapFailure();
+      mockRandomFeeSalt.mockImplementationOnce(() => {
+        throw error;
+      });
+      await run();
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_build' });
+      expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
+    });
+
+    it('names a failed write of the built swap request before any proposal', async () => {
+      const { run, multisigService } = arrangeSwap();
+      const error = privateSwapFailure();
+      const restore = rejectRequestWrite(row => row.requestBytes === undefined, error);
+      try {
+        await run();
+      } finally {
+        restore();
+      }
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'swap_request_persist' });
+      expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+    });
+
+    it('names a failed write of the rebased request after the proposal returned', async () => {
+      const { run, multisigService } = arrangeSwap();
+      const error = privateSwapFailure();
+      const restore = rejectRequestWrite(row => row.requestBytes !== undefined, error);
+      try {
+        await run();
+      } finally {
+        restore();
+      }
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'rebased_request_persist' });
+    });
+
+    it('builds nothing for a swap that already has its request, so no build step is named', async () => {
+      const { transaction, run, newPswapCreateTransactionRequest, multisigService } = arrangeSwap();
+      Object.assign(transaction, { requestBytes: new Uint8Array([7]) });
+      txStore.length = 0;
+      txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+      const error = privateSwapFailure();
+      multisigService.createRebasedCustomProposal.mockRejectedValueOnce(error);
+      await run();
+      expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(snapshotCrashDiagnostics(error).proposalStep).not.toBe('swap_request_build');
     });
 
     it('records nothing for a Guardian transaction other than a swap', async () => {
@@ -6298,7 +6396,7 @@ describe('generateTransaction — Guardian routing', () => {
         ],
         [
           'on',
-          'leaves no mark, since an offscreen attempt never marks',
+          'records the mark too, since its submit gate never opened (#1644)',
           () => {
             process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
             // Tagged as the offscreen leaf tags a failure before its submit (Task 8). Untagged, the attempt may have
@@ -6308,8 +6406,8 @@ describe('generateTransaction — Guardian routing', () => {
             );
           },
           1,
-          () => expect(getGuardianCandidate('guardian-acc')).toBeUndefined(),
-          1
+          () => expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 }),
+          2
         ]
       ])(
         'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s %s',
@@ -9145,6 +9243,67 @@ describe('generateTransaction — Guardian routing', () => {
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Guardian switched');
+  });
+
+  // #1644: the offscreen leaf submits only through a gate this worker opens, so the direct switch passes one too.
+  it('Guardian switch-guardian: the offscreen direct switch dispatches with a submit gate that opens', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    try {
+      const txId = 'switch-guardian-direct-offscreen';
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+      mockCreateDirectSwitchRequest.mockResolvedValue({
+        serialize: () => new Uint8Array([2]),
+        authArg: () => undefined
+      });
+      mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      let gateAnswer: boolean | undefined;
+      // An earlier test's unconsumed one-shot answer would otherwise stand in for this implementation.
+      mockDispatchGuardianPipeline.mockReset();
+      mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+        const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+        expect(gate).toBeDefined();
+        gateAnswer = await gate?.();
+        throw new Error('stop after the gate');
+      });
+      const provider = {
+        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: jest.fn(async () => 'sig')
+      };
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      expect(gateAnswer).toBe(true);
+      expect(txStore.find(r => r.id === txId)?.mayHaveSubmitted).toBe(true);
+    } finally {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    }
   });
 
   it('Guardian switch-guardian: OLD guardian unreachable at cold co-sign → direct fallback (proposal already pushed)', async () => {

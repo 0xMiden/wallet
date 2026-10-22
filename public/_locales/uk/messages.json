@@ -957,6 +957,22 @@
     "message": "Це було відновлено з резервної копії, тому гаманець не може перевірити, чи операція пройшла успішно, або повторити її. Перевірте гаманець, перш ніж повторювати операцію.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "Під час надсилання цього повідомлення з’єднання було втрачено. Гаманець не може підтвердити, чи було воно успішно надіслано. Можливо, процес ще завершиться, тому перевірте, перш ніж спробувати ще раз.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Ваш «Guardian» відхилив цю заявку. Спробуйте ще раз.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "Мережа відхилила цю заявку. Спробуйте ще раз.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "Відповіді на це подання не надійшло. Гаманець не може підтвердити, чи пройшло воно успішно. Можливо, операція ще завершиться, тому перевірте, перш ніж спробувати ще раз.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "Показати повний текст помилки",
     "englishSource": "Show full error"
@@ -5260,6 +5276,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Цей рахунок може містити не більше $cap$ доларів США. На ньому знаходиться $held$ доларів США, і цей депозит додає $deposit$ доларів США. Введіть меншу суму.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Цей рахунок може містити не більше $cap$ доларів США, а $token$ наразі не має ціни, тому депозит не можна перевірити за ним. Спробуйте пізніше.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Міст ініційовано!",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7221,13 @@
   "walletAccessUnavailableBody": {
     "message": "Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Цей браузер або пристрій не підтримує роботу гаманця",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

@@ -1,5 +1,5 @@
 import * as binance from './binance';
-import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket } from './feed';
+import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket, usdMarketPending } from './feed';
 import * as kraken from './kraken';
 
 jest.mock('./binance');
@@ -121,5 +121,32 @@ describe('hasNoUsdMarket', () => {
     expect(hasNoUsdMarket('KRAKENRETRY')).toBe(false);
     await fetchTokenPrices(['KRAKENRETRY']);
     expect(hasNoUsdMarket('KRAKENRETRY')).toBe(true);
+  });
+});
+
+describe('usdMarketPending', () => {
+  it('is true until Binance and Kraken have both ruled the market out', async () => {
+    primary.isListedSymbol.mockReturnValue(true);
+    expect(usdMarketPending('PENDINGBOTH')).toBe(true);
+    primary.isListedSymbol.mockReturnValue(false);
+    expect(usdMarketPending('PENDINGBOTH')).toBe(true);
+    await fetchTokenPrices(['PENDINGBOTH']);
+    expect(usdMarketPending('PENDINGBOTH')).toBe(false);
+  });
+
+  it('stays true while Kraken lists the market or its lookup failed', async () => {
+    primary.isListedSymbol.mockReturnValue(false);
+    fallback.findKrakenUsdMarket.mockResolvedValueOnce('KRAKENLISTEDUSD').mockRejectedValueOnce(new Error('offline'));
+    await fetchTokenPrices(['KRAKENLISTED', 'KRAKENFAILED']);
+    expect(usdMarketPending('KRAKENLISTED')).toBe(true);
+    expect(usdMarketPending('KRAKENFAILED')).toBe(true);
+  });
+
+  it('waits on Binance alone for a symbol the feed never sends to Kraken, and on nothing without a symbol', () => {
+    primary.isListedSymbol.mockReturnValue(true);
+    expect(usdMarketPending('bad/pair')).toBe(true);
+    primary.isListedSymbol.mockReturnValue(false);
+    expect(usdMarketPending('bad/pair')).toBe(false);
+    expect(usdMarketPending(undefined)).toBe(false);
   });
 });

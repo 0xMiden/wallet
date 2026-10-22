@@ -20,13 +20,14 @@ name: E2E USDCx Bridge-IN (live)
 # starts it as a local process.
 #
 # E2E Bridge-IN (e2e-bridge-in.yml) covers the AggLayer deposit UI and the Reown
-# pairing hermetically on every push to main. These jobs cover what that suite cannot:
+# pairing hermetically in Release E2E. These jobs cover what that suite cannot:
 # Circle's real contracts, its attestation and forward, and the mint.
 #
 # It spends real Arc Testnet USDC, USDC and ETH on the three source chains, and
 # public faucet USDCx on each run, and it depends on Circle's service, the relayer
-# and the faucet, so it runs after every push to main, nightly and on demand, and
-# is never a per-PR gate.
+# and the faucet, so it runs nightly on its own cron (Release E2E's nightly leaves
+# it to that cron), on demand and in Release E2E's release runs, and is never a
+# per-PR gate.
 #
 # Required configuration:
 #   secrets.USDCX_LIVE_EVM_PRIVATE_KEY        the deposit key: USDC on Arc Testnet (its gas token too), and
@@ -44,9 +45,6 @@ name: E2E USDCx Bridge-IN (live)
 # download and set USDCX_RELAYER_BIN.
 
 on:
-  push:
-    branches:
-      - main
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
