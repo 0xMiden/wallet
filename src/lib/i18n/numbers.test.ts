@@ -2,6 +2,7 @@ import BigNumber from 'bignumber.js';
 import i18n from 'i18next';
 
 import { isDisplayable } from './adaptive-precision';
+import * as numbers from './numbers';
 import {
   toLocalFormat,
   getPluralKey,
@@ -17,6 +18,9 @@ import {
   usdFormatterFor,
   MAX_DISPLAY_DECIMAL_PLACES
 } from './numbers';
+
+const stringToBigIntExact =
+  (numbers as typeof numbers & { stringToBigIntExact?: typeof stringToBigInt }).stringToBigIntExact ?? stringToBigInt;
 
 // `toShortened` delegates the thousand/million/billion labelling to i18next's
 // `t()`. In the unit environment i18next is never `init()`-ed, so we mock the
@@ -304,6 +308,22 @@ describe('stringToBigInt', () => {
     ['a currency symbol', '$5']
   ])('throws on %s, which callers rely on to mean "not a valid amount yet"', (_label, input) => {
     expect(() => stringToBigInt(input as string, 2)).toThrow();
+  });
+});
+
+describe('stringToBigIntExact', () => {
+  it('accepts amounts at token precision and redundant trailing zeroes', () => {
+    expect(stringToBigIntExact('1.23', 2)).toBe(123n);
+    expect(stringToBigIntExact('1.2300', 2)).toBe(123n);
+  });
+
+  it('rejects nonzero fractional digits beyond token precision', () => {
+    expect(() => stringToBigIntExact('1.231', 2)).toThrow(RangeError);
+  });
+
+  it('rejects a fractional amount for a zero-decimal token', () => {
+    expect(stringToBigIntExact('2.000', 0)).toBe(2n);
+    expect(() => stringToBigIntExact('2.001', 0)).toThrow(RangeError);
   });
 });
 

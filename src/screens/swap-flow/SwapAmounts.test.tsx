@@ -91,6 +91,17 @@ jest.mock('components/Button', () => ({
 //     swapTokenToUIToken transformation, and two buttons surface the
 //     onAmountChange / onSelectToken callbacks.
 let mockRealAmountDisplay = false;
+let mockCapturePrecision = false;
+jest.mock('components/AmountInput', () => ({
+  ...jest.requireActual('components/AmountInput'),
+  AmountInput: (props: any) => {
+    if (mockCapturePrecision) {
+      return <div data-testid="captured-amount-input" data-label={props.label} data-decimals-limit={props.decimalsLimit} />;
+    }
+    const { AmountInput } = jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput');
+    return <AmountInput {...props} />;
+  }
+}));
 jest.mock('../send-flow/SelectAmount', () => ({
   SelectAmount: (props: any) => {
     if (mockRealAmountDisplay) {
@@ -176,6 +187,27 @@ describe('SwapAmounts', () => {
   });
 
   describe('layout & token mapping', () => {
+    it('passes each selected token precision to its amount input', () => {
+      mockRealAmountDisplay = true;
+      mockCapturePrecision = true;
+      try {
+        renderComponent({
+          offerToken: { ...offerToken, decimals: 9 },
+          requestToken: { ...requestToken, decimals: 2 }
+        });
+
+        const inputs = screen.getAllByTestId('captured-amount-input');
+        expect(inputs).toHaveLength(2);
+        expect(inputs[0]).toHaveAttribute('data-label', 'youPay');
+        expect(inputs[0]).toHaveAttribute('data-decimals-limit', '9');
+        expect(inputs[1]).toHaveAttribute('data-label', 'youReceive');
+        expect(inputs[1]).toHaveAttribute('data-decimals-limit', '2');
+      } finally {
+        mockCapturePrecision = false;
+        mockRealAmountDisplay = false;
+      }
+    });
+
     it('renders both stacked SelectAmount fields (You Pay / You Receive), embedded', () => {
       renderComponent();
 
