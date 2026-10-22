@@ -43,6 +43,8 @@ export interface VersionedDocumentSpec<T extends { version: number }> {
   timeoutMs: number;
   /** The document for `network`, or null when it does not validate. Called on every read, a stored one included. */
   parse: (body: unknown, network: string) => T | null;
+  /** Optional compatibility reader for already persisted bodies; never used to accept a fetched response. */
+  parseStored?: (body: unknown, network: string) => T | null;
 }
 
 export interface AcceptedDocument<T> {
@@ -117,7 +119,7 @@ export function versionedDocumentSource<T extends { version: number }>(
       }
       const entry = readTimestampedEntry(stored[spec.cacheKey(network)]);
       if (!entry) return null;
-      const document = spec.parse(entry.body, network);
+      const document = (spec.parseStored ?? spec.parse)(entry.body, network);
       if (!document) return null;
       // Only a write racing a newer acceptance could leave one below the floor; it is never served.
       const floor = readFloors(stored[spec.floorKey])[network] ?? 0;
@@ -154,7 +156,7 @@ export function versionedDocumentSource<T extends { version: number }>(
         // version is open again: every reset wipes Explore's document, only Developer Settings' reset wipes the bridge
         // config's, and every reset keeps both floors.
         const entry = readTimestampedEntry(stored[spec.cacheKey(network)]);
-        const accepted = entry ? spec.parse(entry.body, network) : null;
+        const accepted = entry ? (spec.parseStored ?? spec.parse)(entry.body, network) : null;
         if (entry && accepted?.version === document.version && !isEqual(entry.body, body)) {
           throw new Error(
             `the ${network} ${spec.label} version ${document.version} differs from the accepted document`

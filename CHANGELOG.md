@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [CHANGE][all] Add native Arcade discovery and game details, catalog-scoped Activity, and unavailable GC balance/ranking pages. Explore reads versioned Finance/Arcade/Others catalogs from wallet-config while preserving cached fallbacks and version floors (#1452).
+
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
@@ -155,6 +157,7 @@
 - [CHANGE][ci] The dApp E2E harness also checks transaction scripts the dApp compiles itself on single-sig and Guardian accounts: a payment through the basic wallet, one that first checks its script argument and an advice value, and a fee-only script.
 - [CHANGE][ci] The dApp E2E harness also drives the wallet through the published React adapter on single-sig and Guardian accounts: a React page on its own origin, on React 18.2 loaded without a bundler, wraps the dApp in WalletProvider and MidenFiSignerProvider and checks select, connect, auto-connect, disconnect, the React layer's own refusals, account switches and revokes, a send to the end, the MidenFi signer client and signature, and the createAccount refusal.
 - [CHANGE][all] Use native USDCx for new Testnet Earn deposits and remove Epoch USDC from send and receive choices, preserving existing positions and transfer recovery.
+
 
 ## 1.17.4 (2026-10-15)
 

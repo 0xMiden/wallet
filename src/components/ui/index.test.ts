@@ -47,6 +47,7 @@ import { Popover } from './Popover';
 import { ProgressMeter } from './ProgressMeter';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
+import { QuickActionButton } from './QuickActionButton';
 import { SearchInput } from './SearchInput';
 import { SectionHeader } from './SectionHeader';
 import { SeedPhraseGrid } from './SeedPhraseGrid';
@@ -99,6 +100,7 @@ describe('components/ui barrel', () => {
     ProgressMeter,
     PromptCard,
     PromptCarousel,
+    QuickActionButton,
     AssetListItem,
     AssetListItemSkeleton,
     SegmentedActionBar,

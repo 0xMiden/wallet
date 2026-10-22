@@ -132,12 +132,13 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
 // The chips above the activity list. `pending` shows the notes that wait for a
 // claim and the wallet's own transactions still in flight, so it removes every
 // settled history row. Each other chip but `all` is an `ActivityCategory`.
-export type ActivityFilter = 'all' | 'pending' | 'transfer' | 'swap' | 'earn' | 'others';
+export type ActivityFilter = 'all' | 'pending' | 'transfer' | 'swap' | 'earn' | 'others' | 'arcade';
 
 /** Whether a row shows under a filter chip. */
 function matchesActivityFilter(filter: ActivityFilter, entry: IHistoryEntry): boolean {
   switch (filter) {
     case 'all':
+    case 'arcade':
       return true;
     // Only rows still in flight; the settled rows kept for this key (and paged ones) stay out.
     case 'pending':
@@ -428,7 +429,7 @@ const History = memo<HistoryProps>(
     }
     if (filter && filter !== 'all') {
       // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
-      entries = entries.filter(e => matchesActivityFilter(filter, e));
+      entries = filter === 'arcade' && !predicate ? [] : entries.filter(e => matchesActivityFilter(filter, e));
     }
     // Last, so a group's page narrows what the search and the filter already left.
     if (predicate) {
@@ -526,6 +527,7 @@ async function fetchTransactionsAsHistoryEntries(
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
+      dappOrigins: tx.dappOrigins,
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
@@ -631,6 +633,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
+      dappOrigins: tx.dappOrigins,
       address: address,
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,
