@@ -264,14 +264,23 @@ async function waitForSessionChain(
   const finished = new Promise<void>(resolve => {
     finish = () => resolve();
   });
-  const observe = (next: ReownState) => {
+  const apply = (next: ReownState, fromEvent: boolean) => {
     sawState = true;
     // A slower re-read that lacks the chain does not replace a state that approved it.
-    if (sessionApproves(latest, chainId)) return;
+    // A session event does: a deletion after an approval must not be pinned to the old snapshot.
+    if (!fromEvent && sessionApproves(latest, chainId) && !sessionApproves(next, chainId)) return;
     latest = next;
-    if (sessionApproves(next, chainId)) finish();
+    if (sessionApproves(latest, chainId)) finish();
   };
-  watch.onEvent = observe;
+  watch.onEvent = next => apply(next, true);
+  // An approval that arrived before this wait must not sit for the whole deadline, and a deletion
+  // that lands before that settlement still wins.
+  if (sessionApproves(latest, chainId)) {
+    if (watch.latest) sawState = true;
+    void Promise.resolve().then(() => {
+      if (sessionApproves(latest, chainId)) finish();
+    });
+  }
 
   let polling = true;
   let poll: ReturnType<typeof setTimeout> | undefined;
@@ -283,7 +292,7 @@ async function waitForSessionChain(
     if (!newer) {
       // A failed re-read is not a session observation: the last state stands, and the attempt records that it was unread.
       if (next.unread) sawUnread = true;
-      else observe(next.state);
+      else apply(next.state, false);
     }
     if (polling) poll = setTimeout(() => void reread(), NATIVE_SESSION_CHAIN_POLL_MS);
   };
