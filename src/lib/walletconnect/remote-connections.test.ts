@@ -11,7 +11,11 @@ interface ListenerHandle {
   remove: jest.Mock<Promise<void>, []>;
 }
 const addListener = jest.fn<Promise<ListenerHandle>, [string, unknown]>();
-const getNativeState = jest.fn(async () => ({ configured: true, connected: false, accounts: [] }));
+const getNativeState = jest.fn<Promise<ReownState>, []>(async () => ({
+  configured: true,
+  connected: false,
+  accounts: []
+}));
 const newHandle = (): ListenerHandle => ({ remove: jest.fn(async () => {}) });
 
 jest.mock('lib/remote-config/runtime', () => ({
