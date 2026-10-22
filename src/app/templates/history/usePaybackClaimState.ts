@@ -28,14 +28,27 @@ export function usePaybackClaimState(transaction: ITransaction | undefined): Pay
     const read = async (): Promise<PaybackClaimState | null> =>
       swapRef.current ? getPaybackClaimState(swapRef.current) : null;
 
+    // A read lands only into the effect that started it, and a minute read never over a push that landed after it
+    // began, since the push saw the newer write.
+    let alive = true;
+    let pushCount = 0;
     const onError = (err: unknown) => console.error('[HistoryDetails] Failed to read the payout claim state:', err);
-    const unsubscribe = subscribeToLiveQuery(read, { next: setState, error: onError });
+    const next = (value: PaybackClaimState | null) => {
+      if (!alive) return;
+      pushCount++;
+      setState(value);
+    };
+    const unsubscribe = subscribeToLiveQuery(read, { next, error: onError });
     // A note hold can also end with time alone (a verdict entry past OTHER_NETWORK_GIVE_UP_SEC), which no write
     // announces, so the open receipt re-reads on a slow clock too.
     const timer = setInterval(() => {
-      read().then(setState, onError);
+      const pushesAtStart = pushCount;
+      read().then(value => {
+        if (alive && pushesAtStart === pushCount) setState(value);
+      }, onError);
     }, REREAD_MS);
     return () => {
+      alive = false;
       clearInterval(timer);
       unsubscribe();
     };

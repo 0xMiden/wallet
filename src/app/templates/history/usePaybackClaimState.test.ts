@@ -25,6 +25,7 @@ const swap = { id: 'swap-1', type: 'swap', status: ITransactionStatus.Completed 
 beforeEach(() => {
   mockObservers.length = 0;
   jest.clearAllMocks();
+  mockGetPaybackClaimState.mockReset();
 });
 
 describe('usePaybackClaimState', () => {
@@ -86,6 +87,58 @@ describe('usePaybackClaimState', () => {
       rerender({ row: { ...stamped, id: 'swap-2' } as ITransaction });
       expect(result.current).toBeNull();
       expect(mockUnsubscribe).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  const deferredReads = () => {
+    const resolvers: ((value: unknown) => void)[] = [];
+    mockGetPaybackClaimState.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolvers.push(resolve);
+        })
+    );
+    return resolvers;
+  };
+
+  it('does not apply a minute read after the swap id changes (F-012)', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredReads();
+      const { result, rerender } = renderHook(({ row }) => usePaybackClaimState(row), { initialProps: { row: swap } });
+      act(() => mockObservers[0].next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
+      act(() => {
+        jest.advanceTimersByTime(60_000);
+      });
+      expect(resolvers).toHaveLength(2);
+
+      rerender({ row: { ...swap, id: 'swap-2' } as ITransaction });
+      await act(async () => {
+        resolvers[1]({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
+        await Promise.resolve();
+      });
+      expect(result.current).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not let a minute read overwrite a live push that landed after it started (F-012)', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredReads();
+      const { result } = renderHook(() => usePaybackClaimState(swap));
+      act(() => {
+        jest.advanceTimersByTime(60_000);
+      });
+      act(() => mockObservers[0].next({ stuck: true, failedClaimId: 'claim-2', reason: 'network' }));
+      await act(async () => {
+        resolvers[1]({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
+        await Promise.resolve();
+      });
+      expect(result.current).toEqual({ stuck: true, failedClaimId: 'claim-2', reason: 'network' });
     } finally {
       jest.useRealTimers();
     }
