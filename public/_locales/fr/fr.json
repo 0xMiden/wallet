@@ -79,7 +79,7 @@
   "position": "Position",
   "withdraw": "Retrait",
   "homeDeposit": "Dépôt",
-  "homeDepositHint": "Into Miden",
+  "homeDepositHint": "Vers Miden",
   "homeWithdrawHint": "Hors de Miden",
   "earnDepositMore": "Ajouter des fonds",
   "earnWithdrawAmount": "Montant du retrait",

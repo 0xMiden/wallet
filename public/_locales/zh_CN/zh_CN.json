@@ -79,7 +79,7 @@
   "position": "持仓",
   "withdraw": "提现",
   "homeDeposit": "存款",
-  "homeDepositHint": "Into Miden",
+  "homeDepositHint": "转入 Miden",
   "homeWithdrawHint": "出自 Miden",
   "earnDepositMore": "存入更多",
   "earnWithdrawAmount": "提现金额",
