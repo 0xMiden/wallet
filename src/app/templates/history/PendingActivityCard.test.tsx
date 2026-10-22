@@ -254,6 +254,78 @@ describe('PendingActivityCard', () => {
       expect(onRetryHeld).toHaveBeenCalledWith(item);
     });
 
+    it('explains a refused, dropped, or unanswered submission on the closed card (#1689)', () => {
+      const onRetryHeld = jest.fn();
+      const onAccept = jest.fn();
+      const refused: PendingActivityItem = {
+        note,
+        status: 'claiming',
+        txId: 'tx-held',
+        held: true,
+        submission: {
+          kind: 'rejected',
+          messageKey: 'submissionRejectedByNetwork',
+          details: 'grpc request failed for submit_proven_transaction: invalid request parameters'
+        }
+      };
+      const { unmount } = render(<PendingActivityCard item={refused} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+      const notice = screen.getByTestId('pending-activity-submission');
+      expect(notice).toHaveTextContent('submissionRejectedByNetwork');
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(onRetryHeld).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetryHeld).toHaveBeenCalledTimes(1);
+      expect(onAccept).not.toHaveBeenCalled();
+      unmount();
+
+      const dropped = renderCard('claiming', {
+        held: true,
+        txId: 'tx-drop',
+        submission: { kind: 'interrupted', messageKey: 'submissionInterrupted' }
+      });
+      expect(screen.getByTestId('pending-activity-submission')).toHaveTextContent('submissionInterrupted');
+      expect(screen.getByTestId('pending-activity-submission')).toHaveAttribute('role', 'status');
+      expect(screen.getByRole('button', { name: 'retry' })).toHaveAttribute('aria-busy', 'false');
+      dropped.unmount();
+
+      renderCard('failed', { submission: { kind: 'unanswered', messageKey: 'submissionUnanswered' } });
+      expect(screen.getByTestId('pending-activity-submission')).toHaveTextContent('submissionUnanswered');
+      expect(screen.queryByText('noteClaimFailedRetry')).toBeNull();
+    });
+
+    it('offers Retry for a stored submission only on a held claim, the one its handler can act on (#1689)', () => {
+      const onRetryHeld = jest.fn();
+      const onAccept = jest.fn();
+      const submission = { kind: 'interrupted', messageKey: 'submissionInterrupted' } as const;
+      const inFlight: PendingActivityItem = { note, status: 'claiming', txId: 'tx-live', submission };
+      const { unmount } = render(<PendingActivityCard item={inFlight} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+      expect(screen.queryByRole('button', { name: 'retry' })).toBeNull();
+      const action = screen.getByRole('button', { name: 'activityAcceptingTransfer' });
+      expect(action).toHaveAttribute('aria-busy', 'true');
+      expect(screen.getByTestId('pending-activity-submission')).toHaveTextContent('submissionInterrupted');
+      fireEvent.click(action);
+      expect(onRetryHeld).not.toHaveBeenCalled();
+      expect(onAccept).not.toHaveBeenCalled();
+      unmount();
+
+      const heldItem: PendingActivityItem = { ...inFlight, held: true };
+      render(<PendingActivityCard item={heldItem} onAccept={onAccept} onRetryHeld={onRetryHeld} />);
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetryHeld).toHaveBeenCalledWith(heldItem);
+      expect(onAccept).not.toHaveBeenCalled();
+    });
+
+    it('says a stored submission sentence once on an open card, not again in the folded hint (#1689)', () => {
+      renderCard('claiming', {
+        held: true,
+        txId: 'tx-held',
+        submission: { kind: 'rejected', messageKey: 'submissionRejectedByNetwork' }
+      });
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getAllByText('submissionRejectedByNetwork')).toHaveLength(1);
+      expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('transactionNotConfirmedHint');
+    });
+
     it('a held claim without a refusal says it is not confirmed yet, not that it waits to be accepted (#1081)', () => {
       const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
       render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);

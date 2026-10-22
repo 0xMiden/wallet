@@ -5,8 +5,8 @@ name: E2E Android
 # regression that only reproduced on Android could ship without anything going
 # red.
 #
-# This runs the Android emulator suite on every push to main, mirroring what
-# e2e-blockchain.yml does for Chrome and iOS.
+# Release E2E (release-e2e.yml) dispatches the Android emulator suite nightly and
+# on each release, as it does e2e-blockchain.yml for Chrome and iOS.
 #
 # Why ubuntu and NOT macOS: the emulator needs hardware acceleration, and on
 # GitHub-hosted runners only Linux can give it. macos-26-xlarge was tried and the
@@ -43,9 +43,6 @@ name: E2E Android
 # rest and reuses an already-booted pair if one is present.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       network:

@@ -24,9 +24,6 @@ name: E2E dApp Browser
 # a follow-up rather than bundled into a new-suite PR.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'services/feature-eligibility/**'
+      - 'scripts/feature-eligibility-deploy-source.mjs'
       - '.github/workflows/**'
       - '.github/actions/start-eligibility-fixture/**'
       - 'scripts/feature-eligibility-fixture*'
@@ -83,5 +84,7 @@ jobs:
           .github/workflows/pr-e2e-local.yml
           .github/workflows/pr-e2e-swap.yml
           .github/workflows/pr.yml
+          .github/workflows/release-e2e.yml
+          .github/workflows/next-e2e-devnet.yml
           .github/workflows/ui-smoothness.yml
           .github/workflows/feature-eligibility.yml

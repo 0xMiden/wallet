@@ -957,6 +957,22 @@
     "message": "이 작업은 백업에서 복원된 것이므로, 지갑은 작업이 정상적으로 완료되었는지 확인하거나 재시도할 수 없습니다. 작업을 반복하기 전에 지갑 상태를 확인하십시오.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "이 내용을 제출하는 도중 연결이 끊어졌습니다. 지갑에서는 전송이 완료되었는지 확인할 수 없습니다. 여전히 완료될 수 있으므로, 다시 시도하기 전에 확인해 주십시오.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "귀하의 Guardian가 이 제출을 거부했습니다. 다시 시도해 주십시오.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "네트워크에서 이 제출을 거부했습니다. 다시 시도해 주세요.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "이 제출에 대한 응답이 돌아오지 않았습니다. 지갑에서는 제출이 정상적으로 처리되었는지 확인할 수 없습니다. 아직 완료될 수 있으므로, 다시 시도하기 전에 확인해 보십시오.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "전체 오류 보기",
     "englishSource": "Show full error"
