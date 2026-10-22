@@ -595,7 +595,7 @@ export class MultisigService {
   async signProposal(id: string, lockOptions?: Parameters<typeof withWasmClientLock>[1]): Promise<void> {
     // Signing syncs and previews with the same shared client as account creation.
     await withWasmClientLock(async hold => {
-      await this.multisig.signProposal(id);
+      await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
       assertWasmHoldCurrent(hold, 'guardian proposal signing');
     }, lockOptions);
   }
@@ -704,7 +704,7 @@ export class MultisigService {
     lockOptions?: Parameters<typeof withWasmClientLock>[1]
   ): Promise<TransactionRequest> {
     return withWasmClientLock(async hold => {
-      const proposal = await this.multisig.signProposal(id);
+      const proposal = await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
       assertWasmHoldCurrent(hold, 'guardian request: after proposal signing');
       if (proposal.metadata.proposalType === 'custom') {
         if (!requestBytes) {

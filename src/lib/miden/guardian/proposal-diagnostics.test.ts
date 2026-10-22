@@ -15,8 +15,11 @@ const mockRetireTrap = jest.fn();
 const mockBuildReclaim = jest.fn(async (..._args: unknown[]) => new Uint8Array([3, 4]));
 const mockConsumeProposal = jest.fn(async (..._args: unknown[]) => ({ id: 'private-proposal', nonce: 7 }));
 const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({ id: 'private-reclaim-proposal', nonce: 8 }));
+const mockSignProposal = jest.fn(async (..._args: unknown[]) => ({ metadata: { proposalType: 'consume_notes' } }));
 const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   accountId: 'private-account',
+  signProposal: (...args: unknown[]) => mockSignProposal(...args),
+  createTransactionProposalRequest: async () => 'private-request',
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
   createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args)
 }));
@@ -148,6 +151,29 @@ it('names the signer facts beside the step on a Guardian authentication refusal,
   mockConsumeProposal.mockRejectedValueOnce(other);
   await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(other);
   expect(snapshotCrashDiagnostics(other)).toEqual({ proposalStep: 'proposal_create' });
+});
+
+it('names the signer facts on a Guardian authentication refusal while signing, for either signing path', async () => {
+  const facts = { guardianSignerInSet: 'yes', guardianSigningKey: 'cold', hotKeyRotationPending: 'no' } as const;
+  const loaded = await service();
+  loaded.authFacts = facts;
+  for (const sign of [
+    () => loaded.signProposal('private-proposal'),
+    () => loaded.signAndCreateTransactionRequest('private-proposal')
+  ]) {
+    const refusal = Object.assign(privateFailure(), {
+      name: 'GuardianHttpError',
+      status: 401,
+      code: 'authentication_failed'
+    });
+    mockSignProposal.mockRejectedValueOnce(refusal);
+    await expect(sign()).rejects.toBe(refusal);
+    expect(snapshotCrashDiagnostics(refusal)).toEqual(facts);
+  }
+  const other = privateFailure();
+  mockSignProposal.mockRejectedValueOnce(other);
+  await expect(loaded.signProposal('private-proposal')).rejects.toBe(other);
+  expect(snapshotCrashDiagnostics(other)).toEqual({});
 });
 
 it('names the consume proposal rejection without wrapping the original Error', async () => {
