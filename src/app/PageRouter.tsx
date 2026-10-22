@@ -198,18 +198,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Arcade destinations are native Explore subpages, with the same wallet-ready guard.
   [
-    '/arcade/rankings',
-    onlyReady(() => (
-      <FullScreenPage entrance="slide">
-        <ArcadePage page="rankings" />
-      </FullScreenPage>
-    ))
-  ],
-  [
     '/arcade/coins',
     onlyReady(() => (
       <FullScreenPage entrance="slide">
-        <ArcadePage page="coins" />
+        <ArcadePage />
       </FullScreenPage>
     ))
   ],

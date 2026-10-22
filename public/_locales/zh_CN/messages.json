@@ -7417,5 +7417,100 @@
   "runtimeUnsupportedBody": {
     "message": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "该钱包的销毁脚本与 USDCx 的 faucet 不匹配。",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "swapSolverFeeNote": {
+    "message": "您的收款金额中已包含$percent$的解算费。",
+    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "游戏币",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "余额不可用",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "每周 10 GC",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "合作伙伴主网将于周一 00:00 UTC 重置。未使用的 GC 将结转至下周；缺失的周数不会累积。您需支付网络手续费。",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "正在核对每周津贴……",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "本周已申领。下次申领时间：$date$（UTC）。",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "日期不可用",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "无论您的余额多少，每周 10 GC 已为您准备就绪。",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "正在等待确认和收据。请先检查状态，然后再试一次。",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "该请求已确认失败。您可以重试。",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "该网络目前尚未配置每周奖励和 GC 余额功能。您仍可免费参与游戏。",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "申领 10 GC",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "本周声明",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "待收",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "重试申诉",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "检查状态",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "游戏、重播和社交分享均免费，无论您的 GC 余额多少。若要提交至本游戏的排行榜，需支付 1 GC 及网络手续费，费用由您承担。",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }

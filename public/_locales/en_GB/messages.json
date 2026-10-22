@@ -7417,5 +7417,100 @@
   "runtimeUnsupportedBody": {
     "message": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "The wallet's burn script does not match the USDCx faucet.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "swapSolverFeeNote": {
+    "message": "Your receive amount already includes a $percent$ solver fee.",
+    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Game Coins",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Balance unavailable",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "10 GC each week",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees.",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "Checking weekly allowance…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "Claimed this week. Next claim: $date$ UTC.",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "date unavailable",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "Your weekly 10 GC is ready, whatever your balance.",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "Awaiting confirmation and receipt. Check status before trying again.",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "The claim was confirmed unsuccessful. You can try again.",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "Weekly claims and GC balance are not configured for this network yet. You can still play for free.",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "Claim 10 GC",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "Claimed this week",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "Awaiting receipt",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "Retry claim",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "Check status",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you.",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }

@@ -11,7 +11,7 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { PromptCarousel } from 'components/ui/PromptCarousel';
 import { SectionHeader } from 'components/ui/SectionHeader';
-import { ARCADE_ACTIVITY_PATH, ARCADE_COINS_PATH, ARCADE_RANKINGS_PATH, arcadeDiscovery } from 'lib/arcade';
+import { ARCADE_ACTIVITY_PATH, ARCADE_COINS_PATH, arcadeDiscovery } from 'lib/arcade';
 import type { ExploreItem, ExploreView } from 'lib/dapp-browser';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { navigate } from 'lib/woozie';
@@ -36,6 +36,7 @@ const GameCard: React.FC<{ item: ExploreItem; onOpen: (url: string) => void; onD
       <div className="p-4">
         <h3 className="text-title-section text-ink">{item.name}</h3>
         <p className="line-clamp-2 text-body-sm text-muted">{item.tagline}</p>
+        <p className="mt-2 text-caption text-muted">{t('arcadePostingPolicy')}</p>
       </div>
       {/* Same foot as Activity's pending card: edge-to-edge actions under a hairline, square-cornered,
         the card's rounded clip shaping the outer corners. */}
@@ -91,7 +92,6 @@ export const ArcadeLanding: React.FC<{ catalog: ExploreView; pending: boolean; o
       )}
       <nav aria-label={t('arcadeQuickActions')} className="flex gap-2" data-testid="arcade-quick-actions">
         {[
-          { icon: IconName.Users, label: t('arcadeRankings'), path: ARCADE_RANKINGS_PATH },
           { icon: IconName.Coins, label: t('arcadeCoinsShort'), path: ARCADE_COINS_PATH },
           { icon: IconName.Activity, label: t('arcadeActivityShort'), path: ARCADE_ACTIVITY_PATH }
         ].map(action => (
@@ -134,6 +134,7 @@ export const ArcadeLanding: React.FC<{ catalog: ExploreView; pending: boolean; o
           <DrawerDescription>{details?.tagline}</DrawerDescription>
           {details && (
             <div className="flex flex-col gap-3 px-4 pb-4">
+              <Notice variant="inline">{t('arcadePostingPolicy')}</Notice>
               <DetailCard>
                 <DetailRow label={t('website')}>{new URL(details.url).hostname}</DetailRow>
               </DetailCard>

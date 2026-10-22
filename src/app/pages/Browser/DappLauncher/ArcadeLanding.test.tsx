@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { ARCADE_ACTIVITY_PATH, ARCADE_COINS_PATH, ARCADE_RANKINGS_PATH } from 'lib/arcade';
+import { ARCADE_ACTIVITY_PATH, ARCADE_COINS_PATH } from 'lib/arcade';
 import type { ExploreView } from 'lib/dapp-browser/explore-catalog';
 import { navigate } from 'lib/woozie';
 
@@ -51,24 +51,17 @@ const catalog: ExploreView = {
   sections: [{ id: 'games', title: 'Games', kind: 'list', itemIds: ['game'] }]
 };
 
-it('places featured games, three shortcuts, and suggested games in the agreed order', () => {
+it('keeps discovery focused on featured games, Coins/Activity shortcuts and suggested games', () => {
   render(<ArcadeLanding catalog={catalog} pending={false} onOpen={jest.fn()} />);
   const children = screen.getByTestId('arcade-landing').children;
+  expect(screen.queryByTestId('arcade-allowance')).toBeNull();
   expect(children[0]).toHaveAttribute('data-testid', 'arcade-featured');
   expect(children[1]).toHaveAttribute('data-testid', 'arcade-quick-actions');
   expect(children[2]).toHaveAttribute('data-testid', 'arcade-game-list');
   const actions = within(screen.getByTestId('arcade-quick-actions')).getAllByRole('button');
-  expect(actions.map(button => button.textContent)).toEqual([
-    'arcadeRankings',
-    'arcadeCoinsShort',
-    'arcadeActivityShort'
-  ]);
+  expect(actions.map(button => button.textContent)).toEqual(['arcadeCoinsShort', 'arcadeActivityShort']);
   actions.forEach(button => fireEvent.click(button));
-  expect(jest.mocked(navigate).mock.calls.map(call => call[0])).toEqual([
-    ARCADE_RANKINGS_PATH,
-    ARCADE_COINS_PATH,
-    ARCADE_ACTIVITY_PATH
-  ]);
+  expect(jest.mocked(navigate).mock.calls.map(call => call[0])).toEqual([ARCADE_COINS_PATH, ARCADE_ACTIVITY_PATH]);
   expect(screen.getAllByTestId('arcade-featured-game')).toHaveLength(1);
 });
 

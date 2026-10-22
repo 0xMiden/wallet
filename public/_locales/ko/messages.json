@@ -7417,5 +7417,100 @@
   "runtimeUnsupportedBody": {
     "message": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "swapSolverFeeNote": {
+    "message": "수령 금액에는 이미 $percent$의 해결 수수료가 포함되어 있습니다.",
+    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "게임 코인",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "잔액 조회 불가",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "매주 10 GC",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "파트너 메인넷에서 매주 월요일 00:00 UTC에 초기화됩니다. 미사용 GC는 이월되며, 놓친 주는 누적되지 않습니다. 네트워크 수수료는 사용자가 부담합니다.",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "주간 수당 확인 중…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "이번 주에 청구되었습니다. 다음 청구: $date$ UTC.",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "날짜 미확인",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "잔액과 상관없이 매주 10 GC가 지급됩니다.",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "확인 및 수신 대기 중입니다. 다시 시도하기 전에 상태를 확인하십시오.",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "요청이 실패한 것으로 확인되었습니다. 다시 시도해 보실 수 있습니다.",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "주간 청구 및 GC 잔액은 아직 이 네트워크에 설정되어 있지 않습니다. 그래도 무료로 게임을 즐기실 수 있습니다.",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "10 GC 청구",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "이번 주 주장된 내용",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "수령 대기 중",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "재시도 청구",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "상태 확인",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "플레이, 리플레이 및 소셜 공유는 GC 잔액과 상관없이 무료입니다. 이 게임의 리더보드에 등록하려면 1 GC와 네트워크 수수료를 지불해야 하며, 이 비용은 귀하가 부담합니다.",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }

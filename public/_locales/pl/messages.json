@@ -7417,5 +7417,100 @@
   "runtimeUnsupportedBody": {
     "message": "Portfel wymaga obsługi WebAssembly SIMD, której ta przeglądarka lub to urządzenie nie zapewnia. Otwórz portfel na innym urządzeniu lub w zaktualizowanej przeglądarce.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "Skrypt spalania portfela nie jest zgodny z faucet dla USDCx.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "swapSolverFeeNote": {
+    "message": "Kwota, którą otrzymasz, obejmuje już opłatę za rozwiązanie zadania w serwisie $percent$.",
+    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Monety w grach",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Saldo niedostępne",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "10 GC co tydzień",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "Reset odbywa się w poniedziałek o godz. 00:00 UTC w sieci Partner Mainnet. Niewykorzystane GC są przenoszone na kolejny okres; pominięte tygodnie nie kumulują się. Użytkownik ponosi opłaty sieciowe.",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "Sprawdzanie tygodniowego limitu…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "Wypłata zrealizowana w tym tygodniu. Następna wypłata: $date$ UTC.",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "data niedostępna",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "Twoje cotygodniowe 10 GC jest gotowe, niezależnie od stanu Twojego salda.",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "Oczekuje się na potwierdzenie i odbiór. Przed ponowną próbą sprawdź status.",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "Zgłoszenie zostało uznane za nieudane. Możesz spróbować ponownie.",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "Cotygodniowe roszczenia i saldo GC nie są jeszcze skonfigurowane dla tej sieci. Nadal można grać za darmo.",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "Roszczenie 10 GC",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "Ogłoszono w tym tygodniu",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "Oczekiwanie na potwierdzenie odbioru",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "Ponowna próba zgłoszenia roszczenia",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "Sprawdź status",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "Odtwarzanie, ponowne odtwarzanie i udostępnianie w mediach społecznościowych są bezpłatne, niezależnie od salda GC. Zgłoś się do tabeli wyników tej gry za 1 GC plus opłaty sieciowe, które pokrywasz samodzielnie.",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }

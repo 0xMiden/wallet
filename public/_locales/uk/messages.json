@@ -7417,5 +7417,100 @@
   "runtimeUnsupportedBody": {
     "message": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "Скрипт спалювання гаманця не відповідає «faucet» для USDCx.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "swapSolverFeeNote": {
+    "message": "У суму, яку ви отримаєте, вже включено комісію за використання сервісу «$percent$».",
+    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Ігрові монети",
+    "englishSource": "Game Coins"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Баланс недоступний",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeWeeklyAllowance": {
+    "message": "10 GC щотижня",
+    "englishSource": "10 GC each week"
+  },
+  "arcadeWeeklyRules": {
+    "message": "Скидання відбувається в понеділок о 00:00 за UTC у партнерській мережі Mainnet. Невитрачені GC переносяться; пропущені тижні не сумуються. Ви сплачуєте мережеві комісії.",
+    "englishSource": "Resets Monday 00:00 UTC on Partner Mainnet. Unspent GC carries over; missed weeks do not stack. You pay network fees."
+  },
+  "arcadeChecking": {
+    "message": "Перевірка щотижневої добової…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeNextClaim": {
+    "message": "Виплачено цього тижня. Наступна виплата: $date$ UTC.",
+    "englishSource": "Claimed this week. Next claim: $date$ UTC.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeDateUnavailable": {
+    "message": "дата невідома",
+    "englishSource": "date unavailable"
+  },
+  "arcadeClaimState_eligible": {
+    "message": "Ваші щотижневі 10 GC готові, незалежно від вашого балансу.",
+    "englishSource": "Your weekly 10 GC is ready, whatever your balance."
+  },
+  "arcadeClaimState_pending": {
+    "message": "Очікується підтвердження та отримання. Перевірте статус, перш ніж спробувати ще раз.",
+    "englishSource": "Awaiting confirmation and receipt. Check status before trying again."
+  },
+  "arcadeClaimState_failed": {
+    "message": "Запит було визнано невдалим. Ви можете спробувати ще раз.",
+    "englishSource": "The claim was confirmed unsuccessful. You can try again."
+  },
+  "arcadeClaimState_unavailable": {
+    "message": "Щотижневі виплати та баланс GC ще не налаштовані для цієї мережі. Ви все ще можете грати безкоштовно.",
+    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+  },
+  "arcadeClaim": {
+    "message": "Претензія 10 GC",
+    "englishSource": "Claim 10 GC"
+  },
+  "arcadeClaimed": {
+    "message": "Заявлено цього тижня",
+    "englishSource": "Claimed this week"
+  },
+  "arcadeAwaitingReceipt": {
+    "message": "Очікується отримання",
+    "englishSource": "Awaiting receipt"
+  },
+  "arcadeRetryClaim": {
+    "message": "Повторна спроба подачі заявки",
+    "englishSource": "Retry claim"
+  },
+  "arcadeCheckStatus": {
+    "message": "Перевірити стан",
+    "englishSource": "Check status"
+  },
+  "arcadePostingPolicy": {
+    "message": "Гра, повторне проходження та публікація в соціальних мережах є безкоштовними, незалежно від вашого балансу GC. Подайте заявку на потрапляння до рейтингу цієї гри за 1 GC плюс мережеві комісії, які сплачуєте ви.",
+    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
   }
 }
