@@ -1,7 +1,7 @@
 name: E2E Bridge-IN
 
-# Runs the cross-chain bridge-IN E2E (EVM -> Miden) on every push to main and
-# by dispatch, covering the route a new deposit can take on a local chain (one
+# Runs the cross-chain bridge-IN E2E (EVM -> Miden) when Release E2E dispatches
+# it and by hand, covering the route a new deposit can take on a local chain (one
 # deposit spec) and the Reown pairing alone:
 #   - AggLayer "Slow"/ETH: the app builds `bridgeAsset` calldata a headless WC
 #     counterparty signs + broadcasts to a local Anvil bridge stub; the wallet
@@ -22,15 +22,12 @@ name: E2E Bridge-IN
 # bridge-OUT gate). The only non-local transport is the WalletConnect relay, so
 # the connect step is retry-guarded and the run uses `--retries=2`.
 #
-# Testnet-only (LIVE Miden testnet) -> a post-merge signal on main, not a
-# per-PR gate. Needs NO required secrets: the EVM key is Anvil's deterministic
+# Testnet-only (LIVE Miden testnet) -> a nightly and release signal on main,
+# not a per-PR gate. Needs NO required secrets: the EVM key is Anvil's deterministic
 # dev account and the relay projectId falls back to DEFAULT_WC_PROJECT_ID in
 # src/lib/walletconnect/config.ts.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       retries:
