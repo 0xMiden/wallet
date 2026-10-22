@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ErrorDetails } from 'components/ui/ErrorDetails';
+import type { SubmissionMessageKey } from 'lib/miden/transaction/submission-feedback';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 
 import { DetailSection } from './DetailSection';
@@ -25,7 +26,7 @@ export const TransactionFailureCard: FC<{
   rawErrorMessage?: string;
   isCancelled?: boolean;
   isUnconfirmed?: boolean;
-  hintKey?: NotConfirmedHintKey;
+  hintKey?: NotConfirmedHintKey | SubmissionMessageKey;
 }> = ({ errorMessage, rawErrorMessage, isCancelled, isUnconfirmed, hintKey = 'transactionNotConfirmedHint' }) => {
   const { t } = useTranslation();
 
