@@ -7418,19 +7418,6 @@
     "message": "此錢包需要 WebAssembly SIMD，而此瀏覽器或裝置並未提供此功能。請在另一台裝置上或使用最新版本的瀏覽器開啟錢包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "usdcxIncompatibleBurnScript": {
-    "message": "該錢包的銷毀腳本與 USDCx 的 faucet 不符。",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
-  },
-  "swapSolverFeeNote": {
-    "message": "您的收款金額已包含$percent$的解算費。",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
-    "placeholders": {
-      "percent": {
-        "content": "$1"
-      }
-    }
-  },
   "arcadeGameCoins": {
     "message": "遊戲幣",
     "englishSource": "Game Coins"

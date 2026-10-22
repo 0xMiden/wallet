@@ -7418,19 +7418,6 @@
     "message": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Das Burn-Skript der Wallet stimmt nicht mit dem USDCx-faucet überein.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
-  },
-  "swapSolverFeeNote": {
-    "message": "In Ihrem Auszahlungsbetrag ist die Gebühr für den „$percent$“-Solver bereits enthalten.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
-    "placeholders": {
-      "percent": {
-        "content": "$1"
-      }
-    }
-  },
   "arcadeGameCoins": {
     "message": "Spielmünzen",
     "englishSource": "Game Coins"

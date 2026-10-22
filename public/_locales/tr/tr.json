@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "Yalnızca paylaşmayı seçtiğiniz bakiyeler sıralanır.",
   "arcadeActivityEmptyTitle": "Henüz oyun etkinliği yok",
   "arcadeActivityEmptyBody": "Arcade oyunlarında yaptığınız işlemler burada görünür.",
-  "usdcxIncompatibleBurnScript": "Cüzdanın yakma komut dosyası, USDCx faucet adresiyle eşleşmemektedir.",
-  "swapSolverFeeNote": "Alacağınız tutara, $percent$ çözümleme ücreti zaten dahildir.",
   "arcadeGameCoins": "Oyun Paraları",
   "arcadeBalanceUnknown": "Bakiye mevcut değil",
   "arcadeBalance": "$balance$ GC",

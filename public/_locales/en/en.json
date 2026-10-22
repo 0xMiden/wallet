@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "Only balances you choose to share are ranked.",
   "arcadeActivityEmptyTitle": "No game activity yet",
   "arcadeActivityEmptyBody": "Transactions you make in Arcade games show up here.",
-  "usdcxIncompatibleBurnScript": "The wallet's burn script does not match the USDCx faucet.",
-  "swapSolverFeeNote": "Your receive amount already includes a $percent$ solver fee.",
   "arcadeGameCoins": "Game Coins",
   "arcadeBalanceUnknown": "Balance unavailable",
   "arcadeBalance": "$balance$ GC",

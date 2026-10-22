@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "W rankingu uwzględniane są wyłącznie salda, które zdecydujesz się udostępnić.",
   "arcadeActivityEmptyTitle": "Brak dotychczasowej aktywności w grze",
   "arcadeActivityEmptyBody": "W tym miejscu wyświetlane są transakcje dokonywane w grach Arcade.",
-  "usdcxIncompatibleBurnScript": "Skrypt spalania portfela nie jest zgodny z faucet dla USDCx.",
-  "swapSolverFeeNote": "Kwota, którą otrzymasz, obejmuje już opłatę za rozwiązanie zadania w serwisie $percent$.",
   "arcadeGameCoins": "Monety w grach",
   "arcadeBalanceUnknown": "Saldo niedostępne",
   "arcadeBalance": "$balance$ GC",

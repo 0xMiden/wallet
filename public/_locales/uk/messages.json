@@ -7418,19 +7418,6 @@
     "message": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Скрипт спалювання гаманця не відповідає «faucet» для USDCx.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
-  },
-  "swapSolverFeeNote": {
-    "message": "У суму, яку ви отримаєте, вже включено комісію за використання сервісу «$percent$».",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
-    "placeholders": {
-      "percent": {
-        "content": "$1"
-      }
-    }
-  },
   "arcadeGameCoins": {
     "message": "Ігрові монети",
     "englishSource": "Game Coins"

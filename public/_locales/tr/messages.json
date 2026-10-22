@@ -7418,19 +7418,6 @@
     "message": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Cüzdanın yakma komut dosyası, USDCx faucet adresiyle eşleşmemektedir.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
-  },
-  "swapSolverFeeNote": {
-    "message": "Alacağınız tutara, $percent$ çözümleme ücreti zaten dahildir.",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
-    "placeholders": {
-      "percent": {
-        "content": "$1"
-      }
-    }
-  },
   "arcadeGameCoins": {
     "message": "Oyun Paraları",
     "englishSource": "Game Coins"

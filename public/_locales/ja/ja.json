@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "ランク付けの対象となるのは、ユーザーが共有することを選択した残高のみです。",
   "arcadeActivityEmptyTitle": "まだゲーム活動はありません",
   "arcadeActivityEmptyBody": "Arcadeゲームで行った取引は、ここに表示されます。",
-  "usdcxIncompatibleBurnScript": "このウォレットのバーンスクリプトは、USDCxのfaucetと一致していません。",
-  "swapSolverFeeNote": "お受け取り金額には、すでに$percent$のソルバー手数料が含まれています。",
   "arcadeGameCoins": "ゲームコイン",
   "arcadeBalanceUnknown": "残高利用不可",
   "arcadeBalance": "$balance$ GC",

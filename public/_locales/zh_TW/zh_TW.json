@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "僅您選擇分享的餘額才會被納入排名。",
   "arcadeActivityEmptyTitle": "目前尚無遊戲活動",
   "arcadeActivityEmptyBody": "您在 Arcade 遊戲中進行的交易會顯示於此處。",
-  "usdcxIncompatibleBurnScript": "該錢包的銷毀腳本與 USDCx 的 faucet 不符。",
-  "swapSolverFeeNote": "您的收款金額已包含$percent$的解算費。",
   "arcadeGameCoins": "遊戲幣",
   "arcadeBalanceUnknown": "餘額不可用",
   "arcadeBalance": "$balance$ GC",

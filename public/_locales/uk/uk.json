@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "У рейтингу відображаються лише ті залишки, які ви вирішили оприлюднити.",
   "arcadeActivityEmptyTitle": "Ігрової активності поки що немає",
   "arcadeActivityEmptyBody": "Тут відображаються транзакції, які ви здійснюєте в іграх Arcade.",
-  "usdcxIncompatibleBurnScript": "Скрипт спалювання гаманця не відповідає «faucet» для USDCx.",
-  "swapSolverFeeNote": "У суму, яку ви отримаєте, вже включено комісію за використання сервісу «$percent$».",
   "arcadeGameCoins": "Ігрові монети",
   "arcadeBalanceUnknown": "Баланс недоступний",
   "arcadeBalance": "$balance$ GC",

@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "사용자가 공유하기로 선택한 잔액만 순위가 매겨집니다.",
   "arcadeActivityEmptyTitle": "아직 게임 활동 없음",
   "arcadeActivityEmptyBody": "아케이드 게임에서 수행한 거래 내역이 여기에 표시됩니다.",
-  "usdcxIncompatibleBurnScript": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
-  "swapSolverFeeNote": "수령 금액에는 이미 $percent$의 해결 수수료가 포함되어 있습니다.",
   "arcadeGameCoins": "게임 코인",
   "arcadeBalanceUnknown": "잔액 조회 불가",
   "arcadeBalance": "$balance$ GC",

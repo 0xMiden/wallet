@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "Seuls les soldes que vous choisissez de partager sont classés.",
   "arcadeActivityEmptyTitle": "Aucune activité de jeu pour l’instant",
   "arcadeActivityEmptyBody": "Les transactions que vous effectuez dans les jeux Arcade apparaissent ici.",
-  "usdcxIncompatibleBurnScript": "Le script de destruction du portefeuille ne correspond pas à la «faucet» USDCx.",
-  "swapSolverFeeNote": "Le montant que vous recevrez comprend déjà les frais de traitement de la demande de «$percent$».",
   "arcadeGameCoins": "Pièces de jeu",
   "arcadeBalanceUnknown": "Solde indisponible",
   "arcadeBalance": "$balance$ GC",

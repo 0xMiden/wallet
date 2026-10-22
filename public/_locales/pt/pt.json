@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "Apenas os saldos que você optar por compartilhar são classificados.",
   "arcadeActivityEmptyTitle": "Ainda não há atividade no jogo",
   "arcadeActivityEmptyBody": "As transações que você realiza nos jogos do Arcade aparecem aqui.",
-  "usdcxIncompatibleBurnScript": "O script de queima da carteira não corresponde ao faucet do USDCx.",
-  "swapSolverFeeNote": "O valor que você receberá já inclui uma taxa de processamento da $percent$.",
   "arcadeGameCoins": "Moedas do jogo",
   "arcadeBalanceUnknown": "Saldo indisponível",
   "arcadeBalance": "$balance$ GC",

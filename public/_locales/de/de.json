@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "Es werden nur die Guthaben in die Rangliste aufgenommen, die Sie freigeben möchten.",
   "arcadeActivityEmptyTitle": "Noch keine Spielaktivität",
   "arcadeActivityEmptyBody": "Transaktionen, die du in Arcade-Spielen durchführst, werden hier angezeigt.",
-  "usdcxIncompatibleBurnScript": "Das Burn-Skript der Wallet stimmt nicht mit dem USDCx-faucet überein.",
-  "swapSolverFeeNote": "In Ihrem Auszahlungsbetrag ist die Gebühr für den „$percent$“-Solver bereits enthalten.",
   "arcadeGameCoins": "Spielmünzen",
   "arcadeBalanceUnknown": "Guthaben nicht verfügbar",
   "arcadeBalance": "$balance$ GC",

@@ -1643,8 +1643,6 @@
   "arcadeRankingsPrivate": "Ранжируются только те балансы, которыми вы решили поделиться.",
   "arcadeActivityEmptyTitle": "Игровой активности пока нет",
   "arcadeActivityEmptyBody": "Здесь отображаются транзакции, которые вы совершаете в играх Arcade.",
-  "usdcxIncompatibleBurnScript": "Скрипт сжигания кошелька не соответствует скрипту сжигания USDCx faucet.",
-  "swapSolverFeeNote": "В сумму вашего вознаграждения уже включена комиссия за решение задачи на сайте $percent$.",
   "arcadeGameCoins": "Игровые монеты",
   "arcadeBalanceUnknown": "Баланс недоступен",
   "arcadeBalance": "$balance$ GC",
