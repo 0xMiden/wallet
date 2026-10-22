@@ -5,7 +5,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
 import type { SwapPairs } from 'lib/remote-config/swap-pairs';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
-import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
+import type { EarnMarket, EpochRoute, EvmUsdc } from 'lib/remote-config/values';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
 export const TEST_ALLOCATOR_URL = 'https://allocator.test';
@@ -56,6 +56,7 @@ export function remoteConfigValuesMock() {
     getEvmUsdcAddress: jest.fn(() => TEST_EVM_USDC.address),
     findEvmUsdc: jest.fn((): EvmUsdc | null => TEST_EVM_USDC),
     findEpochUsdcAddress: jest.fn((): string | null => TEST_EVM_USDC.address),
+    getEpochRoutes: jest.fn((): EpochRoute[] => [{ chainId: TEST_EVM_CHAIN_ID, usdc: TEST_EVM_USDC.address }]),
     getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
     getEarnVaults: jest.fn((): readonly EarnVaultConfig[] => TEST_EARN_VAULTS),
     getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)

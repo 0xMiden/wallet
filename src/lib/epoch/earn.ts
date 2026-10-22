@@ -19,6 +19,7 @@ import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
 import { readEpochIntentStatus } from './intent-status';
+import { marketUidChainId } from './market-uid';
 import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
@@ -285,7 +286,7 @@ export function pollEarnIntentStatus(args: {
       // A config that names no chain throws here, before any read, and the poll retries: the row is never failed for it.
       const row = txId ? await Repo.transactions.where({ id: txId }).first() : undefined;
       const marketUid = row?.type === 'earn-deposit' ? row.extraInputs.marketUid : undefined;
-      const destinationChainId = marketUid ? Number(marketUid.split(':')[1]) : getEvmChainId();
+      const destinationChainId = (marketUid ? marketUidChainId(marketUid) : undefined) ?? getEvmChainId();
       const stillLive = async () => txId === undefined || isLiveDeposit(txId, expected);
       if (!(await stillLive())) {
         context.markTerminal();

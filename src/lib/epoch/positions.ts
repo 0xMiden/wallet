@@ -1,17 +1,18 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
 import {
-  type EarnMarket,
+  type EpochRoute,
   findEvmUsdc,
-  getEarnMarket,
   getEarnVaults,
-  getEpochPositionsUrl
+  getEpochPositionsUrl,
+  getEpochRoutes
 } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { type EarnVaultsResult, fetchEarnVaults } from './pools';
-import { earnLenderFamily, type EarnVaultInfo } from './pools-read';
+import type { EarnVaultInfo } from './pools-read';
 
 export type { EarnVaultInfo };
 
@@ -243,17 +244,46 @@ function assertFieldTypes(strings: unknown[], numbers: unknown[]): void {
 }
 
 /**
- * True when `marketUid` names a market on the default market's chain and token that the document lists, or that is
- * of a lender family the wallet names. The second keeps a position in a market the document has stopped listing in
- * sight, so it can still be withdrawn.
+ * True when `marketUid` names a market on one of the Epoch routes the document names, in that route's USDC. The
+ * document's vault list gates deposits only: a position exists on chain whatever the list says, so one in a market
+ * the document never listed, or has stopped listing, stays in sight and can still be withdrawn.
  */
-function isRouteMarket(marketUid: string, market: EarnMarket, listed: ReadonlySet<string>): boolean {
-  const [lenderKey = '', chainId, token] = marketUid.split(':');
-  return (
-    (listed.has(marketUid.toLowerCase()) || earnLenderFamily(lenderKey) !== undefined) &&
-    chainId === String(market.chainId) &&
-    token?.toLowerCase() === market.underlying.toLowerCase()
+function isRouteMarket(marketUid: string, routes: readonly EpochRoute[]): boolean {
+  const [, chainId, token] = marketUid.split(':');
+  return routes.some(route => chainId === String(route.chainId) && token?.toLowerCase() === route.usdc.toLowerCase());
+}
+
+/** The catalogues of every route, merged in the document's vault order, with each route's drops and the first error. */
+async function readCatalogs(
+  positionsUrl: string,
+  routes: readonly EpochRoute[],
+  listed: readonly EarnVaultConfig[]
+): Promise<EarnVaultsResult> {
+  const reads = await Promise.all(
+    routes.map(route => {
+      const usdc = findEvmUsdc(route.chainId);
+      return fetchEarnVaults({
+        positionsUrl,
+        chainId: route.chainId,
+        underlying: route.usdc,
+        listed,
+        ...(usdc && usdc.chainId === route.chainId
+          ? { fallbackUnderlying: { symbol: usdc.symbol, decimals: usdc.decimals } }
+          : {})
+      });
+    })
   );
+  const order = new Map(listed.map((vault, index) => [vault.marketUid, index]));
+  const rank = (vault: EarnVaultInfo): number => order.get(vault.marketUid.toLowerCase()) ?? listed.length;
+  const vaults = reads.flatMap(read => read.vaults).sort((a, b) => rank(a) - rank(b));
+  const droppedMarketUids = reads.flatMap(read => read.droppedMarketUids ?? []);
+  const error = reads.find(read => read.error)?.error;
+  return {
+    vaults,
+    ...(error === undefined ? {} : { error }),
+    ...(droppedMarketUids.length > 0 ? { droppedMarketUids } : {}),
+    ...(reads.some(read => read.droppedUnkeyed) ? { droppedUnkeyed: true } : {})
+  };
 }
 
 /** Flatten one chain item's nested `data[].positions[]` into the non-zero `EarnPosition`s of the markets `keeps` names. */
@@ -307,7 +337,7 @@ export interface FetchEarnPositionsArgs {
   accountId?: string;
   /** Override the owner addresses to query (defaults to those from activity). */
   owners?: string[];
-  /** Chains to query (defaults to the configured Earn market's chain). */
+  /** Chains to query (defaults to every Epoch route the document names). */
   chains?: number[];
   /**
    * Do not read the vault catalogue. `vaults` is then empty, and positions are kept by lender family, chain and token
@@ -324,38 +354,24 @@ export interface FetchEarnPositionsArgs {
  * payload that cannot be read or has a copied field of the wrong type, with none of that owner's positions kept. A
  * failed catalogue read is in `errors` under EARN_CATALOG_ERROR_OWNER.
  *
- * A position is kept when its market uid is in the catalogue. When no catalogue loaded (the read failed or was
- * skipped), a position is kept when its uid names a market on the default market's chain and token that the document
- * lists or whose lender family the wallet names, so a failed catalogue read never hides a position. It rejects only when the owner lookup fails or the bridge config
- * names no positions host or Earn market, before any request.
+ * Positions are asked for on every Epoch route the document names at once (`chains=8453,42161,1`), and a position is
+ * kept when its uid names a market on one of those routes in that route's USDC, whether or not the document lists the
+ * market or the catalogue loaded: the vault list gates deposits only, and a position in an unlisted market must stay
+ * withdrawable. The catalogue is read per route and merged in the document's order. It rejects only when the owner
+ * lookup fails or the bridge config names no positions host or no Epoch route, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const [positionsUrl, market, listed] = [getEpochPositionsUrl(), getEarnMarket(), getEarnVaults()];
-  const chains = args.chains ?? [market.chainId];
+  const [positionsUrl, routes, listed] = [getEpochPositionsUrl(), getEpochRoutes(), getEarnVaults()];
+  if (routes.length === 0) throw new Error('The bridge config names no Epoch route');
+  const chains = args.chains ?? routes.map(route => route.chainId);
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
-  const readCatalog = async (): Promise<EarnVaultsResult | undefined> => {
-    if (args.skipCatalog) return undefined;
-    const usdc = findEvmUsdc(market.chainId);
-    return fetchEarnVaults({
-      positionsUrl,
-      chainId: market.chainId,
-      underlying: market.underlying,
-      listed,
-      ...(usdc && usdc.chainId === market.chainId
-        ? { fallbackUnderlying: { symbol: usdc.symbol, decimals: usdc.decimals } }
-        : {})
-    });
-  };
   const [catalog, results] = await Promise.all([
-    readCatalog(),
+    args.skipCatalog ? undefined : readCatalogs(positionsUrl, routes, listed),
     Promise.all(owners.map(owner => fetchPositionsForOwner(positionsUrl, owner, chains)))
   ]);
 
-  const catalogUids = catalog && !catalog.error ? new Set(catalog.vaults.map(vaultKey)) : undefined;
-  const listedUids = new Set(listed.map(vault => vault.marketUid));
-  const keeps = (marketUid: string): boolean =>
-    catalogUids ? catalogUids.has(marketUid.toLowerCase()) : isRouteMarket(marketUid, market, listedUids);
+  const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
 
   const positions: EarnPosition[] = [];
   const errors: { owner: string; error: string }[] = [];

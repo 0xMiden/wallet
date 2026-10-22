@@ -12,6 +12,8 @@
 
 ### Changes
 
+- [FIX][all] Earn history links the position owner and the EVM transaction to the explorer of the market's own chain (Base, Arbitrum, Ethereum), no longer Sepolia; a chain the wallet does not know shows the value with no link.
+- [FIX][all] Earn positions are read on every Epoch route the document names at once (Base, Arbitrum, Ethereum on mainnet), not only the default market's chain, and a position in a market the document does not list stays shown and withdrawable; the list gates deposits only.
 - [CHANGE][all] The wallet-config document's `earn.vaults` list decides which Earn vaults the wallet offers, in which order, under which name, with which protocol hash, and whether each takes deposits (a stopped vault shows a disabled Deposit and a notice); the compiled lender allowlist and protocol strings are gone, a document with Earn on must list at least one vault on an Epoch route, and a deposit's market label uses the listed name.
 - [CHANGE][all] Earn spends the native USDCx on every network, no longer the document's Epoch output faucet off testnet, and a deposit's market reads as its lender family with a shortened Morpho market id ("Morpho d752…6e41d") in the progress pill, the receipt and the history details, clipped rather than overflowing.
 - [CHANGE][all] Earn lists its vaults from the Epoch positions service's `/pools` catalogue, one entry per market, limited for now to USDC markets of Aave V3, Compound V3 and Morpho Blue, with each vault's total rate, deposits and risk; a deposit opens the chosen vault's market, two Morpho markets on one chain are told apart by name, and a vault whose pool refuses deposits says so. A host without `/pools` (testnet) keeps the former lender catalogue.

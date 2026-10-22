@@ -1,4 +1,4 @@
-import { getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEarnVaults, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 
 import {
   carryForward,
@@ -224,20 +224,40 @@ describe('fetchEarnPositions', () => {
     expect(result.totalDepositsUSD).toBe(15.5);
   });
 
-  it('leaves out a position in a market the catalogue does not list', async () => {
+  it("keeps a position in any market of a route's USDC, listed or not, and leaves out one in another token", async () => {
+    const unlisted =
+      'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
     serve({
       pools: () => answer(poolsPage([sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])),
       owner: () =>
         positionsAnswer([
           apiItem('12.5', 12.5),
           apiItem('3', 3, 'AAVE_V3', AAVE_UID),
+          apiItem('5', 5, 'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D', unlisted),
           apiItem('4', 4, 'EULER_V2', 'EULER_V2:11155111:0x4c1aeda9b43efcf1da1d1755b18802aabe90f61e')
         ])
     });
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID]);
+    // The list gates deposits only: the unlisted Morpho position stays withdrawable; the Euler one is in another token.
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID, unlisted]);
+  });
+
+  it('asks for the positions of every Epoch route at once and merges their catalogues in list order', async () => {
+    jest.mocked(getEpochRoutes).mockReturnValue([
+      { chainId: 11155111, usdc: SEPOLIA_USDC },
+      { chainId: 8453, usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' }
+    ]);
+    const fetchMock = serve();
+
+    await fetchEarnPositions({ owners: [OWNER] });
+
+    expect(fetchMock).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111,8453`, {
+      signal: expect.any(AbortSignal)
+    });
+    // The document lists no vault on the second route, so only the first route's catalogue is read.
+    expect(requestedPaths(fetchMock).filter(path => path === '/pools')).toHaveLength(1);
   });
 
   it("reads the testnet catalogue from the zero account's positions, where the host has no /pools route", async () => {
@@ -296,7 +316,12 @@ describe('fetchEarnPositions', () => {
       { owner: EARN_CATALOG_ERROR_OWNER, error: 'Remote JSON request failed with HTTP 503' }
     ]);
     expect(result.vaults).toEqual([]);
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
+    // Every position in the route's USDC is kept, the unlisted Euler one included; the one on another chain is not.
+    expect(result.positions.map(position => position.marketUid)).toEqual([
+      DUMMY_UID,
+      AAVE_UID,
+      'EULER_V2:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'
+    ]);
   });
 
   it('reads no catalogue when told to skip it, and keeps the positions of supported markets', async () => {
