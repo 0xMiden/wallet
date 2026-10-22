@@ -289,11 +289,18 @@ try {
   await expect(page.getByText('Harness Finance', { exact: true })).toHaveCount(0);
   await page.getByTestId('explore-chip-arcade').click();
   await expect(page.getByTestId('arcade-featured-game')).toHaveCount(2);
-  await expect(page.getByTestId('arcade-quick-actions').getByRole('button')).toHaveCount(3);
+  await expect(page.getByTestId('arcade-quick-actions').getByRole('button')).toHaveCount(2);
+  await expect(
+    page.getByTestId('arcade-quick-actions').getByRole('button', { name: 'Coins', exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByTestId('arcade-quick-actions').getByRole('button', { name: 'Activity', exact: true })
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Rankings', exact: true })).toHaveCount(0);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await page.screenshot({ path: path.join(out, '03-three-categories-popup.png') });
   check(
-    'Published categories map into Finance, Arcade and Others; multi-game featured carousel and three shortcuts render'
+    'Published categories map into Finance, Arcade and Others; multi-game featured carousel and Coins/Activity shortcuts render without Rankings'
   );
 
   await page.getByTestId('explore-search-toggle').click();
@@ -315,26 +322,35 @@ try {
   await game.close();
   check('Open launches the server-configured URL including query/fragment, with no connection or approval popup');
 
-  await page.getByTestId('arcade-quick-actions').getByRole('button', { name: 'Rankings', exact: true }).click();
-  const ranking = page.getByTestId('arcade-rankings-page');
-  await expect(ranking).toBeVisible();
+  await page.getByTestId('arcade-quick-actions').getByRole('button', { name: 'Coins', exact: true }).click();
+  const coins = page.getByTestId('arcade-coins-page');
+  await expect(coins).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toHaveCount(0);
-  const footer = ranking.locator('[data-slot="footer"]');
+  const footer = coins.locator('[data-slot="footer"]');
   await expect(footer.getByRole('button', { name: 'Browse games', exact: true })).toBeVisible();
-  await expect(ranking.getByText('Rankings will appear here', { exact: true })).toBeVisible();
-  await expect(ranking.getByText('Only balances you choose to share are ranked.', { exact: true })).toBeVisible();
+  await expect(coins.getByText('Your balance stays private.', { exact: true })).toBeVisible();
+  await expect(coins.getByText('Balance unavailable', { exact: true })).toBeVisible();
+  await expect(coins.getByRole('status')).toHaveText(
+    'Weekly claims and GC balance are not configured for this network yet. You can still play for free.'
+  );
+  await expect(coins.getByRole('button', { name: 'Claim 10 GC', exact: true })).toBeDisabled();
+  await expect(coins.getByRole('button', { name: 'Check status', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Update balance', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Submit balance', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('arcade-rankings-page')).toHaveCount(0);
   const footerBox = await footer.boundingBox();
   assert.ok(footerBox && footerBox.y + footerBox.height <= 600 && footerBox.y > 400);
-  await page.screenshot({ path: path.join(out, '05-rankings-pinned-popup.png') });
-  check('Unavailable Rankings pins Browse games on a short popup and exposes no balance-write actions');
+  await page.screenshot({ path: path.join(out, '05-coins-unavailable-popup.png') });
+  check(
+    'Coins pins Browse games; production balance is unread and weekly Claim is disabled with status refresh available'
+  );
   await page.evaluate(() => {
-    window.location.hash = '/arcade/rankings?preview=sample';
+    window.location.hash = '/arcade/coins?preview=sample';
   });
   await expect(page.getByTestId('arcade-sample-hero')).toHaveCount(0);
   await expect(page.getByTestId('arcade-sample-leaderboard')).toHaveCount(0);
-  check('Production-mode UI cannot enable fictional ranking data through a preview query');
+  await expect(page.getByRole('button', { name: 'Claim 10 GC', exact: true })).toBeDisabled();
+  check('Production-mode Coins cannot enable fictional balances or claims through a preview query');
 
   // Force normal foreground revalidation by aging only the timestamp, never bypassing parsing or the floor.
   mode = 'invalid';
