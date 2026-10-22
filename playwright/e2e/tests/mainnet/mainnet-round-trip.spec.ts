@@ -73,6 +73,18 @@ async function discoveredFee(page: Page): Promise<number> {
   return fee;
 }
 
+/** Same empty read `claimAllNotes` uses to skip Accept All. */
+async function syncDataHasNotes(page: Page): Promise<boolean> {
+  const pending = await page.evaluate(async () => {
+    const storage = await new Promise<any>(resolve => {
+      chrome.storage.local.get(['miden_sync_data'], resolve);
+    });
+    const notes = storage?.miden_sync_data?.notes;
+    return Array.isArray(notes) ? notes.length : 0;
+  });
+  return pending > 0;
+}
+
 test.describe('registration', () => {
   test.skip(process.env.E2E_MAINNET_BOOTSTRAP !== '1', 'set E2E_MAINNET_BOOTSTRAP=1 to register the accounts once');
 
@@ -153,13 +165,17 @@ test.describe('nightly round trip', () => {
     await walletB.triggerSync(true);
     // A top-up sits in Pending until the account consumes it, and the vault check below does not
     // count Pending. The product wallet cannot claim for the plain account, so this job consumes
-    // both accounts before it judges the balance. That consume is the leftover claim already
-    // inside the reserve, so the gate does not charge the fee a second time.
+    // both accounts before it judges the balance. The leftover claim is already inside the
+    // reserve; subtract it only when that wallet had notes to drain, so a skip cannot pass one
+    // transaction budget below the two-night figure.
+    const fundingConsumePaidA = await syncDataHasNotes(walletA.page);
     await walletA.claimAllNotes(600_000);
+    const fundingConsumePaidB = await syncDataHasNotes(walletB.page);
     await walletB.claimAllNotes(600_000);
     const fee = await discoveredFee(walletA.page);
     const oneTx = TX_FEE_MULTIPLE * BigInt(fee);
-    const required = roundTripReserve(SEND_BASE_UNITS, BigInt(fee));
+    const requiredA = roundTripReserve(SEND_BASE_UNITS, BigInt(fee), fundingConsumePaidA);
+    const requiredB = roundTripReserve(SEND_BASE_UNITS, BigInt(fee), fundingConsumePaidB);
     const faucetId = await walletDiscoveredNativeFaucetId(walletA.page);
     if (!faucetId) throw new Error('the wallet has not discovered the native fee asset');
     // fetchBalances returns immediately when a read for that account is already running, so one
@@ -170,18 +186,18 @@ test.describe('nightly round trip', () => {
           await walletA.refreshBalances();
           return vaultBalanceByFaucetId(walletA.page, faucetId);
         },
-        { timeout: 60_000, message: `plain ${plain.address} native balance stayed short of ${required}` }
+        { timeout: 60_000, message: `plain ${plain.address} native balance stayed short of ${requiredA}` }
       )
-      .toBeGreaterThanOrEqual(required);
+      .toBeGreaterThanOrEqual(requiredA);
     await expect
       .poll(
         async () => {
           await walletB.refreshBalances();
           return vaultBalanceByFaucetId(walletB.page, faucetId);
         },
-        { timeout: 60_000, message: `guardian ${guardianAddress} native balance stayed short of ${required}` }
+        { timeout: 60_000, message: `guardian ${guardianAddress} native balance stayed short of ${requiredB}` }
       )
-      .toBeGreaterThanOrEqual(required);
+      .toBeGreaterThanOrEqual(requiredB);
     const plainHolding = await nativeHolding(walletA.page);
     const guardianHolding = await nativeHolding(walletB.page);
     expect(guardianHolding.faucetId).toBe(plainHolding.faucetId);

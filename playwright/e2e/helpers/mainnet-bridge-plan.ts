@@ -68,13 +68,15 @@ export function usdcReserve(quotedForwardFee: bigint, payoutAllowance: bigint): 
  *
  * Two nights of one round trip count that consume inside `ROUND_TRIP_TXS`. The nightly
  * pays it once, up front, and then reads the vault, so the gate subtracts one transaction
- * and still keeps tomorrow's consume.
+ * only when that consume was submitted and still keeps tomorrow's consume. A drain that
+ * submitted none leaves the two-night figure uncut.
  */
-export function roundTripReserve(sendBaseUnits: bigint, baseFee: bigint): bigint {
+export function roundTripReserve(sendBaseUnits: bigint, baseFee: bigint, fundingConsumePaid: boolean): bigint {
   if (sendBaseUnits < 1n) throw new Error(`send amount ${sendBaseUnits} is not a positive base-unit amount`);
   if (baseFee < 1n) throw new Error(`base fee ${baseFee} is not a positive base fee`);
   const oneTx = TX_FEE_MULTIPLE * baseFee;
-  return NIGHTS * (sendBaseUnits + ROUND_TRIP_TXS * oneTx) - oneTx;
+  const beforeClaim = NIGHTS * (sendBaseUnits + ROUND_TRIP_TXS * oneTx);
+  return fundingConsumePaid ? beforeClaim - oneTx : beforeClaim;
 }
 
 /** Native base units for two nights. Burns cost more than an ordinary transaction. */

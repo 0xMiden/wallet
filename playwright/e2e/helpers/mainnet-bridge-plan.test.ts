@@ -86,9 +86,10 @@ describe('mainnet bridge loops', () => {
     const send = 1n;
     const oneTx = TX_FEE_MULTIPLE * fee;
     const beforeClaim = 2n * (send + ROUND_TRIP_TXS * oneTx);
-    expect(roundTripReserve(send, fee)).toBe(beforeClaim - oneTx);
-    expect(() => roundTripReserve(0n, fee)).toThrow('positive base-unit amount');
-    expect(() => roundTripReserve(send, 0n)).toThrow('positive base fee');
+    expect(roundTripReserve(send, fee, true)).toBe(beforeClaim - oneTx);
+    expect(roundTripReserve(send, fee, false)).toBe(beforeClaim);
+    expect(() => roundTripReserve(0n, fee, true)).toThrow('positive base-unit amount');
+    expect(() => roundTripReserve(send, 0n, true)).toThrow('positive base fee');
   });
 
   it('prices fees in base-fee units, so a base fee of 7 is a fraction of one USDCx', () => {

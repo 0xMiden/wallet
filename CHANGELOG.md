@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][e2e] The mainnet nightly consumes outstanding notes on the plain account and the Guardian account before it reads either vault, counts that consume as the leftover claim it already budgeted so the fee is not required twice, waits out an in-flight balance read before judging the vault, and opens Guardian recovery from the invite-only Welcome so that claim can run.
+- [FIX][e2e] The mainnet nightly consumes outstanding notes on the plain account and the Guardian account before it reads either vault, subtracts that consume from the two-night reserve only when the drain submitted one so a skip cannot pass one transaction budget below that figure, waits out an in-flight balance read before judging the vault, and opens Guardian recovery from the invite-only Welcome so that claim can run.
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
