@@ -9,8 +9,7 @@ import { hasMainnetLaunched, selectMainnetLaunchAt } from './values';
 // once, so a far-off moment is reached through a chain of waits.
 const MAX_TIMER_MS = 0x7fffffff;
 
-// The countdown banner's existing bound. A visible page wakes on it, so a forward jump is published on
-// the next second instead of at a delay chosen before the jump.
+// Visible pages poll at most once per second, with an exact wake when launch is sooner.
 const VISIBLE_WAKE_MS = 1000;
 
 type LaunchSubscriber = {
@@ -66,7 +65,7 @@ function arm(): void {
   const remaining = soonestRemaining();
   if (remaining === null) return;
   // Hidden keeps the long chain, so a far moment still arrives and a one-second poll is not armed.
-  const delay = pageVisible() ? VISIBLE_WAKE_MS : Math.min(remaining, MAX_TIMER_MS);
+  const delay = pageVisible() ? Math.min(remaining, VISIBLE_WAKE_MS) : Math.min(remaining, MAX_TIMER_MS);
   wake = setTimeout(onWake, delay);
 }
 
@@ -114,8 +113,9 @@ function subscribeLaunchSample(launchAt: number | null, onSample: (now: number) 
 
 /**
  * The shared `Date.now()` sample the countdown and `useMainnetLaunched` render from. A null moment arms
- * nothing. While any subscriber's moment is still ahead of the sample, a visible document wakes every
- * second and a hidden one waits `min(remaining, MAX_TIMER_MS)`, then samples again. Becoming visible
+ * nothing. While any subscriber's moment is still ahead of the sample, a visible document wakes at the
+ * next moment or after one second, whichever comes first, and a hidden one waits
+ * `min(remaining, MAX_TIMER_MS)`, then samples again. Becoming visible
  * samples immediately. At or past the moment, both wakes stay stopped until the moment changes.
  */
 export function useMainnetLaunchNow(launchAt: number | null): number {

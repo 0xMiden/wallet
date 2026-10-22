@@ -86,6 +86,22 @@ describe('useMainnetLaunched', () => {
     expect(result.current).toBe(true);
   });
 
+  it('samples at the launch boundary when less than one second remains', () => {
+    jest.setSystemTime(LAUNCH_AT - 400);
+    const { result } = renderHook(() => useMainnetLaunched());
+    expect(result.current).toBe(false);
+
+    act(() => {
+      jest.advanceTimersByTime(399);
+    });
+    expect(result.current).toBe(false);
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(result.current).toBe(true);
+  });
+
   it('catches a forward system-clock correction while a launch is pending', () => {
     jest.setSystemTime(LAUNCH_AT - 60_000);
     const { result } = renderHook(() => useMainnetLaunched());
