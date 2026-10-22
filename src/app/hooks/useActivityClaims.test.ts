@@ -29,6 +29,11 @@ type MockRow = {
   held?: boolean;
   guardianBusy?: true;
   lastDeferral?: 'guardian_backpressure';
+  stage?: 'submitting';
+  type?: 'consume';
+  error?: string;
+  rawError?: string;
+  mayHaveSubmitted?: boolean;
 };
 const mockQueue = jest.fn();
 const mockRequeue = jest.fn();
@@ -1971,6 +1976,67 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     advance(1);
     expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['noteClaimFailedRetry', 'notice']]);
+  });
+});
+
+describe('proof submission feedback on Activity claims (#1689)', () => {
+  it('shows a stored refusal on the claim and does not resubmit while reading it', async () => {
+    mockRequeue.mockClear();
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-refused' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      {
+        id: 'tx-refused',
+        status: 3,
+        held: true,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error:
+          'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
+      }
+    ]);
+
+    expect(mockRequeue).not.toHaveBeenCalled();
+    expect(result.current.items[0]).toMatchObject({
+      status: 'claiming',
+      held: true,
+      submission: { kind: 'rejected', messageKey: 'submissionRejectedByNetwork' }
+    });
+
+    settle([
+      {
+        id: 'tx-refused',
+        status: 2,
+        completedAt: 8,
+        stage: 'submitting',
+        type: 'consume',
+        error: "Transaction 0xabc was accepted into the node's mempool at block 9 but the local store update failed."
+      }
+    ]);
+    expect(result.current.items[0]?.submission).toBeUndefined();
+    expect(result.current.items[0]).not.toMatchObject({ held: true });
+    expect(mockRequeue).not.toHaveBeenCalled();
+  });
+
+  it('keeps the plain claim, with no submission verdict, when the stored submit error is unrecognized', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-unrecognized' }];
+    const { result } = renderHook(() => useActivityClaims());
+    await latestSubscription().query();
+    settle([
+      {
+        id: 'tx-unrecognized',
+        status: 3,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: 'Note is invalid'
+      }
+    ]);
+
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming' });
+    expect(result.current.items[0]?.submission).toBeUndefined();
   });
 });
 

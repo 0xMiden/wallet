@@ -324,6 +324,20 @@ export interface ReapSnapshot {
   attempt: (typeof REAPED_ATTEMPT_ORIGINS)[number];
 }
 
+/** Which of the startup sweep's rules picked the row: no recorded start, a start before this session, or a start too far ahead. */
+export const STARTUP_SELECTIONS = ['missing_start', 'before_session', 'future_stamp'] as const;
+
+/** How long before the sweep the row entered its stored stage. */
+export const STORED_STAGE_AGES = ['under_1m', 'under_10m', 'under_1h', 'under_1d', 'over_1d'] as const;
+
+export const SUBMIT_RECORDS = ['submit_recorded', 'no_submit_recorded'] as const;
+
+export interface StartupSnapshot {
+  selection: (typeof STARTUP_SELECTIONS)[number];
+  stageAge?: (typeof STORED_STAGE_AGES)[number];
+  submit: (typeof SUBMIT_RECORDS)[number];
+}
+
 export const FAILURE_POINTS = [
   'pipeline',
   'earn_settlement',
@@ -354,6 +368,8 @@ export interface TransactionFailure {
   lastDeferral?: ConsumeDeferralCause;
   feeAdmission?: ClaimFeeAdmission;
   reap?: ReapSnapshot;
+  /** Read only with the `interrupted_on_startup` reason. */
+  startup?: StartupSnapshot;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
@@ -659,6 +675,16 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
+/**
+ * The gRPC status of the SDK's request failure inside a submit, `other` for a status the table does not list, or
+ * undefined when the error carries no such failure.
+ */
+export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[number] | undefined {
+  const refusal = submitRequestFailure(error);
+  if (refusal === undefined) return undefined;
+  return grpcStatusOf(refusal.kind)?.[0] ?? 'other';
+}
+
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
     hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
@@ -751,6 +777,9 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...CLAIM_FEE_ADMISSIONS,
   ...REAP_AGES,
   ...REAPED_ATTEMPT_ORIGINS,
+  ...STARTUP_SELECTIONS,
+  ...STORED_STAGE_AGES,
+  ...SUBMIT_RECORDS,
   'none',
   'unrecorded',
   'unavailable',
@@ -858,6 +887,14 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
             `; reaped attempt ${diagnostic<string>(failure.reap?.attempt, REAPED_ATTEMPT_ORIGINS, 'unavailable')}`
           ].join('')
         : '';
+    const startup =
+      reason === 'interrupted_on_startup'
+        ? [
+            `; startup selection ${diagnostic<string>(failure.startup?.selection, STARTUP_SELECTIONS, 'unavailable')}`,
+            `; stored stage age ${diagnostic<string>(failure.startup?.stageAge, STORED_STAGE_AGES, 'unavailable')}`,
+            `; submit ${diagnostic<string>(failure.startup?.submit, SUBMIT_RECORDS, 'unavailable')}`
+          ].join('')
+        : '';
     const identity =
       reason === undefined
         ? failureIdentity(failure)
@@ -866,7 +903,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}; point ${point}; ${identity}${bridge}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')

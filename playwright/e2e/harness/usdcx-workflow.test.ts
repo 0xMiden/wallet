@@ -113,8 +113,8 @@ function holdsKeyFile(entry: string): boolean {
 }
 
 describe('E2E USDCx workflow', () => {
-  it('runs after every push to main and by dispatch, and on nothing else', () => {
-    expect(topLevel('on')).toEqual(['  push:', '    branches:', '      - main', '  workflow_dispatch:']);
+  it('runs only by dispatch (Release E2E starts it), and on nothing else', () => {
+    expect(topLevel('on')).toEqual(['  workflow_dispatch:']);
   });
 
   it('queues every run, from any branch, on one fixed group and never cancels one in progress', () => {

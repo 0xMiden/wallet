@@ -7,7 +7,7 @@
  * Worse, if two transactions mutate the same account concurrently, the
  * on-chain commitment advances past the guardian's single-delta expected
  * commitment, so its `verify_state` never matches and canonicalization stalls
- * for up to its full grace period (~10 min in prod) — observed as multi-minute
+ * for up to its full hold (~18 min in prod) — observed as multi-minute
  * "stuck claim" hangs under concurrent load (see OpenZeppelin/guardian#303).
  *
  * Fix: (1) serialize guardian transactions per account so at most one is ever
