@@ -96,6 +96,7 @@
   "earnRiskHigh": "Високий",
   "earnVaultClosedTitle": "Депозити закриті",
   "earnVaultClosedBody": "Цей сховище наразі не приймає депозити. Спробуйте пізніше або виберіть інше сховище.",
+  "earnVaultDepositsPausedBody": "Miden Wallet призупинив поповнення цього сховища. Це не впливає на ваші існуючі депозити. Оберіть інше сховище.",
   "earnAuditedLabel": "Пройшов аудит",
   "earnDepositAmountTitle": "Сума депозиту",
   "earnOpenPosition": "Відкрита позиція",

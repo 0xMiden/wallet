@@ -518,6 +518,10 @@
     "message": "Este cofre não está aceitando depósitos no momento. Tente novamente mais tarde ou escolha outro cofre.",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "A Miden Wallet suspendeu os depósitos neste cofre. Seus depósitos existentes não são afetados. Escolha outro cofre.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Auditado",
     "englishSource": "Audited"

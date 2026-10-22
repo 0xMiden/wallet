@@ -518,6 +518,10 @@
     "message": "Bu kasa şu anda para yatırma işlemlerini kabul etmemektedir. Daha sonra tekrar deneyin veya başka bir kasa seçin.",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet, bu kasaya yapılan para yatırma işlemlerini askıya almıştır. Mevcut para yatırma işlemleriniz bundan etkilenmez. Başka bir kasa seçin.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Denetlenmiş",
     "englishSource": "Audited"

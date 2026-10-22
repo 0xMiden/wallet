@@ -518,6 +518,10 @@
     "message": "Ten skarbiec nie przyjmuje obecnie wpłat. Spróbuj ponownie później lub wybierz inny skarbiec.",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "Portfel Miden wstrzymał wpłaty do tego skarbca. Nie ma to wpływu na istniejące wpłaty. Wybierz inny skarbiec.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Zweryfikowane",
     "englishSource": "Audited"

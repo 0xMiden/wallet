@@ -518,6 +518,10 @@
     "message": "Esta caja fuerte no acepta depósitos en este momento. Inténtalo más tarde o elige otra caja fuerte.",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet ha suspendido los depósitos en esta caja fuerte. Tus depósitos actuales no se ven afectados. Elige otra caja fuerte.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Auditado",
     "englishSource": "Audited"

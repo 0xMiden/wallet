@@ -96,6 +96,7 @@
   "earnRiskHigh": "Alto",
   "earnVaultClosedTitle": "Os depósitos estão encerrados",
   "earnVaultClosedBody": "Este cofre não está aceitando depósitos no momento. Tente novamente mais tarde ou escolha outro cofre.",
+  "earnVaultDepositsPausedBody": "A Miden Wallet suspendeu os depósitos neste cofre. Seus depósitos existentes não são afetados. Escolha outro cofre.",
   "earnAuditedLabel": "Auditado",
   "earnDepositAmountTitle": "Valor do depósito",
   "earnOpenPosition": "Posição aberta",

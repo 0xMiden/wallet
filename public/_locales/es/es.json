@@ -96,6 +96,7 @@
   "earnRiskHigh": "Alto",
   "earnVaultClosedTitle": "Los depósitos están cerrados",
   "earnVaultClosedBody": "Esta caja fuerte no acepta depósitos en este momento. Inténtalo más tarde o elige otra caja fuerte.",
+  "earnVaultDepositsPausedBody": "Miden Wallet ha suspendido los depósitos en esta caja fuerte. Tus depósitos actuales no se ven afectados. Elige otra caja fuerte.",
   "earnAuditedLabel": "Auditado",
   "earnDepositAmountTitle": "Importe del depósito",
   "earnOpenPosition": "Posición abierta",

@@ -96,6 +96,7 @@
   "earnRiskHigh": "High",
   "earnVaultClosedTitle": "存款已关闭",
   "earnVaultClosedBody": "该金库目前不接受存款。请稍后再试，或选择其他金库。",
+  "earnVaultDepositsPausedBody": "Miden Wallet 已暂停向该金库充值。您现有的存款不受影响。请选择另一个金库。",
   "earnAuditedLabel": "经审计的",
   "earnDepositAmountTitle": "存款金额",
   "earnOpenPosition": "持仓",

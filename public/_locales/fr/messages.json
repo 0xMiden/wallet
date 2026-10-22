@@ -518,6 +518,10 @@
     "message": "Ce coffre-fort n’accepte pas de dépôts pour le moment. Veuillez réessayer plus tard ou choisir un autre coffre-fort.",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet a suspendu les dépôts vers ce coffre-fort. Vos dépôts existants ne sont pas affectés. Choisissez un autre coffre-fort.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Vérifié",
     "englishSource": "Audited"

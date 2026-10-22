@@ -96,6 +96,7 @@
   "earnRiskHigh": "High",
   "earnVaultClosedTitle": "Deposits are closed",
   "earnVaultClosedBody": "This vault isn't accepting deposits right now. Try again later or choose another vault.",
+  "earnVaultDepositsPausedBody": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault.",
   "earnAuditedLabel": "Audited",
   "earnDepositAmountTitle": "Deposit Amount",
   "earnOpenPosition": "Open position",

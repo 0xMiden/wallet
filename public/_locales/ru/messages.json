@@ -518,6 +518,10 @@
     "message": "В данный момент это хранилище не принимает депозиты. Попытайтесь позже или выберите другое хранилище.",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "Кошелек Miden приостановил пополнение этого хранилища. Ваши существующие депозиты не затронуты. Выберите другое хранилище.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Проверенный",
     "englishSource": "Audited"

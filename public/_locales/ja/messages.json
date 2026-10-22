@@ -518,6 +518,10 @@
     "message": "この保管庫は現在、預け入れを受け付けていません。後ほど再度お試しいただくか、別の保管庫をお選びください。",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Walletは、この保管庫への預入を一時停止しています。既存の預入分には影響ありません。別の保管庫を選択してください。",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "監査済み",
     "englishSource": "Audited"

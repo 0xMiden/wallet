@@ -518,6 +518,10 @@
     "message": "이 금고는 현재 입금을 받지 않고 있습니다. 나중에 다시 시도하거나 다른 금고를 선택하십시오.",
     "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
   },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet은 이 금고로의 입금을 일시 중단했습니다. 기존 예치금에는 영향을 미치지 않습니다. 다른 금고를 선택하십시오.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "감사 완료",
     "englishSource": "Audited"

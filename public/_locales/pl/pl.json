@@ -96,6 +96,7 @@
   "earnRiskHigh": "Wysoki",
   "earnVaultClosedTitle": "Depozyty są zamknięte",
   "earnVaultClosedBody": "Ten skarbiec nie przyjmuje obecnie wpłat. Spróbuj ponownie później lub wybierz inny skarbiec.",
+  "earnVaultDepositsPausedBody": "Portfel Miden wstrzymał wpłaty do tego skarbca. Nie ma to wpływu na istniejące wpłaty. Wybierz inny skarbiec.",
   "earnAuditedLabel": "Zweryfikowane",
   "earnDepositAmountTitle": "Kwota wpłaty",
   "earnOpenPosition": "Otwórz pozycję",

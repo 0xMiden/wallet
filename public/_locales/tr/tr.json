@@ -96,6 +96,7 @@
   "earnRiskHigh": "Yüksek",
   "earnVaultClosedTitle": "Mevduatlar kapatılmıştır",
   "earnVaultClosedBody": "Bu kasa şu anda para yatırma işlemlerini kabul etmemektedir. Daha sonra tekrar deneyin veya başka bir kasa seçin.",
+  "earnVaultDepositsPausedBody": "Miden Wallet, bu kasaya yapılan para yatırma işlemlerini askıya almıştır. Mevcut para yatırma işlemleriniz bundan etkilenmez. Başka bir kasa seçin.",
   "earnAuditedLabel": "Denetlenmiş",
   "earnDepositAmountTitle": "Para Yatırma Tutarı",
   "earnOpenPosition": "Açık pozisyon",
