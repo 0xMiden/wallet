@@ -85,17 +85,15 @@ describe('Release E2E', () => {
   });
 
   it('starts automatically for a full release only, and says a release candidate is tested by hand', () => {
-    expect(RELEASE).toContain(
-      "if: github.event_name != 'release' || github.event.release.prerelease == false"
-    );
+    expect(RELEASE).toContain("if: github.event_name != 'release' || github.event.release.prerelease == false");
     expect(README).toMatch(/release candidate[^.]*by hand/);
   });
 
   it('names a commit as the one tested only for a tag; for a branch, the head at dispatch', () => {
     expect(RELEASE).toContain('gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${REF}"');
-    expect(RELEASE).toMatch(/Release E2E on tag `\$\{REF\}` \(\$\{sha:0:9\}\)/);
-    expect(RELEASE).toMatch(/Release E2E on branch `\$\{REF\}`, head \$\{sha:0:9\} at dispatch/);
-    expect(RELEASE).toContain("each suite's own run records the commit it tested");
+    expect(RELEASE).toMatch(/Release E2E on tag \\`\$\{REF\}\\` \(\$\{sha:0:9\}\)/);
+    expect(RELEASE).toMatch(/Release E2E on branch \\`\$\{REF\}\\`, head \$\{sha:0:9\} at dispatch/);
+    expect(RELEASE).toContain('echo "Each suite\'s own run records the commit it tested."');
     expect(README).not.toContain('records that commit');
   });
 
@@ -119,8 +117,8 @@ describe('Next E2E (devnet)', () => {
     expect(NEXT).toContain(
       'gh workflow run e2e-blockchain.yml --repo "$GITHUB_REPOSITORY" --ref next -f network=devnet'
     );
-    expect(NEXT).toMatch(/started on `next`, head \$\{sha:0:9\} at dispatch/);
-    expect(NEXT).toContain("the suite's own run records the commit it tested");
+    expect(NEXT).toMatch(/started on \\`next\\`, head \$\{sha:0:9\} at dispatch/);
+    expect(NEXT).toContain('echo "The suite\'s own run records the commit it tested."');
   });
 });
 
