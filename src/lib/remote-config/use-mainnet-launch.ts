@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
 import { useBridgeConfigSnapshot } from './use-feature-availability';
 import { hasMainnetLaunched, selectMainnetLaunchAt } from './values';
 
@@ -132,4 +134,12 @@ export function useMainnetLaunched(): boolean {
   const launchAt = selectMainnetLaunchAt(snapshot);
   const now = useMainnetLaunchNow(launchAt);
   return hasMainnetLaunched(snapshot, now);
+}
+
+/**
+ * Invite-only onboarding: mainnet has launched, or the effective network is already mainnet. The Welcome's
+ * seven-tap unlock stays local to `OnboardingNetwork` and is combined with this result there.
+ */
+export function isInviteOnlyRequired(launched: boolean, network: MIDEN_NETWORK_NAME): boolean {
+  return launched || network === MIDEN_NETWORK_NAME.MAINNET;
 }

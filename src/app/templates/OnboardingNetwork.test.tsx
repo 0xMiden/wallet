@@ -20,7 +20,10 @@ const mockFollow = jest.fn();
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/use-mainnet-launch', () => ({ useMainnetLaunched: () => mockRequired }));
+jest.mock('lib/remote-config/use-mainnet-launch', () => ({
+  ...jest.requireActual('lib/remote-config/use-mainnet-launch'),
+  useMainnetLaunched: () => mockRequired
+}));
 jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: () => mockFollow() }));
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { status: WalletStatus }) => WalletStatus) => select({ status: mockStatus })
@@ -97,6 +100,15 @@ it('keeps general onboarding when invite-only mode is off', () => {
   mockRequired = false;
   render(page());
   expect(screen.getByTestId('flow')).toHaveTextContent('false');
+  expect(mockApply).not.toHaveBeenCalled();
+});
+
+it('requires invite-only mode when the effective network is mainnet before launch', () => {
+  mockRequired = false;
+  mockStatus = WalletStatus.Ready;
+  mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+  render(page());
+  expect(screen.getByTestId('flow')).toHaveTextContent('true');
   expect(mockApply).not.toHaveBeenCalled();
 });
 

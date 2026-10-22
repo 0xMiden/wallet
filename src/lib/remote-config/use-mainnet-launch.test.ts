@@ -2,7 +2,8 @@ import React, { useLayoutEffect } from 'react';
 
 import { act, renderHook } from '@testing-library/react';
 
-import { useMainnetLaunched } from './use-mainnet-launch';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { isInviteOnlyRequired, useMainnetLaunched } from './use-mainnet-launch';
 import { hasMainnetLaunched } from './values';
 
 // The remote config's section, as the runtime hands it to this realm; null stands for no accepted document.
@@ -166,5 +167,13 @@ describe('useMainnetLaunched', () => {
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT - DAY_MS };
     rerender();
     expect(result.current).toBe(true);
+  });
+});
+
+describe('isInviteOnlyRequired', () => {
+  it('requires invite-only mode after launch or when already on mainnet', () => {
+    expect(isInviteOnlyRequired(false, MIDEN_NETWORK_NAME.TESTNET)).toBe(false);
+    expect(isInviteOnlyRequired(true, MIDEN_NETWORK_NAME.TESTNET)).toBe(true);
+    expect(isInviteOnlyRequired(false, MIDEN_NETWORK_NAME.MAINNET)).toBe(true);
   });
 });
