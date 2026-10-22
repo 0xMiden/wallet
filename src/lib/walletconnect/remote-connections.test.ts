@@ -1,8 +1,8 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
-import type { ReownConfigureOptions } from './native';
+import type { ReownConfigureOptions, ReownState } from './native';
 import { useNativeReown } from './useNativeReown';
 
 let snapshot: BridgeConfigSnapshot;
@@ -131,6 +131,33 @@ describe('native listener setup', () => {
     unmount();
     const live = await Promise.all(addListener.mock.results.slice(1).map(result => result.value));
     live.forEach(handle => expect(handle.remove).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not let a refresh that started before a deletion replace that deletion', async () => {
+    let onState: (state: ReownState) => void = () => {};
+    let releaseStale: (state: ReownState) => void = () => undefined;
+    const stale = new Promise<ReownState>(resolve => {
+      releaseStale = resolve;
+    });
+    addListener.mockImplementation(async (event, handler) => {
+      if (event === 'stateChanged') onState = handler as typeof onState;
+      return newHandle();
+    });
+    getNativeState.mockReset();
+    getNativeState.mockResolvedValue({ configured: true, connected: false, accounts: [] });
+    getNativeState.mockImplementationOnce(() => stale);
+    const { result } = renderHook(() => useNativeReown());
+    await waitFor(() => expect(getNativeState).toHaveBeenCalled());
+
+    await act(() => {
+      onState({ configured: true, connected: false, accounts: [] });
+    });
+    await act(async () => {
+      releaseStale({ configured: true, connected: true, accounts: ['0xabc'], address: '0xabc' });
+      await stale;
+    });
+
+    expect(result.current.state.connected).toBe(false);
   });
 
   it('clears the error of a failed setup once a later one completes', async () => {

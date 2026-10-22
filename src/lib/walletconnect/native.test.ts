@@ -704,6 +704,46 @@ describe('waiting for the session to approve an added chain', () => {
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
   });
 
+  it('does not let a state read that started before a deletion replace that deletion', async () => {
+    let releaseStale: (state: ReownState) => void = () => undefined;
+    const stale = new Promise<ReownState>(resolve => {
+      releaseStale = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockImplementationOnce(() => stale);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    const deleted: ReownState = { configured: true, connected: false, accounts: [] };
+    updateSession(deleted);
+    releaseStale(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+  });
+
+  it('accepts a state read that starts after a deletion and then approves the chain', async () => {
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA, ARC]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession({ configured: true, connected: false, accounts: [] });
+    await jest.advanceTimersByTimeAsync(500);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+  });
+
   it('refuses the chain at once when the wallet rejected the switch', async () => {
     jest
       .mocked(rawNativeReown.request)
