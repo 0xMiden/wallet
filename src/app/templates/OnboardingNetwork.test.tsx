@@ -20,7 +20,7 @@ const mockFollow = jest.fn();
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({ selectInviteOnlyOnboarding: () => mockRequired }));
+jest.mock('lib/remote-config/use-mainnet-launch', () => ({ useMainnetLaunched: () => mockRequired }));
 jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: () => mockFollow() }));
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { status: WalletStatus }) => WalletStatus) => select({ status: mockStatus })

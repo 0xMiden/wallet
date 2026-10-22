@@ -95,12 +95,24 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
 }
 
 /**
- * The Welcome variant the document sets: true for the invite-only way in, false for the create and
- * recover flows. Null when the document has no `onboarding.inviteOnly`, or no document is accepted
- * yet. Welcome reads false and null alike: the general variant, with the logo taps as the unlock.
+ * The mainnet launch moment the document sets (`mainnetCountdown.launchAt`, epoch milliseconds, UTC). Null
+ * while the countdown is off, names no moment, or no document is accepted yet. Before the moment the
+ * wallet counts down to it; from the moment on, mainnet has launched (`hasMainnetLaunched`).
  */
-export function selectInviteOnlyOnboarding(s: BridgeConfigSnapshot): boolean | null {
-  return s.config?.onboarding?.inviteOnly ?? null;
+export function selectMainnetLaunchAt(s: BridgeConfigSnapshot): number | null {
+  const countdown = s.config?.mainnetCountdown;
+  if (!countdown?.enabled || countdown.launchAt === undefined) return null;
+  return countdown.launchAt;
+}
+
+/**
+ * Whether mainnet has launched for this network at `now`: the countdown is on and its moment has passed.
+ * This is the one switch behind the invite-only Welcome, the recover-only reset and the switch-to-mainnet
+ * banner, so the document's moment is what moves every wallet, not a flag of its own.
+ */
+export function hasMainnetLaunched(s: BridgeConfigSnapshot, now: number): boolean {
+  const launchAt = selectMainnetLaunchAt(s);
+  return launchAt !== null && now >= launchAt;
 }
 
 /**

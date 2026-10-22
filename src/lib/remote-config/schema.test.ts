@@ -233,23 +233,17 @@ describe('limits.bridgeInMaxBalanceUsd', () => {
   });
 });
 
-describe('onboarding.inviteOnly', () => {
-  it.each([true, false])('reads inviteOnly %s', inviteOnly => {
-    expect(parseBridgeConfig(doc({ onboarding: { inviteOnly } }), 'testnet')?.onboarding).toStrictEqual({ inviteOnly });
-  });
-
+describe('onboarding', () => {
+  // The countdown's moment is the one switch behind the invite-only Welcome, so a document's `onboarding`
+  // section, which older wallets read, is neither read nor checked.
   it.each([
-    ['no onboarding section', doc()],
-    ['an empty onboarding section', doc({ onboarding: {} })]
-  ])('leaves onboarding out for %s', (_label, body) => {
+    ['an onboarding section', doc({ onboarding: { inviteOnly: true } })],
+    ['an onboarding section that is not an object', doc({ onboarding: true })],
+    ['an invite-only flag written as text', doc({ onboarding: { inviteOnly: 'true' } })]
+  ])('ignores %s', (_label, body) => {
     const parsed = parseBridgeConfig(body, 'testnet');
     expect(parsed).not.toBeNull();
     expect(parsed).not.toHaveProperty('onboarding');
-  });
-
-  it('ignores unknown onboarding fields', () => {
-    const parsed = parseBridgeConfig(doc({ onboarding: { inviteOnly: true, waitlistUrl: 'x' } }), 'testnet');
-    expect(parsed?.onboarding).toStrictEqual({ inviteOnly: true });
   });
 });
 
@@ -498,10 +492,6 @@ it.each([
   ['a switch written as text', withSection('features', { earn: 'true' })],
   ['a numeric switch', withSection('features', { bridgeIn: 1 })],
   ['a null switch', withSection('features', { bridgeOut: null })],
-  ['an onboarding section that is not an object', doc({ onboarding: true })],
-  ['a null onboarding section', doc({ onboarding: null })],
-  ['an invite-only flag written as text', doc({ onboarding: { inviteOnly: 'true' } })],
-  ['a null invite-only flag', doc({ onboarding: { inviteOnly: null } })],
   ['a geo section that is not an object', doc({ geo: [] })],
   ['a geo rule that is not an object', doc({ geo: { earn: ['block UK'] } })],
   ['a geo answer that is not yes or no', doc({ geo: { earn: { 'block UK': true } } })]

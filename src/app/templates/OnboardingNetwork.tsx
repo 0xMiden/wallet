@@ -9,25 +9,23 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { prepareMainnet } from 'lib/miden/prepare-mainnet';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
+import { useMainnetLaunched } from 'lib/remote-config/use-mainnet-launch';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
 /**
- * The one owner of the invite-only decision: the document's `onboarding.inviteOnly`, mainnet, or the
- * Welcome's seven-tap unlock. Each moves a wallet that has not been set up to mainnet before its
- * children render, so the code check and the create run there. Only wallets that have not been set
- * up can change networks here.
+ * The one owner of the invite-only decision: the document's mainnet launch moment having passed
+ * (`mainnetCountdown`), mainnet, or the Welcome's seven-tap unlock. Each moves a wallet that has not
+ * been set up to mainnet before its children render, so the code check and the create run there. Only
+ * wallets that have not been set up can change networks here.
  */
 export const OnboardingNetwork: FC<{
   children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => ReactNode;
 }> = ({ children }) => {
   const { t } = useTranslation();
-  const snapshot = useBridgeConfigSnapshot();
+  const launched = useMainnetLaunched();
   const status = useWalletStore(s => s.status);
-  const required =
-    selectInviteOnlyOnboarding(snapshot) === true || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
+  const required = launched || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
   const [inviteOnly, setInviteOnly] = useState(required);
   const [state, setState] = useState<'idle' | 'pending' | 'ready' | 'failed'>('idle');
   const [attempt, setAttempt] = useState(0);
