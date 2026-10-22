@@ -21,9 +21,22 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args)
 }));
 
+const mockRequestDeserialize = jest.fn((_bytes: Uint8Array) => ({ expectedOutputOwnNotes: () => [] }));
+const mockRebasedSerialize = jest.fn(() => new Uint8Array([5, 6]));
+const mockFeeBuilder = jest.fn(async (..._args: unknown[]) => ({
+  withOwnOutputNotes: () => ({ build: () => ({ serialize: () => mockRebasedSerialize() }) })
+}));
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-  Account: { deserialize: () => ({ id: () => ({ toString: () => 'private-account' }) }) }
+  Account: { deserialize: () => ({ id: () => ({ toString: () => 'private-account' }) }) },
+  TransactionRequest: { deserialize: (bytes: Uint8Array) => mockRequestDeserialize(bytes) },
+  NoteArray: class {}
+}));
+jest.mock('../sdk/helpers', () => ({
+  ...jest.requireActual('../sdk/helpers'),
+  feeAwareRequestBuilder: (...args: unknown[]) => mockFeeBuilder(...args),
+  randomFeeSalt: () => ({})
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
@@ -194,4 +207,62 @@ it('returns successful ordinary and reclaim proposals with unchanged request byt
   ).toEqual({ id: 'private-reclaim-proposal', nonce: 8 });
   expect(persisted).toEqual([new Uint8Array([3, 4])]);
   expect(mockReclaimProposal).toHaveBeenCalledWith(new Uint8Array([3, 4]), 'custom_transaction');
+});
+
+describe('a rebased custom proposal (Sentry BREAD-WALLET-35)', () => {
+  it.each([
+    {
+      boundary: 'request read',
+      fail: (error: Error) =>
+        mockRequestDeserialize.mockImplementationOnce(() => {
+          throw error;
+        })
+    },
+    { boundary: 'fee builder', fail: (error: Error) => mockFeeBuilder.mockRejectedValueOnce(error) },
+    {
+      boundary: 'request rebuild',
+      fail: (error: Error) =>
+        mockRebasedSerialize.mockImplementationOnce(() => {
+          throw error;
+        })
+    }
+  ])('names a failed $boundary as the rebase build, before any proposal', async ({ fail }) => {
+    const error = privateFailure();
+    fail(error);
+    const loaded = await service();
+    await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'rebase_build' });
+    expect(mockReclaimProposal).not.toHaveBeenCalled();
+  });
+
+  it('keeps a lost hold after the rebuild unlabelled', async () => {
+    const error = privateFailure();
+    const loaded = await service();
+    mockAssertHold.mockImplementation((_hold, label) => {
+      if (label.includes('after the fee-aware builder')) throw error;
+    });
+    try {
+      await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).rejects.toBe(error);
+    } finally {
+      mockAssertHold.mockImplementation(() => {});
+    }
+    expect(snapshotCrashDiagnostics(error)).toEqual({});
+  });
+
+  it('names the guardian rejecting the rebuilt request as proposal creation, not the rebuild', async () => {
+    const error = privateFailure();
+    mockReclaimProposal.mockRejectedValueOnce(error);
+    const loaded = await service();
+    await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).rejects.toBe(error);
+    expect(mockReclaimProposal).toHaveBeenCalledWith(new Uint8Array([5, 6]), 'swap');
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+  });
+
+  it('returns the proposal and the bytes it was made from', async () => {
+    const loaded = await service();
+    await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).resolves.toEqual({
+      proposal: { id: 'private-reclaim-proposal', nonce: 8 },
+      requestBytes: new Uint8Array([5, 6])
+    });
+  });
 });
