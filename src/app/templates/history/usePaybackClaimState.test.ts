@@ -58,6 +58,39 @@ describe('usePaybackClaimState', () => {
     }
   });
 
+  it('keeps the stuck payout when the same swap is handed a new row object (F-009)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetPaybackClaimState.mockResolvedValue({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
+      const { result, rerender } = renderHook(({ row }) => usePaybackClaimState(row), { initialProps: { row: swap } });
+      act(() => mockObservers[0].next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
+
+      const stamped = { ...swap, settledAt: 1 } as ITransaction;
+      rerender({ row: stamped });
+      expect(result.current).toEqual({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
+      expect(mockUnsubscribe).not.toHaveBeenCalled();
+      expect(mockObservers).toHaveLength(1);
+
+      mockGetPaybackClaimState.mockClear();
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+        await Promise.resolve();
+      });
+      expect(mockGetPaybackClaimState).toHaveBeenCalledWith(stamped);
+
+      rerender({ row: { ...stamped, status: ITransactionStatus.Failed } as ITransaction });
+      expect(result.current).toBeNull();
+      expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+
+      act(() => mockObservers[1].next({ stuck: false }));
+      rerender({ row: { ...stamped, id: 'swap-2' } as ITransaction });
+      expect(result.current).toBeNull();
+      expect(mockUnsubscribe).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('subscribes to nothing for a row that is not a swap, and unsubscribes on unmount', () => {
     const send = { ...swap, type: 'send' } as ITransaction;
     const { result, rerender, unmount } = renderHook(({ row }) => usePaybackClaimState(row), {
