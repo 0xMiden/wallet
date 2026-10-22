@@ -272,7 +272,8 @@ function scanSources(sources: ReadonlyMap<string, string>): Violation[] {
             needsId = props.has('status') && !['idle', 'loading', 'success'].includes(props.get('status') ?? '');
             break;
           case 'Notice':
-            needsId = props.has('tone') && !['neutral', 'warning', 'positive'].includes(props.get('tone') ?? '');
+            needsId =
+              props.has('tone') && !['neutral', 'warning', 'caution', 'positive'].includes(props.get('tone') ?? '');
             break;
           case 'Alert':
             needsId = props.has('type') && !['warn', 'success'].includes(props.get('type') ?? '');
@@ -441,7 +442,7 @@ const view = <><PromptCard status="${status}" /><PromptCard status={'${status}'}
     }
   );
 
-  it.each(['neutral', 'warning', 'positive'])('accepts the literal nonerror Notice tone %s', tone => {
+  it.each(['neutral', 'warning', 'caution', 'positive'])('accepts the literal nonerror Notice tone %s', tone => {
     expect(
       fixture(`import { Notice } from 'components/ui';
 const view = <><Notice tone="${tone}" /><Notice tone={'${tone}'} /></>;`)
