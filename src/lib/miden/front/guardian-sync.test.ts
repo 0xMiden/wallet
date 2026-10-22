@@ -201,6 +201,7 @@ const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
 const resolveChosenDefault = (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
 const mockResolveChosenGuardianEndpoint = jest.fn(resolveChosenDefault);
 jest.mock('lib/miden/guardian/account', () => ({
+  getSignerCommitmentsFromAccount: () => [],
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
   getGuardianCommitmentFromAccount: (...args: unknown[]) => mockGetGuardianCommitmentFromAccount(...args),
   // The fuse key carries the endpoint, so the loop resolves it per account per lap.

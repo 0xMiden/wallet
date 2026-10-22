@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][all] A swap whose payout claim keeps failing now says so on its Activity row and receipt, with the reason and a Retry, instead of showing nothing while the daily retry runs (#1644).
+- [FIX][all] Crash reports for a Guardian authentication refusal now say whether the key the wallet signed with is one of the account's signers on chain, which key signed, and whether the account was waiting to replace its everyday key
 - [FIX][all] The Earn tab shows the "Not available where you are" notice at the top, above Total earned, when Earn is not offered in your location, instead of only inside a vault (#1753).
 - [FIX][all] The token page's 24h change pill shows the percentage change, not the dollar change with a percent sign.
 - [FIX][all] The eligibility service enables Swap for Near Intents with an explicit switch and valid 1Click mapping, and supports manual deployment from the wallet main branch independently of wallet releases.
