@@ -320,7 +320,7 @@ describe('mainnet 1Click EVM sender', () => {
     const hash = testHash(`0x${'ab'.repeat(32)}`);
     const reverted = makeSender({ holding: makeHolding(makeClient({
       waitForTransactionReceipt: jest.fn(async () => testReceipt('reverted', 1n, 1n))
-    })) });
+    })), broadcast: jest.fn(async () => hash) });
     bind(reverted);
     await reverted.send(transaction(), new AbortController().signal);
     await expect(reverted.receiptFee(hash)).resolves.toBe(1n);

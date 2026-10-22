@@ -415,10 +415,8 @@ describe('OneClickFlow', () => {
     await setAmountAndReview();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
 
-    expect(await screen.findByTestId('one-click-deposit-instructions')).toHaveTextContent(
-      'oneClickSubmitFailed'
-    );
-    expect(jest.mocked(useUserVisibleError)).toHaveBeenCalledWith('oneClickSubmitFailed', 'notice');
+    expect(await screen.findByTestId('one-click-review-error')).toHaveTextContent('oneClickSubmitFailed');
+    expect(screen.getByTestId('one-click-review-error-id')).toHaveTextContent('oneClickSubmitFailed');
     expect(screen.queryByText(privateFailure)).not.toBeInTheDocument();
   });
 

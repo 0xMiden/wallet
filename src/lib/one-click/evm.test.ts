@@ -218,6 +218,7 @@ describe('EVM 1Click wallet submission', () => {
         return null;
       }
       if (method === 'eth_accounts') return [account];
+      if (method === 'eth_sendTransaction') return txHash;
       return null;
     });
     await expect(submitEvmOneClickDeposit({ provider: wallet, account, request, quote, config })).rejects.toThrow(
@@ -237,6 +238,7 @@ describe('EVM 1Click wallet submission', () => {
     const wallet = providerWith(async method => {
       if (method === 'eth_chainId') return '0x2105';
       if (method === 'eth_accounts') return [account];
+      if (method === 'eth_sendTransaction') return txHash;
       return null;
     });
     mockAssertFunded.mockImplementationOnce(async () => {
