@@ -447,6 +447,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
               if (gate.failedClaim) retryClaim(gate.failedClaim);
             }}
             onCheckAgain={onRetry}
+            onUseKeyPair={() => setImporting(true)}
           />
         ) : gate.view === 'failed' ? (
           <RotationFailedPanel

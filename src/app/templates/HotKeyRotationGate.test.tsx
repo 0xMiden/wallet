@@ -520,6 +520,21 @@ describe('HotKeyRotationGate', () => {
       expect(screen.getByTestId('import-hot-key-screen')).toHaveAttribute('data-submitting', 'false');
     });
 
+    it('is offered while the account cannot fund a rotation, and hands the pair to the store', async () => {
+      const importHotKeyPair = jest.fn().mockResolvedValue(undefined);
+      storeState = { currentAccount: flaggedAccount, importHotKeyPair };
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+
+      render(<HotKeyRotationGate />);
+      await screen.findByTestId('hot-key-rotation-funding');
+      fireEvent.click(screen.getByTestId('hot-key-rotation-use-key-pair'));
+      fireEvent.click(screen.getByTestId('import-hot-key-screen'));
+
+      await waitFor(() => expect(importHotKeyPair).toHaveBeenCalledWith('account-1', 'hot:evm'));
+      expect(screen.queryByTestId('hot-key-rotation-funding')).not.toBeInTheDocument();
+    });
+
     it('goes back to the failure panel', async () => {
       storeState = { currentAccount: flaggedAccount, importHotKeyPair: jest.fn() };
       failRotation();
