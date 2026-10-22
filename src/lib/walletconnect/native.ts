@@ -273,10 +273,11 @@ async function waitForSessionChain(
     if (sessionApproves(latest, chainId)) finish();
   };
   watch.onEvent = next => apply(next, true);
-  // An approval that arrived before this wait must not sit for the whole deadline, and a deletion
-  // that lands before that settlement still wins.
+  // An event that arrived before this wait is an observation whether or not it approves the chain.
+  // An approval must not sit for the whole deadline, and a deletion that lands before that
+  // settlement still wins.
+  if (watch.latest) sawState = true;
   if (sessionApproves(latest, chainId)) {
-    if (watch.latest) sawState = true;
     void Promise.resolve().then(() => {
       if (sessionApproves(latest, chainId)) finish();
     });
