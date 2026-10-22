@@ -140,10 +140,11 @@ const PROVIDER_ERROR_RULES: ReadonlyArray<readonly [LibraryError, ReadonlyArray<
   ['provider_disconnected', ['ProviderDisconnectedError'], [4900]],
   ['chain_disconnected', ['ChainDisconnectedError'], [4901]],
   ['chain_switch_failed', ['SwitchChainError'], [4902]],
+  // Not -32000: nodes answer every server fault with it, so only viem's class names invalid input.
   [
     'request_invalid',
     ['ParseRpcError', 'InvalidRequestRpcError', 'InvalidParamsRpcError', 'InvalidInputRpcError'],
-    [-32700, -32600, -32602, -32000]
+    [-32700, -32600, -32602]
   ],
   ['rpc_internal', ['InternalRpcError'], [-32603]],
   ['rpc_unavailable', ['ResourceNotFoundRpcError', 'ResourceUnavailableRpcError'], [-32001, -32002]],

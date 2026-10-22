@@ -202,7 +202,8 @@ const LIBRARY_CASES: ReadonlyArray<readonly [string, unknown]> = [
   ['request_invalid', { code: -32700, message: 'x' }],
   ['request_invalid', { code: -32600, message: 'x' }],
   ['request_invalid', { code: -32602, message: 'x' }],
-  ['request_invalid', { code: -32000, message: 'x' }],
+  // Nodes answer every server fault with -32000 (nonce too low, header not found); only viem's class names input.
+  ['other', { code: -32000, message: 'nonce too low' }],
   ['rpc_internal', named('InternalRpcError', 'Internal error.')],
   ['rpc_internal', { code: -32603, message: 'x' }],
   ['rpc_unavailable', named('ResourceNotFoundRpcError', 'Resource not found.')],
