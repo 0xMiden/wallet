@@ -705,26 +705,35 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
     document.body.innerHTML = '';
   });
 
+  interface RecordedControl {
+    waitFor: jest.Mock;
+    click: jest.Mock;
+    isVisible: jest.Mock;
+    or(other: { isVisible(): Promise<boolean> }): RecordedUnion;
+  }
+
+  interface RecordedUnion extends RecordedControl {
+    first(): RecordedUnion;
+  }
+
   /**
    * Records clicks. A control that is not in the document cannot be waited on or clicked, and
    * `or` is visible when either side is. A mainnet Welcome has no `#import-link`, so a helper
-   * that only waits for that link fails here.
+   * that only waits for that link fails here. Selectors in `hang` append themselves to `pending`
+   * and never settle their own `waitFor`; `isVisible` still reports the document. `or().first()`
+   * is that same combined locator, and its `waitFor` resolves when either side is visible without
+   * calling either side's `waitFor`.
    */
-  function pageRecording(log: string[]): Page {
-    const locator = (selector: string) => {
+  function pageRecording(log: string[], hang: ReadonlySet<string> = new Set(), pending: string[] = []): Page {
+    const locator = (selector: string): RecordedControl => {
       const present = () => document.querySelector(selector) !== null;
-      const api: {
-        waitFor: jest.Mock;
-        click: jest.Mock;
-        isVisible: jest.Mock;
-        or: (other: { isVisible: () => Promise<boolean> }) => {
-          waitFor: jest.Mock;
-          isVisible: jest.Mock;
-          click: jest.Mock;
-          or: typeof api.or;
-        };
-      } = {
+      const api: RecordedControl = {
         waitFor: jest.fn(async () => {
+          if (hang.has(selector)) {
+            pending.push(selector);
+            await new Promise<void>(() => undefined);
+            return;
+          }
           if (!present()) throw new Error(`not visible: ${selector}`);
         }),
         click: jest.fn(async () => {
@@ -733,15 +742,21 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
         }),
         isVisible: jest.fn(async () => present()),
         or(other) {
-          return {
+          const combined: RecordedUnion = {
             waitFor: jest.fn(async () => {
               if (present() || (await other.isVisible())) return;
               throw new Error(`not visible: ${selector}`);
             }),
             isVisible: jest.fn(async () => present() || (await other.isVisible())),
             click: api.click,
-            or: api.or
+            or(otherControl) {
+              return api.or(otherControl);
+            },
+            first() {
+              return this;
+            }
           };
+          return combined;
         }
       };
       return api;
@@ -782,6 +797,33 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
     ].join('');
     const log: string[] = [];
     await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
+    expect(log).toEqual([
+      'click [data-testid="onboarding-no-code"]',
+      'click [data-testid="no-code-sheet-recover"]',
+      'click [data-testid="import-type-seed-phrase"]'
+    ]);
+  });
+
+  it('does not leave the unselected import control waiting', async () => {
+    document.body.innerHTML = [
+      '<div data-testid="onboarding-welcome"></div>',
+      '<button data-testid="onboarding-no-code"></button>',
+      '<button data-testid="no-code-sheet-recover"></button>',
+      '<div data-testid="import-select-type"></div>',
+      '<button data-testid="import-type-seed-phrase"></button>',
+      '<div data-testid="import-seed-phrase"></div>'
+    ].join('');
+    const log: string[] = [];
+    const pending: string[] = [];
+    await new ChromeWalletPage(
+      pageRecording(
+        log,
+        new Set(['#import-link', '[data-testid="onboarding-network-notice-acknowledge"]']),
+        pending
+      ),
+      'test'
+    ).openImportSeedPhraseScreen();
+    expect(pending).toEqual([]);
     expect(log).toEqual([
       'click [data-testid="onboarding-no-code"]',
       'click [data-testid="no-code-sheet-recover"]',

@@ -1249,37 +1249,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Which of `candidates` becomes visible first. A later `isVisible()` check can miss the control
-   * that just won the wait, so the caller keeps this name instead of sampling again.
-   */
-  private firstVisible(
-    candidates: ReadonlyArray<{
-      name: string;
-      locator: { waitFor(options: { state: 'visible'; timeout: number }): Promise<unknown> };
-    }>,
-    timeout: number
-  ): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let pending = candidates.length;
-      if (pending === 0) {
-        reject(new Error('no controls to wait for'));
-        return;
-      }
-      for (const { name, locator } of candidates) {
-        locator.waitFor({ state: 'visible', timeout }).then(
-          () => resolve(name),
-          () => {
-            pending -= 1;
-            if (pending === 0) {
-              reject(new Error(`none of ${candidates.map(candidate => candidate.name).join(', ')} became visible`));
-            }
-          }
-        );
-      }
-    });
-  }
-
-  /**
    * Welcome through to the import-type choice.
    *
    * Test networks put Recover on the welcome screen (`#import-link`) and then show the network
@@ -1291,14 +1260,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
     const recover = this.page.locator('#import-link');
     const noCode = this.page.getByTestId('onboarding-no-code');
-    const welcome = await this.firstVisible(
-      [
-        { name: 'no-code', locator: noCode },
-        { name: 'recover', locator: recover }
-      ],
-      30_000
-    );
-    if (welcome === 'no-code') {
+    await noCode.or(recover).first().waitFor({ state: 'visible', timeout: 30_000 });
+    if (await noCode.isVisible()) {
       await noCode.click();
       await this.page.getByTestId('no-code-sheet-recover').click();
     } else {
@@ -1306,14 +1269,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
     const notice = this.page.getByTestId('onboarding-network-notice-acknowledge');
     const importType = this.page.getByTestId('import-select-type');
-    const next = await this.firstVisible(
-      [
-        { name: 'notice', locator: notice },
-        { name: 'import', locator: importType }
-      ],
-      15_000
-    );
-    if (next === 'notice') await acknowledgeNetworkNotice(this.page, 15_000);
+    await notice.or(importType).first().waitFor({ state: 'visible', timeout: 15_000 });
+    if (await notice.isVisible()) await acknowledgeNetworkNotice(this.page, 15_000);
     await importType.waitFor({ timeout: 15_000 });
   }
 
