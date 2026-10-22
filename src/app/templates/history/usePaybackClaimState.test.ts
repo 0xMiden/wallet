@@ -34,10 +34,10 @@ describe('usePaybackClaimState', () => {
     expect(mockGetPaybackClaimState).toHaveBeenCalledWith(swap);
     expect(result.current).toBeNull();
 
-    act(() => mockObservers[0].next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
+    act(() => mockObservers[0]!.next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
     expect(result.current).toEqual({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
 
-    act(() => mockObservers[0].next({ stuck: false }));
+    act(() => mockObservers[0]!.next({ stuck: false }));
     expect(result.current).toEqual({ stuck: false });
   });
 
@@ -46,7 +46,7 @@ describe('usePaybackClaimState', () => {
     try {
       mockGetPaybackClaimState.mockResolvedValue({ stuck: true, failedClaimId: 'claim-1', reason: 'other' });
       const { result } = renderHook(() => usePaybackClaimState(swap));
-      act(() => mockObservers[0].next({ stuck: false }));
+      act(() => mockObservers[0]!.next({ stuck: false }));
       expect(result.current).toEqual({ stuck: false });
 
       await act(async () => {
@@ -64,7 +64,7 @@ describe('usePaybackClaimState', () => {
     try {
       mockGetPaybackClaimState.mockResolvedValue({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
       const { result, rerender } = renderHook(({ row }) => usePaybackClaimState(row), { initialProps: { row: swap } });
-      act(() => mockObservers[0].next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
+      act(() => mockObservers[0]!.next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
 
       const stamped = { ...swap, settledAt: 1 } as ITransaction;
       rerender({ row: stamped });
@@ -83,7 +83,7 @@ describe('usePaybackClaimState', () => {
       expect(result.current).toBeNull();
       expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
 
-      act(() => mockObservers[1].next({ stuck: false }));
+      act(() => mockObservers[1]!.next({ stuck: false }));
       rerender({ row: { ...stamped, id: 'swap-2' } as ITransaction });
       expect(result.current).toBeNull();
       expect(mockUnsubscribe).toHaveBeenCalledTimes(2);
@@ -108,7 +108,7 @@ describe('usePaybackClaimState', () => {
     try {
       const resolvers = deferredReads();
       const { result, rerender } = renderHook(({ row }) => usePaybackClaimState(row), { initialProps: { row: swap } });
-      act(() => mockObservers[0].next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
+      act(() => mockObservers[0]!.next({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' }));
       act(() => {
         jest.advanceTimersByTime(60_000);
       });
@@ -116,7 +116,7 @@ describe('usePaybackClaimState', () => {
 
       rerender({ row: { ...swap, id: 'swap-2' } as ITransaction });
       await act(async () => {
-        resolvers[1]({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
+        resolvers[1]!({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
         await Promise.resolve();
       });
       expect(result.current).toBeNull();
@@ -133,9 +133,9 @@ describe('usePaybackClaimState', () => {
       act(() => {
         jest.advanceTimersByTime(60_000);
       });
-      act(() => mockObservers[0].next({ stuck: true, failedClaimId: 'claim-2', reason: 'network' }));
+      act(() => mockObservers[0]!.next({ stuck: true, failedClaimId: 'claim-2', reason: 'network' }));
       await act(async () => {
-        resolvers[1]({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
+        resolvers[1]!({ stuck: true, failedClaimId: 'claim-1', reason: 'fee' });
         await Promise.resolve();
       });
       expect(result.current).toEqual({ stuck: true, failedClaimId: 'claim-2', reason: 'network' });
