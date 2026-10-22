@@ -40,6 +40,24 @@ describe('usePaybackClaimState', () => {
     expect(result.current).toEqual({ stuck: false });
   });
 
+  it('re-reads every minute, since a note hold can expire with no row written (F-008)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetPaybackClaimState.mockResolvedValue({ stuck: true, failedClaimId: 'claim-1', reason: 'other' });
+      const { result } = renderHook(() => usePaybackClaimState(swap));
+      act(() => mockObservers[0].next({ stuck: false }));
+      expect(result.current).toEqual({ stuck: false });
+
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+        await Promise.resolve();
+      });
+      expect(result.current).toEqual({ stuck: true, failedClaimId: 'claim-1', reason: 'other' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('subscribes to nothing for a row that is not a swap, and unsubscribes on unmount', () => {
     const send = { ...swap, type: 'send' } as ITransaction;
     const { result, rerender, unmount } = renderHook(({ row }) => usePaybackClaimState(row), {
