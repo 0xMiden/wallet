@@ -51,7 +51,10 @@ import {
   REPORTED_IDENTITIES,
   reportTransactionFailure,
   SIGNING_STEPS,
+  STARTUP_SELECTIONS,
+  STORED_STAGE_AGES,
   SUBMIT_ENDPOINTS,
+  SUBMIT_RECORDS,
   SUBMIT_GRPC_STATUSES,
   SUBMIT_HIDDEN_ANSWERS,
   SUBMIT_LEG_BUCKETS,
@@ -191,6 +194,9 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     CLAIM_FEE_ADMISSIONS,
     REAP_AGES,
     REAPED_ATTEMPT_ORIGINS,
+    STARTUP_SELECTIONS,
+    STORED_STAGE_AGES,
+    SUBMIT_RECORDS,
     ['none', 'unrecorded', 'unavailable', 'other'],
     HOT_KEY_CODES,
     GUARDIAN_ERROR_CODES,
@@ -503,6 +509,60 @@ it.each([
   expect(message).toContain(`; reap age ${age}; reaped attempt ${attempt}; point pipeline; stuck_reaped.`);
   expect(message).not.toContain('nonsense');
 });
+
+it('places startup segments after platform and before the failure point for a startup-interrupted claim', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'signing-proposal',
+    entryPoint: 'claim',
+    reason: 'interrupted_on_startup',
+    startup: { selection: 'before_session', stageAge: 'under_10m', submit: 'no_submit_recorded' }
+  });
+  expect(await reportedMessage()).toMatch(
+    /; claim fee admission unrecorded; startup selection before_session; stored stage age under_10m; submit no_submit_recorded; point pipeline; interrupted_on_startup\. authentication/
+  );
+});
+
+it.each([
+  { name: 'absent', startup: undefined, selection: 'unavailable', age: 'unavailable', submit: 'unavailable' },
+  {
+    name: 'listed',
+    startup: { selection: 'future_stamp', stageAge: 'over_1d', submit: 'submit_recorded' },
+    selection: 'future_stamp',
+    age: 'over_1d',
+    submit: 'submit_recorded'
+  },
+  {
+    name: 'unlisted',
+    startup: { selection: 'nonsense', stageAge: 'nonsense', submit: 'nonsense' },
+    selection: 'unavailable',
+    age: 'unavailable',
+    submit: 'unavailable'
+  }
+])('reports $name startup fields through their closed lists', async ({ startup, selection, age, submit }) => {
+  const failure: TransactionFailure = { type: 'send', reason: 'interrupted_on_startup' };
+  Reflect.set(failure, 'startup', startup);
+  reportTransactionFailure(failure);
+  const message = await reportedMessage();
+  expect(message).toContain(
+    `; startup selection ${selection}; stored stage age ${age}; submit ${submit}; point pipeline; interrupted_on_startup.`
+  );
+  expect(message).not.toContain('nonsense');
+});
+
+it.each(['stuck_reaped', 'user_cancelled', undefined] as const)(
+  'omits startup segments for reason %s',
+  async reason => {
+    reportTransactionFailure({
+      type: 'consume',
+      reason,
+      startup: { selection: 'missing_start', stageAge: 'under_1m', submit: 'submit_recorded' }
+    });
+    const message = await reportedMessage();
+    expect(message).not.toContain('startup selection');
+    expect(message).not.toContain('stored stage age');
+  }
+);
 
 it.each(['queued_expired', 'user_cancelled', undefined] as const)('omits reap segments for reason %s', async reason => {
   reportTransactionFailure({
@@ -1805,6 +1865,9 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ],
   ['reap age', () => [...REAP_AGES, 'unavailable'], () => policyText('The stuck-transaction check')],
   ['reaped attempt', () => [...REAPED_ATTEMPT_ORIGINS, 'unavailable'], () => policyText('The stuck-transaction check')],
+  ['startup selection', () => [...STARTUP_SELECTIONS, 'unavailable'], () => policyText('The startup check')],
+  ['stored stage age', () => [...STORED_STAGE_AGES, 'unavailable'], () => policyText('The startup check')],
+  ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )

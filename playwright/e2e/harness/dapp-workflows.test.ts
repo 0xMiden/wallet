@@ -20,9 +20,9 @@ const jobBlock = (id: string): string => {
 };
 
 describe('dApp E2E workflow', () => {
-  it('runs on merges to main and next and by hand, never on a pull request or a timer', () => {
-    expect(workflow).toMatch(/\non:\n {2}push:\n {4}branches: \[main, next\]\n {2}workflow_dispatch:/);
-    expect(workflow).not.toMatch(/pull_request|schedule:/);
+  it('runs only by dispatch (Release E2E starts it), never on a push, a pull request or a timer of its own', () => {
+    expect(workflow).toMatch(/\non:\n {2}workflow_dispatch:/);
+    expect(workflow).not.toMatch(/pull_request|schedule:|\n {2}push:/);
   });
 
   it('pairs main with testnet and next with devnet, as e2e-blockchain.yml does, and never runs the local stack', () => {
@@ -86,7 +86,7 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(workflow.match(/--retries=0/g)).toHaveLength(3);
   });
 
-  it('lets a dispatch pick the surfaces, and runs every surface on a push', () => {
+  it('lets a dispatch pick the surfaces, and runs every surface by default', () => {
     expect(workflow).toMatch(
       /surface:\n\s+description: Which surfaces run\n\s+type: choice\n\s+options: \[all, extension, mobile\]\n\s+default: all/
     );

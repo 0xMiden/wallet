@@ -3,8 +3,13 @@ name: E2E Blockchain
 # Runs the blockchain-backed E2E suites (Chrome extension + iOS simulator)
 # against the public network that matches the BRANCH'S PROTOCOL LINE.
 #
-#   push to main  ->  testnet   (main is on @miden-sdk/miden-sdk 0.15.x)
-#   push to next  ->  devnet    (next is on 0.16.0-rc.x)
+#   main  ->  testnet   (main is on @miden-sdk/miden-sdk 0.15.x)
+#   next  ->  devnet    (next is on 0.16.0-rc.x)
+#
+# Nothing runs it on push. Release E2E (release-e2e.yml) dispatches it nightly
+# and on each release with network=testnet, and Next E2E (devnet)
+# (next-e2e-devnet.yml) dispatches next's own copy nightly with network=devnet.
+# The `push` arms of the job gates below are inert until a push trigger returns.
 #
 # Devnet and testnet run different protocol versions, so a wallet built for one
 # genuinely cannot pass against the other. This used to be handled by running
@@ -25,11 +30,11 @@ name: E2E Blockchain
 # Splitting by branch gives each line a hard gate. Nothing is `continue-on-error`
 # any more: on main a testnet failure is fatal, and on next a devnet failure is
 # fatal, because in each case that network IS the branch's line. GitHub runs the
-# workflow file from the PUSHED ref, so `next` carries its own copy of the split
+# workflow file from the DISPATCHED ref, so `next` carries its own copy of the split
 # (#678) alongside main's (#676) — otherwise devnet would never run here at all.
 #
-# `workflow_dispatch` still takes a network argument for ad-hoc runs, so either
-# network can be exercised from either branch by hand.
+# `workflow_dispatch` takes the network argument, so either network can be
+# exercised from either branch by hand; pass it, since the default is devnet.
 #
 # (#797, CLOSED) Devnet's 2026-08-27 re-genesis enabled transaction fees, and for a week no
 # released tooling could transact against it, so all four devnet suites were taken off the
@@ -39,10 +44,6 @@ name: E2E Blockchain
 # a real bug again.
 
 on:
-  push:
-    branches:
-      - main
-      - next
   workflow_dispatch:
     inputs:
       network:

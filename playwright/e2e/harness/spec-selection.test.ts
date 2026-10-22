@@ -2016,12 +2016,8 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
 
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {
     expect(onBlock('.github/workflows/pr-e2e-local.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
-    expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe(
-      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
-    );
-    expect(onBlock('.github/workflows/pr-e2e-bridge-guardian.yml')).toBe(
-      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
-    );
+    expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
+    expect(onBlock('.github/workflows/pr-e2e-bridge-guardian.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
   });
 
   it('runBlockAfter throws when the anchor is not found, instead of matching the first run block in the file', () => {

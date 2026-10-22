@@ -3900,6 +3900,94 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
 // loadEndpointOverrides() + resetMidenClient() reach only the SW realm. Flag-on it
 // is the OFFSCREEN client that talks to the node, so it needs its own nudge.
 // The offscreen document has no extension storage, so the network it runs on is the one these messages carry (#1482).
+// #1644: the Guardian leaf's submit gate opens only for an op this worker still runs, after the leaf recorded the
+// crossing, so a leaf the worker never let through never submits.
+describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
+  const trBytes = () => new Uint8Array([0xca, 0xfe]);
+  const gateReq = (op_id: string, evidence?: unknown) =>
+    ({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id, evidence }) as never;
+
+  it('opens for the in-flight op once its gate recorded the crossing, with the evidence the leaf read', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let answer: unknown;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      answer = await handleOffscreenSubmitGate(gateReq(env.op_id, { refBlock: 4 }));
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 });
+    expect(answer).toEqual({ ok: true });
+  });
+
+  it('refuses when the leaf has already settled or could not record the crossing', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const answers: unknown[] = [];
+    const gates = [jest.fn(async () => false), jest.fn(async () => Promise.reject(new Error('IndexedDB closed')))];
+    for (const submitGate of gates) {
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+        answers.push(await handleOffscreenSubmitGate(gateReq(env.op_id)));
+        return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+      });
+      const p = dispatchGuardianPipeline(
+        'acc',
+        trBytes(),
+        false,
+        jest.fn(async () => new Uint8Array()),
+        undefined,
+        undefined,
+        submitGate
+      );
+      await flush();
+      fireReady();
+      // eslint-disable-next-line no-await-in-loop
+      await p;
+    }
+    expect(answers).toEqual([
+      expect.objectContaining({ ok: false }),
+      expect.objectContaining({ ok: false, error: expect.stringContaining('IndexedDB closed') })
+    ]);
+  });
+
+  it('refuses an op that is no longer in flight, and never asks its gate', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let opId = '';
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      opId = env.op_id;
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(await handleOffscreenSubmitGate(gateReq(opId))).toEqual(expect.objectContaining({ ok: false }));
+    expect(await handleOffscreenSubmitGate(gateReq('never-dispatched'))).toEqual(
+      expect.objectContaining({ ok: false })
+    );
+    expect(submitGate).not.toHaveBeenCalled();
+  });
+});
+
 describe('MidenClientProxy - the endpoint state on every offscreen message (#1482)', () => {
   const customOverride = async () => {
     const { buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
