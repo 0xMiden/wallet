@@ -1,7 +1,17 @@
 /** @jest-environment node */
 
-import { fetchOneClickAssets, isSameOneClickUnderlyingAsset, requestOneClickQuote } from './client';
-import type { OneClickConfig, OneClickQuoteRequest } from './types';
+import {
+  fetchOneClickAssets,
+  fetchOneClickStatus,
+  isSameOneClickUnderlyingAsset,
+  parseOneClickQuoteResponse,
+  requestOneClickQuote,
+  submitOneClickDeposit
+} from './client';
+import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
+import dryFixture from './test-fixtures-dry.json';
+import wetFixture from './test-fixtures-wet.json';
+import type { OneClickAppFee, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
 const config: OneClickConfig = {
   serviceUrl: 'https://proxy.example',
@@ -33,6 +43,73 @@ const input: OneClickQuoteRequest = {
 
 const originalFetch = globalThis.fetch;
 const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({}));
+
+const pinnedDryQuote = parseOneClickQuoteResponse(dryFixture);
+const pinnedWetQuote = parseOneClickQuoteResponse(wetFixture);
+const fixtureFee: OneClickAppFee = {
+  recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd',
+  fee: 20
+};
+const secondFixtureFee: OneClickAppFee = { recipient: 'partner-two.near', fee: 7 };
+const wetDepositAddress = '0xe5E9d98Ee5e8E8d379fa7bEb302f33E94261f21B';
+const submitTransactionHash = `0x${'1'.repeat(64)}`;
+
+function configWithFees(appFees: OneClickAppFee[] = []): OneClickConfig {
+  return { serviceUrl: 'https://proxy.example', midenAssets: [], appFees };
+}
+
+function quoteWithFees(quote: OneClickQuoteResponse, appFees: OneClickAppFee[]): OneClickQuoteResponse {
+  return { ...quote, quoteRequest: { ...quote.quoteRequest, appFees } };
+}
+
+function requestForFixture(quote: OneClickQuoteResponse): OneClickQuoteRequest {
+  const signed = quote.quoteRequest;
+  return {
+    amount: signed.amount,
+    originAsset: { assetId: signed.originAsset, blockchain: 'eth', symbol: 'USDC', decimals: 6 },
+    destinationAsset: { assetId: signed.destinationAsset, blockchain: 'base', symbol: 'ETH', decimals: 18 },
+    refundTo: signed.refundTo,
+    recipient: signed.recipient,
+    deadline: signed.deadline,
+    slippageTolerance: signed.slippageTolerance
+  };
+}
+
+function statusResponse(quoteResponse: OneClickQuoteResponse) {
+  return {
+    correlationId: quoteResponse.correlationId,
+    quoteResponse,
+    status: 'PROCESSING',
+    updatedAt: '2026-10-22T11:15:08.000Z',
+    swapDetails: {
+      intentHashes: [],
+      nearTxHashes: [],
+      originChainTxHashes: [],
+      destinationChainTxHashes: []
+    }
+  };
+}
+
+async function callStatusBoundary(
+  config: OneClickConfig,
+  quote: OneClickQuoteResponse,
+  expectedQuote?: OneClickQuoteResponse
+) {
+  fetchMock.mockResolvedValue(Response.json(statusResponse(quote)));
+  if (expectedQuote) return fetchOneClickStatus(config, wetDepositAddress, undefined, expectedQuote);
+  return fetchOneClickStatus(config, wetDepositAddress);
+}
+
+async function callSubmitBoundary(
+  config: OneClickConfig,
+  quote: OneClickQuoteResponse,
+  expectedQuote?: OneClickQuoteResponse
+) {
+  fetchMock.mockResolvedValue(Response.json(statusResponse(quote)));
+  if (expectedQuote)
+    return submitOneClickDeposit(config, wetDepositAddress, submitTransactionHash, undefined, expectedQuote);
+  return submitOneClickDeposit(config, wetDepositAddress, submitTransactionHash);
+}
 
 describe('1Click client', () => {
   beforeEach(() => {
@@ -111,6 +188,104 @@ describe('1Click client', () => {
     expect(assets).toEqual([]);
   });
 
+  it('keeps independently verified mappings when another Miden metadata lookup fails or mismatches', async () => {
+    const metadataConfig: OneClickConfig = {
+      serviceUrl: 'https://proxy.example',
+      midenAssets: [
+        { assetId: 'miden:verified', faucetId: `0x${'1'.repeat(30)}`, decimals: 6 },
+        { assetId: 'miden:unavailable', faucetId: `0x${'2'.repeat(30)}`, decimals: 6 },
+        { assetId: 'miden:mismatched', faucetId: `0x${'3'.repeat(30)}`, decimals: 6 },
+        { assetId: 'miden:invalid', faucetId: `0x${'4'.repeat(30)}`, decimals: 6 }
+      ]
+    };
+    fetchMock.mockResolvedValue(
+      Response.json([
+        {
+          assetId: 'eth:token',
+          blockchain: 'eth',
+          symbol: 'TOKEN',
+          decimals: 18,
+          contractAddress: `0x${'a'.repeat(40)}`
+        },
+        ...metadataConfig.midenAssets.map(asset => ({
+          assetId: asset.assetId,
+          blockchain: 'miden',
+          symbol: 'USD Coin',
+          decimals: asset.decimals
+        }))
+      ])
+    );
+    const resolver = jest.fn(async (asset: { faucetId?: string }) => {
+      if (asset.faucetId === metadataConfig.midenAssets[1]?.faucetId) throw new Error('metadata unavailable');
+      if (asset.faucetId === metadataConfig.midenAssets[2]?.faucetId) return { decimals: 9, symbol: 'USDC' };
+      if (asset.faucetId === metadataConfig.midenAssets[3]?.faucetId) return { decimals: 6, symbol: '  ' };
+      return { decimals: 6, symbol: 'USDC' };
+    });
+
+    const assets = await fetchOneClickAssets(metadataConfig, resolver);
+
+    expect(assets.map(asset => asset.assetId)).toEqual(['eth:token', 'miden:verified']);
+    expect(resolver).toHaveBeenCalledTimes(4);
+  });
+
+  it('limits Miden metadata reads to four concurrent lookups', async () => {
+    const metadataConfig: OneClickConfig = {
+      serviceUrl: 'https://proxy.example',
+      midenAssets: Array.from({ length: 6 }, (_, index) => ({
+        assetId: `miden:asset-${index}`,
+        faucetId: `0x${String(index + 1).repeat(30)}`,
+        decimals: 6
+      }))
+    };
+    fetchMock.mockResolvedValue(
+      Response.json(
+        metadataConfig.midenAssets.map(asset => ({
+          assetId: asset.assetId,
+          blockchain: 'miden',
+          symbol: 'USDC',
+          decimals: asset.decimals
+        }))
+      )
+    );
+    let active = 0;
+    let peak = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const resolver = jest.fn(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await gate;
+      active -= 1;
+      return { decimals: 6, symbol: 'USDC' };
+    });
+    const pending = fetchOneClickAssets(metadataConfig, resolver);
+    let startedBeforeRelease = 0;
+
+    try {
+      for (let attempt = 0; attempt < 25 && resolver.mock.calls.length < 4; attempt += 1) await Promise.resolve();
+      startedBeforeRelease = resolver.mock.calls.length;
+      release?.();
+      const assets = await pending;
+      expect(assets).toHaveLength(6);
+    } finally {
+      release?.();
+      await pending;
+    }
+
+    expect(startedBeforeRelease).toBe(4);
+    expect(peak).toBe(4);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it('fails closed when the provider token response has an invalid top-level shape', async () => {
+    fetchMock.mockResolvedValue(Response.json({ tokens: [] }));
+    await expect(fetchOneClickAssets(config, async () => ({ decimals: 6, symbol: 'USDC' }))).rejects.toThrow(
+      'Invalid 1Click token response'
+    );
+  });
+
   it('preserves canonical IDs from the provider catalog and matches underlying assets without symbols', async () => {
     fetchMock.mockResolvedValue(
       Response.json([
@@ -170,6 +345,169 @@ describe('1Click client', () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual(
       expect.not.objectContaining({ Authorization: expect.anything() })
     );
+  });
+
+  it('quote boundary rejects unsigned pinned-fixture fee edits while preserving signature and hash', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
+    const request = requestForFixture(pinnedDryQuote);
+    const matchingConfig = configWithFees([fixtureFee]);
+    const matchingQuote = quoteWithFees(pinnedDryQuote, [fixtureFee]);
+    fetchMock.mockResolvedValue(Response.json(matchingQuote));
+
+    await expect(requestOneClickQuote(matchingConfig, request)).resolves.toEqual(matchingQuote);
+
+    const editedQuote = quoteWithFees(pinnedDryQuote, [{ ...fixtureFee, recipient: 'attacker.near' }]);
+    expect(verifyOneClickQuoteSignature(editedQuote)).toBe(true);
+    expect(hashOneClickQuote(editedQuote)).toBe(hashOneClickQuote(pinnedDryQuote));
+    fetchMock.mockResolvedValue(Response.json(editedQuote));
+    await expect(requestOneClickQuote(matchingConfig, request)).rejects.toThrow(
+      '1Click quote is missing a configured app fee'
+    );
+  });
+
+  it.each([
+    { name: 'unconfigured provider fee', configured: [], actual: [fixtureFee] },
+    { name: 'configured fee plus an extra fee', configured: [fixtureFee], actual: [fixtureFee, secondFixtureFee] },
+    { name: 'missing configured fee', configured: [fixtureFee], actual: [] },
+    { name: 'altered configured fee amount', configured: [fixtureFee], actual: [{ ...fixtureFee, fee: 21 }] },
+    { name: 'duplicate fee multiplicity', configured: [fixtureFee, fixtureFee], actual: [fixtureFee] }
+  ])('quote boundary rejects $name', async ({ configured, actual }) => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
+    const response = quoteWithFees(pinnedDryQuote, actual);
+    expect(verifyOneClickQuoteSignature(response)).toBe(true);
+    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedDryQuote));
+    fetchMock.mockResolvedValue(Response.json(response));
+
+    await expect(requestOneClickQuote(configWithFees(configured), requestForFixture(pinnedDryQuote))).rejects.toThrow(
+      '1Click quote is missing a configured app fee'
+    );
+  });
+
+  it('quote boundary accepts an order-insensitive configured fee match', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
+    const configured = [fixtureFee, secondFixtureFee];
+    const response = quoteWithFees(pinnedDryQuote, [secondFixtureFee, fixtureFee]);
+    expect(verifyOneClickQuoteSignature(response)).toBe(true);
+    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedDryQuote));
+    fetchMock.mockResolvedValue(Response.json(response));
+
+    await expect(requestOneClickQuote(configWithFees(configured), requestForFixture(pinnedDryQuote))).resolves.toEqual(
+      response
+    );
+  });
+
+  it.each([
+    {
+      boundary: 'status',
+      name: 'unsigned extra fee against empty configuration',
+      configured: [],
+      actual: [fixtureFee]
+    },
+    {
+      boundary: 'submit',
+      name: 'unsigned extra fee against empty configuration',
+      configured: [],
+      actual: [fixtureFee]
+    },
+    {
+      boundary: 'status',
+      name: 'altered configured fee recipient',
+      configured: [fixtureFee],
+      actual: [{ ...fixtureFee, recipient: 'attacker.near' }]
+    },
+    {
+      boundary: 'submit',
+      name: 'altered configured fee recipient',
+      configured: [fixtureFee],
+      actual: [{ ...fixtureFee, recipient: 'attacker.near' }]
+    },
+    {
+      boundary: 'status',
+      name: 'altered configured fee amount',
+      configured: [fixtureFee],
+      actual: [{ ...fixtureFee, fee: 21 }]
+    },
+    {
+      boundary: 'submit',
+      name: 'altered configured fee amount',
+      configured: [fixtureFee],
+      actual: [{ ...fixtureFee, fee: 21 }]
+    }
+  ])('$boundary boundary rejects $name without an expected quote', async ({ boundary, configured, actual }) => {
+    const response = quoteWithFees(pinnedWetQuote, actual);
+    expect(verifyOneClickQuoteSignature(response)).toBe(true);
+    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedWetQuote));
+    const request =
+      boundary === 'status'
+        ? callStatusBoundary(configWithFees(configured), response)
+        : callSubmitBoundary(configWithFees(configured), response);
+
+    await expect(request).rejects.toThrow('1Click quote is missing a configured app fee');
+  });
+
+  it.each([
+    { boundary: 'status', name: 'missing configured fees', configured: [fixtureFee], actual: [] },
+    { boundary: 'submit', name: 'missing configured fees', configured: [fixtureFee], actual: [] },
+    {
+      boundary: 'status',
+      name: 'duplicate fee multiplicity',
+      configured: [fixtureFee, fixtureFee],
+      actual: [fixtureFee]
+    },
+    {
+      boundary: 'submit',
+      name: 'duplicate fee multiplicity',
+      configured: [fixtureFee, fixtureFee],
+      actual: [fixtureFee]
+    }
+  ])('$boundary boundary rejects $name without an expected quote', async ({ boundary, configured, actual }) => {
+    const response = quoteWithFees(pinnedWetQuote, actual);
+    expect(verifyOneClickQuoteSignature(response)).toBe(true);
+    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedWetQuote));
+    const request =
+      boundary === 'status'
+        ? callStatusBoundary(configWithFees(configured), response)
+        : callSubmitBoundary(configWithFees(configured), response);
+
+    await expect(request).rejects.toThrow('1Click quote is missing a configured app fee');
+  });
+
+  it.each([
+    { boundary: 'status', call: callStatusBoundary },
+    { boundary: 'submit', call: callSubmitBoundary }
+  ])('$boundary boundary rejects an unsigned fee addition with an expected quote hash unchanged', async ({ call }) => {
+    const response = quoteWithFees(pinnedWetQuote, [fixtureFee, secondFixtureFee]);
+    expect(verifyOneClickQuoteSignature(response)).toBe(true);
+    expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(pinnedWetQuote));
+
+    await expect(call(configWithFees([fixtureFee]), response, pinnedWetQuote)).rejects.toThrow(
+      '1Click quote is missing a configured app fee'
+    );
+  });
+
+  it.each([
+    { boundary: 'status', call: callStatusBoundary },
+    { boundary: 'submit', call: callSubmitBoundary }
+  ])('$boundary boundary accepts matching fees with and without an expected quote', async ({ call }) => {
+    const response = quoteWithFees(pinnedWetQuote, [fixtureFee]);
+
+    await expect(call(configWithFees([fixtureFee]), response, pinnedWetQuote)).resolves.toMatchObject({
+      quoteResponse: response
+    });
+    await expect(call(configWithFees([fixtureFee]), response)).resolves.toMatchObject({ quoteResponse: response });
+  });
+
+  it.each([
+    { boundary: 'status', call: callStatusBoundary },
+    { boundary: 'submit', call: callSubmitBoundary }
+  ])('$boundary boundary accepts reordered fees with and without an expected quote', async ({ call }) => {
+    const configured = [fixtureFee, secondFixtureFee];
+    const response = quoteWithFees(pinnedWetQuote, [secondFixtureFee, fixtureFee]);
+
+    await expect(call(configWithFees(configured), response, pinnedWetQuote)).resolves.toMatchObject({
+      quoteResponse: response
+    });
+    await expect(call(configWithFees(configured), response)).resolves.toMatchObject({ quoteResponse: response });
   });
 
   it('exposes only the HTTP status for quote-unavailable dry probes', async () => {

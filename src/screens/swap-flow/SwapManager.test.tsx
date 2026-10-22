@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 
 import { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -150,6 +150,9 @@ jest.mock('./SwapAmounts', () => {
         <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
         <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
         <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
+        <span data-testid="sa-one-click-networks">
+          {(props.oneClickNetworks ?? []).map(network => network.id).join(',')}
+        </span>
         <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
         <AmountInput
           data-testid="sa-request-input"
@@ -597,6 +600,43 @@ describe('SwapFlow / SwapManager', () => {
     expect(screen.queryByTestId('one-click-receive-network-picker')).not.toBeInTheDocument();
     expect(screen.queryByTestId('one-click-connect-origin-wallet')).not.toBeInTheDocument();
     expect(mockFetchOneClickAssets).not.toHaveBeenCalled();
+  });
+
+  it('keeps one-click routes available from the surviving provider catalog mappings', async () => {
+    mockBridgeConfig = parseBridgeConfig(
+      {
+        ...testnet,
+        network: 'mainnet',
+        features: { ...testnet.features, nearIntents: true },
+        swap: {
+          ...testnet.swap,
+          oneClick: {
+            serviceUrl: 'https://one-click.example',
+            midenAssets: [
+              { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 },
+              { assetId: 'miden:other', faucetId: '0x637c15a622074e91188aa894456c52', decimals: 6 }
+            ]
+          }
+        }
+      },
+      'mainnet'
+    );
+    if (!mockBridgeConfig) throw new Error('The enabled-feature fixture must remain a valid wallet config');
+    mockFetchOneClickAssets.mockResolvedValue([
+      {
+        assetId: 'miden:usdc',
+        blockchain: 'miden',
+        symbol: 'USDC',
+        decimals: 6,
+        faucetId: '0x537c15a622074e91188aa894456c52'
+      },
+      { assetId: 'eth:token', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
+    ]);
+
+    renderFlow();
+
+    await waitFor(() => expect(screen.getByTestId('sa-one-click-networks')).toHaveTextContent('miden,eth'));
+    expect(mockFetchOneClickAssets).toHaveBeenCalledTimes(1);
   });
 
   it('renders nothing for an unknown route (renderStep default branch)', () => {

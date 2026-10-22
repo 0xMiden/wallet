@@ -107,7 +107,14 @@ beforeEach(() => {
 });
 
 describe('OneClickRecovery', () => {
-  it('restores a validated Miden to non-EVM route for fresh review', async () => {
+  it('restores a validated route from surviving mappings in a partial catalog', async () => {
+    mockConfig = {
+      ...config,
+      midenAssets: [
+        { assetId: 'miden:token', faucetId: '0x111111111111111111111111111111', decimals: 6 },
+        { assetId: 'miden:other', faucetId: '0x222222222222222222222222222222', decimals: 6 }
+      ]
+    };
     render(<OneClickRecovery tracking={tracking} transactionAccountId="miden-account" onBack={jest.fn()} />);
 
     expect(await screen.findByTestId('restored-flow')).toHaveAttribute('data-destination', 'sol');
