@@ -41,6 +41,7 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
+import { getPaybackClaimState, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
@@ -421,6 +422,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
+          paybackClaimStuck: tx.type === 'swap' ? stuckPaybackClaim(await getPaybackClaimState(tx)) : undefined,
           faucetId: tx.faucetId,
           outputNoteIds: tx.outputNoteIds,
           txType: tx.type,
@@ -770,6 +772,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             cancelOrderError={actions.cancelOrderError}
             cancelOrderErrorId={actions.cancelOrderErrorId}
             onCancelOrder={actions.onCancelOrder}
+            isRetryingPayback={actions.isRetryingPayback}
+            paybackRetryError={actions.paybackRetryError}
+            paybackRetryErrorId={actions.paybackRetryErrorId}
+            onRetryPayback={actions.onRetryPayback}
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">

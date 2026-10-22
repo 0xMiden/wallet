@@ -13,6 +13,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
+import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
@@ -114,6 +115,8 @@ export interface IHistoryEntry {
    * manual-claim orders.
    */
   swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  /** Swap only: its latest payback claim failed and none is in flight (`getPaybackClaimState`). */
+  paybackClaimStuck?: { failedClaimId: string; reason: PaybackClaimStuckReason };
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;

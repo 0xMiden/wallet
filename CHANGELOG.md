@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] A swap whose payout claim keeps failing now says so on its Activity row and receipt, with the reason and a Retry, instead of showing nothing while the daily retry runs (#1644).
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
