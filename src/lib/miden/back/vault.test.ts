@@ -2893,6 +2893,85 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockMidenClient.getAccounts).toHaveBeenCalled();
   });
 
+  describe('a Guardian account in the file', () => {
+    const COLD_PUBLIC = '0a0b0c';
+    const guardianRecord: WalletAccount = {
+      publicKey: 'pk-guardian',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      authScheme: 'ecdsa',
+      keyDerivation: 'v1',
+      hotPublicKey: 'old-hot',
+      coldPublicKey: COLD_PUBLIC,
+      guardianEndpoint: 'https://guardian.example',
+      guardianOperatorCommitment: '0xabc',
+      guardianEpoch: 3,
+      guardianSyncStatus: 'in-sync'
+    };
+    const derivedColdKey = (publicHex = COLD_PUBLIC, commitment = '0x0a0b0c') => ({
+      publicKey: () => ({
+        serialize: () => new Uint8Array([2, ...Buffer.from(publicHex, 'hex')]),
+        toCommitment: () => ({ toHex: () => commitment, free: jest.fn() }),
+        free: jest.fn()
+      }),
+      serialize: () => new Uint8Array([9, 9]),
+      free: jest.fn()
+    });
+    const stageGuardianStore = (derived: ReturnType<typeof derivedColdKey>, onChain = '0a0b0c') => {
+      const sdk = jest.requireMock<{ AuthSecretKey: { ecdsaWithRNG: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+      sdk.AuthSecretKey.ecdsaWithRNG.mockImplementationOnce(() => derived);
+      const row = { id: () => 'pk-guardian' as any, isFaucet: () => false };
+      mockMidenClient.getAccounts.mockResolvedValueOnce([row]);
+      mockMidenClient.getAccount.mockResolvedValueOnce(row);
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: onChain });
+    };
+
+    it('restores as a recovered account: cold key kept, everyday key to be replaced', async () => {
+      const derived = derivedColdKey();
+      stageGuardianStore(derived);
+
+      const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [guardianRecord], []);
+
+      expect(mockKeystoreInsert).toHaveBeenCalledWith('pk-guardian', derived);
+      expect(mockGetSignerDetailsFromAccount).toHaveBeenCalledWith(expect.anything(), true);
+      const [stored] = await vault.fetchAccounts();
+      expect(stored).toMatchObject({
+        publicKey: 'pk-guardian',
+        coldPublicKey: COLD_PUBLIC,
+        requiresHotKeyRotation: true,
+        guardianNoteRecoveryPending: true,
+        guardianEndpoint: 'https://guardian.example',
+        guardianOperatorCommitment: '0xabc',
+        guardianEpoch: 3
+      });
+      expect(stored!.hotPublicKey).toBeUndefined();
+      expect(await isStored(keys.accColdSecretKey(COLD_PUBLIC))).toBe(true);
+    });
+
+    it('refuses a file whose phrase does not derive the account cold signer', async () => {
+      stageGuardianStore(derivedColdKey('0d0e0f', '0x0d0e0f'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [guardianRecord], [])).rejects.toThrow(MISMATCHED);
+
+      expect(mockKeystoreInsert).not.toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('refuses a file whose dump carries no state for the account', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [guardianRecord], [])).rejects.toThrow(
+        'Encrypted file is missing imported account data'
+      );
+
+      expect(mockKeystoreInsert).not.toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
   it('re-derives ECDSA secret keys for accounts whose authScheme is "ecdsa"', async () => {
     // The keystore-insert call must receive the ECDSA-marker secret produced
     // by AuthSecretKey.ecdsaWithRNG, not the falcon one. Confirms the
@@ -4901,5 +4980,85 @@ describe('a setup spawn and the pending-admission marker', () => {
     await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
 
     expect(memoryStore[PENDING_ADMISSION_STORAGE_KEY]).toBeUndefined();
+  });
+});
+
+describe('Vault.importHotKeyPair', () => {
+  const PAIR = `${'11'.repeat(32)}:${'22'.repeat(32)}`;
+  const recovered: WalletAccount = {
+    publicKey: 'pk-recovered',
+    name: 'Guardian 1',
+    isPublic: false,
+    type: WalletType.Guardian,
+    hdIndex: 0,
+    authScheme: 'ecdsa',
+    coldPublicKey: '0a0b0c',
+    requiresHotKeyRotation: true,
+    guardianNoteRecoveryPending: true
+  };
+  const pastedKey = (commitment: string) => ({
+    publicKey: () => ({
+      serialize: () => Uint8Array.from([0x02, 0xde, 0xad]),
+      toCommitment: () => ({ toHex: () => commitment, free: jest.fn() }),
+      free: jest.fn()
+    }),
+    serialize: () => Uint8Array.from([0x01, 0xbe, 0xef]),
+    getEcdsaK256KeccakSecretKeyAsFelts: jest.fn(),
+    free: jest.fn()
+  });
+  const stage = (pasted: string, hotOnChain: string, coldOnChain = '0a0b0c') => {
+    mockDeserializeHotSecretKey.mockReturnValueOnce(pastedKey(pasted) as any);
+    mockGetAccount.mockResolvedValueOnce({} as any);
+    mockGetSignerDetailsFromAccount.mockImplementation(async (_account: unknown, cold: boolean) => ({
+      commitment: cold ? coldOnChain : hotOnChain
+    }));
+  };
+
+  afterEach(() => {
+    mockGetSignerDetailsFromAccount.mockReset();
+  });
+
+  it('installs the key the restored account names as its everyday signer and ends the rotation gate', async () => {
+    const vault = await seedVault('pw', { accounts: [recovered] });
+    stage('0xaabb', '0xAABB');
+
+    const result = await vault.importHotKeyPair(recovered.publicKey, PAIR);
+
+    expect(result.accounts[0]).toMatchObject({ hotPublicKey: 'dead', requiresHotKeyRotation: false });
+    expect(await isStored(keys.accAuthSecretKey('dead'))).toBe(true);
+    expect(await isStored(keys.accAuthPubKey('dead'))).toBe(true);
+  });
+
+  it('refuses the recovery key pasted as the everyday key, writing nothing', async () => {
+    const vault = await seedVault('pw', { accounts: [recovered] });
+    stage('0x0a0b0c', '0xaabb');
+
+    await expect(vault.importHotKeyPair(recovered.publicKey, PAIR)).rejects.toThrow('importHotKeyIsRecoveryKey');
+
+    expect(await isStored(keys.accAuthSecretKey('dead'))).toBe(false);
+    expect((await vault.fetchAccounts())[0]!.requiresHotKeyRotation).toBe(true);
+  });
+
+  it('refuses a key that is not the account everyday signer', async () => {
+    const vault = await seedVault('pw', { accounts: [recovered] });
+    stage('0xffff', '0xaabb');
+
+    await expect(vault.importHotKeyPair(recovered.publicKey, PAIR)).rejects.toThrow('importHotKeyNotActive');
+    expect(await isStored(keys.accAuthSecretKey('dead'))).toBe(false);
+  });
+
+  it('refuses an account that is not waiting for its everyday key', async () => {
+    const vault = await seedVault('pw', { accounts: [{ ...recovered, requiresHotKeyRotation: false }] });
+
+    await expect(vault.importHotKeyPair(recovered.publicKey, PAIR)).rejects.toThrow(
+      'This account does not need an everyday key'
+    );
+    expect(mockDeserializeHotSecretKey).not.toHaveBeenCalled();
+  });
+
+  it('refuses a payload that is not a key pair', async () => {
+    const vault = await seedVault('pw', { accounts: [recovered] });
+
+    await expect(vault.importHotKeyPair(recovered.publicKey, 'nope')).rejects.toThrow('importHotKeyInvalid');
   });
 });
