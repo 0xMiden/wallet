@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "Гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
   "bridgeConnectWalletAction": "Підключити гаманець",
   "bridgeConnectSource": "Ваш гаманець",
-  "bridgeConnectSourceHint": "Не пов’язано",
+  "bridgeConnectSourceHint": "Не підключено",
   "bridgeConnectNextTitle": "Після підключення",
   "bridgeConnectStepBody": "MetaMask, Rainbow або будь-який гаманець WalletConnect.",
   "bridgeConnectChooseTitle": "Оберіть спосіб переказу",

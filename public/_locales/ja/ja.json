@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "Midenに持ち込みたいトークンを保管しているウォレット。",
   "bridgeConnectWalletAction": "ウォレットを接続する",
   "bridgeConnectSource": "ウォレット",
-  "bridgeConnectSourceHint": "関連なし",
+  "bridgeConnectSourceHint": "未接続",
   "bridgeConnectNextTitle": "接続後",
   "bridgeConnectStepBody": "MetaMask、Rainbow、またはWalletConnect対応のウォレット。",
   "bridgeConnectChooseTitle": "送金方法を選択してください",

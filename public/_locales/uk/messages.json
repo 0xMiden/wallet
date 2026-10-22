@@ -6993,7 +6993,7 @@
     "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Не пов’язано",
+    "message": "Не підключено",
     "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {

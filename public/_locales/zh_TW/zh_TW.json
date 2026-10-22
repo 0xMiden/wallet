@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "存放您欲帶至 Miden 之代幣的錢包。",
   "bridgeConnectWalletAction": "連接錢包",
   "bridgeConnectSource": "您的錢包",
-  "bridgeConnectSourceHint": "無關聯",
+  "bridgeConnectSourceHint": "未連線",
   "bridgeConnectNextTitle": "連線後",
   "bridgeConnectStepBody": "MetaMask、Rainbow 或任何 WalletConnect 錢包。",
   "bridgeConnectChooseTitle": "選擇您的轉帳方式",

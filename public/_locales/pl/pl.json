@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "Portfel zawierający tokeny, które chcesz przenieść do Miden.",
   "bridgeConnectWalletAction": "Połącz portfel",
   "bridgeConnectSource": "Twój portfel",
-  "bridgeConnectSourceHint": "Nie ma związku",
+  "bridgeConnectSourceHint": "Nie połączono",
   "bridgeConnectNextTitle": "Po nawiązaniu połączenia",
   "bridgeConnectStepBody": "MetaMask, Rainbow lub dowolny portfel obsługujący WalletConnect.",
   "bridgeConnectChooseTitle": "Wybierz rodzaj przelewu",

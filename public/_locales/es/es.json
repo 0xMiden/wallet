@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "El monedero que contiene los tokens que deseas transferir a Miden.",
   "bridgeConnectWalletAction": "Conectar monedero",
   "bridgeConnectSource": "Tu monedero",
-  "bridgeConnectSourceHint": "Sin relación",
+  "bridgeConnectSourceHint": "No conectado",
   "bridgeConnectNextTitle": "Tras conectarse",
   "bridgeConnectStepBody": "MetaMask, Rainbow o cualquier monedero de WalletConnect.",
   "bridgeConnectChooseTitle": "Elige tu transferencia",

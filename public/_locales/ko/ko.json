@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "Miden으로 가져오고자 하는 토큰을 보관하고 있는 지갑.",
   "bridgeConnectWalletAction": "지갑 연결",
   "bridgeConnectSource": "귀하의 지갑",
-  "bridgeConnectSourceHint": "관련 없음",
+  "bridgeConnectSourceHint": "연결되지 않음",
   "bridgeConnectNextTitle": "연결 후",
   "bridgeConnectStepBody": "MetaMask, Rainbow 또는 WalletConnect 호환 지갑.",
   "bridgeConnectChooseTitle": "이체 유형 선택",

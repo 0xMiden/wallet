@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "Miden’e aktarmak istediğiniz token’ları barındıran cüzdan.",
   "bridgeConnectWalletAction": "Cüzdanı bağla",
   "bridgeConnectSource": "Cüzdanınız",
-  "bridgeConnectSourceHint": "İlgili değil",
+  "bridgeConnectSourceHint": "Bağlı değil",
   "bridgeConnectNextTitle": "Bağlandıktan sonra",
   "bridgeConnectStepBody": "MetaMask, Rainbow veya herhangi bir WalletConnect cüzdanı.",
   "bridgeConnectChooseTitle": "Transferinizi seçin",

@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "Le portefeuille contenant les jetons que vous souhaitez transférer vers Miden.",
   "bridgeConnectWalletAction": "Connecter un portefeuille",
   "bridgeConnectSource": "Votre portefeuille",
-  "bridgeConnectSourceHint": "Sans rapport",
+  "bridgeConnectSourceHint": "Non connecté",
   "bridgeConnectNextTitle": "Après la connexion",
   "bridgeConnectStepBody": "MetaMask, Rainbow ou tout autre portefeuille WalletConnect.",
   "bridgeConnectChooseTitle": "Choisissez votre transfert",

@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "A carteira que contém os tokens que você deseja transferir para a Miden.",
   "bridgeConnectWalletAction": "Conectar carteira",
   "bridgeConnectSource": "Sua carteira",
-  "bridgeConnectSourceHint": "Não relacionado",
+  "bridgeConnectSourceHint": "Não conectado",
   "bridgeConnectNextTitle": "Após conectar-se",
   "bridgeConnectStepBody": "MetaMask, Rainbow ou qualquer carteira WalletConnect.",
   "bridgeConnectChooseTitle": "Escolha sua transferência",

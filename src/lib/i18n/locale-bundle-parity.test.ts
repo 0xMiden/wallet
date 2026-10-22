@@ -151,6 +151,13 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(missing.sort()).toEqual(staleKeys(locale).sort());
   });
 
+  it.each(RUNTIME_LOCALES)('%s keeps the bridge source hint aligned with the disconnected-wallet label', locale => {
+    const flat = loadFlat(locale);
+    const messages = loadMessages(locale);
+    expect(flat.bridgeConnectSourceHint).toBe(flat.guardianNotConnectedLabel);
+    expect(msg(messages, 'bridgeConnectSourceHint')).toBe(msg(messages, 'guardianNotConnectedLabel'));
+  });
+
   it.each(['en', ...DERIVED_LOCALES])('%s uses $-delimited placeholders, never {{…}}', locale => {
     // `src/i18n.ts` configures `interpolation.prefix/suffix = '$'`, so a stale
     // `{{origin}}` renders literally — e.g. the "reset permissions for X?" prompt

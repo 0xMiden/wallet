@@ -1541,7 +1541,7 @@
   "bridgeConnectWalletBody": "Кошелек, в котором хранятся токены, которые вы хотите перенести в Miden.",
   "bridgeConnectWalletAction": "Подключить кошелек",
   "bridgeConnectSource": "Ваш кошелек",
-  "bridgeConnectSourceHint": "Не имеет отношения к делу",
+  "bridgeConnectSourceHint": "Не подключено",
   "bridgeConnectNextTitle": "После подключения",
   "bridgeConnectStepBody": "MetaMask, Rainbow или любой кошелек WalletConnect.",
   "bridgeConnectChooseTitle": "Выберите тип перевода",
