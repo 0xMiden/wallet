@@ -909,26 +909,6 @@
     "message": "Cette opération a été restaurée à partir d’une sauvegarde ; le portefeuille ne peut donc pas vérifier si elle a abouti ni la réessayer. Vérifiez le portefeuille avant de répéter l’opération.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
-  "submissionInterrupted": {
-    "message": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
-    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
-  },
-  "submissionRejectedByGuardian": {
-    "message": "Your Guardian refused this submission. Try again.",
-    "englishSource": "Your Guardian refused this submission. Try again."
-  },
-  "submissionRejectedByNetwork": {
-    "message": "The network refused this submission. Try again.",
-    "englishSource": "The network refused this submission. Try again."
-  },
-  "submissionRejectedOnDevice": {
-    "message": "This device refused the submission. Try again.",
-    "englishSource": "This device refused the submission. Try again."
-  },
-  "submissionUnanswered": {
-    "message": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
-    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
-  },
   "showFullError": {
     "message": "Afficher l'erreur complète",
     "englishSource": "Show full error"
