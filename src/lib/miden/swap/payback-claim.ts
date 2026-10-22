@@ -46,8 +46,9 @@ const isPaybackClaimOf = (swap: ITransaction, row: ITransaction): boolean =>
   !row.restoredFromBackup;
 
 /**
- * A completed swap reads stuck while no payout claim is live and a failed payout claim still has a note that no
- * other consume of the account has claimed or holds. Settlement claims are hidden from Activity
+ * A completed swap reads stuck while no payout claim is live and every note a failed payout claim names is still
+ * open: no other consume of the account has claimed or holds it. Retry replays that row whole and a transaction is
+ * atomic, so a chunk with one note already claimed is left to settlement, which re-queues only its open notes. Settlement claims are hidden from Activity
  * (`suppressedLinkedConsumeIds`), so this is the only place a failing payout shows. Neither the latest row nor a
  * stamp can say it: settlement queues one claim per chunk, and the stamp repair writes `settledAt` or `reclaimedAt`
  * while a failed chunk remains. The daily retry (#313) keeps running; a claim that lands clears it.
@@ -61,10 +62,7 @@ export function paybackClaimStateFrom(
   const claims = linkedRows.filter(row => isPaybackClaimOf(swap, row));
   if (claims.some(isInFlight)) return NOT_STUCK;
   const unclaimed = claims.filter(
-    row =>
-      row.status === ITransactionStatus.Failed &&
-      !noteIdsOf(row).some(noteId => coverage(noteId) === 'held') &&
-      (noteIdsOf(row).length === 0 || noteIdsOf(row).some(noteId => coverage(noteId) === 'open'))
+    row => row.status === ITransactionStatus.Failed && noteIdsOf(row).every(noteId => coverage(noteId) === 'open')
   );
   const latest = unclaimed.reduce<ITransaction | undefined>(
     (newest, row) => (newest === undefined || row.initiatedAt > newest.initiatedAt ? row : newest),

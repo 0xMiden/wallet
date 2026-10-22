@@ -89,6 +89,33 @@ describe('paybackClaimStateFrom', () => {
     expect(paybackClaimStateFrom(swap(), [claim('failed')], coverage)).toEqual({ stuck: false });
   });
 
+  it('is not stuck when a failed chunk has a claimed note beside an open one (F-011)', () => {
+    const coverage: NoteCoverage = noteId => (noteId === 'mixed-a' ? 'claimed' : 'open');
+    expect(paybackClaimStateFrom(swap(), [claim('mixed', { noteIds: ['mixed-a', 'mixed-b'] })], coverage)).toEqual({
+      stuck: false
+    });
+    expect(paybackClaimStateFrom(swap(), [claim('open-both', { noteIds: ['open-a', 'open-b'] })], open)).toEqual({
+      stuck: true,
+      failedClaimId: 'open-both',
+      reason: 'other'
+    });
+    expect(
+      paybackClaimStateFrom(
+        swap(),
+        [
+          claim('older-open', { initiatedAt: 105, noteIds: ['older-a'] }),
+          claim('newer-mixed', { initiatedAt: 120, noteIds: ['mixed-a', 'mixed-b'] })
+        ],
+        coverage
+      )
+    ).toEqual({ stuck: true, failedClaimId: 'older-open', reason: 'other' });
+    expect(paybackClaimStateFrom(swap(), [claim('empty', { noteIds: [] })], open)).toEqual({
+      stuck: true,
+      failedClaimId: 'empty',
+      reason: 'other'
+    });
+  });
+
   it('is not stuck while a payout claim is queued, running or awaiting its verdict', () => {
     for (const status of [
       ITransactionStatus.Queued,
