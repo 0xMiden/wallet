@@ -44,9 +44,9 @@ before using `dist/chrome_unpacked` as a normal wallet.
   or tab-return searches; unit tests cover the latter navigation distinctions.
 - Game launch must preserve the configured query/fragment. The local fixture game
   requests no wallet connection or transactions; no approval popup should appear.
-- GC ranking actions stay in the shared pinned footer on a short popup. Real
-  submission stays disabled; a sample-preview query cannot enable fake balances
-  in production-mode UI.
+- Unavailable Rankings pins Browse games and its privacy explanation on a short
+  popup. Update balance and Submit balance actions are absent. A sample-preview
+  query cannot enable fake balances or a leaderboard in production-mode UI.
 - Light/dark 360px popup and 640px full-page screenshots are retained. The existing
   full-page shell explicitly requires a 640px minimum width; use popup/mobile for
   narrower surfaces. No horizontal
