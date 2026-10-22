@@ -889,8 +889,9 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       }
     });
 
-    // A non-target enters P2IDE only through its reclaim branch, which a reclaim height of 0 closes at every block, and
-    // a sponsorship consumed without its feature note, as a consume request's single note is, takes the same branch.
+    // P2ID asserts its target as the consuming account. A non-target enters P2IDE only through its reclaim branch, which
+    // a reclaim height of 0 closes at every block, and a sponsorship consumed without its feature note, as a consume
+    // request's single note is, takes the same branch.
     describe('a note the requesting account can never consume', () => {
       const felts = (values: bigint[]) => values.map(value => ({ asInt: () => value }));
       const REQUESTER = { prefix: 0x00000000abcdef01n, suffix: 0x2f1a3b4c5d6e0000n };
@@ -902,6 +903,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
           storage: () => ({ items: () => felts(items) })
         })
       });
+      const p2id = (target: typeof OTHER) => withRecipient('0xp2id', [target.suffix, target.prefix, 5n, 6n]);
       const p2ide = (target: typeof OTHER, reclaimHeight: bigint) =>
         withRecipient('0xp2ide', [REQUESTER.suffix, REQUESTER.prefix, target.suffix, target.prefix, reclaimHeight, 0n]);
       const sponsorship = (reclaimHeight: bigint) =>
@@ -915,6 +917,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
 
       beforeEach(() => {
         sdk.NoteScript = {
+          p2id: () => ({ root: () => ({ toHex: () => '0xp2id' }) }),
           p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) }),
           feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
         };
@@ -927,6 +930,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       });
 
       it.each([
+        ['a carried P2ID for another account', () => p2id(OTHER)],
         ['a carried P2IDE for another account with reclaim disabled', () => p2ide(OTHER, 0n)],
         ['a carried fee sponsorship with reclaim disabled', () => sponsorship(0n)]
       ])('refuses %s before the sheet, and imports and queues nothing', async (_name, note) => {
@@ -938,8 +942,11 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
       });
 
-      it('consumes a carried reclaim-disabled P2IDE whose target is the requesting account', async () => {
-        carryRawNote(() => p2ide(REQUESTER, 0n));
+      it.each([
+        ['P2ID', () => p2id(REQUESTER)],
+        ['reclaim-disabled P2IDE', () => p2ide(REQUESTER, 0n)]
+      ])('consumes a carried %s whose target is the requesting account', async (_name, note) => {
+        carryRawNote(note);
         mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
 
         await expect(consumeWithBytes()).resolves.toEqual(consumed);

@@ -56,7 +56,7 @@ function paymentDetails(note: Note): Pick<GuardianHistoryNote, 'recipient' | 're
   let offset: number;
   switch (root) {
     case NoteScript.p2id().root().toHex():
-      if (items.length !== 2) return {};
+      if (items.length !== 4) return {};
       offset = 0;
       break;
     case NoteScript.p2ide().root().toHex():
