@@ -3559,6 +3559,23 @@
     "message": "Я нікому не буду надавати доступ до свого зашифрованого файлу гаманця, у тому числі й компанії Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "Стан рахунку $accountNames$ міститься в цьому файлі",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Файл містить вашу фразу відновлення та стан облікового запису, які в іншому випадку зберігає для вас оператор Guardian, тому будь-хто, хто має цей файл та його пароль, може переглянути обидва. Він не містить повсякденного ключа: після відновлення гаманець замінює його через вашого оператора Guardian, або ви можете використати збережену пару повсякденних ключів (Налаштування → Ключі → Показати приватний ключ). Цей файл є знімком стану: після відправлення або отримання коштів збережіть новий файл, оскільки старий файл не зможе відновити те, що відбулося після його створення.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Використовувати мою збережену повсякденну пару ключів",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Не відновлено з цього файлу: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
