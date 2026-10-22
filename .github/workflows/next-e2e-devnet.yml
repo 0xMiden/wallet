@@ -8,7 +8,8 @@ name: Next E2E (devnet)
 #
 # GITHUB_TOKEN can start it: a workflow_dispatch it creates does start a run.
 # This job only dispatches, and fails when the dispatch does; the suite's own run
-# is the test result, and the summary records the commit next pointed at.
+# is the test result and records the commit it tested. The summary gives next's
+# head at dispatch time, which a later push to next can move before it checks out.
 # The testnet suites on main are Release E2E (release-e2e.yml).
 
 on:
@@ -37,4 +38,8 @@ jobs:
             echo "::error title=Next E2E (devnet)::could not dispatch e2e-blockchain.yml on next (${sha})"
             exit 1
           fi
-          echo "### Next E2E (devnet): e2e-blockchain.yml started on \`next\` (${sha:0:9})" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Next E2E (devnet): e2e-blockchain.yml started on \`next\`, head ${sha:0:9} at dispatch"
+            echo
+            echo "The suite's own run records the commit it tested."
+          } >> "$GITHUB_STEP_SUMMARY"

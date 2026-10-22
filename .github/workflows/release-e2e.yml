@@ -6,11 +6,13 @@ name: Release E2E
 #
 #   schedule            main, nightly
 #   workflow_dispatch   the `ref` input (a branch or a tag; default main)
-#   release published   the release's tag, the event release-wallet.yml publishes on
+#   release published   the release's tag, for a full release only
 #
 # A release is a `release` event rather than a `workflow_call` from
-# release-wallet.yml, so a red suite never fails or holds up the publish, and a
-# prerelease runs the suites too. A release event runs this file from the tag.
+# release-wallet.yml, so a red suite never fails or holds up the publish. A
+# release candidate (a prerelease) does not start it: test one by hand, with a
+# dispatch on its tag or Next E2E (devnet). A release event runs this file from
+# the tag.
 #
 # Each suite is started with `gh workflow run --ref`, so it runs its own workflow
 # file at that ref, with the inputs that reproduce its old push run (testnet).
@@ -20,8 +22,11 @@ name: Release E2E
 # fourteen. next's suite has its own nightly, next-e2e-devnet.yml.
 #
 # This job only dispatches: a dispatch that fails fails it, naming the suite and
-# the ref. Each suite's own run, on its own workflow page, is the test result;
-# the summary records the commit the ref pointed at when it was dispatched.
+# the ref. Each suite's own run, on its own workflow page, is the test result and
+# records the commit it tested. workflow_dispatch takes a branch or a tag, never
+# a commit, so the summary names a tested commit only for a tag; for a branch it
+# gives the head at dispatch time, which a later push can move before a suite
+# checks out.
 
 on:
   schedule:
@@ -44,6 +49,7 @@ permissions:
 jobs:
   dispatch:
     name: Dispatch the release E2E suites
+    if: github.event_name != 'release' || github.event.release.prerelease == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -77,8 +83,15 @@ jobs:
             echo "::error title=Release E2E::${REF} does not name a commit in ${GITHUB_REPOSITORY}"
             exit 1
           }
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${REF}" --silent 2>/dev/null; then
+            heading="### Release E2E on tag \`${REF}\` (${sha:0:9}), ${EVENT}"
+          else
+            heading="### Release E2E on branch \`${REF}\`, head ${sha:0:9} at dispatch, ${EVENT}"
+          fi
           {
-            echo "### Release E2E on \`${REF}\` (${sha:0:9}), ${EVENT}"
+            echo "$heading"
+            echo
+            echo "Each suite's own run records the commit it tested."
             echo
             echo '| Suite | Dispatch |'
             echo '| --- | --- |'
