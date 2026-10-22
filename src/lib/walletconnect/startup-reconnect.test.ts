@@ -153,10 +153,13 @@ describe('boundStartupReconnect', () => {
     expect(startupReconnectTimedOut()).toBe(false);
   });
 
-  it('takes a bound of its own', () => {
-    const h = harness('connected', { boundMs: 50 });
+  it('does not let a caller shorten the startup bound', () => {
+    const h = harness('connected');
+    Object.assign(h.deps, { boundMs: 50 });
     boundStartupReconnect(h.deps);
     jest.advanceTimersByTime(50);
+    expect(h.forgetSession).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS - 50);
     expect(h.forgetSession).toHaveBeenCalledTimes(1);
   });
 });

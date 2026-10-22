@@ -28,7 +28,6 @@ export interface StartupReconnectDeps {
   forgetSession: () => void;
   /** Ask AppKit to end the restore. May never settle. */
   disconnect: () => Promise<void>;
-  boundMs?: number;
 }
 
 let timedOut = false;
@@ -62,7 +61,6 @@ export function effectiveAppKitStatus(status: string | undefined): string | unde
  */
 export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
   if (deps.storedStatus() !== 'connected') return () => {};
-  const boundMs = deps.boundMs ?? STARTUP_RECONNECT_BOUND_MS;
   let status: string | undefined = 'connecting';
   let modalOpened = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -83,7 +81,7 @@ export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
     }
     deps.disconnect().catch(error => console.warn('[walletconnect] startup reconnect disconnect failed', error));
   };
-  timer = setTimeout(fire, boundMs);
+  timer = setTimeout(fire, STARTUP_RECONNECT_BOUND_MS);
 
   const unsubscribeStatus = deps.subscribeStatus(next => {
     status = next;
