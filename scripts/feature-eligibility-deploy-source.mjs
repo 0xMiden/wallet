@@ -1,26 +1,8 @@
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const FORBIDDEN_REF_CHARACTERS = /[\u0000-\u0020\u007f~^:?*\\[]/;
-
 function validTag(tag) {
-  if (
-    typeof tag !== 'string' ||
-    tag.length === 0 ||
-    tag.length > 255 ||
-    FORBIDDEN_REF_CHARACTERS.test(tag) ||
-    tag.startsWith('.') ||
-    tag.startsWith('/') ||
-    tag.endsWith('.') ||
-    tag.endsWith('/') ||
-    tag.includes('..') ||
-    tag.includes('//') ||
-    tag.includes('@{') ||
-    tag.split('/').some(part => part.startsWith('.') || part.endsWith('.lock'))
-  ) {
-    return false;
-  }
-  return true;
+  return typeof tag === 'string' && tag.length >= 1 && tag.length <= 255 && !/[\r\n]/.test(tag);
 }
 
 export function resolveDeploymentSource({
