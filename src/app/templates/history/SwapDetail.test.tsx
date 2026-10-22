@@ -786,8 +786,14 @@ const stuckEntry = {
   paybackClaimStuck: { failedClaimId: 'payback-claim-1', reason: 'network' }
 } as unknown as IHistoryEntry;
 
-const LiveStuckPayback = ({ swapEntry = stuckEntry }: { swapEntry?: IHistoryEntry }) => {
-  const actions = useTransactionActions('synthetic-swap', swapEntry, swapRow);
+const LiveStuckPayback = ({
+  swapEntry = stuckEntry,
+  noRow = false
+}: {
+  swapEntry?: IHistoryEntry;
+  noRow?: boolean;
+}) => {
+  const actions = useTransactionActions('synthetic-swap', swapEntry, noRow ? undefined : swapRow);
   return (
     <SwapDetail
       entry={swapEntry}
@@ -866,6 +872,35 @@ describe('SwapDetail stuck payout claim (#1644)', () => {
     expect(mockGetPaybackClaimState).toHaveBeenCalledWith(swapRow);
     expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('retries the fresh stuck claim when it is a different row (F-010)', async () => {
+    mockGetPaybackClaimState.mockResolvedValueOnce({
+      stuck: true,
+      failedClaimId: 'payback-claim-2',
+      reason: 'network'
+    });
+    render(<LiveStuckPayback />);
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await settle();
+
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-2', {});
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledTimes(1);
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/payback-claim-2');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('retries the rendered claim when the receipt has no row (F-010)', async () => {
+    render(<LiveStuckPayback noRow />);
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await settle();
+
+    expect(mockGetPaybackClaimState).not.toHaveBeenCalled();
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledTimes(1);
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-1', {});
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/payback-claim-1');
   });
 
   it('shows a fee refusal of the retry', async () => {

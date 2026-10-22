@@ -147,15 +147,18 @@ export const useTransactionActions = (
     setPaybackRetryErrorId(null);
     try {
       // Re-read first: the page's state can trail a claim the daily retry already queued, and requeueing the failed
-      // row beside it would race two claims for the same notes.
+      // row beside it would race two claims for the same notes. A fresh stuck state names the claim to retry, which
+      // can be a newer failed row than the one on screen; the live read clears the notice when it is not stuck.
+      let claimId = failedPaybackClaimId;
       if (transaction) {
         const fresh = await getPaybackClaimState(transaction);
-        if (!fresh.stuck || fresh.failedClaimId !== failedPaybackClaimId) return;
+        if (!fresh.stuck) return;
+        claimId = fresh.failedClaimId;
       }
       // A manual retry, like the row's own Retry: it skips the daily backoff (#313) for this one claim.
-      await requeueFailedTransaction(failedPaybackClaimId, {});
+      await requeueFailedTransaction(claimId, {});
       requestSWTransactionProcessing();
-      navigate(`/generating-transaction/${encodeURIComponent(failedPaybackClaimId)}`);
+      navigate(`/generating-transaction/${encodeURIComponent(claimId)}`);
     } catch (error) {
       if (error instanceof ClaimFeeRefusedError) {
         setPaybackRetryError(t('insufficientFeeAsset'));
