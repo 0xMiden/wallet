@@ -168,6 +168,13 @@ try {
   });
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker', { timeout: 30_000 }));
   const id = new URL(worker.url()).host;
+  // The install listener writes the pin marker before opening its full-page tab. Wait for
+  // that tab: the marker itself may already have been consumed by the full-page UI.
+  await expect
+    .poll(() => context.pages().some(tab => tab.url().startsWith(`chrome-extension://${id}/fullpage.html`)), {
+      timeout: 30_000
+    })
+    .toBe(true);
   await worker.evaluate(async () => {
     await chrome.storage.local.remove('fresh_install');
   });
@@ -313,13 +320,15 @@ try {
   await expect(ranking).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toHaveCount(0);
   const footer = ranking.locator('[data-slot="footer"]');
-  await expect(footer.getByRole('button', { name: 'Update balance', exact: true })).toBeVisible();
+  await expect(footer.getByRole('button', { name: 'Browse games', exact: true })).toBeVisible();
+  await expect(ranking.getByText('Rankings will appear here', { exact: true })).toBeVisible();
+  await expect(ranking.getByText('Only balances you choose to share are ranked.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Update balance', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Submit balance', exact: true })).toHaveCount(0);
   const footerBox = await footer.boundingBox();
   assert.ok(footerBox && footerBox.y + footerBox.height <= 600 && footerBox.y > 400);
   await page.screenshot({ path: path.join(out, '05-rankings-pinned-popup.png') });
-  await footer.getByRole('button', { name: 'Update balance', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Submit balance', exact: true })).toBeDisabled();
-  check('GC ranking actions are pinned on a short popup; real balance submission is disabled');
+  check('Unavailable Rankings pins Browse games on a short popup and exposes no balance-write actions');
   await page.evaluate(() => {
     window.location.hash = '/arcade/rankings?preview=sample';
   });
