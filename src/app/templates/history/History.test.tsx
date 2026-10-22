@@ -23,6 +23,7 @@ import { groupActivityEntries } from './activityGroups';
 import History from './History';
 import { HistoryEntryType } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
+import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 
 // ---------------------------------------------------------------------------
 // Mock-prefixed collaborators (so the hoisted jest.mock factories may close
@@ -97,7 +98,9 @@ const mockUseRetryableSWR = jest.fn(
   }
 );
 
-jest.mock('./resolveSwapHistoryProgress', () => ({ resolveSwapHistoryProgress: jest.fn(async () => ({})) }));
+jest.mock('./resolveSwapHistoryProgress', () => ({
+  resolveSwapHistoryProgress: jest.fn(async (txOrTxs: unknown) => (Array.isArray(txOrTxs) ? new Map() : {}))
+}));
 
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: [unknown, () => Promise<unknown>, Record<string, unknown>?]) =>
@@ -656,6 +659,31 @@ describe('History', () => {
     expect(byKey('completed-failed-open').isUnconfirmed).toBe(true);
     expect(byKey('completed-failed-retired').isUnconfirmed).toBe(false);
     expect(byKey('completed-failed-retired').message).toBe('Transaction failed');
+  });
+
+  it('reads settlement once for a history batch of two completed swaps', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            ...makeCompleted(),
+            {
+              id: 'S2',
+              status: STATUS.Completed,
+              displayMessage: 'swap msg 2',
+              displayIcon: 'SWAP',
+              faucetId: 'fa2',
+              type: 'swap',
+              amount: 6n,
+              completedAt: 2100,
+              secondaryAccountId: '0xBBC'
+            }
+          ]
+        : []
+    );
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps?.entries?.some((e: any) => e.key === 'completed-S2')).toBe(true));
+
+    expect(resolveSwapHistoryProgress).toHaveBeenCalledTimes(1);
   });
 
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {

@@ -1,11 +1,15 @@
 import { ITransactionStatus, SwapTransaction } from 'lib/miden/db/types';
 import { useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
-import { getSwapSettlementNotes } from 'lib/miden/transaction/get';
+import { getSwapSettlementNotes, getSwapSettlementNotesForOrders } from 'lib/miden/transaction/get';
 
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 
-jest.mock('lib/miden/transaction/get', () => ({ getSwapSettlementNotes: jest.fn() }));
+jest.mock('lib/miden/transaction/get', () => ({
+  getSwapSettlementNotes: jest.fn(),
+  getSwapSettlementNotesForOrders: jest.fn()
+}));
 const readNotes = jest.mocked(getSwapSettlementNotes);
+const readOrders = jest.mocked(getSwapSettlementNotesForOrders);
 const order = () => {
   const tx = new SwapTransaction('account', 'offered', 1000000000000000000n, 'requested', 1000000n, true, 120, true);
   tx.status = ITransactionStatus.Completed;
@@ -17,6 +21,7 @@ const order = () => {
 beforeEach(() => {
   useSwapOrderTrackingStore.setState({ entries: {} });
   readNotes.mockReset();
+  readOrders.mockReset();
   readNotes.mockResolvedValue({
     settled: ['payback'],
     reclaimed: ['remainder'],
@@ -120,4 +125,79 @@ it('does not count a payback of another token as requested-token execution', asy
     settledTransactions: [{ id: 'other-token', noteIds: ['payback'], amount: 400000n, faucetId: 'another-token' }]
   });
   expect(await resolveSwapHistoryProgress(order())).toEqual({});
+});
+
+const filledNotes = () => ({
+  settled: ['payback'],
+  reclaimed: ['remainder'],
+  settledTransactions: [{ id: 'claim', noteIds: ['payback'], amount: 400000n, faucetId: 'requested' }],
+  reclaimedTransactions: [{ id: 'return', noteIds: ['remainder'], amount: 600000000000000000n, faucetId: 'offered' }]
+});
+
+const emptyNotes = () => ({
+  settled: [],
+  reclaimed: [],
+  settledTransactions: [],
+  reclaimedTransactions: []
+});
+
+it('reads every eligible order once and derives each row from that result', async () => {
+  const first = order();
+  const second = order();
+  const duplicate = order();
+  duplicate.id = first.id;
+  const send = order();
+  send.type = 'send';
+  readOrders.mockResolvedValue(
+    new Map([
+      [first.id, filledNotes()],
+      [second.id, emptyNotes()]
+    ])
+  );
+
+  const progress = await resolveSwapHistoryProgress([first, send, second, duplicate]);
+
+  expect(readOrders).toHaveBeenCalledTimes(1);
+  expect(readOrders).toHaveBeenCalledWith([first.id, second.id]);
+  expect(readNotes).not.toHaveBeenCalled();
+  expect(progress.get(first.id)).toEqual({ swapFillProgress: '40' });
+  expect(progress.get(second.id)).toEqual({});
+  expect(progress.has(send.id)).toBe(false);
+});
+
+it('does not read settlement when the list has no eligible swap', async () => {
+  const failed = order();
+  failed.status = ITransactionStatus.Failed;
+  await expect(resolveSwapHistoryProgress([failed])).resolves.toEqual(new Map());
+  expect(readOrders).not.toHaveBeenCalled();
+});
+
+it('keeps the history fetch alive when the batch settlement read fails', async () => {
+  const first = order();
+  const second = order();
+  readOrders.mockRejectedValue(new Error('read failed'));
+  await expect(resolveSwapHistoryProgress([first, second])).resolves.toEqual(
+    new Map([
+      [first.id, {}],
+      [second.id, {}]
+    ])
+  );
+});
+
+it('drops only the row whose fill derivation fails', async () => {
+  const first = order();
+  const second = order();
+  const bad = filledNotes();
+  Object.assign(bad.settledTransactions[0], { amount: 1 });
+  readOrders.mockResolvedValue(
+    new Map([
+      [first.id, bad],
+      [second.id, filledNotes()]
+    ])
+  );
+
+  const progress = await resolveSwapHistoryProgress([first, second]);
+
+  expect(progress.get(first.id)).toEqual({});
+  expect(progress.get(second.id)).toEqual({ swapFillProgress: '40' });
 });

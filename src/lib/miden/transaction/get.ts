@@ -160,27 +160,15 @@ export interface SwapSettlementNotes {
   reclaimedTransactions: SwapSettlementTransaction[];
 }
 
-/**
- * Note ids and completed-consume metadata belonging to a swap order.
- *
- * Those consume rows are suppressed in the history list (`suppressLinkedConsumes`
- * in `History.tsx`) so the order reads as a single swap row — which would
- * otherwise make their notes invisible. The detail page surfaces them here
- * instead. The receipt also needs each consume's amount, completion time and
- * submitted transaction id, so those fields stay grouped by consume alongside
- * the deduplicated note-id buckets. Rows are linked by
- * `extraInputs.swapOrderTxId`, tagged at queue time by
- * `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from expiry
- * reclaims. Only completed consumes count — a queued or failed one has claimed
- * nothing yet.
- */
-export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
-  const consumes = await Repo.transactions
-    .where('extraInputs.swapOrderTxId')
-    .equals(swapTxId)
-    .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed)
-    .toArray();
+const isCompletedSettlementConsume = (tx: ITransaction): boolean =>
+  tx.type === 'consume' && tx.status === ITransactionStatus.Completed;
 
+/**
+ * Sort, note attribution and settle/reclaim split for one order's consume rows.
+ * The caller has already kept only completed consumes of that order. The claimed
+ * set lives here, so it never spans two orders.
+ */
+const settlementNotesFromConsumes = (consumes: ITransaction[]): SwapSettlementNotes => {
   const settled = new Set<string>();
   const reclaimed = new Set<string>();
   const settledTransactions: SwapSettlementTransaction[] = [];
@@ -250,6 +238,65 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
     settledTransactions,
     reclaimedTransactions
   };
+};
+
+/**
+ * Note ids and completed-consume metadata belonging to a swap order.
+ *
+ * Those consume rows are suppressed in the history list (`suppressLinkedConsumes`
+ * in `History.tsx`) so the order reads as a single swap row — which would
+ * otherwise make their notes invisible. The detail page surfaces them here
+ * instead. The receipt also needs each consume's amount, completion time and
+ * submitted transaction id, so those fields stay grouped by consume alongside
+ * the deduplicated note-id buckets. Rows are linked by
+ * `extraInputs.swapOrderTxId`, tagged at queue time by
+ * `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from expiry
+ * reclaims. Only completed consumes count — a queued or failed one has claimed
+ * nothing yet.
+ */
+export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
+  const consumes = await Repo.transactions
+    .where('extraInputs.swapOrderTxId')
+    .equals(swapTxId)
+    .filter(isCompletedSettlementConsume)
+    .toArray();
+  return settlementNotesFromConsumes(consumes);
+};
+
+/**
+ * Settlement notes for many swap orders, from one read on `extraInputs.swapOrderTxId`.
+ *
+ * A completed-history page asks for every eligible order at once. `anyOf` is that
+ * read; each order is then sorted and split on its own rows. An id with no
+ * completed consume gets the same empty buckets as `getSwapSettlementNotes`.
+ * An empty id list does not touch the store.
+ */
+export const getSwapSettlementNotesForOrders = async (
+  swapTxIds: readonly string[]
+): Promise<Map<string, SwapSettlementNotes>> => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const id of swapTxIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  const notes = new Map<string, SwapSettlementNotes>();
+  if (ids.length === 0) return notes;
+
+  const consumes = await Repo.transactions
+    .where('extraInputs.swapOrderTxId')
+    .anyOf(ids)
+    .filter(isCompletedSettlementConsume)
+    .toArray();
+  const rowsByOrder = new Map<string, ITransaction[]>(ids.map(id => [id, []]));
+  for (const tx of consumes) {
+    const orderId = tx.extraInputs?.swapOrderTxId;
+    if (typeof orderId !== 'string') continue;
+    rowsByOrder.get(orderId)?.push(tx);
+  }
+  for (const id of ids) notes.set(id, settlementNotesFromConsumes(rowsByOrder.get(id) ?? []));
+  return notes;
 };
 
 /**

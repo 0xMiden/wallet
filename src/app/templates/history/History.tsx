@@ -494,6 +494,9 @@ async function fetchTransactionsAsHistoryEntries(
 ): Promise<IHistoryEntry[]> {
   const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
   const visibleTransactions = await suppressLinkedConsumes(transactions);
+  // One settlement read for every eligible swap on this page. The fill
+  // percentage is already on `swapProgress` while each row awaits its metadata.
+  const swapProgress = await resolveSwapHistoryProgress(visibleTransactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
     const submission = submissionFeedback(tx);
@@ -569,7 +572,7 @@ async function fetchTransactionsAsHistoryEntries(
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
       swapSettlement: swapSettlementOf(tx),
-      ...(await resolveSwapHistoryProgress(tx)),
+      ...(swapProgress.get(tx.id) ?? {}),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,

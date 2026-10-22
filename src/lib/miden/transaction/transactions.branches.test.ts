@@ -27,6 +27,7 @@ import {
   completeSendTransaction,
   getCompletedTransactions,
   getSwapSettlementNotes,
+  getSwapSettlementNotesForOrders,
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
@@ -57,6 +58,13 @@ _g.__txBrTest = {
 
 const txStore: any[] = _g.__txBrTest.rows;
 
+// Stable across `where()` calls so a per-id `.equals` loop is zero calls here, not a fresh mock each time.
+const settlementAnyOf = jest.fn((values: readonly string[]) => ({
+  filter: jest.fn((fn: (tx: any) => boolean) => ({
+    toArray: jest.fn(async () => txStore.filter(tx => values.includes(tx.extraInputs?.swapOrderTxId)).filter(fn))
+  }))
+}));
+
 jest.mock('lib/miden/repo', () => ({
   db: {
     transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
@@ -75,7 +83,8 @@ jest.mock('lib/miden/repo', () => ({
             filter: jest.fn((fn: (tx: any) => boolean) => ({
               toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
             }))
-          }))
+          })),
+          anyOf: settlementAnyOf
         };
       }
       return {
@@ -922,6 +931,67 @@ describe('getSwapSettlementNotes', () => {
       settledTransactions: [],
       reclaimedTransactions: []
     });
+  });
+
+  it('loads both orders with one indexed query', async () => {
+    txStore.push(
+      {
+        id: 'c-a',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-shared'],
+        transactionId: 'chain-a',
+        amount: 10n,
+        faucetId: 'requested',
+        completedAt: 10,
+        extraInputs: { swapOrderTxId: 'swap-a', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-b',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-shared'],
+        transactionId: 'chain-b',
+        amount: 4n,
+        faucetId: 'offered',
+        completedAt: 11,
+        extraInputs: { swapOrderTxId: 'swap-b', swapSettleKind: 'reclaim' }
+      },
+      {
+        id: 'c-send',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-send'],
+        extraInputs: { swapOrderTxId: 'swap-noise' }
+      },
+      {
+        id: 'c-open',
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        noteIds: ['n-open'],
+        extraInputs: { swapOrderTxId: 'swap-noise', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotesForOrders(['swap-a', 'swap-b', 'swap-noise', 'swap-absent']);
+    const anyOf = settlementAnyOf;
+    expect(anyOf).toHaveBeenCalledTimes(1);
+    expect(anyOf).toHaveBeenCalledWith(['swap-a', 'swap-b', 'swap-noise', 'swap-absent']);
+    // The same note id on two orders stays on both: each order keeps its own claimed-note set.
+    expect(notes.get('swap-a')?.settled).toEqual(['n-shared']);
+    expect(notes.get('swap-a')?.reclaimed).toEqual([]);
+    expect(notes.get('swap-a')?.settledTransactions.map(tx => tx.id)).toEqual(['c-a']);
+    expect(notes.get('swap-b')?.settled).toEqual([]);
+    expect(notes.get('swap-b')?.reclaimed).toEqual(['n-shared']);
+    expect(notes.get('swap-b')?.reclaimedTransactions.map(tx => tx.id)).toEqual(['c-b']);
+    const empty = {
+      settled: [],
+      reclaimed: [],
+      settledTransactions: [],
+      reclaimedTransactions: []
+    };
+    expect(notes.get('swap-noise')).toEqual(empty);
+    expect(notes.get('swap-absent')).toEqual(empty);
   });
 });
 
