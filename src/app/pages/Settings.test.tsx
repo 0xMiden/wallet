@@ -15,7 +15,7 @@ import Settings from './Settings';
 // Mutable state used by the store / platform / motion mocks. Names are
 // `mock`-prefixed so jest allows them inside the (hoisted) mock factories.
 // ---------------------------------------------------------------------------
-type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
+type MockAccount = { type?: string; hotPublicKey?: string; hdIndex?: number } | undefined;
 const mockWalletState: {
   currentAccount: MockAccount;
   accounts: NonNullable<MockAccount>[];
@@ -812,6 +812,23 @@ describe('Settings page — guardian account', () => {
     expect(row).toHaveAttribute('data-slug', '/settings/guardian-settings');
     expect(row).toHaveAttribute('data-selector', 'Settings/GuardianSettingsButton');
     expect(row).toHaveAttribute('data-external', 'false');
+  });
+
+  it('offers the encrypted wallet file to a wallet of seed-derived Guardian accounts only', () => {
+    setAccount({ type: 'guardian', hdIndex: 0 });
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
+  });
+
+  it('does not offer the encrypted wallet file to a wallet of key-imported Guardian accounts only', () => {
+    setAccount({ type: 'guardian', hdIndex: -1 });
+    const { unmount } = render(<Settings tabSlug={null} />);
+    expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
+    unmount();
+
+    render(<Settings tabSlug="encrypted-wallet-file" />);
+    expect(screen.queryByTestId('encrypted-file-flow')).not.toBeInTheDocument();
   });
 
   it('shows the guardian settings entry for guardian accounts', () => {
