@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { useBridgeConfigSnapshot } from './use-feature-availability';
-import { selectMainnetLaunchAt } from './values';
+import { hasMainnetLaunched, selectMainnetLaunchAt } from './values';
 
 // The longest wait one timer takes: a browser clamps a longer `setTimeout` delay to a value that fires at
 // once, so a far-off moment is reached through a chain of waits.
@@ -131,5 +131,5 @@ export function useMainnetLaunched(): boolean {
   const snapshot = useBridgeConfigSnapshot();
   const launchAt = selectMainnetLaunchAt(snapshot);
   const now = useMainnetLaunchNow(launchAt);
-  return launchAt !== null && now >= launchAt;
+  return hasMainnetLaunched(snapshot, now);
 }

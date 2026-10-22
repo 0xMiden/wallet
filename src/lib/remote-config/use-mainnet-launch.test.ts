@@ -3,6 +3,7 @@ import React, { useLayoutEffect } from 'react';
 import { act, renderHook } from '@testing-library/react';
 
 import { useMainnetLaunched } from './use-mainnet-launch';
+import { hasMainnetLaunched } from './values';
 
 // The remote config's section, as the runtime hands it to this realm; null stands for no accepted document.
 let mockCountdown: { enabled: boolean; launchAt?: number } | null = null;
@@ -15,6 +16,10 @@ jest.mock('./use-feature-availability', () => ({
     lastFetch: null
   })
 }));
+jest.mock('./values', () => {
+  const actual = jest.requireActual('./values');
+  return { ...actual, hasMainnetLaunched: jest.fn(actual.hasMainnetLaunched) };
+});
 
 const LAUNCH_AT = Date.parse('2026-10-26T14:00:00Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -36,11 +41,23 @@ describe('useMainnetLaunched', () => {
     jest.setSystemTime(LAUNCH_AT - DAY_MS);
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
     setVisibility('visible');
+    jest.mocked(hasMainnetLaunched).mockImplementation(
+      jest.requireActual<typeof import('./values')>('./values').hasMainnetLaunched
+    );
+    jest.mocked(hasMainnetLaunched).mockClear();
   });
 
   afterEach(() => {
     jest.useRealTimers();
     restoreVisibility();
+  });
+
+  it('uses the shared launch predicate for its result', () => {
+    const hasLaunched = jest.mocked(hasMainnetLaunched).mockReturnValue(true);
+    const { result } = renderHook(() => useMainnetLaunched());
+
+    expect(hasLaunched).toHaveBeenCalled();
+    expect(result.current).toBe(true);
   });
 
   it('is false before the moment and true from the moment on', () => {
