@@ -287,9 +287,19 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   /**
    * Refresh the Zustand `balances` projection from the account vault so a
    * subsequent quickBalanceSnapshot() reflects freshly-consumed notes. See the
-   * implementation for why the stress settle loop needs this.
+   * implementation for why the stress settle loop needs this. Optional
+   * `timeoutMs` bounds an in-flight wait and the `fetchBalances` await
+   * (default 5_000).
    */
-  refreshBalances(): Promise<void>;
+  refreshBalances(timeoutMs?: number): Promise<void>;
+  /**
+   * Retry `refreshBalances` until a read advances `balancesLastFetched` or
+   * `timeoutMs` elapses. Catches only `refreshBalances did not land`; any other
+   * error is rethrown. One-shot callers that are not already in a retry use this
+   * so an idle-started skip is not a failed land. Each attempt is given the
+   * remaining budget so the wait cannot outlive `timeoutMs`.
+   */
+  refreshBalancesLanded(timeoutMs: number): Promise<void>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
   /**
@@ -373,8 +383,9 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   ): Promise<void>;
   /**
    * Import a Guardian account with its hot and EVM private key pair — the
-   * seed-less import path. Drives the real screens: Welcome → "Recover your
-   * account" → seed grid → "Import with key instead" link → key paste →
+   * seed-less import path. Drives the real screens: Welcome → Recover (on
+   * mainnet, "I don't have a code" then Recover) → seed grid → "Import with
+   * key instead" link → key paste →
    * submit → full password step → ImportRecoveryMethod (probe by hot-key
    * commitment, Guardian pinned) → Continue → Confirmation → submit → home.
    * Unlike `recoverGuardianFromSeed` this ends WITHOUT a hot-key rotation:
@@ -390,8 +401,10 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   revealHotKey(password?: string): Promise<string>;
   /**
    * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
-   * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
-   * stopping there instead of completing the rest of the recovery journey.
+   * ImportSeedPhrase 12-word grid, stopping there instead of completing the
+   * rest of the recovery journey. Test networks show "Recover your account".
+   * Mainnet Welcome is invite-only, so recovery is "I don't have a code",
+   * then "Recover your account", and there is no network notice.
    * For probes that only need to exercise seed-phrase VALIDATION (e.g.
    * case-insensitivity / paste handling) — see `recoverGuardianFromSeed`
    * for the full end-to-end recovery flow this is a prefix of. Requires the
@@ -1236,17 +1249,37 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
+   * Welcome through to the import-type choice.
+   *
+   * Test networks put Recover on the welcome screen (`#import-link`) and then show the network
+   * notice. Mainnet Welcome is invite-only, so that link is absent: recovery is the secondary
+   * action on "I don't have a code", and mainnet has no network notice.
+   */
+  private async openImportTypeScreen(): Promise<void> {
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    const recover = this.page.locator('#import-link');
+    const noCode = this.page.getByTestId('onboarding-no-code');
+    await noCode.or(recover).first().waitFor({ state: 'visible', timeout: 30_000 });
+    if (await noCode.isVisible()) {
+      await noCode.click();
+      await this.page.getByTestId('no-code-sheet-recover').click();
+    } else {
+      await recover.click();
+    }
+    const notice = this.page.getByTestId('onboarding-network-notice-acknowledge');
+    const importType = this.page.getByTestId('import-select-type');
+    await notice.or(importType).first().waitFor({ state: 'visible', timeout: 15_000 });
+    if (await notice.isVisible()) await acknowledgeNetworkNotice(this.page, 15_000);
+    await importType.waitFor({ timeout: 15_000 });
+  }
+
+  /**
    * See the interface doc comment (ChromeWalletPageApi).
    */
   async openImportSeedPhraseScreen(): Promise<void> {
-    // Welcome → "Recover your account" → ImportSeedPhrase (12-word grid).
-    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-    await this.page.locator('#import-link').click();
-    // The network notice (#875) precedes the import flow too.
-    await acknowledgeNetworkNotice(this.page, 15_000);
+    await this.openImportTypeScreen();
     // Import now asks WHICH credential first; this helper drives the seed-phrase one.
-    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
     await this.page.getByTestId('import-type-seed-phrase').click();
     await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   }
@@ -1635,11 +1668,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     newWalletPassword: string;
   }): Promise<void> {
     await suspendScreenCapture(this.page);
-    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-    await this.page.locator('#import-link').click();
-    await acknowledgeNetworkNotice(this.page, 15_000);
-    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.openImportTypeScreen();
     await this.page.getByTestId('import-type-wallet-file').click();
 
     await this.page.locator('input[type="file"]').setInputFiles(options.backupPath);
@@ -2179,13 +2208,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * If tokenSymbol is not given, returns the total across all assets.
    * Returns 0 if no matching token found.
    */
-  async getBalance(tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string, timeoutMs?: number): Promise<number> {
     await this.navigateHome();
     // The evaluate below needs `__TEST_STORE__` with an account on it; wait for
     // that rather than for a second of wall clock (this runs on every poll of
     // waitForBalanceAbove).
-    await this.waitForStoreReady(1_000);
-    await this.refreshBalances();
+    const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
+    await this.waitForStoreReady(
+      deadline === undefined ? 1_000 : Math.min(1_000, Math.max(0, deadline - Date.now()))
+    );
+    await this.refreshBalances(deadline === undefined ? undefined : Math.max(0, deadline - Date.now()));
     const snapshot = await this.quickBalanceSnapshot(tokenSymbol ? { symbol: tokenSymbol.toLowerCase() } : undefined);
     if (snapshot.error) console.log(`[WalletPage.getBalance] Error: ${snapshot.error}`);
     return snapshot.totalReportable;
@@ -2193,8 +2225,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Refresh the Zustand `balances` projection from the account vault — the same
-   * `state.fetchBalances` call getBalance() makes, but without navigating or
-   * waiting, so it's cheap enough for the stress settle loop to call each poll.
+   * `state.fetchBalances` call getBalance() makes, but without navigating, so
+   * it's cheap enough for the stress settle loop to call each poll.
    *
    * Why this exists: quickBalanceSnapshot() is deliberately non-invasive and
    * never calls `fetchBalances`, so its `balance` half can be stale. The stress
@@ -2207,18 +2239,91 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * before the final snapshot makes it authoritative — matching the initial
    * baseline, which uses getBalance() and so refreshes the same way.
    */
-  async refreshBalances(): Promise<void> {
-    try {
-      await this.page.evaluate(async () => {
-        const store = (window as any).__TEST_STORE__;
-        const state = store?.getState?.();
-        if (state?.currentAccount?.publicKey && state.fetchBalances) {
-          await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
+  async refreshBalances(timeoutMs = 5_000): Promise<void> {
+    await this.page.evaluate(async timeoutMs => {
+      const store = (window as any).__TEST_STORE__;
+      const state = store?.getState?.();
+      const account = state?.currentAccount?.publicKey;
+      if (!state || !account || !state.fetchBalances) return;
+
+      const deadline = Date.now() + timeoutMs;
+      const fetchWithDeadline = async (run: () => Promise<unknown>): Promise<void> => {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          throw new Error(`refreshBalances did not land for ${account}`);
         }
-      });
-    } catch {
-      // Best-effort: a failed refresh leaves the prior balance in place and the
-      // settle loop retries on its next poll.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            run(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                reject(new Error(`refreshBalances did not land for ${account}`));
+              }, remaining);
+            })
+          ]);
+        } finally {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+        }
+      };
+
+      const hook = (window as any).__TEST_BALANCE_READ_STATE__;
+      if (typeof hook !== 'function') {
+        await fetchWithDeadline(() => state.fetchBalances(account, state.assetsMetadata || {}));
+        return;
+      }
+
+      const yieldRead = () => new Promise<void>(resolve => setTimeout(resolve, 50));
+      const stampOf = () => (store.getState().balancesLastFetched || {})[account] || 0;
+
+      while (hook(account)?.inFlight === true) {
+        if (Date.now() >= deadline) {
+          throw new Error(`refreshBalances did not land for ${account}`);
+        }
+        await yieldRead();
+      }
+      const before = stampOf();
+      const now = store.getState();
+      await fetchWithDeadline(() => now.fetchBalances(account, now.assetsMetadata || {}));
+      if (stampOf() > before) return;
+      throw new Error(`refreshBalances did not land for ${account}`);
+    }, timeoutMs);
+  }
+
+  /**
+   * Retry `refreshBalances` until a land or `timeoutMs`. A finished non-landing
+   * read stays a rejection on `refreshBalances` itself; this loop is the retry.
+   * Remaining time is passed on every attempt; once it is exhausted the last
+   * `did not land` error is rethrown without another 5s sleep.
+   */
+  async refreshBalancesLanded(timeoutMs: number): Promise<void> {
+    const intervalMs = 5_000;
+    const deadline = Date.now() + timeoutMs;
+    let lastError: unknown;
+
+    while (true) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw lastError instanceof Error
+          ? lastError
+          : new Error(`refreshBalances did not land within ${timeoutMs}ms`);
+      }
+      try {
+        await this.refreshBalances(remaining);
+        return;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('refreshBalances did not land')) {
+          throw error;
+        }
+        lastError = error;
+        const remainingAfter = deadline - Date.now();
+        if (remainingAfter <= 0) {
+          throw lastError;
+        }
+        await this.page.waitForTimeout(Math.min(intervalMs, remainingAfter));
+      }
     }
   }
 
@@ -3128,7 +3233,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Wait for the wallet's balance to exceed a minimum value.
-   * Repeatedly triggers sync and checks balance.
+   * Repeatedly triggers sync and checks balance. Retry sleeps use remaining
+   * time so a `did not land` catch or a low sample cannot outlive `timeoutMs`.
    */
   async waitForBalanceAbove(
     minBalance: number,
@@ -3137,30 +3243,48 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     tokenSymbol?: string
   ): Promise<number> {
     const intervalMs = 5_000;
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    const deadline = Date.now() + timeoutMs;
     let lastBalance = 0;
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) {
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+
+      attempt += 1;
       await this.triggerSync();
-      lastBalance = await this.getBalance(tokenSymbol);
+      try {
+        lastBalance = await this.getBalance(tokenSymbol, Math.max(0, deadline - Date.now()));
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('refreshBalances did not land')) {
+          throw error;
+        }
+        const remainingAfter = deadline - Date.now();
+        if (remainingAfter <= 0) {
+          throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+        }
+        await this.page.waitForTimeout(Math.min(intervalMs, remainingAfter));
+        continue;
+      }
 
       if (timeline) {
         timeline.emit({
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
-          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
+          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}`,
+          data: { balance: lastBalance, minBalance, attempt }
         });
       }
 
       if (lastBalance > minBalance) return lastBalance;
 
-      if (attempt < maxAttempts) {
-        await this.page.waitForTimeout(intervalMs);
+      const remainingAfter = deadline - Date.now();
+      if (remainingAfter <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
       }
+      await this.page.waitForTimeout(Math.min(intervalMs, remainingAfter));
     }
-
-    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
   }
 
   // ── Lock/Unlock ───────────────────────────────────────────────────────────
