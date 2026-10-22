@@ -51,6 +51,7 @@ async function prepareWallet(
   });
   fixture.configureMidenAsset(funded.faucetHex, funded.decimals);
   await forgetFixtureConfig(wallet.page, 'localnet');
+  await wallet.page.reload({ waitUntil: 'domcontentloaded' });
   await wallet.navigateTo('/swap');
   await expect(wallet.page.getByTestId('swap-flow')).toBeVisible({ timeout: 90_000 });
   await expect(wallet.page.getByTestId('one-click-pay-network-picker')).toBeVisible({ timeout: 120_000 });

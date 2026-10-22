@@ -473,3 +473,7 @@ Implementation frozen for finished-code review. Focused guarded tests, type chec
 2026-10-22 12:22UTC: user explicitly confirmed hermetic local-chain mocked E2E, matching Epoch. The dedicated localhost/localnet gate is confirmed. Real mainnet acceptance remains additive.
 
 2026-10-22 12:30UTC: user explicitly accepted Chrome for the mocked suite provided WalletConnect works there. Required acceptance drives real Bread UI, actual WalletConnect handshake to test counterparty, amount edit without reconnection, and one revised-amount transfer. No phone runner is required.
+
+2026-10-22 recovery: the initial finished-code panel is incomplete and preserved. The user selected fixing confirmed issues then a fresh four-seat review. Config PR24 completed review with zero findings and CI152/152 passes. Wallet preflight175/175 passes across8suites; dedicated mocked Chrome and visual acceptance remain CI gates. Eligibility now needs to recognize explicitly enabled 1Click-only routes while preserving place restrictions.
+
+2026-10-22 authorization update: the user explicitly requested deployment of the matching feature-eligibility service after tests and finished-code review. Keep nearIntents false. This authorizes that service deployment only; wallet PR merge/release and the new partner proxy deployment are not authorized.

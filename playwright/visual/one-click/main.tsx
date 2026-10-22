@@ -148,6 +148,8 @@ function App() {
 
 createRoot(document.getElementById('root')!).render(
   <MotionConfig reducedMotion="user">
-    <App />
+    <React.Suspense fallback={null}>
+      <App />
+    </React.Suspense>
   </MotionConfig>
 );

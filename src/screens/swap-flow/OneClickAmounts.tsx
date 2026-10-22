@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
@@ -14,6 +15,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import type { OneClickEvmBalanceSnapshot } from 'lib/one-click/evm-balance';
 import { OneClickAsset } from 'lib/one-click/types';
 import { WalletContact } from 'lib/shared/types';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import { OneClickAssetPicker, OneClickNetworkOption, OneClickNetworkPicker } from './OneClickPickers';
 
@@ -35,6 +38,7 @@ export interface OneClickAmountsProps {
   };
   quoteLoading?: boolean;
   routeError?: string;
+  routeErrorId?: UserErrorId | null;
   externalAddressLabel?: 'recipient' | 'refund';
   externalAddressNetwork?: OneClickNetworkOption;
   externalAddress: string;
@@ -65,6 +69,7 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
   evmBalance,
   quoteLoading = false,
   routeError,
+  routeErrorId,
   externalAddressLabel,
   externalAddressNetwork,
   externalAddress,
@@ -82,6 +87,7 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError(evmBalance?.status === 'error' ? 'oneClickBalanceUnavailable' : null, 'notice');
   const payPicker = (
     <div className="flex flex-wrap items-center gap-2">
       <OneClickNetworkPicker side="pay" network={offerNetwork} networks={networks} onSelect={onOfferNetworkChange} />
@@ -158,6 +164,7 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
         />
         {evmBalance && externalAddressLabel === 'refund' && offerAsset && (
           <Notice
+            errorId={evmBalance.status === 'error' ? 'oneClickBalanceUnavailable' : null}
             tone={
               evmBalance.status === 'error' || (evmBalance.snapshot && !evmBalance.snapshot.canDeposit)
                 ? 'warning'
@@ -245,9 +252,9 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
           </section>
         )}
         {routeError && (
-          <p className="text-body-sm text-negative-tint-ink" role="alert" data-testid="one-click-route-error">
+          <ErrorLine errorId={routeErrorId} data-testid="one-click-route-error">
             {t(routeError)}
-          </p>
+          </ErrorLine>
         )}
       </div>
     </HomeGroupPaneBody>

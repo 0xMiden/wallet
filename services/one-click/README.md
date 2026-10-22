@@ -34,6 +34,8 @@ The receipt adapter must return only `{ "transactionHash": "...", "noteIds": [".
 
 Use Wrangler **4.151.3** with `services/one-click/wrangler.jsonc`. Set the Worker secrets and reviewed variables in the protected deployment environment, configure Cloudflare hostname and rate limiting, deploy, then publish that URL under `swap.oneClick.serviceUrl` in the mainnet wallet config. Keep `features.nearIntents` false until the rollout is intentionally enabled in wallet config. Configure the optional receipt adapter before enabling automatic incoming completion. There is no partner credential in the wallet bundle or remote config.
 
+Deploy the matching feature-eligibility service before activation so it recognizes an enabled 1Click-only swap configuration. The wallet and eligibility service continue to enforce the configured wallet and swap place rules.
+
 ## Hermetic E2E gate
 
 The local fake service is available only in the dedicated E2E build when all of these values match:

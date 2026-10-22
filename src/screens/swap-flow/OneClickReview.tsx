@@ -11,6 +11,7 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { OneClickAsset, OneClickQuoteResponse } from 'lib/one-click/types';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import { oneClickLogoNetwork } from './OneClickPickers';
 import { oneClickQuoteExpired } from './useOneClickQuote';
@@ -36,6 +37,7 @@ export interface OneClickReviewProps {
   refreshing?: boolean;
   recoveryNotice?: boolean;
   error?: string;
+  errorId?: UserErrorId | null;
   now?: number;
   onBack: () => void;
   onRefresh: () => void;
@@ -59,6 +61,7 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
   refreshing = false,
   recoveryNotice = false,
   error,
+  errorId,
   now,
   onBack,
   onRefresh,
@@ -110,7 +113,7 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
       }}
       secondary={{ label: t('back'), onPress: onBack, disabled: submitting || refreshing }}
       error={error ? t(error) : undefined}
-      errorId={error ? null : undefined}
+      errorId={error ? errorId : null}
     >
       {recoveryNotice && (
         <Notice tone="neutral" title={t('oneClickQuoteRefreshed')} className="mb-4">

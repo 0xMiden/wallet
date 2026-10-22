@@ -1,8 +1,20 @@
+/**
+ * @jest-environment node
+ */
 import { fetchMainnetOneClickUsdPrices } from './mainnet-one-click-prices';
 
+const TEST_NOW = new Date('2026-10-22T12:00:00.000Z');
+
 describe('mainnet 1Click USD price source', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(TEST_NOW);
+  });
+
+  afterEach(() => jest.useRealTimers());
+
   it('fetches one pinned public source and returns exact micro-dollar values with a timestamp', async () => {
-    const updatedAt = Math.floor(Date.now() / 1000);
+    const updatedAt = Math.floor(TEST_NOW.getTime() / 1000);
     const fetcher = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>().mockResolvedValue(
       new Response(JSON.stringify({ ethereum: { usd: 2500.125, last_updated_at: updatedAt }, 'usd-coin': { usd: 1, last_updated_at: updatedAt } }), { status: 200 })
     );
@@ -32,12 +44,12 @@ describe('mainnet 1Click USD price source', () => {
     await expect(fetchMainnetOneClickUsdPrices(['ethereum'], stale)).rejects.toThrow('stale or invalid');
 
     const future = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>().mockResolvedValue(
-      new Response(JSON.stringify({ ethereum: { usd: 1, last_updated_at: Math.floor(Date.now() / 1000) + 60 } }), { status: 200 })
+      new Response(JSON.stringify({ ethereum: { usd: 1, last_updated_at: Math.floor(TEST_NOW.getTime() / 1000) + 60 } }), { status: 200 })
     );
     await expect(fetchMainnetOneClickUsdPrices(['ethereum'], future)).rejects.toThrow('stale or invalid');
 
     const zero = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>().mockResolvedValue(
-      new Response(JSON.stringify({ ethereum: { usd: 0, last_updated_at: Math.floor(Date.now() / 1000) } }), { status: 200 })
+      new Response(JSON.stringify({ ethereum: { usd: 0, last_updated_at: Math.floor(TEST_NOW.getTime() / 1000) } }), { status: 200 })
     );
     await expect(fetchMainnetOneClickUsdPrices(['ethereum'], zero)).rejects.toThrow('stale or invalid');
   });

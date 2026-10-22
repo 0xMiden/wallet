@@ -1,3 +1,6 @@
+/**
+ * @jest-environment node
+ */
 import { createMainnetOneClickOriginFetcher } from './mainnet-one-click-origin';
 
 describe('mainnet 1Click service origin fetcher', () => {
@@ -19,5 +22,27 @@ describe('mainnet 1Click service origin fetcher', () => {
 
   it('rejects malformed extension origins', () => {
     expect(() => createMainnetOneClickOriginFetcher('https://1click.example', 'not-an-extension-id')).toThrow('Invalid wallet extension id');
+  });
+
+  it('validates origin arguments before resolving the default fetch implementation', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+    let fetchReads = 0;
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      get: () => {
+        fetchReads += 1;
+        return descriptor?.value;
+      }
+    });
+    try {
+      expect(() => createMainnetOneClickOriginFetcher('https://1click.example', 'invalid')).toThrow('Invalid wallet extension id');
+      expect(fetchReads).toBe(0);
+      const fetchWithOrigin = createMainnetOneClickOriginFetcher('https://1click.example', 'abcdefghijklmnopabcdefghijklmnop');
+      expect(fetchReads).toBe(0);
+      expect(typeof fetchWithOrigin).toBe('function');
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'fetch', descriptor);
+      else Reflect.deleteProperty(globalThis, 'fetch');
+    }
   });
 });

@@ -1,4 +1,26 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+const browserErrorsByPage = new WeakMap<Page, string[]>();
+
+test.beforeEach(({ page }) => {
+  const browserErrors: string[] = [];
+  browserErrorsByPage.set(page, browserErrors);
+  page.on('pageerror', error => browserErrors.push(error.stack ?? error.message));
+  page.on('console', message => {
+    if (message.type() === 'error') browserErrors.push(message.text());
+  });
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  const browserErrors = browserErrorsByPage.get(page) ?? [];
+  if (browserErrors.length > 0) {
+    await testInfo.attach('browser-errors', {
+      body: browserErrors.join('\n\n'),
+      contentType: 'text/plain'
+    });
+  }
+  expect(browserErrors, 'Browser errors while rendering the production fixture').toEqual([]);
+});
 
 test('captures the production one-click amount step', async ({ page }, testInfo) => {
   const theme = testInfo.project.name.endsWith('dark') ? '?dark' : '';

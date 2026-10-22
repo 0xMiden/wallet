@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 const PUBLISHED_SOURCE = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main';
 const NETWORKS = new Set(['mainnet', 'testnet', 'devnet', 'localnet']);
 const MODES = new Set(['allowed', 'restricted', 'unavailable', 'loading']);
+const record = value => typeof value === 'object' && value !== null && !Array.isArray(value);
 const HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
@@ -27,6 +28,73 @@ function enrich(document, network) {
     throw new Error('invalid fixture policy');
   }
   return { ...document, geo: { ...document.geo, wallet: document.geo?.wallet ?? {} } };
+}
+
+function hasControlCharacters(value) {
+  return [...value].some(character => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+  });
+}
+
+function hasOneClickSwap(document) {
+  if (document.features?.nearIntents !== true) return false;
+  const config = document.swap?.oneClick;
+  if (
+    !record(config) ||
+    !Array.isArray(config.midenAssets) ||
+    config.midenAssets.length < 1 ||
+    config.midenAssets.length > 64
+  ) {
+    return false;
+  }
+  if (typeof config.serviceUrl !== 'string' || config.serviceUrl.length > 512) return false;
+  let serviceUrl;
+  try {
+    serviceUrl = new URL(config.serviceUrl);
+  } catch {
+    return false;
+  }
+  const localHttp =
+    document.network === 'localnet' &&
+    serviceUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(serviceUrl.hostname);
+  if (
+    (serviceUrl.protocol !== 'https:' && !localHttp) ||
+    serviceUrl.username ||
+    serviceUrl.password ||
+    serviceUrl.search ||
+    serviceUrl.hash
+  ) {
+    return false;
+  }
+  const assetIds = new Set();
+  const faucetIds = new Set();
+  return config.midenAssets.every(asset => {
+    if (
+      !record(asset) ||
+      typeof asset.assetId !== 'string' ||
+      asset.assetId.length < 1 ||
+      asset.assetId.length > 256 ||
+      hasControlCharacters(asset.assetId) ||
+      typeof asset.faucetId !== 'string' ||
+      !/^0x[0-9a-f]{30}$/i.test(asset.faucetId) ||
+      !Number.isSafeInteger(asset.decimals) ||
+      asset.decimals < 0 ||
+      asset.decimals > 38
+    ) {
+      return false;
+    }
+    const faucetId = asset.faucetId.toLowerCase();
+    if (assetIds.has(asset.assetId) || faucetIds.has(faucetId)) return false;
+    assetIds.add(asset.assetId);
+    faucetIds.add(faucetId);
+    return true;
+  });
+}
+
+function hasSwapCapability(document) {
+  const hasDexSolver = typeof document.swap?.etaUrl === 'string' && document.swap.etaUrl.length > 0;
+  return hasDexSolver || hasOneClickSwap(document);
 }
 
 /** Real HTTP decisions for explicitly compiled E2E builds, shared by page and background realms. */
@@ -90,7 +158,7 @@ export async function createEligibilityFixture({
         allowed: {
           wallet,
           earn: wallet && document.features?.earn === true,
-          swap: wallet && typeof document.swap?.etaUrl === 'string' && document.swap.etaUrl.length > 0
+          swap: wallet && hasSwapCapability(document)
         }
       });
     } catch {

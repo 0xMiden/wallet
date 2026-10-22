@@ -1,6 +1,6 @@
 import { isAddress, isHash, isHex, type Address, type Hash, type Hex } from 'viem';
 
-import { assertOneClickQuoteBinding } from '../../../src/lib/one-click/client';
+import { assertOneClickQuoteBinding, ONE_CLICK_EVM_CHAIN_IDS } from '../../../src/lib/one-click/client';
 import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import {
@@ -10,9 +10,12 @@ import {
   type MainnetEvmHolding
 } from './mainnet-one-click-evm';
 
-jest.mock('../../../src/lib/one-click/client', () => ({
-  assertOneClickQuoteBinding: jest.fn()
-}));
+jest.mock('../../../src/lib/one-click/client', () => {
+  const actual = jest.requireActual<typeof import('../../../src/lib/one-click/client')>(
+    '../../../src/lib/one-click/client'
+  );
+  return { ...actual, assertOneClickQuoteBinding: jest.fn() };
+});
 
 function testAddress(value: string): Address {
   if (!isAddress(value)) throw new Error('Invalid test address');
@@ -162,16 +165,25 @@ describe('mainnet 1Click EVM sender', () => {
     expect(sender.broadcastCount).toBe(0);
   });
 
+  it('retains the production EVM chain mapping when the quote binding is isolated', () => {
+    expect(ONE_CLICK_EVM_CHAIN_IDS).toEqual({ eth: 1, base: 8453, arb: 42161, op: 10, arc: 5042 });
+  });
+
   it('fails closed for Base where the sender has no proven all-in fee bound', () => {
     const holding = makeHolding(makeClient(), { asset: { ...asset, blockchain: 'base', chainId: 8453 } });
     expect(() => makeSender({ holding })).toThrow(/Ethereum L1 and Arbitrum One/);
   });
 
-  it('requires a bound quote and rejects a second bind', async () => {
-    const sender = makeSender();
-    await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow(/not been bound/);
-    bind(sender);
-    expect(() => bind(sender)).toThrow(/already bound/);
+  it('does not allow binding after an unbound send attempt consumes the one-shot budget', async () => {
+    const unboundSender = makeSender();
+    await expect(unboundSender.send(transaction(), new AbortController().signal)).rejects.toThrow(/not been bound/);
+    expect(() => bind(unboundSender)).toThrow(/already bound/);
+  });
+
+  it('rejects a second bind after the quote has been bound', () => {
+    const boundSender = makeSender();
+    bind(boundSender);
+    expect(() => bind(boundSender)).toThrow(/already bound/);
   });
 
   it.each([

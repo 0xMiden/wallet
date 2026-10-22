@@ -25,7 +25,7 @@ const parsed = (version: number) => ({
   version,
   supportedEvmChains: {},
   'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
-  features: { earn: true },
+  features: { earn: true, nearIntents: false },
   mainnetCountdown: { enabled: false },
   swap: {}
 });

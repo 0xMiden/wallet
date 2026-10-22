@@ -12,6 +12,7 @@ import {
   recordOneClickOriginTransactionHash
 } from 'lib/one-click/tracking';
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { OneClickFlow } from './OneClickFlow';
 import { OneClickNetworkOption } from './OneClickPickers';
@@ -75,6 +76,7 @@ jest.mock('lib/one-click/client', () => ({
     left.assetId === right.assetId || (!!left.coingeckoId && left.coingeckoId === right.coingeckoId),
   requestOneClickQuote: jest.fn()
 }));
+jest.mock('lib/telemetry/use-user-visible-error', () => ({ useUserVisibleError: jest.fn() }));
 jest.mock('lib/one-click/tracking', () => ({
   initiateOneClickMidenDeposit: jest.fn(async () => 'miden-transaction'),
   persistOneClickTrackingRow: jest.fn(async () => 'one-click-row'),
@@ -152,12 +154,15 @@ jest.mock('./OneClickReview', () => ({
   OneClickReview: (props: {
     onConfirm: () => void;
     onRefresh: () => void;
+    error?: string;
+    errorId?: string | null;
     submitting?: boolean;
     confirmDisabled?: boolean;
     fundingError?: string;
     recoveryNotice?: boolean;
   }) => (
     <div>
+      {props.errorId && <span data-testid="one-click-review-error-id">{props.errorId}</span>}
       {props.recoveryNotice && <p>Quote refreshed after the previous quote expired</p>}
       {props.fundingError && <p>{props.fundingError}</p>}
       <button type="button" disabled={props.submitting || props.confirmDisabled} onClick={props.onConfirm}>
@@ -290,6 +295,35 @@ beforeEach(() => {
 let nextWetQuoteExpired = false;
 
 describe('OneClickFlow', () => {
+  it('classifies a failed confirmed submission with a fixed ID and no exception detail', async () => {
+    jest.mocked(initiateOneClickMidenDeposit).mockRejectedValueOnce(new Error('private account 0x1234 rejected'));
+    renderFlow(midenAsset, ethereumAsset);
+    await setAmountAndReview(mockOriginAddress);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+
+    expect(await screen.findByTestId('one-click-review-error-id')).toHaveTextContent('oneClickSubmitFailed');
+    expect(jest.mocked(useUserVisibleError).mock.calls.filter(([id]) => id !== null && id !== undefined)).toEqual([]);
+  });
+
+  it('does not report route-selection guidance as an error', async () => {
+    const sameMidenAsset: OneClickAsset = { ...midenAsset, coingeckoId: 'usd-coin' };
+    const sameEthereumAsset: OneClickAsset = { ...ethereumAsset, coingeckoId: 'usd-coin' };
+    render(
+      <OneClickFlow
+        config={config}
+        assets={[sameMidenAsset, sameEthereumAsset]}
+        networks={networks.slice(0, 2)}
+        offerNetwork={networkFor('miden')}
+        requestNetwork={networkFor('eth')}
+        midenAddress={mockMidenAddress}
+        onBackToSwap={jest.fn()}
+      />
+    );
+    await new Promise(resolve => setTimeout(resolve, 1100));
+
+    expect(jest.mocked(useUserVisibleError).mock.calls.filter(([id]) => id !== null && id !== undefined)).toEqual([]);
+  });
+
   it('requests a signed wet quote, confirms the exact Miden-to-Ethereum route, then queues the ordinary Miden send', async () => {
     renderFlow(midenAsset, ethereumAsset);
     await setAmountAndReview(mockOriginAddress);
@@ -384,6 +418,7 @@ describe('OneClickFlow', () => {
     expect(screen.getByText(mockTxHash)).toBeInTheDocument();
     expect(submitEvmOneClickDeposit).toHaveBeenCalledTimes(1);
     expect(recordOneClickOriginTransactionHash).toHaveBeenCalledTimes(2);
+    expect(useUserVisibleError).toHaveBeenCalledWith('oneClickBroadcastTrackingPending', 'notice');
   });
 
   it('refreshes an expired outbound quote into review and waits for explicit confirmation', async () => {

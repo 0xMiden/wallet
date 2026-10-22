@@ -66,7 +66,7 @@ interface EvmReadClient {
 
 export interface OneClickEvmBalanceDependencies {
   getChain: typeof getChain;
-  createClient(chain: Chain, rpcUrl: string): EvmReadClient;
+  createEvmReadClient(chain: Chain, rpcUrl: string): EvmReadClient;
   now(): number;
 }
 
@@ -82,7 +82,7 @@ const ERC20_BALANCE_ABI = [
 
 const defaultDependencies: OneClickEvmBalanceDependencies = {
   getChain,
-  createClient: (chain, rpcUrl) =>
+  createEvmReadClient: (chain, rpcUrl) =>
     createPublicClient({
       chain,
       transport: http(rpcUrl, { timeout: RPC_TIMEOUT_MS, retryCount: 0 })
@@ -112,7 +112,7 @@ export async function readOneClickEvmBalance(
   const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
   if (!network?.rpcUrl || !chain) throw new Error('Unsupported EVM network');
 
-  const client = dependencies.createClient(chain, network.rpcUrl);
+  const client = dependencies.createEvmReadClient(chain, network.rpcUrl);
   const account = input.account;
   const blockNumber = await client.getBlockNumber();
   const isNative = input.asset.contractAddress === 'native';

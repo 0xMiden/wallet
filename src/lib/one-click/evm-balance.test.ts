@@ -44,7 +44,7 @@ function harness(overrides: Record<string, unknown> = {}) {
           }
         : undefined
     ),
-    createClient: jest.fn(() => client),
+    createEvmReadClient: jest.fn(() => client),
     now: () => 1234
   };
   return { client, dependencies };

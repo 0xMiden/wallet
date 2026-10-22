@@ -37,6 +37,8 @@ import {
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate, HistoryAction } from 'lib/woozie';
 import { isValidEthereumAddress } from 'utils/miden';
@@ -107,6 +109,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const [instruction, setInstruction] = useState<OneClickQuoteResponse>();
   const [depositSubmitted, setDepositSubmitted] = useState(false);
   const [originTransactionHash, setOriginTransactionHash] = useState<string>();
@@ -162,6 +165,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       }
       setWetQuote(undefined);
       setError(undefined);
+      setErrorId(null);
     },
     [assets]
   );
@@ -277,6 +281,11 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     350,
     screen === 'amounts' && challenge === undefined && !submitting
   );
+  const visibleFlowError =
+    error !== undefined &&
+    errorId !== null &&
+    ((screen === 'review' && !wetQuote && initialRecovery !== undefined) || screen === 'instructions');
+  useUserVisibleError(visibleFlowError ? errorId : null, 'notice');
 
   const midenFaucet =
     originAsset?.blockchain === 'miden'
@@ -330,6 +339,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       setScreen('amounts');
       setWetQuote(undefined);
       setError(undefined);
+      setErrorId(null);
       return true;
     }
     if (screen === 'instructions') {
@@ -347,6 +357,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     quoteOperation.current = true;
     setRefreshing(true);
     setError(undefined);
+    setErrorId(null);
     try {
       const wet = await requestOneClickQuote(config, request, false);
       if (JSON.stringify(quoteRequestRef.current) !== JSON.stringify(request)) return;
@@ -355,6 +366,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       setScreen('review');
     } catch (quoteError) {
       setError(quoteError instanceof Error ? quoteError.message : 'oneClickQuoteUnavailable');
+      setErrorId('oneClickQuoteUnavailable');
     } finally {
       setRefreshing(false);
       quoteOperation.current = false;
@@ -367,12 +379,14 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     quoteOperation.current = true;
     setRefreshing(true);
     setError(undefined);
+    setErrorId(null);
     try {
       const wet = await requestOneClickQuote(config, request, false);
       setWetQuote(wet);
       setWetRequest(request);
     } catch (quoteError) {
       setError(quoteError instanceof Error ? quoteError.message : 'oneClickQuoteUnavailable');
+      setErrorId('oneClickQuoteUnavailable');
     } finally {
       setRefreshing(false);
       quoteOperation.current = false;
@@ -512,6 +526,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       return;
     }
     setError(undefined);
+    setErrorId(null);
     if (outbound) {
       try {
         await submitOutbound(wetQuote);
@@ -527,6 +542,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           return;
         }
         setError(submitError instanceof Error ? submitError.message : 'oneClickSubmitFailed');
+        setErrorId('oneClickSubmitFailed');
       }
       return;
     }
@@ -537,6 +553,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     if (!input) {
       submissionPhase.current = 'idle';
       setError('oneClickRouteChanged');
+      setErrorId('oneClickSubmitFailed');
       return;
     }
     setSubmitting(true);
@@ -575,11 +592,14 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
         try {
           if (persistedRowId) await recordOneClickOriginTransactionHash(persistedRowId, submitError.transactionHash);
           setError(undefined);
+          setErrorId(null);
         } catch {
           setError('oneClickBroadcastTrackingPending');
+          setErrorId('oneClickBroadcastTrackingPending');
         }
       } else {
         setError(submitError instanceof Error ? submitError.message : 'oneClickSubmitFailed');
+        setErrorId('oneClickSubmitFailed');
       }
     } finally {
       setSubmitting(false);
@@ -604,7 +624,10 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     (authorization: SpendingLimitAuthorization | undefined) => {
       setChallenge(undefined);
       if (authorization && wetQuote)
-        void submitOutbound(wetQuote, authorization).catch(errorValue => setError(String(errorValue)));
+        void submitOutbound(wetQuote, authorization).catch(errorValue => {
+          setError(String(errorValue));
+          setErrorId('oneClickSubmitFailed');
+        });
       else if (!authorization) {
         challengeIdentity.current = undefined;
         submissionPhase.current = 'idle';
@@ -652,7 +675,11 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     return (
       <HomeGroupPaneBody title={t('oneClickRefreshingExpiredQuote')}>
         <div className="flex flex-col gap-4">
-          <Notice tone={error ? 'warning' : 'neutral'} title={t('oneClickQuoteExpired')}>
+          <Notice
+            errorId={error ? errorId : null}
+            tone={error ? 'warning' : 'neutral'}
+            title={t('oneClickQuoteExpired')}
+          >
             {t(error ? 'oneClickExpiredRefreshFailed' : 'calculatingQuote')}
           </Notice>
           {error && (
@@ -691,6 +718,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           refreshing={refreshing}
           recoveryNotice={initialRecovery !== undefined}
           error={error}
+          errorId={error ? errorId : null}
           onBack={() => {
             setScreen('amounts');
             setWetQuote(undefined);
@@ -716,6 +744,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       <HomeGroupPaneBody title={t('oneClickDepositInstructions')}>
         <div className="flex flex-col gap-5">
           <Notice
+            errorId={error ? errorId : null}
             tone={depositSubmitted ? 'neutral' : 'warning'}
             title={t(depositSubmitted ? 'oneClickDepositSubmitted' : 'oneClickDepositInstructions')}
             data-testid="one-click-deposit-instructions"
@@ -775,6 +804,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
         }
         quoteLoading={preview.loading || refreshing}
         routeError={error ?? routeError}
+        routeErrorId={errorId ?? (preview.error ? 'oneClickQuoteUnavailable' : null)}
         externalAddressLabel={externalAddressLabel}
         externalAddressNetwork={externalAddressNetwork}
         externalAddress={externalAddress}

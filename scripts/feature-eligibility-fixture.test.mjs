@@ -89,6 +89,37 @@ test('config overrides update both realms and strict decisions together', async 
   });
 });
 
+test('oneClick-only swap capability is eligible only with nearIntents and a valid Miden mapping', async () => {
+  const oneClickDocument = {
+    network: 'testnet',
+    version: 13,
+    features: { earn: false, nearIntents: true },
+    swap: {
+      oneClick: {
+        serviceUrl: 'https://oneclick.example',
+        midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'11'.repeat(15)}`, decimals: 6 }]
+      }
+    }
+  };
+  const fixture = await start({ fetchImpl: async () => new Response(JSON.stringify(oneClickDocument)) });
+  const eligible = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
+  assert.deepEqual((await eligible.json()).allowed, { wallet: true, earn: false, swap: true });
+
+  const nearIntentsOff = { ...oneClickDocument, version: 14, features: { earn: false, nearIntents: false } };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(nearIntentsOff) });
+  const disabled = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
+  assert.deepEqual((await disabled.json()).allowed, { wallet: true, earn: false, swap: false });
+
+  const missingMapping = {
+    ...oneClickDocument,
+    version: 15,
+    swap: { oneClick: { serviceUrl: 'https://oneclick.example', midenAssets: [] } }
+  };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(missingMapping) });
+  const unusable = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
+  assert.deepEqual((await unusable.json()).allowed, { wallet: true, earn: false, swap: false });
+});
+
 test('explicit restricted and failed modes fail closed', async () => {
   const fixture = await start();
   const set = state => fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state }) });
@@ -112,11 +143,11 @@ test('loading waits for a state change before allowing wallet access', { timeout
   const set = state => fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state }) });
   await set('loading');
   let settled = false;
-  const pending = fetch(`${fixture.url}/v1/eligibility?network=testnet`, { signal: AbortSignal.timeout(5_000) }).finally(
-    () => {
-      settled = true;
-    }
-  );
+  const pending = fetch(`${fixture.url}/v1/eligibility?network=testnet`, {
+    signal: AbortSignal.timeout(5_000)
+  }).finally(() => {
+    settled = true;
+  });
   const first = await Promise.race([
     enteredWaiting.then(() => 'waiting'),
     pending.then(
