@@ -901,6 +901,10 @@
     "message": "Назад",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "Вернуться к свопу",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "Пропустить",
     "englishSource": "Skip"
@@ -1994,6 +1998,10 @@
   "swap": {
     "message": "Обмен",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "Подтвердить своп",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "Через In Protocol Dex",

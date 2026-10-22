@@ -901,6 +901,10 @@
     "message": "Geri",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "Takas sayfasına geri dön",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "Atla",
     "englishSource": "Skip"
@@ -1994,6 +1998,10 @@
   "swap": {
     "message": "Değiştir",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "Takas işlemini onayla",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "In Protocol Dex aracılığıyla",

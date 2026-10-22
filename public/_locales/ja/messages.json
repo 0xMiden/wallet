@@ -901,6 +901,10 @@
     "message": "戻る",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "スワップに戻る",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "スキップ",
     "englishSource": "Skip"
@@ -1994,6 +1998,10 @@
   "swap": {
     "message": "スワップ",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "スワップの確認",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "In Protocol Dex経由で",

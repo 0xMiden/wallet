@@ -901,6 +901,10 @@
     "message": "뒤로",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "스왑으로 돌아가기",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "건너뛰기",
     "englishSource": "Skip"
@@ -1994,6 +1998,10 @@
   "swap": {
     "message": "스왑",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "스왑 확인",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "In Protocol Dex를 통해",

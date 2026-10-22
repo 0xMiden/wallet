@@ -901,6 +901,10 @@
     "message": "返回",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "返回掉期",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "跳过",
     "englishSource": "Skip"
@@ -1994,6 +1998,10 @@
   "swap": {
     "message": "交换",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "确认互换",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "通过 In Protocol Dex",

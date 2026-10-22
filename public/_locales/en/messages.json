@@ -901,6 +901,10 @@
     "message": "Back",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "Back to swap",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "Skip",
     "englishSource": "Skip"
@@ -1994,6 +1998,10 @@
   "swap": {
     "message": "Swap",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "Confirm swap",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "Via In Protocol Dex",
