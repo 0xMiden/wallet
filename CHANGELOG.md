@@ -9,6 +9,7 @@
 
 ### Changes
 
+- [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
 - [CHANGE][all] Profile and My badges polish: every badge has its own illustrated medallion; Profile shows the address as one copy chip with a network tag and opens My badges from a progress card; My badges leads with Earned / Locked / Coming soon counts, an earned fraction beside All badges, and the Mainnet note at the foot of the page.
 - [CHANGE][extension] The EVM wallet connect modal on the extension opens on the WalletConnect QR code and hides the browser-extension, EIP-6963 and Coinbase wallets and the "All Wallets" grid, since an extension page cannot reach another extension's wallet.
 - [FIX][all] The send amount step says Continue before review, so it no longer suggests the payment will be sent immediately, and Continue buttons in Japanese read 続ける instead of 続きを読む (read more).
@@ -36,6 +37,7 @@
 
 ### Fixes
 
+- [FIX][all] yarn dev allows wallet, Earn and Swap without calling the eligibility service, so a local session opens when the eligibility URL is unset. The open flag is ignored unless that build is an explicit development build and not an end-to-end build, so a production build cannot inherit it.
 - [FIX][all] Profile and My Badges show the network the wallet runs on: after Mainnet invitation onboarding on a Testnet build they read Mainnet, and a dApp that names no network is given the wallet's effective node instead of the build default (#1655).
 - [FIX][all] The USDC bridge-in route and review show an estimated arrival of about 2 minutes instead of 20 (#1647).
 - [CHANGE][all] Activity's filters are All, Pending, Transfer, Swap, Earn and Others; Transfer covers sent, received and bridged entries. On Mainnet, faucet requests are hidden from every Activity list, group and search; the stored rows and balances are unchanged (#1646).
@@ -65,6 +67,8 @@
 - [FIX][extension] An approval's action runs once however many times its window confirms it while the action runs. For a transaction, a Deny, the auto-decline or a closed window while it is being queued waits for it, and an approval that times out first answers that the outcome is unknown, so a dApp is never told a transaction was declined while it still goes out (#1584).
 - [FIX][all] A failed claim's crash report also says whether its origin was recorded (`unrecorded` for a claim queued before the App recorded it), why it last waited in the queue, why the fee check let it through, and, when the stuck-transaction check cancelled it, whether it had started and whether this app session started it, in fixed values only (Sentry BREAD-WALLET-18, -19 and -1A). These values are part of the report's title, so these failures start new crash-report issues; the privacy policy lists every value.
 - [FIX][all] A Guardian transaction that fails while it is prepared for the guardian says which preparation step failed, from reading the account to recording the guardian's proposal, and which of the wallet's own checks refused it, in fixed values only (Sentry BREAD-WALLET-1Y, -2H, -2K, -2S, -38, -39, -3A, -3K and -3M, #1639).
+- [FIX][all] A failed guardian security change also says which change it was, using only `switch-guardian`, `replace-hot-key` or `update-procedure-threshold`, and still omits identifiers, amounts and the failure text (Sentry BREAD-WALLET-20, -2R, -2X and -3B, #1641).
+- [FIX][all] A claim that fails while it is handed on to be sent, or while its result is recorded after the guardian sync, says which step failed and which of the wallet's own checks refused it, in fixed values only (Sentry BREAD-WALLET-1V and -1W, #1634, #1635).
 - [FIX][all] dApp refusals keep an existing error code and its details unchanged, instead of wrapping it in another `INVALID_PARAMS` error (#1583)
 - [FIX][all] Recovery by recovery phrase compares the account state each listed Guardian serves with the account's commitment on chain: a Guardian the account left (a switch to a Guardian not in the list) is no longer detected as the account's Guardian, and the recovery screen asks for that Guardian's URL instead of recovering against a superseded state that the everyday-key rotation then fails on. The failed everyday-key rotation screen offers Start over, which after a confirmation removes the wallet from the device and returns to onboarding, so a recovery against the wrong Guardian no longer needs a reinstall (#1648).
 

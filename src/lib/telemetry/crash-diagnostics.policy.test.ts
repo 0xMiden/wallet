@@ -11,6 +11,8 @@ import {
 
 import {
   BACKGROUND_AGES,
+  COMPLETION_GUARDS,
+  COMPLETION_STEPS,
   CONFIRMATION_HANDLER_STATES,
   CONFIRMATION_REGISTRY_STATES,
   CONFIRMATION_REQUEST_SHAPES,
@@ -18,6 +20,7 @@ import {
   PAGE_VISIBILITY,
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
+  SECURITY_CHANGE_ACTIONS,
   STORAGE_OPERATIONS,
   STORAGE_OWNERS
 } from './crash-diagnostics';
@@ -73,12 +76,15 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['reconnected to the background', ['true', 'false']],
   ['the preparation step that failed', PROPOSAL_STEPS],
   ['which check refused it', PROPOSAL_GUARDS],
+  ['which security change failed', SECURITY_CHANGE_ACTIONS],
   ['two fixed events', DIAGNOSTIC_LOG_EVENTS],
   ['the operation it is about', DIAGNOSTIC_OPERATIONS],
   ['the step it describes', DIAGNOSTIC_STEPS],
   ['how that step ended', DIAGNOSTIC_STEP_OUTCOMES],
   ['how the operation ended', DIAGNOSTIC_END_OUTCOMES],
   ['how long it took, as a range', DIAGNOSTIC_DURATIONS],
+  ['the finishing step that failed', COMPLETION_STEPS],
+  ['which finishing check refused it', COMPLETION_GUARDS],
   ['the label that says so', [RELAY_SERVICE]],
   ['changed in the 30 seconds before', RELAY_CONNECTIVITY],
   ["whether the App's window was on screen", RELAY_VISIBILITY],
