@@ -526,18 +526,46 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
     document.body.innerHTML = '';
   });
 
-  /** Records clicks. Visibility is whether the selector is in the document. */
+  /**
+   * Records clicks. A control that is not in the document cannot be waited on or clicked, and
+   * `or` is visible when either side is. A mainnet Welcome has no `#import-link`, so a helper
+   * that only waits for that link fails here.
+   */
   function pageRecording(log: string[]): Page {
     const locator = (selector: string) => {
-      const self = {
-        waitFor: jest.fn(async () => undefined),
+      const present = () => document.querySelector(selector) !== null;
+      const api: {
+        waitFor: jest.Mock;
+        click: jest.Mock;
+        isVisible: jest.Mock;
+        or: (other: { isVisible: () => Promise<boolean> }) => {
+          waitFor: jest.Mock;
+          isVisible: jest.Mock;
+          click: jest.Mock;
+          or: typeof api.or;
+        };
+      } = {
+        waitFor: jest.fn(async () => {
+          if (!present()) throw new Error(`not visible: ${selector}`);
+        }),
         click: jest.fn(async () => {
+          if (!present()) throw new Error(`not clickable: ${selector}`);
           log.push(`click ${selector}`);
         }),
-        isVisible: jest.fn(async () => document.querySelector(selector) !== null),
-        or: () => self
+        isVisible: jest.fn(async () => present()),
+        or(other) {
+          return {
+            waitFor: jest.fn(async () => {
+              if (present() || (await other.isVisible())) return;
+              throw new Error(`not visible: ${selector}`);
+            }),
+            isVisible: jest.fn(async () => present() || (await other.isVisible())),
+            click: api.click,
+            or: api.or
+          };
+        }
       };
-      return self;
+      return api;
     };
     return {
       goto: jest.fn(async () => undefined),
@@ -547,8 +575,14 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
   }
 
   it('recovers from the test-network Welcome and acknowledges the network notice', async () => {
-    document.body.innerHTML =
-      '<a id="import-link"></a><button data-testid="onboarding-network-notice-acknowledge"></button>';
+    document.body.innerHTML = [
+      '<div data-testid="onboarding-welcome"></div>',
+      '<a id="import-link"></a>',
+      '<button data-testid="onboarding-network-notice-acknowledge"></button>',
+      '<div data-testid="import-select-type"></div>',
+      '<button data-testid="import-type-seed-phrase"></button>',
+      '<div data-testid="import-seed-phrase"></div>'
+    ].join('');
     const log: string[] = [];
     await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
     expect(log).toEqual([
@@ -559,8 +593,14 @@ describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
   });
 
   it('recovers a mainnet account through the no-code sheet, with no network notice', async () => {
-    document.body.innerHTML =
-      '<button data-testid="onboarding-no-code"></button><button data-testid="no-code-sheet-recover"></button>';
+    document.body.innerHTML = [
+      '<div data-testid="onboarding-welcome"></div>',
+      '<button data-testid="onboarding-no-code"></button>',
+      '<button data-testid="no-code-sheet-recover"></button>',
+      '<div data-testid="import-select-type"></div>',
+      '<button data-testid="import-type-seed-phrase"></button>',
+      '<div data-testid="import-seed-phrase"></div>'
+    ].join('');
     const log: string[] = [];
     await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
     expect(log).toEqual([
