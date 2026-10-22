@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import type { FailureEvidence } from './dapp-cells';
-import { KNOWN_BUGS, type KnownBug } from './dapp-known-bugs';
+import { KNOWN_BUGS, registryOf, type KnownBug } from './dapp-known-bugs';
 import pinned from './dapp-pinned.json';
 
 const bug = (id: string): KnownBug => {
@@ -22,6 +22,19 @@ const soft = (cellId: string, evidence: FailureEvidence, text = 'preview-verifie
   text,
   evidence
 });
+// Phase-1 extension placements stay intact when mobile evidence extends an entry.
+const ON_EXTENSION = [
+  { axis: 'offchain', surface: 'extension' },
+  { axis: 'guardian', surface: 'extension' }
+];
+
+const ON_MOBILE = [
+  { axis: 'offchain', surface: 'ios' },
+  { axis: 'guardian', surface: 'ios' },
+  { axis: 'offchain', surface: 'android' },
+  { axis: 'guardian', surface: 'android' }
+];
+const ON_ALL = [...ON_EXTENSION, ...ON_MOBILE];
 
 describe('known-bug registry', () => {
   it('has unique ids, a tracking issue or pull request and at least one cell each', () => {
@@ -33,6 +46,12 @@ describe('known-bug registry', () => {
   });
 
   it('K1 matches a provider that moved while the adapter kept the old address', () => {
+    expect(bug('K1').cells).toEqual({
+      S7: ON_EXTENSION,
+      M1: ON_ALL,
+      'WP7-switch': ON_EXTENSION,
+      'WP7-revoke': ON_EXTENSION
+    });
     expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'a', previousAddress: 'a' }))).toBe(
       true
     );
@@ -43,7 +62,7 @@ describe('known-bug registry', () => {
 
   it('K1 matches a React context left on the old account after a switch or a revoke, and nothing else', () => {
     expect(bug('K1').cells).toEqual(
-      expect.objectContaining({ 'WP7-switch': ['offchain', 'guardian'], 'WP7-revoke': ['offchain', 'guardian'] })
+      expect.objectContaining({ 'WP7-switch': ON_EXTENSION, 'WP7-revoke': ON_EXTENSION })
     );
     const stayed = { previousAddress: 'a', reactAddress: 'a', reactConnected: true };
     expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'b' }))).toBe(true);
@@ -86,7 +105,7 @@ describe('known-bug registry', () => {
 
   it('K12 matches a WalletContext export that holds no state while useWallet() sees the connect', () => {
     expect(bug('K12').tracking).toContain('0xMiden/web-sdk#484');
-    expect(bug('K12').cells).toEqual({ WP9: ['offchain', 'guardian'] });
+    expect(bug('K12').cells).toEqual({ WP9: ON_EXTENSION });
     expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(true);
     expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: true }))).toBe(false);
     expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: false }))).toBe(false);
@@ -96,7 +115,7 @@ describe('known-bug registry', () => {
 
   it('K13 matches the signer setup error MF3 settled on, and no other', () => {
     expect(bug('K13').tracking).toContain('0xMiden/web-sdk#400');
-    expect([...(bug('K13').cells.MF3 ?? [])].sort()).toEqual(Object.keys(pinned.texts.MF3).sort());
+    expect((bug('K13').cells.MF3 ?? []).map(at => at.axis).sort()).toEqual(Object.keys(pinned.texts.MF3).sort());
     const texts = Object.values(pinned.texts.MF3);
     expect(texts.length > 0 && texts.every(({ error, reason }) => error.length > 0 && reason.length > 0)).toBe(true);
     expect(
@@ -118,5 +137,49 @@ describe('known-bug registry', () => {
     ).toBe(false);
     expect(bug('K13').signature(hard('MF3', {}))).toBe(false);
     expect(bug('K13').signature(soft('MF3', { signerInitError: observed }))).toBe(false);
+  });
+
+  it('explains a cell only on the surface and axis an entry names', () => {
+    const entry: KnownBug = {
+      id: 'KT',
+      title: 'test',
+      tracking: 'none',
+      cells: { M1: [{ axis: 'guardian', surface: 'extension' }] },
+      signature: () => true
+    };
+    const registry = registryOf([entry]);
+    expect(registry.bugsFor('M1', 'extension', 'guardian').map(bug => bug.id)).toEqual(['KT']);
+    expect(registry.bugsFor('M1', 'ios', 'guardian')).toEqual([]);
+    expect(registry.bugsFor('M1', 'android', 'guardian')).toEqual([]);
+    expect(registry.bugsFor('M1', 'extension', 'offchain')).toEqual([]);
+  });
+
+  // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (any K1
+  // extension names its own).
+  const unproven = (bugs: readonly KnownBug[]): string[] =>
+    bugs
+      .filter(entry => Object.values(entry.cells).some(placements => placements.some(at => at.surface !== 'extension')))
+      .filter(entry => !/^\d+$/.test(entry.mobileEvidenceRun ?? ''))
+      .map(entry => entry.id);
+
+  it('places an entry on a mobile surface only with the run that showed its signature there', () => {
+    const mobile: KnownBug = {
+      id: 'KM',
+      title: 'test',
+      tracking: 'none',
+      cells: { S11: [{ axis: 'guardian', surface: 'ios' }] },
+      signature: () => true
+    };
+    expect(unproven([mobile])).toEqual(['KM']);
+    expect(unproven([{ ...mobile, mobileEvidenceRun: '18700000001' }])).toEqual([]);
+    expect(unproven(KNOWN_BUGS)).toEqual([]);
+    expect(
+      KNOWN_BUGS.filter(entry => entry.mobileEvidenceRun !== undefined).map(entry => [
+        entry.id,
+        entry.mobileEvidenceRun
+      ])
+    ).toEqual([
+      ['K1', '39090853726']
+    ]);
   });
 });

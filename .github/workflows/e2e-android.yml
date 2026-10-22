@@ -274,21 +274,22 @@ jobs:
       # a raw tail so the step can never come back empty again.
       - name: Collect emulator logs on failure
         if: failure()
+        timeout-minutes: 10
         run: |
-          adb devices || true
+          timeout 15s adb devices || true
           for serial in emulator-5554 emulator-5556; do
             echo "::group::$serial — app process"
-            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            timeout 15s adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
             echo "::endgroup::"
             echo "::group::$serial — crash buffer"
-            adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
+            timeout 15s adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
             echo "::endgroup::"
             echo "::group::$serial — wallet/chromium/OOM lines (whole buffer)"
-            adb -s "$serial" logcat -d 2>/dev/null \
+            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
               | grep -iE "miden|chromium|console|fatal|ANR|lowmemorykiller|Killed" | tail -300 || true
             echo "::endgroup::"
             echo "::group::$serial — raw tail (fallback, never filtered)"
-            adb -s "$serial" logcat -d -t 150 2>/dev/null || true
+            timeout 15s adb -s "$serial" logcat -d -t 150 2>/dev/null || true
             echo "::endgroup::"
           done
 

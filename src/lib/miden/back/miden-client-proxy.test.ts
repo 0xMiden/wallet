@@ -1999,6 +1999,10 @@ describe('MidenClientProxy — deadline kill', () => {
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('deadline');
+    expect((err as any).facts).toEqual({
+      started: false,
+      deadline: { owner: 'own', timer: 'dispatch', killer: 'read' }
+    });
     expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
     // Reopened a fresh doc (initial create + reopen create).
     expect(fakeChrome.offscreen.createDocument.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -2025,7 +2029,45 @@ describe('MidenClientProxy — deadline kill', () => {
     const [errA, errB] = await Promise.all([pA, pB]);
     expect(errA).toBeInstanceOf(OperationAbortedError);
     expect(errB).toBeInstanceOf(OperationAbortedError);
+    // B never owned the deadline that closed the document: its report must say so.
+    expect((errA as any).facts.deadline.owner).toBe('own');
+    expect((errB as any).facts).toEqual({
+      started: false,
+      deadline: { owner: 'collateral', timer: 'dispatch', killer: 'read' }
+    });
     expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('reports the timer that fired even when a start signal lands while the document closes', async () => {
+    const { midenClientProxy, __test, markOpStarted } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+    let finishClose!: () => void;
+    fakeChrome.offscreen.closeDocument.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishClose = resolve;
+        })
+    );
+
+    const p = midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    const [op_id] = __test.inFlightOpIds();
+    await wait(40); // the dispatch deadline fires and the close is now pending
+    markOpStarted(op_id!);
+    finishClose();
+    await flush();
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect((err as any).reason).toBe('deadline');
+    // The start signal did arrive before the rejection; the deadline that fired was still the dispatch one.
+    expect((err as any).facts).toEqual({
+      started: true,
+      deadline: { owner: 'own', timer: 'dispatch', killer: 'read' }
+    });
   });
 
   it('§3.3 downgrade: a critical op in flight turns a read deadline into reject-without-kill', async () => {
@@ -2048,6 +2090,10 @@ describe('MidenClientProxy — deadline kill', () => {
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('deadline-no-kill');
+    expect((err as any).facts).toEqual({
+      started: false,
+      deadline: { owner: 'own', timer: 'dispatch', killer: 'read' }
+    });
     // The doc (and the write) survived — no teardown.
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
     expect(__test.inFlightSize()).toBe(0);
@@ -2119,6 +2165,7 @@ describe('MidenClientProxy — settlement paths', () => {
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('doc-closed');
+    expect((err as any).facts).toEqual({ started: false });
     // No deadline armed → no kill.
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
   });
@@ -2140,6 +2187,7 @@ describe('MidenClientProxy — settlement paths', () => {
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as { reason?: string }).reason).toBe('transport');
+    expect((err as { facts?: unknown }).facts).toEqual({ started: false });
     // The original transport message is preserved, not swallowed.
     expect((err as Error).cause).toBe(transportError);
   });
@@ -2475,6 +2523,10 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       const err = await p;
       expect(err).toBeInstanceOf(OperationAbortedError);
       expect((err as any).reason).toBe('deadline');
+      expect((err as any).facts).toEqual({
+        started: false,
+        deadline: { owner: 'own', timer: 'backstop', killer: 'write' }
+      });
       expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
       expect(__test.inFlightSize()).toBe(0);
     } finally {
@@ -2554,6 +2606,10 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
     const err = await p;
     expect(err).toBeInstanceOf(OperationAbortedError);
     expect((err as any).reason).toBe('deadline');
+    expect((err as any).facts).toEqual({
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
     expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
     expect(__test.inFlightSize()).toBe(0);
   });
@@ -2650,6 +2706,41 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
     // leak into a later test (which would fire onDeadline against this module).
     settleOp({ ok: true, op_id, resultB64: null, durationMs: 1 });
     await promise;
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('a deadline re-armed after a sign round-trip reports the resumed timer', async () => {
+    const { handleOffscreenSignRequest, __test, markOpStarted } = await loadProxy(true);
+    const { bytesToB64 } = await import('./offscreen-codec');
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+
+    const { op_id, promise } = __test.dispatchCritical('consumeNoteId', [{}], 20);
+    const p = promise.catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    markOpStarted(op_id);
+    await handleOffscreenSignRequest(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_SIGN_REQUEST',
+        op_id,
+        sign_id: 's',
+        publicKeyB64: bytesToB64(new Uint8Array([1])),
+        signingInputsB64: bytesToB64(new Uint8Array([2]))
+      } as any,
+      (async () => new Uint8Array([1])) as any
+    );
+    await wait(40); // the re-armed deadline fires
+    fireReady();
+    await flush();
+
+    const err = await p;
+    expect((err as any).reason).toBe('deadline');
+    expect((err as any).facts).toEqual({
+      started: true,
+      deadline: { owner: 'own', timer: 'resumed', killer: 'write' }
+    });
     expect(__test.inFlightSize()).toBe(0);
   });
 

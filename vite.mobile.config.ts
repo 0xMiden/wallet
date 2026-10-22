@@ -13,6 +13,7 @@ import wasm from 'vite-plugin-wasm';
 import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
 
 import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
 import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
 
 const walletBuildIdentity = readWalletBuildIdentity(__dirname);
@@ -240,6 +241,7 @@ export default defineConfig({
     'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
     'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
     'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : ''),
     'process.browser': 'true',
     global: 'globalThis'
   }

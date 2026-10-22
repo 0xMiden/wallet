@@ -572,6 +572,39 @@ describe('committed terminal transaction failure reports', () => {
     });
   });
 
+  it.each([
+    [
+      'a discarded Guardian switch',
+      () =>
+        row({
+          type: 'switch-guardian',
+          status: ITransactionStatus.Completed,
+          extraInputs: { commitUnconfirmed: true },
+          lastDeferral: 'guardian_unreachable'
+        }),
+      () => resolveUnconfirmedSwitch('tx', false)
+    ],
+    [
+      'a demoted outbound bridge',
+      () => row({ type: 'bridged-send', status: ITransactionStatus.Completed, lastDeferral: 'guardian_unreachable' }),
+      () => markBridgedSendFailed('tx', 'no route liquidity')
+    ],
+    [
+      'a failed Earn withdrawal',
+      () => ({ ...phased('earn-withdraw', 'delivering'), lastDeferral: 'guardian_unreachable' as const }),
+      () => updateEarnWithdrawPhase('tx', 'failed', { error: 'relay timeout' })
+    ],
+    [
+      'a failed inbound bridge',
+      () => ({ ...phased('bridged-receive', 'delivering'), lastDeferral: 'guardian_unreachable' as const }),
+      () => updateBridgedReceivePhase('tx', 'failed', { error: 'relay timeout' })
+    ]
+  ])("forwards the row's recorded last deferral when reporting %s", async (_name, stored, fail) => {
+    await Repo.transactions.put(stored());
+    await fail();
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ lastDeferral: 'guardian_unreachable' }));
+  });
+
   it('reports a discarded Guardian switch once, but never a landed switch', async () => {
     await Repo.transactions.put(
       row({ type: 'switch-guardian', status: ITransactionStatus.Completed, extraInputs: { commitUnconfirmed: true } })

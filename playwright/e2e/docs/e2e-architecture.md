@@ -349,13 +349,13 @@ Bridge-in on the AggLayer route through the real deposit screen, a Reown-pairing
 
 ## 7 · dApps - a real dApp against the wallet
 
-**What these tests verify:** a dApp built the way real dApps are built - its own Miden client and the published wallet adapter - can connect, read, sign and move money through the extension, on single-sig and Guardian accounts alike.
+**What these tests verify:** a dApp built the way real dApps are built - its own Miden client and the published wallet adapter - can connect, read, sign and move money through the extension and, on a slim set of the same cells, through the in-app browser on iOS and Android, on single-sig and Guardian accounts alike.
 
 The test dApp is a small page served next to the wallet under test. It loads the same `@miden-sdk/miden-sdk` and wallet-adapter packages the wallet resolves, keeps its own client with its own storage and its own view of the chain, and exposes a command API the test drives. Because the dApp's client and the wallet's are independent, the chain really does move between the moment the dApp builds a request and the moment the user approves it, the way it does for real users.
 
 Every capability is a named cell from the suite's capability matrix, run on both account kinds. A write passes only when the dApp's own `waitForTransaction` returns the hash, the wallet's row reads Completed, the node serves the note or nullifier, and every balance moved by exactly the amount plus the fee. Refusals are pinned to their exact error and checked for side effects. A known wallet or adapter bug is recorded against the cell it breaks, so the suite stays meaningful while the bug is open, and the record fails the run the day the bug is fixed until the entry is removed.
 
-Where it runs: `e2e-dapp.yml`, after every merge, against the branch's live network (testnet from `main`, devnet from `next`) with that network's public faucet and hosted Guardian. No pull request runs it; a branch can dispatch it by hand.
+Where it runs: `e2e-dapp.yml`, after every merge, against the branch's live network (testnet from `main`, devnet from `next`) with that network's public faucet and hosted Guardian: four Chrome legs, and one iOS and one Android leg per account kind, each mobile leg on two devices and labelled with the presentation path its in-app browser ran. No pull request runs it; a branch can dispatch it by hand, for every surface or for the extension or the mobile legs alone.
 
 ---
 

@@ -920,6 +920,42 @@ describe('DappConfirmationModal network', () => {
   });
 });
 
+describe('DappConfirmationModal test ids', () => {
+  // The mobile dApp E2E driver (playwright/e2e/helpers/dapp-mobile-sheet.ts) finds the sheet from its origin and reads
+  // these ids; a renamed one leaves every mobile cell waiting on a sheet it cannot see.
+  it('marks every message line, Deny and Approve inside the dialog its origin titles', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'transaction',
+          sourcePublicKey: FULL_ACCOUNT_ID,
+          transactionMessages: ['Simulated effects:', 'Notes created, 1']
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+    const dialog = screen.getByTestId('dapp-confirmation-origin').closest('[role="dialog"]');
+    if (!(dialog instanceof HTMLElement)) throw new Error('the origin is not inside a dialog');
+    const sheet = within(dialog);
+    expect(sheet.getAllByTestId('dapp-confirmation-message').map(line => line.textContent)).toEqual([
+      'Simulated effects:',
+      'Notes created, 1'
+    ]);
+    expect(sheet.getByTestId('dapp-confirmation-approve').textContent).toBe('confirm');
+    fireEvent.click(sheet.getByTestId('dapp-confirmation-deny'));
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
+  });
+
+  it('approves a connect through the Approve test id', () => {
+    const onResolve = jest.fn();
+    render(<DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+    fireEvent.click(screen.getByTestId('dapp-confirmation-approve'));
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed: true }), 'req-1');
+  });
+});
+
 describe('DappConfirmationModal - a login signature', () => {
   const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
   const OPAQUE_ROW = 'Warning, this site asked you to sign a value the wallet cannot decode.';

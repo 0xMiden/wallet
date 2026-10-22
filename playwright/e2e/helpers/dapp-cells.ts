@@ -10,7 +10,9 @@ import type { KnownBugRegistry } from './dapp-known-bugs';
  */
 
 export type AxisLabel = 'offchain' | 'guardian';
-export type JourneyId = 'S' | 'R' | 'W' | 'X' | 'XL' | 'M' | 'RA';
+/** Where the wallet under test runs (spec 3.8): the Chrome extension, or the in-app dApp browser on iOS or Android. */
+export type Surface = 'extension' | 'ios' | 'android';
+export type JourneyId = 'S' | 'R' | 'W' | 'X' | 'XL' | 'M' | 'RA' | 'PL';
 /**
  * A cell's outcome (spec section 5). `fail-known` means every failure matched a signature registered for this cell
  * and axis; `known-now-passing` means such a cell ran clean, which fails the judge until the entry is removed. A
@@ -36,8 +38,41 @@ export interface DappError {
   causeMessage?: string;
 }
 
+export interface BalanceReadSnapshot {
+  account: string | null;
+  stamp: number;
+  cached: boolean;
+  read:
+    | 'diagnostics unavailable'
+    | {
+        inFlight: boolean;
+        fused: boolean;
+        fuseUntilMs: number | null;
+        network: string;
+        lock: { label: string; pauseCount: number; normalCeilingMs: number } | null;
+      };
+}
+
+export interface BalanceReadDiagnostics {
+  observedAccount: string;
+  initialStamp: number;
+  finalStamp: number;
+  initial: BalanceReadSnapshot;
+  final: BalanceReadSnapshot;
+  attempts: Array<{
+    number: number;
+    startedAt: number;
+    durationMs: number;
+    outcome: string;
+    before: BalanceReadSnapshot;
+    after?: BalanceReadSnapshot;
+    error?: string;
+  }>;
+}
+
 /** What a cell saw, recorded before it asserts, so a known-bug signature can match the failure. */
 export interface FailureEvidence {
+  balanceRead?: BalanceReadDiagnostics;
   stage?: string;
   rowStatus?: number;
   rowError?: string;
@@ -67,6 +102,20 @@ export interface FailureEvidence {
   reactExportedConnected?: boolean | null;
   /** MF3: the error MidenProvider settled on while it set the MidenFi signer account up. */
   signerInitError?: string;
+  /** S11: the conformance cases that failed, by name, so a signature can name the one method a provider lacks. */
+  conformanceFailed?: string[];
+  /** A mobile write's steps in ms (dapp-mobile-writes.ts), so its budget is resized from a run, not guessed (C-P9). */
+  stepDurationsMs?: Record<string, number>;
+  /** A raw recipient claim rejected after this cell ended, observed when the next quiesce joined it. */
+  recipientClaimError?: string;
+}
+
+const errorEvidence = new WeakMap<Error, FailureEvidence>();
+
+/** Keeps observations outside capped error text without replacing the original error or its class. */
+export function withFailureEvidence<T extends Error>(error: T, evidence: FailureEvidence): T {
+  errorEvidence.set(error, evidence);
+  return error;
 }
 
 /** A check that failed without stopping the cell, so one run can record a soft and a hard known bug. */
@@ -75,7 +124,10 @@ export interface SoftFailure {
   detail: string;
 }
 
-/** One cell's entry in `<outDir>/<part>-<axis>-<journey>.json`; `needs` names the prerequisite that blocked it. */
+/**
+ * One cell's entry in `<outDir>/<surface>-<part>-<axis>-<journey>.json`; `needs` names the prerequisite that
+ * blocked it.
+ */
 export interface CellRecord {
   id: string;
   verdict: CellVerdict;
@@ -84,16 +136,36 @@ export interface CellRecord {
   needs?: string;
   error?: string;
   stage?: string;
+  /** What the cell saw (`FailureEvidence`), kept only when it saw anything: a signature is pinned from it (spec 3.8). */
+  evidence?: FailureEvidence;
   durationMs: number;
   finishedAt: string;
 }
 
+/** Which native presentation path the dApp window reported (`window.bread.presentation.ready()`, command-loop.ts). */
+export type PresentationPath = 'gated' | 'fallback' | 'absent' | 'other';
+/** A mobile leg's coverage label: the presentation path its dApp window ran on. */
+export interface LegCoverage {
+  presentationPath: PresentationPath;
+  detail: string;
+}
+
 export interface JourneyRecord {
+  surface: Surface;
   part: string;
   axis: AxisLabel;
   journey: JourneyId;
   testTitle: string;
+  coverage?: LegCoverage;
+  foreignPendingNotes?: Array<{ beforeCellId: string; notes: PendingNoteSnapshot[] }>;
   cells: CellRecord[];
+}
+
+export interface PendingNoteSnapshot {
+  noteId: string;
+  sender: string;
+  faucet: string;
+  amount: string;
 }
 
 /** The harness itself broke (a page script threw, a cell was never declared): never a wallet verdict or a known bug. */
@@ -249,6 +321,7 @@ export function abortsLeg(error: unknown): boolean {
 }
 
 export interface JudgeInput {
+  surface: Surface;
   cellId: string;
   axis: AxisLabel;
   hardError?: unknown;
@@ -269,7 +342,7 @@ export interface Judgement {
  * `fail-new`.
  */
 export function judgeCell(input: JudgeInput): Judgement {
-  const registered = input.registry.bugsFor(input.cellId, input.axis);
+  const registered = input.registry.bugsFor(input.cellId, input.surface, input.axis);
   const hardText = input.hardError === undefined ? undefined : describeFailure(input.hardError);
   if (input.hardError instanceof HarnessFault) {
     return { verdict: 'harness-fault', knownBugs: [], staleKnownBugs: [], error: hardText };
@@ -314,6 +387,7 @@ export function markInfraAbort(outDir: string, reason: string): void {
 }
 
 export interface RunnerOptions<S> {
+  surface: Surface;
   part: string;
   axis: AxisLabel;
   journey: JourneyId;
@@ -332,6 +406,8 @@ export class DappCellRunner<S> {
   private readonly records = new Map<string, CellRecord>();
   private blockedState: string | undefined;
   private lastRan: CellRecord | undefined;
+  private coverage: LegCoverage | undefined;
+  private readonly foreignPendingNotes: NonNullable<JourneyRecord['foreignPendingNotes']> = [];
   private readonly now: () => number;
 
   constructor(private readonly options: RunnerOptions<S>) {
@@ -342,8 +418,8 @@ export class DappCellRunner<S> {
   }
 
   get file(): string {
-    const { outDir, part, axis, journey } = this.options;
-    return path.join(outDir, `${part}-${axis}-${journey}.json`);
+    const { outDir, surface, part, axis, journey } = this.options;
+    return path.join(outDir, `${surface}-${part}-${axis}-${journey}.json`);
   }
 
   /**
@@ -402,6 +478,11 @@ export class DappCellRunner<S> {
       });
     } catch (error) {
       hardError = error;
+      let link: unknown = error;
+      for (let depth = 0; depth < 8 && link instanceof Error; depth += 1) {
+        Object.assign(evidence, errorEvidence.get(link));
+        link = link.cause;
+      }
     } finally {
       try {
         await this.options.hooks.restore(cell);
@@ -410,6 +491,7 @@ export class DappCellRunner<S> {
       }
     }
     const judged = judgeCell({
+      surface: this.options.surface,
       cellId: cell.id,
       axis: this.options.axis,
       hardError,
@@ -425,7 +507,8 @@ export class DappCellRunner<S> {
         knownBugs: judged.knownBugs,
         staleKnownBugs: judged.staleKnownBugs,
         error: judged.error,
-        stage: evidence.stage
+        stage: evidence.stage,
+        ...(Object.keys(evidence).length > 0 ? { evidence } : {})
       })
     );
     return this.lastRan;
@@ -437,6 +520,31 @@ export class DappCellRunner<S> {
       if (existing.verdict === 'not-run') this.records.set(id, this.record(id, 'blocked-infra', 0, { error: reason }));
     }
     this.flush();
+  }
+
+  /** Stamps the leg's coverage label on the record, so the judge shows which path a mobile leg measured. */
+  recordCoverage(coverage: LegCoverage | undefined): void {
+    this.coverage = coverage;
+    this.flush();
+  }
+
+  /** Keeps foreign pending transfers in the journey record without changing any cell's verdict. */
+  recordForeignPendingNotes(beforeCellId: string, notes: PendingNoteSnapshot[]): void {
+    if (notes.length === 0) return;
+    this.foreignPendingNotes.push({ beforeCellId, notes });
+    this.flush();
+  }
+
+  /** Enriches the originating cell's record without making its late claim failure the next cell's verdict. */
+  recordRecipientClaimFailure(cellId: string, error: unknown): void {
+    const record = this.records.get(cellId);
+    if (record === undefined) throw new HarnessFault(`recipient claim originated in undeclared cell ${cellId}`);
+    const detail = describeFailure(error);
+    this.save({
+      ...record,
+      evidence: { ...record.evidence, recipientClaimError: detail },
+      error: [`late recipient claim from ${cellId}: ${detail}`, record.error].filter(Boolean).join(' | ')
+    });
   }
 
   /**
@@ -486,8 +594,17 @@ export class DappCellRunner<S> {
   }
 
   private flush(): void {
-    const { part, axis, journey, testTitle } = this.options;
-    const body: JourneyRecord = { part, axis, journey, testTitle, cells: [...this.records.values()] };
+    const { surface, part, axis, journey, testTitle } = this.options;
+    const body: JourneyRecord = {
+      surface,
+      part,
+      axis,
+      journey,
+      testTitle,
+      ...(this.coverage === undefined ? {} : { coverage: this.coverage }),
+      ...(this.foreignPendingNotes.length === 0 ? {} : { foreignPendingNotes: this.foreignPendingNotes }),
+      cells: [...this.records.values()]
+    };
     // Written whole, then renamed into place, so no reader ever sees a half-written file.
     const temporary = `${this.file}.tmp`;
     fs.writeFileSync(temporary, `${JSON.stringify(body, null, 2)}\n`);

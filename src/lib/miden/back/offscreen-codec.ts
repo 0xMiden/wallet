@@ -467,13 +467,26 @@ export function errorNameOf(error: unknown): string | undefined {
 export class OperationAbortedError extends Error {
   readonly op_id: string;
   readonly reason: string;
+  /** Closed facts about the abort for crash reports; never an id or a duration. */
+  readonly facts?: OffscreenAbortFacts;
 
-  constructor(op_id: string, reason: string) {
+  constructor(op_id: string, reason: string, facts?: OffscreenAbortFacts) {
     super(`Offscreen operation ${op_id} aborted (${reason})`);
     this.name = 'OperationAbortedError';
     this.op_id = op_id;
     this.reason = reason;
+    if (facts !== undefined) this.facts = facts;
   }
+}
+
+/** Which timer of the deadline-holding op fired: armed at dispatch, the write backstop, at start, or after a sign. */
+export type OffscreenDeadlineTimer = 'dispatch' | 'backstop' | 'started' | 'resumed';
+
+export interface OffscreenAbortFacts {
+  /** Whether the offscreen doc's signal that this op won its mutex had arrived; the signal can be dropped. */
+  started: boolean;
+  /** For a deadline abort: whose deadline fired, which of its timers, and whether that op was a write. */
+  deadline?: { owner: 'own' | 'collateral'; timer: OffscreenDeadlineTimer; killer: 'write' | 'read' };
 }
 
 /**
