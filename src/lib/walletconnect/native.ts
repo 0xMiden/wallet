@@ -226,6 +226,7 @@ async function waitForSessionChain(
   let latest = state;
   let sawState = false;
   let sawUnread = false;
+  let observation = 0;
   let finish: () => void = () => undefined;
   const finished = new Promise<void>(resolve => {
     finish = () => resolve();
@@ -240,7 +241,10 @@ async function waitForSessionChain(
 
   let listener: PluginListenerHandle | undefined;
   try {
-    listener = await NativeReown.addListener('stateChanged', observe);
+    listener = await NativeReown.addListener('stateChanged', next => {
+      observation += 1;
+      observe(next);
+    });
   } catch (err) {
     console.warn('[NativeReown] could not listen for the session update', err);
   }
@@ -248,10 +252,14 @@ async function waitForSessionChain(
   let polling = true;
   let poll: ReturnType<typeof setTimeout> | undefined;
   const reread = async () => {
+    const started = observation;
     const next = await readNativeState(latest);
-    // A failed re-read is not a session observation: the last state stands, and the attempt records that it was unread.
-    if (next.unread) sawUnread = true;
-    else observe(next.state);
+    // A re-read started before a newer session event does not replace that event.
+    if (started === observation) {
+      // A failed re-read is not a session observation: the last state stands, and the attempt records that it was unread.
+      if (next.unread) sawUnread = true;
+      else observe(next.state);
+    }
     if (polling) poll = setTimeout(() => void reread(), NATIVE_SESSION_CHAIN_POLL_MS);
   };
   const deadline = setTimeout(finish, NATIVE_SESSION_CHAIN_WAIT_MS);
