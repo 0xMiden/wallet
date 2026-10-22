@@ -6,6 +6,9 @@
 
 - [FIX][all] A dApp request to consume a P2ID note addressed to another account is refused before the approval sheet, instead of failing after approval (BREAD-WALLET-5D).
 - [FIX][all] Guardian transaction history recovered from the guardian names the recipient of a P2ID payment again, reading the note's current four-item storage layout.
+- [FIX][all] The Earn tab shows the "Not available where you are" notice at the top, above Total earned, when Earn is not offered in your location, instead of only inside a vault (#1753).
+- [FIX][all] The token page's 24h change pill shows the percentage change, not the dollar change with a percent sign.
+- [FIX][all] The eligibility service enables Swap for Near Intents with an explicit switch and valid 1Click mapping, and supports manual deployment from the wallet main branch independently of wallet releases.
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
