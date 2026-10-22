@@ -1216,7 +1216,8 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     biometricProtectionSupported,
     protectionStepRoute,
     inviteOnly,
-    accessCode
+    accessCode,
+    reusedPhrase
   ]);
 
   // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
