@@ -18,11 +18,9 @@ import {
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from '../../helpers/balance-truth';
-import { NIGHTS, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
+import { landedVaultSample, roundTripReserve, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
 
 const SEND_BASE_UNITS = 1n;
-/** Leftover claim, the send, and the incoming claim. */
-const ROUND_TRIP_TXS = 3n;
 
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial' });
@@ -73,6 +71,18 @@ async function discoveredFee(page: Page): Promise<number> {
   const fee = await walletDiscoveredBaseFee(page);
   if (fee === null || fee < 1) throw new Error(`fee discovery returned ${fee}; refusing to send`);
   return fee;
+}
+
+/** Same empty read `claimAllNotes` uses to skip Accept All. */
+async function syncDataHasNotes(page: Page): Promise<boolean> {
+  const pending = await page.evaluate(async () => {
+    const storage = await new Promise<any>(resolve => {
+      chrome.storage.local.get(['miden_sync_data'], resolve);
+    });
+    const notes = storage?.miden_sync_data?.notes;
+    return Array.isArray(notes) ? notes.length : 0;
+  });
+  return pending > 0;
 }
 
 test.describe('registration', () => {
@@ -142,7 +152,7 @@ test.describe('nightly round trip', () => {
   test.skip(process.env.E2E_MAINNET_BOOTSTRAP === '1', 'registration does not spend');
 
   test('plain and guardian exchange one base unit of the native asset', async ({ walletA, walletB }) => {
-    test.setTimeout(1_200_000);
+    test.setTimeout(2_700_000);
     const seed = process.env.E2E_MAINNET_PLAIN_SEED;
     const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR;
     if (!seed || !keyPair) throw new Error('E2E_MAINNET_PLAIN_SEED or E2E_MAINNET_GUARDIAN_KEY_PAIR is unset');
@@ -153,24 +163,47 @@ test.describe('nightly round trip', () => {
 
     await walletA.triggerSync(true);
     await walletB.triggerSync(true);
+    // A top-up sits in Pending until the account consumes it, and the vault check below does not
+    // count Pending. The product wallet cannot claim for the plain account, so this job consumes
+    // both accounts before it judges the balance. The leftover claim is already inside the
+    // reserve; subtract it only when that wallet had notes to drain, so a skip cannot pass one
+    // transaction budget below the two-night figure.
+    const fundingConsumePaidA = await syncDataHasNotes(walletA.page);
+    await walletA.claimAllNotes(600_000);
+    const fundingConsumePaidB = await syncDataHasNotes(walletB.page);
+    await walletB.claimAllNotes(600_000);
     const fee = await discoveredFee(walletA.page);
     const oneTx = TX_FEE_MULTIPLE * BigInt(fee);
-    const required = NIGHTS * (SEND_BASE_UNITS + ROUND_TRIP_TXS * oneTx);
+    const requiredA = roundTripReserve(SEND_BASE_UNITS, BigInt(fee), fundingConsumePaidA);
+    const requiredB = roundTripReserve(SEND_BASE_UNITS, BigInt(fee), fundingConsumePaidB);
+    const faucetId = await walletDiscoveredNativeFaucetId(walletA.page);
+    if (!faucetId) throw new Error('the wallet has not discovered the native fee asset');
+    // fetchBalances returns immediately when a read for that account is already running, so one
+    // refresh after the claim can still see the pre-claim vault. A non-land resolves the sentinel
+    // so this poll continues.
+    await expect
+      .poll(
+        () =>
+          landedVaultSample(
+            () => walletA.refreshBalances(),
+            () => vaultBalanceByFaucetId(walletA.page, faucetId)
+          ),
+        { timeout: 60_000, message: `plain ${plain.address} native balance stayed short of ${requiredA}` }
+      )
+      .toBeGreaterThanOrEqual(requiredA);
+    await expect
+      .poll(
+        () =>
+          landedVaultSample(
+            () => walletB.refreshBalances(),
+            () => vaultBalanceByFaucetId(walletB.page, faucetId)
+          ),
+        { timeout: 60_000, message: `guardian ${guardianAddress} native balance stayed short of ${requiredB}` }
+      )
+      .toBeGreaterThanOrEqual(requiredB);
     const plainHolding = await nativeHolding(walletA.page);
     const guardianHolding = await nativeHolding(walletB.page);
     expect(guardianHolding.faucetId).toBe(plainHolding.faucetId);
-
-    expect(
-      plainHolding.base,
-      `plain ${plain.address} holds ${plainHolding.base} base units of ${plainHolding.faucetId}, short of ${required}`
-    ).toBeGreaterThanOrEqual(required);
-    expect(
-      guardianHolding.base,
-      `guardian ${guardianAddress} holds ${guardianHolding.base} base units of ${guardianHolding.faucetId}, short of ${required}`
-    ).toBeGreaterThanOrEqual(required);
-
-    await walletA.claimAllNotes();
-    await walletB.claimAllNotes();
 
     const before = {
       plain: await vaultBalanceByFaucetId(walletA.page, plainHolding.faucetId),

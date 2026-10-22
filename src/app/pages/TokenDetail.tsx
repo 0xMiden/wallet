@@ -273,9 +273,12 @@ export default TokenDetail;
  * The 24h change as a status pill. Toned by the change as it is SHOWN (one decimal), so a move
  * that rounds to 0.0% reads neutral, not as a green "+0.0%" or a red "-0.0%". The sign carries the
  * direction too, so it is never color alone.
+ *
+ * The input is the quote's PERCENT change (`percentageChange24h`), never its `change24h`: that
+ * field is the change in USD, so a BTC move of -$335 read as "-335.3%".
  */
-function priceChange(change24h: number): { tone: PillTone; label: string } {
-  const shown = Number(change24h.toFixed(1));
+function priceChange(percentageChange24h: number): { tone: PillTone; label: string } {
+  const shown = Number(percentageChange24h.toFixed(1));
   if (shown > 0) return { tone: 'positive', label: `+${shown.toFixed(1)}` };
   if (shown < 0) return { tone: 'negative', label: shown.toFixed(1) };
   return { tone: 'neutral', label: (0).toFixed(1) };
@@ -303,7 +306,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const padding = (maxVal - minVal) * 0.05 || maxVal * 0.01;
   const yDomain: [number, number] = [minVal - padding, maxVal + padding];
 
-  const change = priceChange(priceInfo.change24h);
+  const change = priceChange(priceInfo.percentageChange24h);
   // Pinned to the destination so the count keeps one shape.
   const minimumFormatDecimals = PRICE_MINIMUM_DECIMALS[symbol] ?? DEFAULT_PRICE_MINIMUM_DECIMALS;
   const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, minimumFormatDecimals);
@@ -326,7 +329,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
             change colour on its way there; the label follows each frame. */}
         <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
           <AnimatedNumber
-            value={priceInfo.change24h}
+            value={priceInfo.percentageChange24h}
             format={value => t('tokenDetailChange24h', { change: priceChange(value).label })}
           />
         </Pill>
