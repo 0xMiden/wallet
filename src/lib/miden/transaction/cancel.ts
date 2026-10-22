@@ -13,6 +13,7 @@ import { reportOperation } from 'lib/telemetry/report-operation';
 import {
   reportTransactionFailure,
   type ReapSnapshot,
+  type StartupSnapshot,
   type TransactionFailureReason
 } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
@@ -170,7 +171,8 @@ export const cancelTransaction = async (
   // Names the failure report's reason in place of the one read from `error`; the stored text and every gate below
   // still follow `error`.
   reportedReason?: TransactionFailureReason,
-  reap?: ReapSnapshot
+  reap?: ReapSnapshot,
+  startup?: StartupSnapshot
 ) => {
   const returnedAtMs = Date.now();
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
@@ -261,6 +263,7 @@ export const cancelTransaction = async (
       feeAdmission: committed.feeAdmission,
       reason: reportedReason ?? reportedWalletReason(error),
       reap,
+      startup,
       error,
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
       submitLegMs: submitLegMs(committed, returnedAtMs)
@@ -798,6 +801,35 @@ const handBackInterruptedCandidate = (tx: ITransaction): void => {
   });
 };
 
+const STORED_STAGE_AGE_LIMITS: ReadonlyArray<[number, NonNullable<StartupSnapshot['stageAge']>]> = [
+  [60_000, 'under_1m'],
+  [600_000, 'under_10m'],
+  [3_600_000, 'under_1h'],
+  [86_400_000, 'under_1d']
+];
+
+/**
+ * What the startup report says about a row the sweep picked, read from the row as the sweep read it: which rule picked
+ * it, how long ago it entered its stored stage, and whether it recorded a submit crossing. The age comes from the
+ * stage's own wall-clock stamp, so a clock set back while the app was down reads as no age at all.
+ */
+const startupSnapshot = (tx: Transaction, nowSeconds: number, nowMs: number): StartupSnapshot => {
+  const enteredAt = tx.stage === undefined ? undefined : tx.stageTimestamps?.[tx.stage];
+  const ageMs = enteredAt === undefined ? undefined : nowMs - enteredAt;
+  return {
+    selection: hasUnexplainedFutureStamp(tx, nowSeconds)
+      ? 'future_stamp'
+      : tx.processingStartedAt === undefined
+        ? 'missing_start'
+        : 'before_session',
+    stageAge:
+      ageMs === undefined || ageMs < 0
+        ? undefined
+        : (STORED_STAGE_AGE_LIMITS.find(([limit]) => ageMs < limit)?.[1] ?? 'over_1d'),
+    submit: tx.mayHaveSubmitted === true ? 'submit_recorded' : 'no_submit_recorded'
+  };
+};
+
 /**
  * Fail every transaction an earlier process or browser session left in `GeneratingTransaction`,
  * regardless of age.
@@ -832,7 +864,8 @@ const handBackInterruptedCandidate = (tx: ITransaction): void => {
  */
 export const failInterruptedTransactions = async () => {
   const inProgress = await getTransactionsInProgress();
-  const nowSeconds = Math.floor(Date.now() / 1000);
+  const nowMs = Date.now();
+  const nowSeconds = Math.floor(nowMs / 1000);
   const transactions = inProgress.filter(
     tx =>
       hasUnexplainedFutureStamp(tx, nowSeconds) ||
@@ -846,7 +879,11 @@ export const failInterruptedTransactions = async () => {
       return cancelTransaction(
         tx,
         TRANSACTION_INTERRUPTED_ON_STARTUP,
-        'Interrupted - check your activity after it syncs'
+        'Interrupted - check your activity after it syncs',
+        undefined,
+        undefined,
+        undefined,
+        startupSnapshot(tx, nowSeconds, nowMs)
       );
     })
   );
