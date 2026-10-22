@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "Portfel niedostępny w Twoim regionie",
   "walletAccessRestrictedBody": "Portfel nie jest dostępny w Twojej obecnej lokalizacji.",
   "walletAccessUnavailableTitle": "Nie udało się sprawdzić dostępności",
-  "walletAccessUnavailableBody": "Sprawdź połączenie i spróbuj ponownie."
+  "walletAccessUnavailableBody": "Sprawdź połączenie i spróbuj ponownie.",
+  "runtimeUnsupportedTitle": "Ta przeglądarka lub to urządzenie nie obsługuje portfela",
+  "runtimeUnsupportedBody": "Portfel wymaga obsługi WebAssembly SIMD, której ta przeglądarka lub to urządzenie nie zapewnia. Otwórz portfel na innym urządzeniu lub w zaktualizowanej przeglądarce."
 }

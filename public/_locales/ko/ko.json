@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "해당 지역에서는 지갑을 이용할 수 없습니다",
   "walletAccessRestrictedBody": "현재 위치에서는 지갑을 이용할 수 없습니다.",
   "walletAccessUnavailableTitle": "이용 가능 여부를 확인하지 못했습니다",
-  "walletAccessUnavailableBody": "연결을 확인하고 다시 시도해 주세요."
+  "walletAccessUnavailableBody": "연결을 확인하고 다시 시도해 주세요.",
+  "runtimeUnsupportedTitle": "이 브라우저나 기기에서는 지갑을 실행할 수 없습니다.",
+  "runtimeUnsupportedBody": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오."
 }

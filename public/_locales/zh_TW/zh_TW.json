@@ -1587,5 +1587,7 @@
   "walletAccessRestrictedTitle": "你所在的地區無法使用錢包",
   "walletAccessRestrictedBody": "你目前所在的位置無法使用錢包。",
   "walletAccessUnavailableTitle": "無法檢查可用性",
-  "walletAccessUnavailableBody": "請檢查網路連線後重試。"
+  "walletAccessUnavailableBody": "請檢查網路連線後重試。",
+  "runtimeUnsupportedTitle": "此瀏覽器或裝置無法執行該錢包",
+  "runtimeUnsupportedBody": "此錢包需要 WebAssembly SIMD，而此瀏覽器或裝置並未提供此功能。請在另一台裝置上或使用最新版本的瀏覽器開啟錢包。"
 }
