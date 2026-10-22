@@ -1,0 +1,34 @@
+# Bounded protocol probe. Public canonical MINT request with P2ID receipt.
+# P2ID salt binds target week and expiration seconds, without changing its spendability.
+use miden::core::word
+use miden::protocol::active_note
+use miden::protocol::active_account
+use miden::protocol::native_account
+use miden::protocol::tx
+const CLAIMS = word("bread::gc::weekly_claims")
+@locals(4)
+@account_procedure
+pub proc check_policy
+    exec.active_note::get_script_root push.{MINT_ROOT} assert_eqw.err="canonical mint required"
+    push.24.1000 exec.active_note::get_bounded_storage eq.24 assert.err="canonical public mint layout required"
+    padw mem_loadw_le.1000 push.{P2ID_ROOT} assert_eqw.err="P2ID receipt required"
+    exec.active_note::get_sender
+    mem_load.1020 assert_eq.err="recipient suffix mismatch"
+    mem_load.1021 assert_eq.err="recipient prefix mismatch"
+    exec.tx::get_block_timestamp
+    dup mem_load.1023 lte assert.err="claim approval expired"
+    add.259200 u32div.604800 mem_load.1022 assert_eq.err="approval week mismatch"
+    dup eq.10000000 assert.err="allocation must be ten GC at six decimals"
+    push.0
+    exec.tx::get_block_timestamp
+    add.259200 u32div.604800
+    exec.active_note::get_sender
+    # [sender_suffix,sender_prefix,monday_week,0,...policy inputs]
+    loc_storew_le.0 dropw
+    padw loc_loadw_le.0
+    push.CLAIMS[0..2] exec.active_account::get_map_item
+    exec.word::testz assert.err="already claimed this week" dropw
+    push.0.0.0.1
+    padw loc_loadw_le.0
+    push.CLAIMS[0..2] exec.native_account::set_map_item dropw
+end

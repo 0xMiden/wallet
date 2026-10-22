@@ -1,0 +1,14 @@
+# Conservative maximum network fee under the CURRENT reference block fee parameters.
+# Extra2^28 cycles forces compute_fee to charge29 base verification cycles for
+# bounded transactions below2^28 existing cycles. At the exact2^29 boundary it
+# charges30; non-integral division below fails closed. Above2^29 compute_fee aborts.
+use miden::protocol::tx
+@account_procedure
+pub proc compute_note_fee
+    dropw dropw dropw dropw
+    padw push.268435456 exec.tx::compute_fee
+    push.29 div u32assert mul.30
+    push.0.0.0 movup.3
+    exec.tx::get_fee_asset_id
+    movupw.3 dropw movupw.3 dropw
+end

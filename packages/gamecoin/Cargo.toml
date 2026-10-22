@@ -1,0 +1,15 @@
+[package]
+name = "bread-gamecoin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+[dependencies]
+anyhow = "=1.0.104"
+miden-protocol = "=0.17.1"
+miden-standards = "=0.17.1"
+
+[dev-dependencies]
+miden-testing = "=0.17.1"
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread"] }
