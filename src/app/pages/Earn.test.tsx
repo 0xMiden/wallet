@@ -410,9 +410,7 @@ describe('Earn page', () => {
     render(<Earn />);
 
     const rows = within(vaultsSection()).getAllByRole('button');
-    expect(rows.map(row => row.getAttribute('data-testid'))).toEqual(
-      vaults.map(vault => `earn-vault-row-${vault.id}`)
-    );
+    expect(rows.map(row => row.getAttribute('data-testid'))).toEqual(vaults.map(vault => `earn-vault-row-${vault.id}`));
   });
 
   it('navigates to a vault detail when its row is tapped', () => {

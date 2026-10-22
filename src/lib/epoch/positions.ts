@@ -157,7 +157,8 @@ export function carryForward(
     vault => !loaded.has(vaultKey(vault)) && (carryEveryVault || dropped.has(vaultKey(vault)))
   );
   // A stable sort keeps the catalogue order: highest `aprTotal` first.
-  const vaults = carried.length > 0 ? [...next.vaults, ...carried].sort((a, b) => b.aprTotal - a.aprTotal) : next.vaults;
+  const vaults =
+    carried.length > 0 ? [...next.vaults, ...carried].sort((a, b) => b.aprTotal - a.aprTotal) : next.vaults;
   return { ...next, positions, vaults, totalDepositsUSD: positions.reduce((sum, p) => sum + p.depositsUSD, 0) };
 }
 

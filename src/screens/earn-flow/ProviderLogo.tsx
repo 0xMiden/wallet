@@ -13,10 +13,6 @@ const isAave = (protocol: string): boolean => protocol === 'Aave' || protocol.st
  */
 export const ProviderLogo: FC<{ protocol: string; className?: string }> = ({ protocol, className }) => (
   <span className={classNames('flex shrink-0 items-center justify-center text-ink', className)} aria-hidden="true">
-    {isAave(protocol) ? (
-      <img src={aaveLogoUrl} alt="" className="h-full w-full object-contain" />
-    ) : (
-      protocol.charAt(0)
-    )}
+    {isAave(protocol) ? <img src={aaveLogoUrl} alt="" className="h-full w-full object-contain" /> : protocol.charAt(0)}
   </span>
 );

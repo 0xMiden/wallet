@@ -94,14 +94,18 @@ describe('marketSlug', () => {
 
 describe('mapEarnPosition', () => {
   it('links back to the vault of its own market, whatever the case of the uid', () => {
-    const ui = mapEarnPosition(libPosition({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' }));
+    const ui = mapEarnPosition(
+      libPosition({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })
+    );
     expect(ui.vaultId).toBe(vaultSlug(libVault()));
   });
 
   it('links two Morpho markets of one chain to two vaults', () => {
     const [first, second] = EARN_VAULT_INFOS;
     const position = (info: EarnVaultInfo) =>
-      mapEarnPosition(libPosition({ marketUid: info.marketUid, lenderKey: info.lenderKey, lenderName: info.lenderName }));
+      mapEarnPosition(
+        libPosition({ marketUid: info.marketUid, lenderKey: info.lenderKey, lenderName: info.lenderName })
+      );
     expect(position(first!).vaultId).toBe(EARN_DATA.vaults[0]!.id);
     expect(position(second!).vaultId).toBe(EARN_DATA.vaults[1]!.id);
   });
@@ -115,7 +119,9 @@ describe('mapEarnPosition', () => {
     expect(mapEarnPosition(libPosition({ lenderKey: 'COMPOUND_V3_USDC', lenderName: 'Compound V3' }))).toMatchObject({
       protocol: 'Compound V3'
     });
-    const morpho = mapEarnPosition(libPosition({ lenderKey: 'MORPHO_BLUE_0X3B37', lenderName: 'Morpho uniBTC-USDC 77' }));
+    const morpho = mapEarnPosition(
+      libPosition({ lenderKey: 'MORPHO_BLUE_0X3B37', lenderName: 'Morpho uniBTC-USDC 77' })
+    );
     expect(morpho).toMatchObject({ protocol: 'Morpho', marketName: 'Morpho uniBTC-USDC 77' });
   });
 

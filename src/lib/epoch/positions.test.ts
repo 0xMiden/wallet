@@ -321,8 +321,7 @@ describe('fetchEarnPositions', () => {
 
   it('isolates malformed and failed API responses as per-owner errors', async () => {
     serve({
-      owner: owner =>
-        owner === OTHER_OWNER ? answer(null, 429) : answer({ success: true, data: { items: null } })
+      owner: owner => (owner === OTHER_OWNER ? answer(null, 429) : answer({ success: true, data: { items: null } }))
     });
 
     const result = await fetchEarnPositions({ owners: [OWNER, OTHER_OWNER] });

@@ -26,7 +26,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({
   getEpochAllocatorUrl: () => 'https://allocator.example',
-  getEarnMarket: () => ({ marketUid: 'DUMMY_LENDING:11155111:0x1111111111111111111111111111111111111111', chainId: 11155111 })
+  getEarnMarket: () => ({
+    marketUid: 'DUMMY_LENDING:11155111:0x1111111111111111111111111111111111111111',
+    chainId: 11155111
+  })
 }));
 const token = '0x1111111111111111111111111111111111111111';
 const position = {

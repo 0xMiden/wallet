@@ -723,7 +723,10 @@ describe('the Earn market from /pools', () => {
     const fetch = servingPools(() => answer(poolsPage([frozen, AAVE_V3_USDC, COMPOUND_V3_USDC])));
     expect((await deriveBridgeConfig(onBase, deps({ fetch }))).epoch.market).toMatchObject({
       state: 'ok',
-      value: { marketUid: `COMPOUND_V3_USDC:8453:${BASE_USDC.toLowerCase()}`, protocolHash: keccak256(toBytes('compound-v3')) }
+      value: {
+        marketUid: `COMPOUND_V3_USDC:8453:${BASE_USDC.toLowerCase()}`,
+        protocolHash: keccak256(toBytes('compound-v3'))
+      }
     });
   });
 

@@ -51,9 +51,7 @@ describe('earn-flow/data', () => {
 
     it('gives each market a lowercase uid of its lender key, chain and underlying', () => {
       EARN_VAULT_INFOS.forEach(info => {
-        expect(info.marketUid).toBe(
-          `${info.lenderKey}:${info.chainId}:${info.underlying.address}`.toLowerCase()
-        );
+        expect(info.marketUid).toBe(`${info.lenderKey}:${info.chainId}:${info.underlying.address}`.toLowerCase());
       });
       expect(new Set(EARN_VAULT_INFOS.map(info => info.marketUid)).size).toBe(EARN_VAULT_INFOS.length);
     });

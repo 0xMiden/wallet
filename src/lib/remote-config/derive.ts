@@ -17,12 +17,7 @@ import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
-import {
-  type AgglayerDepositTokenConfig,
-  type BridgeConfig,
-  epochCollateralFaucetId,
-  type EvmAddress
-} from './schema';
+import { type AgglayerDepositTokenConfig, type BridgeConfig, epochCollateralFaucetId, type EvmAddress } from './schema';
 import { parseSwapPairs, SWAP_PAIRS_PATH, type SwapPairs, type SwapPairsToken } from './swap-pairs';
 import type { EarnMarket } from './values';
 
