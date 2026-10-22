@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 // the suites, and keep a push trigger from coming back on any E2E workflow.
 const DIR = resolve(__dirname, '../../../.github/workflows');
 const read = (file: string): string => readFileSync(resolve(DIR, file), 'utf8');
+const README = readFileSync(resolve(__dirname, '../../../README.md'), 'utf8');
 
 /** The top-level `on:` block, as its lines. */
 const onBlock = (text: string): string[] => {
@@ -83,6 +84,21 @@ describe('Release E2E', () => {
     }
   });
 
+  it('starts automatically for a full release only, and says a release candidate is tested by hand', () => {
+    expect(RELEASE).toContain(
+      "if: github.event_name != 'release' || github.event.release.prerelease == false"
+    );
+    expect(README).toMatch(/release candidate[^.]*by hand/);
+  });
+
+  it('names a commit as the one tested only for a tag; for a branch, the head at dispatch', () => {
+    expect(RELEASE).toContain('gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${REF}"');
+    expect(RELEASE).toMatch(/Release E2E on tag `\$\{REF\}` \(\$\{sha:0:9\}\)/);
+    expect(RELEASE).toMatch(/Release E2E on branch `\$\{REF\}`, head \$\{sha:0:9\} at dispatch/);
+    expect(RELEASE).toContain("each suite's own run records the commit it tested");
+    expect(README).not.toContain('records that commit');
+  });
+
   it('leaves to their own nightly crons, on schedule only, the two suites that have one', () => {
     expect(RELEASE).toMatch(
       /if \[ "\$EVENT" = schedule \]; then\n\s+case "\$file" in\n\s+e2e-resilience\.yml \| e2e-usdcx-live\.yml\)/
@@ -103,6 +119,8 @@ describe('Next E2E (devnet)', () => {
     expect(NEXT).toContain(
       'gh workflow run e2e-blockchain.yml --repo "$GITHUB_REPOSITORY" --ref next -f network=devnet'
     );
+    expect(NEXT).toMatch(/started on `next`, head \$\{sha:0:9\} at dispatch/);
+    expect(NEXT).toContain("the suite's own run records the commit it tested");
   });
 });
 
