@@ -372,11 +372,14 @@ async function requestSessionChain(
     const reread = await readNativeState(buffered ?? state);
     const newer = newerSession(watch, started);
     // A failed reread keeps a buffered event. A re-read that lacks the chain does not replace a
-    // buffered approval. A session event during the reread still wins, including a deletion.
+    // buffered approval, and no re-read replaces a buffered deletion. A session event during the
+    // reread still wins.
+    const bufferedDeletion = buffered !== undefined && (!buffered.connected || !buffered.topic);
     let observed = buffered ?? state;
     if (newer) observed = newer;
     else if (
       !reread.unread &&
+      !bufferedDeletion &&
       !(buffered && sessionApproves(buffered, chainId) && !sessionApproves(reread.state, chainId))
     ) {
       observed = reread.state;
