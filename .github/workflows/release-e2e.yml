@@ -1,0 +1,112 @@
+name: Release E2E
+
+# Starts the release E2E jobs: the testnet E2E suites that used to run on every
+# push to main (#1714). Each one queued hours of runner time per merge, so they
+# run here instead, against one ref at a time:
+#
+#   schedule            main, nightly
+#   workflow_dispatch   the `ref` input (a branch or a tag; default main)
+#   release published   the release's tag, the event release-wallet.yml publishes on
+#
+# A release is a `release` event rather than a `workflow_call` from
+# release-wallet.yml, so a red suite never fails or holds up the publish, and a
+# prerelease runs the suites too. A release event runs this file from the tag.
+#
+# Each suite is started with `gh workflow run --ref`, so it runs its own workflow
+# file at that ref, with the inputs that reproduce its old push run (testnet).
+# GITHUB_TOKEN can start them: a workflow_dispatch it creates does start a run.
+# The nightly leaves out e2e-resilience and e2e-usdcx-live, whose own crons
+# (05:00 and 03:17 UTC) are main's nightly run; a dispatch or a release runs all
+# fourteen. next's suite has its own nightly, next-e2e-devnet.yml.
+#
+# This job only dispatches: a dispatch that fails fails it, naming the suite and
+# the ref. Each suite's own run, on its own workflow page, is the test result;
+# the summary records the commit the ref pointed at when it was dispatched.
+
+on:
+  schedule:
+    # 02:13 UTC: before e2e-usdcx-live (03:17), e2e-stress (04:00) and e2e-resilience (05:00).
+    - cron: '13 2 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or tag to run the release E2E suites against
+        required: false
+        default: main
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch the release E2E suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch each suite
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.event.release.tag_name || inputs.ref || 'main' }}
+        run: |
+          set -euo pipefail
+          # One suite per line: the workflow file, then the inputs its dispatch takes.
+          suites=$(cat <<'SUITES'
+          e2e-android.yml -f network=testnet
+          e2e-blockchain.yml -f network=testnet
+          e2e-bridge.yml
+          e2e-bridge-in.yml
+          e2e-dapp.yml -f network=testnet
+          e2e-dapp-browser.yml
+          e2e-resilience.yml
+          e2e-telemetry.yml
+          e2e-usdcx.yml
+          e2e-usdcx-live.yml
+          pr-e2e-bridge-guardian.yml
+          pr-e2e-earn.yml
+          pr-e2e-guardian-lifecycle.yml
+          pr-e2e-swap.yml
+          SUITES
+          )
+
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REF}" --jq .sha) || {
+            echo "::error title=Release E2E::${REF} does not name a commit in ${GITHUB_REPOSITORY}"
+            exit 1
+          }
+          {
+            echo "### Release E2E on \`${REF}\` (${sha:0:9}), ${EVENT}"
+            echo
+            echo '| Suite | Dispatch |'
+            echo '| --- | --- |'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=()
+          while read -r file args; do
+            [ -n "$file" ] || continue
+            if [ "$EVENT" = schedule ]; then
+              case "$file" in
+                e2e-resilience.yml | e2e-usdcx-live.yml)
+                  echo "| ${file} | its own nightly cron |" >> "$GITHUB_STEP_SUMMARY"
+                  continue
+                  ;;
+              esac
+            fi
+            # shellcheck disable=SC2086 # args is the suite's own list of -f flags
+            if gh workflow run "$file" --repo "$GITHUB_REPOSITORY" --ref "$REF" $args; then
+              echo "| ${file} | started |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error title=Release E2E::could not dispatch ${file} on ${REF}"
+              echo "| ${file} | **failed** |" >> "$GITHUB_STEP_SUMMARY"
+              failed+=("$file")
+            fi
+          done <<< "$suites"
+
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error title=Release E2E::${#failed[@]} suite(s) not dispatched on ${REF} (${sha}): ${failed[*]}"
+            exit 1
+          fi
+          echo "Dispatched the release E2E suites on ${REF} (${sha})."

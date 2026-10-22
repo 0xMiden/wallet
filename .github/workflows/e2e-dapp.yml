@@ -1,12 +1,11 @@
 name: dApp E2E (Chrome)
-# Runs the dApp journeys after every merge, against the public network that matches the branch's protocol line,
-# the split e2e-blockchain.yml uses: a push to main runs testnet, a push to next runs devnet. GitHub runs this file
-# from the pushed ref, so next runs its own copy of the workflow and specs once it carries the suite. Never per pull
-# request, never on a timer and never on the local stack (the 2026-10-09 ruling). Dispatch takes either network.
+# Runs the dApp journeys against the public network that matches the branch's protocol line, the split
+# e2e-blockchain.yml uses: main runs testnet, next runs devnet. Nothing runs it on push: Release E2E (release-e2e.yml)
+# dispatches it nightly and on each release with network=testnet (#1714 replaced the push trigger). GitHub runs this
+# file from the dispatched ref. Never per pull request and never on the local stack (the 2026-10-09 ruling). Dispatch
+# takes either network.
 # Pins the nodes accepted when this was written: main 0.17.3 on testnet, next 0.17.1 on devnet (probed 2026-10-10).
 on:
-  push:
-    branches: [main, next]
   workflow_dispatch:
     inputs:
       network:
