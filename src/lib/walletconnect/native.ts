@@ -223,10 +223,14 @@ type SessionWatch = {
   chainId?: number;
   /** A deletion replaced an approval of `chainId`. A non-event reread must not undo it. */
   deletionSupersededApproval?: boolean;
+  /** Generation of the snapshot `requestSessionChain` receives. An event at this generation is not after that read. */
+  recordedGeneration: number;
+  /** That snapshot is the event `newerSession` returned for the initial read. */
+  snapshotIsEvent: boolean;
 };
 
 async function startSessionWatch(): Promise<SessionWatch> {
-  const watch: SessionWatch = { generation: 0 };
+  const watch: SessionWatch = { generation: 0, recordedGeneration: 0, snapshotIsEvent: false };
   try {
     watch.listener = await NativeReown.addListener('stateChanged', (next: ReownState) => {
       const previous = watch.latest;
@@ -258,7 +262,7 @@ async function closeSessionWatch(watch: SessionWatch): Promise<void> {
   });
 }
 
-/** A session event that arrived while a read was in flight. The read must not replace it. */
+/** A session event recorded after `started`. The read or snapshot at `started` must not replace it. */
 function newerSession(watch: SessionWatch, started: number): ReownState | undefined {
   return started !== watch.generation && watch.latest !== undefined ? watch.latest : undefined;
 }
@@ -273,8 +277,10 @@ async function waitForSessionChain(
   chainId: number,
   watch: SessionWatch
 ): Promise<{ state: ReownState; unread: boolean }> {
-  let latest = watch.latest ?? state;
-  let sawState = false;
+  const seeded = newerSession(watch, watch.recordedGeneration);
+  let latest = seeded ?? state;
+  // Only that newer event is an observation already in hand. An earlier `watch.latest` is not.
+  let sawState = seeded !== undefined;
   let sawUnread = false;
   let finish: () => void = () => undefined;
   const finished = new Promise<void>(resolve => {
@@ -291,10 +297,8 @@ async function waitForSessionChain(
     if (sessionApproves(latest, chainId)) finish();
   };
   watch.onEvent = next => apply(next, true);
-  // An event that arrived before this wait is an observation whether or not it approves the chain.
-  // An approval must not sit for the whole deadline, and a deletion that lands before that
-  // settlement still wins.
-  if (watch.latest) sawState = true;
+  // An approval after the recorded snapshot must not sit for the whole deadline, and a deletion
+  // that lands before that settlement still wins. The completion stays on a microtask.
   if (sessionApproves(latest, chainId)) {
     void Promise.resolve().then(() => {
       if (sessionApproves(latest, chainId)) finish();
@@ -340,6 +344,7 @@ async function waitForSessionChain(
 export async function ensureNativeSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
   const watch = await startSessionWatch();
   try {
+    // `state` was read before this listener existed, so `recordedGeneration` stays 0.
     return (await requestSessionChain(state, chainId, watch)).state;
   } finally {
     await closeSessionWatch(watch);
@@ -393,14 +398,29 @@ async function requestSessionChain(
     const newer = newerSession(watch, started);
     // A failed reread keeps a buffered event. A re-read that lacks the chain does not replace a
     // buffered approval, and no re-read replaces a buffered deletion. A session event during the
-    // reread still wins.
+    // reread still wins. A connected event whose chains omit the target stays when the re-read
+    // would pass the guard, including a re-read that omits `chainIds`. That event was buffered
+    // during the request, or adopted from the initial read when nothing was buffered.
     const bufferedDeletion = buffered !== undefined && (!buffered.connected || !buffered.topic);
+    const withheld = buffered ?? (watch.snapshotIsEvent ? state : undefined);
+    const withheldChain =
+      withheld !== undefined &&
+      withheld.connected &&
+      Array.isArray(withheld.chainIds) &&
+      !withheld.chainIds.includes(chainId);
+    const approvedChains = reread.state.chainIds;
+    const rereadPassesGuard =
+      reread.state.connected &&
+      reread.state.topic !== undefined &&
+      reread.state.topic.length > 0 &&
+      (!Array.isArray(approvedChains) || approvedChains.includes(chainId));
     let observed = buffered ?? state;
     if (newer) observed = newer;
     else if (
       !reread.unread &&
       !bufferedDeletion &&
-      !(buffered && sessionApproves(buffered, chainId) && !sessionApproves(reread.state, chainId))
+      !(buffered && sessionApproves(buffered, chainId) && !sessionApproves(reread.state, chainId)) &&
+      !(withheldChain && rereadPassesGuard)
     ) {
       observed = reread.state;
     }
@@ -450,6 +470,9 @@ export async function prepareNativeSessionChain(chainId: number): Promise<void> 
     }
     const newer = newerSession(watch, started);
     if (newer) current = newer;
+    // After the merge: an event from before `started` is not after this read.
+    watch.recordedGeneration = watch.generation;
+    watch.snapshotIsEvent = newer !== undefined;
     const { state, native, recovery } = await requestSessionChain(current, chainId, watch);
     try {
       assertNativeSessionChain(state, chainId, nativeChainName(chainId));

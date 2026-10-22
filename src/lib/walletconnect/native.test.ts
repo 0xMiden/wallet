@@ -93,6 +93,15 @@ if (registration?.type !== 'return') throw new Error('Reown was not registered')
 const rawNativeReown = jest.mocked(registration.value);
 const rawNativeSend = rawNativeReown.sendTransaction;
 const rawNativeRequest = rawNativeReown.request;
+const emitStateBeforeNativeListenerSettles = (state: ReownState) => {
+  const addStateListener = rawNativeReown.addListener as unknown as jest.MockedFunction<
+    (eventName: 'stateChanged', listenerFunc: (state: ReownState) => void) => Promise<{ remove: () => Promise<void> }>
+  >;
+  addStateListener.mockImplementationOnce(async (_event, listener) => {
+    listener(state);
+    return { remove: mockRemoveListener };
+  });
+};
 const ESTIMATE: NativeFeeFields = { maxFeePerGas: '0x64', maxPriorityFeePerGas: '0x2' };
 const provider = buildNativeReownProvider({ chainId: 11155111, address: '0xowner', rpcUrl: 'https://rpc.test' });
 const send = (tx: Record<string, string>) =>
@@ -883,6 +892,81 @@ describe('waiting for the session to approve an added chain', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it.each([
+    { eventTiming: 'during the add', method: 'wallet_addEthereumChain', reread: 'approved' },
+    { eventTiming: 'during the switch', method: 'wallet_switchEthereumChain', reread: 'approved' },
+    { eventTiming: 'during the switch', method: 'wallet_switchEthereumChain', reread: 'legacy' },
+    { eventTiming: 'during the initial read', method: 'wallet_switchEthereumChain', reread: 'approved' },
+    { eventTiming: 'during the initial read', method: 'wallet_switchEthereumChain', reread: 'legacy' }
+  ])(
+    'refuses when a rejected $method follows an unapproved event $eventTiming and rereads $reread state',
+    async ({ eventTiming, method, reread }) => {
+      let rejectRequest: (error: Error) => void = () => undefined;
+      const failedRequest = new Promise<never>((_resolve, reject) => {
+        rejectRequest = reject;
+      });
+      let releaseInitialRead: (state: ReownState) => void = () => undefined;
+      const initialRead = new Promise<ReownState>(resolve => {
+        releaseInitialRead = resolve;
+      });
+      let releaseStaleRead: (state: ReownState) => void = () => undefined;
+      const staleRead = new Promise<ReownState>(resolve => {
+        releaseStaleRead = resolve;
+      });
+      const request = jest.mocked(rawNativeReown.request);
+      if (method === 'wallet_addEthereumChain') {
+        request.mockImplementationOnce(() => failedRequest);
+      } else {
+        request.mockResolvedValueOnce({ result: null }).mockImplementationOnce(() => failedRequest);
+      }
+      const getState = jest.mocked(rawNativeReown.getState).mockReset();
+      if (eventTiming === 'during the initial read') {
+        getState.mockImplementationOnce(() => initialRead).mockImplementationOnce(() => staleRead);
+      } else {
+        getState.mockResolvedValueOnce(sessionState([SEPOLIA])).mockImplementationOnce(() => staleRead);
+      }
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(0);
+      if (eventTiming === 'during the initial read') {
+        updateSession(sessionState([SEPOLIA]));
+        releaseInitialRead(sessionState([SEPOLIA, ARC]));
+        await jest.advanceTimersByTimeAsync(0);
+      } else {
+        updateSession(sessionState([SEPOLIA]));
+      }
+      rejectRequest(new Error('User rejected'));
+      await jest.advanceTimersByTimeAsync(0);
+      releaseStaleRead(reread === 'approved' ? sessionState([SEPOLIA, ARC]) : sessionState(undefined));
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    }
+  );
+
+  it.each(['wallet_addEthereumChain', 'wallet_switchEthereumChain'])(
+    'does not let an approval emitted before the initial read settle the wait after %s succeeds',
+    async method => {
+      const approved = sessionState([SEPOLIA, ARC]);
+      emitStateBeforeNativeListenerSettles(approved);
+      if (method === 'wallet_switchEthereumChain') {
+        jest.mocked(rawNativeReown.request).mockResolvedValueOnce({ result: null });
+      }
+      const watched = watch(prepareNativeSessionChain(ARC));
+
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(watched.settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(5000);
+
+      expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+      expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    }
+  );
+
   it('names a deletion that arrived while the add was pending when the rejection reread throws', async () => {
     let rejectAdd: (error: Error) => void = () => undefined;
     const adding = new Promise<never>((_resolve, reject) => {
@@ -1171,9 +1255,10 @@ describe('native session precheck reasons', () => {
     }
   });
 
-  it('names a switch that returned when the session state could not be read again', async () => {
+  it('ignores a pre-read approval when the switch state cannot be read again', async () => {
     jest.useFakeTimers();
     try {
+      emitStateBeforeNativeListenerSettles(sessionState([SEPOLIA, ARC]));
       rawNativeReown.getState.mockReset();
       rawNativeReown.getState.mockRejectedValue(
         new Error(`read failed ${rpcUrl} ${chainHex} amount ${amount} ${topic} ${address}`)
