@@ -20,7 +20,7 @@
  * (which doesn't export any of the symbols this module needs).
  */
 
-import { encodeArg, OFFSCREEN_SIGN_REQUEST } from 'lib/miden/back/offscreen-codec';
+import { encodeArg, OFFSCREEN_SIGN_REQUEST, OFFSCREEN_SUBMIT_GATE } from 'lib/miden/back/offscreen-codec';
 import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
@@ -624,7 +624,10 @@ function installChromeMock() {
   capturedListener = undefined;
   G.chrome = {
     runtime: {
-      sendMessage: jest.fn(() => Promise.resolve()),
+      // The Guardian leaf submits only once the service worker opens its submit gate (#1644).
+      sendMessage: jest.fn((m?: { type?: string }) =>
+        Promise.resolve(m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined)
+      ),
       onMessage: {
         addListener: jest.fn((l: Listener) => {
           capturedListener = l;
@@ -4426,12 +4429,12 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
   });
 
-  it('guardianPipeline: the submitting stamp carries the evidence read before submit (#1081)', async () => {
+  it('guardianPipeline: the submit gate carries the evidence read before submit (#1081, #1644)', async () => {
     await loadModule();
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
       posted.push(m);
-      return undefined;
+      return m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined;
     });
     G.__off.guardianExecuteRequest = jest.fn(async () => ({
       result: retryableResult(),
@@ -4442,9 +4445,35 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const sendResponse = jest.fn();
     callGuardianPipeline(sendResponse);
     await waitForReply(sendResponse);
-    const submitting = posted.find(m => m?.type === 'OFFSCREEN_STAGE_EVENT' && m.stage === 'submitting');
-    expect(submitting.evidence).toMatchObject({ transactionId: '0xlanded', initialCommitment: '0xinitial' });
+    const gate = posted.find(m => m?.type === OFFSCREEN_SUBMIT_GATE);
+    expect(gate.evidence).toMatchObject({ transactionId: '0xlanded', initialCommitment: '0xinitial' });
   });
+
+  // #1644: the gate is the only way to the submit call, so an attempt the service worker never let through cannot
+  // have reached the node, and the reply says so.
+  it.each([
+    ['refuses it', { ok: false, error: 'op is not awaiting a submit' }],
+    ['never answers', undefined]
+  ])(
+    'guardianPipeline: a submit gate the service worker %s fails the write before its submit (#1644)',
+    async (_label, answer) => {
+      await loadModule();
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) =>
+        m?.type === OFFSCREEN_SUBMIT_GATE ? answer : undefined
+      );
+      G.__off.guardianExecuteRequest = jest.fn(async () => ({
+        result: retryableResult(),
+        id: { toHex: () => '0xlanded' },
+        prove: jest.fn()
+      }));
+      G.__off.guardianSubmitProven = jest.fn(async () => ({ apply: jest.fn(async () => {}) }));
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+    }
+  );
 
   it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
     await loadModule();
@@ -4598,7 +4627,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         signReq = m;
         return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([7, 7]).toString('base64') };
       }
-      return undefined;
+      return m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined;
     });
 
     const sendResponse = jest.fn();
@@ -4630,11 +4659,15 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   // that defaults the flag ON. Unlike the send dispatch, no SDK `onStage` hook is
   // involved: this pipeline drives the raw transactions API, so it posts the stamps
   // itself, and the assertion is on the INTERLEAVING with execute / prove / submit.
-  it('guardianPipeline posts an OFFSCREEN_STAGE_EVENT at the same three boundaries the inline pipeline stamps', async () => {
+  it('guardianPipeline marks the same three boundaries the inline pipeline stamps, the submit through its gate', async () => {
     await loadModule();
     const timeline: string[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
       if (m?.type === 'OFFSCREEN_STAGE_EVENT') timeline.push(`stage:${m.stage}|${m.target}|${m.op_id}`);
+      if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+        timeline.push(`gate|${m.target}|${m.op_id}`);
+        return { ok: true };
+      }
       return undefined;
     });
     G.__off.guardianExecuteRequest = jest.fn(async () => {
@@ -4670,7 +4703,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       'executeRequest',
       'stage:proving|sw|op-gstage',
       'worker prove',
-      'stage:submitting|sw|op-gstage',
+      'gate|sw|op-gstage',
       'submitProven',
       'apply'
     ]);
@@ -5516,7 +5549,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     const posted: any[] = [];
     G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
       posted.push(m);
-      return undefined;
+      return m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined;
     });
     return posted;
   }

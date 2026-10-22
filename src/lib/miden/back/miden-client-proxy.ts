@@ -66,7 +66,9 @@ import {
   type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignRequest,
-  type OffscreenSignResponse
+  type OffscreenSignResponse,
+  type OffscreenSubmitGateRequest,
+  type OffscreenSubmitGateResponse
 } from './offscreen-codec';
 import {
   decrementCriticalOp,
@@ -405,6 +407,16 @@ const opSignReasons = new Map<string, SignCallbackReason>();
  * able to fail a write.
  */
 const opStageCallbacks = new Map<string, StageCallback>();
+
+/**
+ * Records a Guardian leaf's submit crossing before its offscreen realm may submit (#1644), and says whether it may:
+ * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
+ * happen.
+ */
+export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
+
+/** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
+const opSubmitGates = new Map<string, SubmitGate>();
 
 function newOpId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -762,6 +774,24 @@ export async function handleOffscreenSignRequest(
 }
 
 /**
+ * Answer the Guardian leaf's submit gate (#1644). Opens only for an op this worker still runs and whose leaf records
+ * the crossing: an op a kill, a lost reply or its own settle took out of `inFlight` is refused, so the offscreen leaf
+ * of an op whose outcome this worker already decided never submits. Its deadline keeps running: a kill that lands
+ * while the crossing is written finds it recorded, which only keeps the candidate.
+ */
+export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest): Promise<OffscreenSubmitGateResponse> {
+  const { op_id } = msg;
+  const gate = opSubmitGates.get(op_id);
+  if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
+  try {
+    if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
+  } catch (err) {
+    return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
+  }
+  return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while recording its submit` };
+}
+
+/**
  * Send the OFFSCREEN realm this realm's endpoint state, so it adopts it and drops
  * its client singleton.
  *
@@ -920,7 +950,8 @@ async function dispatchOffscreenWrite(
   method: string,
   args: unknown[],
   signCallback: RawSignCallback,
-  onStage?: StageCallback
+  onStage?: StageCallback,
+  submitGate?: SubmitGate
 ): Promise<TransactionResult> {
   const op_id = newOpId();
   // Register BEFORE dispatch so a sign request (which can only arrive AFTER the
@@ -932,6 +963,7 @@ async function dispatchOffscreenWrite(
   // arrive after this dispatch, from inside the offscreen execute.
   opSignCallbacks.set(op_id, signCallback);
   if (onStage) opStageCallbacks.set(op_id, onStage);
+  if (submitGate) opSubmitGates.set(op_id, submitGate);
   incrementCriticalOp();
   try {
     const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
@@ -957,6 +989,7 @@ async function dispatchOffscreenWrite(
     // Same lifetime as the sign callback: the op is over, so a stamp that lands
     // from here on has nowhere to go and is dropped by `handleOffscreenStageEvent`.
     opStageCallbacks.delete(op_id);
+    opSubmitGates.delete(op_id);
   }
 }
 
@@ -996,12 +1029,14 @@ export function dispatchGuardianPipeline(
   // #784: the proposal metadata's base64 anchor. It still fills the 4th slot, for
   // wire compatibility only: the offscreen leaf reads nothing from it and executes
   // at the tip against the block the request's auth args bind.
-  chainAnchorB64?: string
+  chainAnchorB64?: string,
+  // The leaf's submit gate (#1644): the offscreen leaf submits only once it opened.
+  submitGate?: SubmitGate
 ): Promise<TransactionResult> {
   // Typed against the shared wire contract so a dropped or reordered slot is a
   // compile error here rather than an argument the offscreen leaf silently misreads.
   const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
-  return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage);
+  return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage, submitGate);
 }
 
 /**

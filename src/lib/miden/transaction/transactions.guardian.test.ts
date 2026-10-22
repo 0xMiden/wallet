@@ -409,9 +409,24 @@ jest.mock('../sdk/native-prover-mobile', () => ({
 // The offscreen leaf, reached only while a test turns the offscreen client on; the proxy's own reads stay inline,
 // since it reads the flag once, at load.
 const mockDispatchGuardianPipeline = jest.fn();
+
+// The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
+// gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it.
+const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
+  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+  try {
+    const result = await mockDispatchGuardianPipeline(...a);
+    await gate?.();
+    return result;
+  } catch (error) {
+    if (!hasErrorBeforeSubmit(error)) await gate?.();
+    throw error;
+  }
+};
 jest.mock('../back/miden-client-proxy', () => ({
   ...jest.requireActual('../back/miden-client-proxy'),
-  dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a)
+  dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a)
 }));
 jest.mock('../back/offscreen-prover', () => ({
   ...jest.requireActual('../back/offscreen-prover'),
@@ -6298,7 +6313,7 @@ describe('generateTransaction — Guardian routing', () => {
         ],
         [
           'on',
-          'leaves no mark, since an offscreen attempt never marks',
+          'records the mark too, since its submit gate never opened (#1644)',
           () => {
             process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
             // Tagged as the offscreen leaf tags a failure before its submit (Task 8). Untagged, the attempt may have
@@ -6308,8 +6323,8 @@ describe('generateTransaction — Guardian routing', () => {
             );
           },
           1,
-          () => expect(getGuardianCandidate('guardian-acc')).toBeUndefined(),
-          1
+          () => expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 }),
+          2
         ]
       ])(
         'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s %s',
@@ -9145,6 +9160,67 @@ describe('generateTransaction — Guardian routing', () => {
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Guardian switched');
+  });
+
+  // #1644: the offscreen leaf submits only through a gate this worker opens, so the direct switch passes one too.
+  it('Guardian switch-guardian: the offscreen direct switch dispatches with a submit gate that opens', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    try {
+      const txId = 'switch-guardian-direct-offscreen';
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+      mockCreateDirectSwitchRequest.mockResolvedValue({
+        serialize: () => new Uint8Array([2]),
+        authArg: () => undefined
+      });
+      mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      let gateAnswer: boolean | undefined;
+      // An earlier test's unconsumed one-shot answer would otherwise stand in for this implementation.
+      mockDispatchGuardianPipeline.mockReset();
+      mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+        const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+        expect(gate).toBeDefined();
+        gateAnswer = await gate?.();
+        throw new Error('stop after the gate');
+      });
+      const provider = {
+        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: jest.fn(async () => 'sig')
+      };
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+
+      expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+      expect(gateAnswer).toBe(true);
+      expect(txStore.find(r => r.id === txId)?.mayHaveSubmitted).toBe(true);
+    } finally {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    }
   });
 
   it('Guardian switch-guardian: OLD guardian unreachable at cold co-sign → direct fallback (proposal already pushed)', async () => {
