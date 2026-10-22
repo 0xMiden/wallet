@@ -75,14 +75,6 @@
     "message": "我的活动",
     "englishSource": "My activity"
   },
-  "arcadeCoinsShort": {
-    "message": "代币",
-    "englishSource": "Coins"
-  },
-  "arcadeActivityShort": {
-    "message": "活动",
-    "englishSource": "Activity"
-  },
   "arcadeOpenGame": {
     "message": "公开交易",
     "englishSource": "Open game"
@@ -151,29 +143,9 @@
     "message": "游戏币目前尚未在此网络上上线。",
     "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadeBrowseGames": {
-    "message": "浏览游戏",
-    "englishSource": "Browse games"
-  },
-  "arcadeBalancePrivate": {
-    "message": "您的余额将保持私密。",
-    "englishSource": "Your balance stays private."
-  },
-  "arcadeRankingsPrivate": {
-    "message": "只有您选择共享的余额才会被纳入排名。",
-    "englishSource": "Only balances you choose to share are ranked."
-  },
   "arcadeActivityScope": {
     "message": "仅包含“Arcade”中列出的游戏。",
     "englishSource": "Only games listed in Arcade are included."
-  },
-  "arcadeActivityEmptyTitle": {
-    "message": "目前尚无游戏活动",
-    "englishSource": "No game activity yet"
-  },
-  "arcadeActivityEmptyBody": {
-    "message": "您在 Arcade 游戏中进行的交易会显示在此处。",
-    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "金融",
@@ -7417,6 +7389,34 @@
   "runtimeUnsupportedBody": {
     "message": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "代币",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "活动",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "浏览游戏",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "您的余额将保持私密。",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "只有您选择共享的余额才会被纳入排名。",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "目前尚无游戏活动",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "您在 Arcade 游戏中进行的交易会显示在此处。",
+    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGameCoins": {
     "message": "游戏币",
