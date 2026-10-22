@@ -1,8 +1,17 @@
 # Funded GC claims (replacement protocol, offline proof)
 
-`funded::funded_issuer_builder` builds a **new issuer** with atomic actual-fee refunds. This module has not been deployed or accepted on Testnet. The older canonical-MINT probe below is retained as a comparison; its retained-surplus limitation does not describe the funded module.
+`funded::funded_issuer_builder` builds a **new issuer** with atomic actual-fee refunds. A replacement issuer from commit `13ba2a1f3601b64fd37829c4d7923dab6bc100d1` is deployed on Testnet; CLI receipt/refund and failed-request reclaim are confirmed. Native automatic-claim acceptance remains separate. The older canonical-MINT probe below is retained as a comparison; its retained-surplus limitation does not describe the funded module.
 
 Pinned protocol/standards/testing/transaction executor: **0.17.1**; Rust **1.98.1**. Run `cargo test --locked -- --nocapture`. No credentials or network writes are used. Public construction vectors are emitted by `cargo run --locked --example funded_vector`; the committed fixture is `fixtures/funded-claim.json`.
+
+## Testnet acceptance identity
+
+- Issuer: `0x97924b9a77ed54917ff6d6364ae661`; bare faucet `mtst1azteyju6wlk4fytl7mtrvjhxvy08nme2`.
+- Code: `0x2898ac7fc97bcd7605db86fa839f2e0d8c96c74ed238769b76716dbcd22e47d5`.
+- Genesis: `0x280189b64c3a22c9d8e6e6c2cd567f58c528fee3b73724a6d855066642d7e567`.
+- Deployment committed at block 461926, transaction `0x5a870b9cb8cf435fcd10302bdf00a0b147a5e96701e2e967579484035a59d85a`.
+- The first receipt contains 10 GC and 91 native units from a 210-unit budget after the actual 119-unit issuer fee; issuer reserves remain zero. Receipt consumption committed at block 461977. A duplicate request was rejected, then its 210-unit budget reclaimed at block 462014 with a separate 119-unit reclaim fee and no additional GC.
+- Verification is proposed in [token-list #4](https://github.com/0xMiden/token-list/pull/4), not yet published. This identity is distinct from the older experimental GC asset. Construction fixtures use deterministic dummy accounts and are not deployment manifests.
 
 ## Funded request and exact accounting
 

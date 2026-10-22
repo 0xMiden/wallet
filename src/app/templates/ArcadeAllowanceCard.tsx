@@ -9,8 +9,10 @@ import type { WeeklyClaimSnapshot } from 'lib/arcade/weekly-claim';
 interface AllowanceCardProps {
   snapshot: WeeklyClaimSnapshot;
   busy: boolean;
+  error?: string | null;
   networkName: string;
   onClaim: () => void;
+  onRecover?: (operationId: string) => void;
   onRefresh: () => void;
 }
 
@@ -18,13 +20,16 @@ interface AllowanceCardProps {
 export const ArcadeAllowanceCard: React.FC<AllowanceCardProps> = ({
   snapshot,
   busy,
+  error,
   networkName,
   onClaim,
+  onRecover,
   onRefresh
 }) => {
   const { t, i18n } = useTranslation();
   const { status, balance } = snapshot;
-  const claimable = status.kind === 'eligible' || status.kind === 'failed';
+  const previousRecovery = snapshot.recoveries?.[0];
+  const claimable = status.kind === 'eligible' || status.kind === 'failed' || status.kind === 'reclaimable';
   const date = status.kind === 'claimed' ? new Date(status.nextEligibleAt) : null;
   const nextDate =
     date && Number.isFinite(date.getTime())
@@ -62,22 +67,50 @@ export const ArcadeAllowanceCard: React.FC<AllowanceCardProps> = ({
       <p className="text-body-sm text-muted" role="status" aria-live="polite">
         {message}
       </p>
+      {error && (
+        <p className="text-body-sm text-negative-ink" role="alert">
+          {t(error)}
+        </p>
+      )}
       <Button
         disabled={busy || !claimable}
         onClick={onClaim}
         title={t(
-          status.kind === 'claimed'
-            ? 'arcadeClaimed'
-            : status.kind === 'pending'
-              ? 'arcadeAwaitingReceipt'
-              : status.kind === 'failed'
-                ? 'arcadeRetryClaim'
-                : 'arcadeClaim'
+          status.kind === 'reclaimable'
+            ? 'arcadeRecoverBudget'
+            : status.kind === 'claimed'
+              ? 'arcadeClaimed'
+              : status.kind === 'pending'
+                ? 'arcadeAwaitingReceipt'
+                : status.kind === 'failed'
+                  ? 'arcadeRetryClaim'
+                  : 'arcadeClaim'
         )}
         data-testid="arcade-claim"
       />
       {(status.kind === 'pending' || status.kind === 'unavailable') && (
         <Button variant={ButtonVariant.Secondary} disabled={busy} onClick={onRefresh} title={t('arcadeCheckStatus')} />
+      )}
+      {previousRecovery && onRecover && (
+        <div className="flex flex-col gap-2">
+          <p className="text-body-sm text-muted">
+            {t('arcadePreviousBudgetWeek', {
+              date: new Intl.DateTimeFormat(i18n.resolvedLanguage ?? 'en', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                timeZone: 'UTC'
+              }).format(new Date(previousRecovery.allocationWeekStart))
+            })}
+          </p>
+          <Button
+            variant={ButtonVariant.Secondary}
+            disabled={busy}
+            onClick={() => onRecover(previousRecovery.operationId)}
+            title={t('arcadeRecoverBudget')}
+            data-testid="arcade-recover-previous"
+          />
+        </div>
       )}
     </Card>
   );

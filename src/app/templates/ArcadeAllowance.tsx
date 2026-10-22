@@ -1,28 +1,47 @@
-import React, { useEffect, useSyncExternalStore } from 'react';
+import React, { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { useWeeklyClaim } from 'lib/arcade/use-weekly-claim';
-import { type ArcadeAccountScope, unavailableWeeklyClaimService } from 'lib/arcade/weekly-claim';
+import { type ArcadeAccountScope, type WeeklyClaimService } from 'lib/arcade/weekly-claim';
+import { useMidenContext } from 'lib/miden/front/client';
 import { useAccount, useAllNetworks } from 'lib/miden/front/ready';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 
 import { ArcadeAllowanceCard } from './ArcadeAllowanceCard';
+import { GcClaimReviewDrawer } from './GcClaimReviewDrawer';
 
 const AccountAllowance: React.FC<{ scope: ArcadeAccountScope; networkName: string }> = ({ scope, networkName }) => {
-  const { snapshot, busy, claim, refresh } = useWeeklyClaim(scope, unavailableWeeklyClaimService);
+  const { readGcWeeklyClaim, prepareGcWeeklyClaim, submitGcWeeklyClaim } = useMidenContext();
+  const service = useMemo<WeeklyClaimService>(
+    () => ({
+      read: readGcWeeklyClaim,
+      prepare: prepareGcWeeklyClaim,
+      submit: submitGcWeeklyClaim
+    }),
+    [readGcWeeklyClaim, prepareGcWeeklyClaim, submitGcWeeklyClaim]
+  );
+  const { snapshot, busy, review, error, claim, recover, refresh, confirmReview, cancelReview } = useWeeklyClaim(
+    scope,
+    service
+  );
   const active = usePageActive();
   useEffect(() => {
     if (active) void refresh();
   }, [active, refresh]);
   return (
-    <ArcadeAllowanceCard
-      snapshot={snapshot}
-      busy={busy}
-      networkName={networkName}
-      onClaim={() => void claim()}
-      onRefresh={() => void refresh()}
-    />
+    <>
+      <ArcadeAllowanceCard
+        snapshot={snapshot}
+        busy={busy}
+        error={error}
+        networkName={networkName}
+        onClaim={() => void claim()}
+        onRecover={operationId => void recover(operationId)}
+        onRefresh={() => void refresh()}
+      />
+      <GcClaimReviewDrawer review={review} busy={busy} onConfirm={() => void confirmReview()} onCancel={cancelReview} />
+    </>
   );
 };
 

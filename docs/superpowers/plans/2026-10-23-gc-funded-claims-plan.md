@@ -47,18 +47,22 @@
 **Interfaces:** A deterministic prepare result includes genesis/account/issuer/week, request note ID, receipt recipient commitment, budget, expiry and reclaim height. Persist before dispatch. Read/submit/reconcile/reclaim reuse existing Guardian custom request and note consumption paths.
 
 - [x] Pin a Rust→JS construction vector and fail a test for exact note/script/storage/preimage mismatch before writing the constructor.
-- [ ] Implement preparation and real fee review; require request+budget+receipt costs to fit the user's native balance.
-- [ ] Test lost responses, duplicate taps, wrong network/account/issuer, failed reads and restart; uncertain outcomes remain pending and never dispatch a second logical claim.
-- [ ] Recover requests and receipts from public authenticated history after reinstall. Link issuer execution and receipt consumption separately; only consumed delivery is claimed.
-- [ ] Run focused wallet tests, type checking and builds; independently review and commit this layer.
+- [x] Implement preparation and real fee review; require request+budget+receipt costs to fit the user's native balance.
+- [x] Test lost responses, duplicate taps, wrong network/account/issuer, failed reads and restart; uncertain outcomes remain pending and never dispatch a second logical claim.
+- [x] Recover requests and receipts from public authenticated history after reinstall. Link issuer execution and receipt consumption separately; only consumed delivery is claimed.
+- [x] Run focused wallet tests, type checking and builds; independently review and commit this layer.
 
 ### Task 3: Native activation and verified identity (separate layers)
 
 **Files:** Existing Coins adapter/components and translations; Testnet deployment artifacts; token-list `testnet.json`; wallet token-list snapshot/tests after publication.
 
-- [ ] Deploy a replacement issuer only after protocol review; record exact genesis/code/storage/asset identity.
+- [x] Deploy a replacement issuer only after protocol review; record exact genesis/code/storage/asset identity.
 - [ ] Demonstrate real Guardian funding, automatic issuer execution, receipt/refund consumption, duplicate rejection and failed-note reclaim in Bread. If node compatibility fails, keep Claim disabled and report the exact blocker.
-- [ ] Connect the existing Coins UI to real balances, eligibility and operation state; retain unknown/pending/error distinctions and wallet fee approval.
-- [ ] Prepare the companion token-list PR with verified on-chain metadata and correct bare bech32 faucet; run its validators. Do not claim publication before maintainer merge.
+- [x] Connect the existing Coins UI to real balances, eligibility and operation state; retain unknown/pending/error distinctions and wallet fee approval.
+- [x] Prepare the companion token-list PR with verified on-chain metadata and correct bare bech32 faucet; run its validators. Do not claim publication before maintainer merge.
 - [ ] Refresh the published wallet snapshot in a final stack layer; verify light/dark native UI, actual claim→balance→transfer and supported surface builds.
 - [ ] Publish only reviewed, passing deltas as stacked PRs; attach every PR and state any untested or externally blocked gates.
+
+## Current acceptance gate
+
+Protocol PR #1761 and backend PR #1762 are open for review. The deployed issuer's CLI refund/receipt and failed-request reclaim are confirmed; all 913 focused wallet tests and mobile/Chrome/desktop frontend builds pass. The updated Bread GC Testnet simulator retains its wallet and is waiting for Brian's passcode unlock before native claim acceptance. Registry publication depends on token-list #4; the bundled snapshot remains unchanged until that registration is accepted.

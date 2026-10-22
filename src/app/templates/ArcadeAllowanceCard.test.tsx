@@ -16,6 +16,7 @@ it.each<{ status: WeeklyClaimStatus; enabled: boolean }>([
   { status: { kind: 'claimed', nextEligibleAt: '2026-10-26T00:00:00Z' }, enabled: false },
   { status: { kind: 'pending' }, enabled: false },
   { status: { kind: 'failed' }, enabled: true },
+  { status: { kind: 'reclaimable', reclaimHeight: 200 }, enabled: true },
   { status: { kind: 'unavailable' }, enabled: false }
 ])('renders accessible $status.kind action availability', ({ status, enabled }) => {
   const onClaim = jest.fn();
@@ -48,4 +49,42 @@ it('blocks an eligible action during a status check', () => {
   );
   expect(screen.getByTestId('arcade-claim')).toBeDisabled();
   expect(screen.getByTestId('arcade-allowance')).toHaveAttribute('aria-busy', 'true');
+});
+
+it('offers budget recovery for a reclaimable request rather than another claim', () => {
+  render(
+    <ArcadeAllowanceCard
+      snapshot={{ status: { kind: 'reclaimable', reclaimHeight: 200 }, balance: null }}
+      busy={false}
+      networkName="Testnet"
+      onClaim={jest.fn()}
+      onRefresh={jest.fn()}
+    />
+  );
+  expect(screen.getByRole('button', { name: 'arcadeRecoverBudget' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'arcadeClaim' })).not.toBeInTheDocument();
+});
+
+it('offers an older budget recovery without suppressing the new weekly claim', () => {
+  const onClaim = jest.fn();
+  const onRecover = jest.fn();
+  render(
+    <ArcadeAllowanceCard
+      snapshot={{
+        status: { kind: 'eligible' },
+        balance: '10',
+        recoveries: [{ operationId: 'old-request', allocationWeekStart: '2026-10-19T00:00:00.000Z' }]
+      }}
+      busy={false}
+      networkName="Testnet"
+      onClaim={onClaim}
+      onRecover={onRecover}
+      onRefresh={jest.fn()}
+    />
+  );
+  fireEvent.click(screen.getByTestId('arcade-recover-previous'));
+  expect(onRecover).toHaveBeenCalledWith('old-request');
+  fireEvent.click(screen.getByTestId('arcade-claim'));
+  expect(onClaim).toHaveBeenCalledTimes(1);
+  expect(screen.getByText('arcadePreviousBudgetWeek')).toBeInTheDocument();
 });
