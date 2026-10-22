@@ -49,7 +49,12 @@ import {
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { type BridgeReceiveFailureStep, walletRaised } from 'lib/telemetry/bridge-receive-failure';
+import {
+  type BridgeBalanceCheck,
+  type BridgeReceiveFailureSource,
+  type BridgeReceiveFailureStep,
+  walletRaised
+} from 'lib/telemetry/bridge-receive-failure';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import {
   CIRCLE_USDC_DECIMALS,
@@ -1200,7 +1205,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: failure.text,
           errorId: failure.id,
-          failure: { step, cause: err }
+          failure: failureSource(step, err)
         }).catch(() => undefined);
       }
     },
@@ -1420,7 +1425,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: failure.text,
           errorId: failure.id,
-          failure: { step: usdcxFailureStep(err, step), cause: err }
+          failure: failureSource(usdcxFailureStep(err, step), err)
         }).catch(() => undefined);
       }
     },
@@ -1470,7 +1475,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
           error: failure.text,
           errorId: failure.id,
-          failure: { step, cause: err }
+          failure: failureSource(step, err)
         }).catch(() => undefined);
         return;
       }
@@ -2159,6 +2164,16 @@ export const EvmBridgeDepositScreen: React.FC<EvmBridgeDepositScreenProps> = pro
     <EvmBridgeDepositManager {...props} />
   </NavigatorProvider>
 );
+
+function balanceCheckOf(err: unknown): BridgeBalanceCheck | undefined {
+  if (err instanceof DepositBalanceError) return err.id === 'bridgeDepositBalanceTooLow' ? 'too_low' : 'read_failed';
+  return isUsdcxExecutorBalanceTooLowError(err) ? 'too_low' : undefined;
+}
+
+function failureSource(step: BridgeReceiveFailureStep, err: unknown): BridgeReceiveFailureSource {
+  const balanceCheck = balanceCheckOf(err);
+  return balanceCheck === undefined ? { step, cause: err } : { step, cause: err, balanceCheck };
+}
 
 // A USDCx refusal is thrown where the deposit decided it, so it names its own step.
 function usdcxFailureStep(err: unknown, step: BridgeReceiveFailureStep): BridgeReceiveFailureStep {

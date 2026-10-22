@@ -510,6 +510,38 @@ describe('committed terminal transaction failure reports', () => {
     );
   });
 
+  it("hands an inbound bridge's report its balance check, orphan check and recorded USDCx route", async () => {
+    await Repo.transactions.put(
+      row({
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        extraInputs: { phase: 'submitting', provider: 'usdcx' }
+      })
+    );
+
+    await updateBridgedReceivePhase('tx', 'failed', {
+      error: 'Bridge submission was interrupted before a transaction hash was recorded.',
+      failure: {
+        step: 'submission_interrupted',
+        balanceCheck: 'read_failed',
+        orphanCheck: 'origin_lock',
+        sourceRoute: 'cctp_executor'
+      }
+    });
+
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bridgeReceive: {
+          route: 'usdcx',
+          step: 'submission_interrupted',
+          balanceCheck: 'read_failed',
+          orphanCheck: 'origin_lock',
+          sourceRoute: 'cctp_executor'
+        }
+      })
+    );
+  });
+
   describe('ephemeral native request failures', () => {
     const expectedSnapshot: ReownNativeFailure = {
       nativeOrigin: 'wallet_error',
