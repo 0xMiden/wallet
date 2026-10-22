@@ -84,7 +84,7 @@ function noteNfts(note: NoteWithAssets | undefined): NftAsset[] {
  * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
  * one format would throw for the other and blank the declared incoming assets.
  */
-export function importedNoteContents(
+function importedNoteContents(
   b64: string,
   options: NoteDecodeOptions = {}
 ): { amounts: AssetAmount[]; nfts: NftAsset[] } {
