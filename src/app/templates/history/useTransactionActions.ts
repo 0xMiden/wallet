@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
+import { getPaybackClaimState } from 'lib/miden/swap/payback-claim';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
@@ -145,6 +146,12 @@ export const useTransactionActions = (
     setPaybackRetryError(null);
     setPaybackRetryErrorId(null);
     try {
+      // Re-read first: the page's state can trail a claim the daily retry already queued, and requeueing the failed
+      // row beside it would race two claims for the same notes.
+      if (transaction) {
+        const fresh = await getPaybackClaimState(transaction);
+        if (!fresh.stuck || fresh.failedClaimId !== failedPaybackClaimId) return;
+      }
       // A manual retry, like the row's own Retry: it skips the daily backoff (#313) for this one claim.
       await requeueFailedTransaction(failedPaybackClaimId, {});
       requestSWTransactionProcessing();
@@ -164,7 +171,7 @@ export const useTransactionActions = (
     } finally {
       setIsRetryingPayback(false);
     }
-  }, [failedPaybackClaimId, t, transactionId]);
+  }, [failedPaybackClaimId, t, transaction, transactionId]);
 
   /**
    * Cancelling a live order gives up a place in the order book that cannot be

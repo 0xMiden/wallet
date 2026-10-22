@@ -41,7 +41,7 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
-import { getPaybackClaimState, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
+import { stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
@@ -91,6 +91,7 @@ import {
   labelHistoryEntry,
   swapSettlementOf
 } from './transactionUtils';
+import { usePaybackClaimState } from './usePaybackClaimState';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
 import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
@@ -297,10 +298,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
   const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
+  // Live on its own: the payout claims are other rows, which the swap row's subscription never sees.
+  const paybackState = usePaybackClaimState(row);
   // Labelled at render, so the page follows a config publish without deriving the row again.
   const entry = useMemo(
-    () => (derivedEntry ? labelHistoryEntry(bridgeConfig, derivedEntry) : null),
-    [bridgeConfig, derivedEntry]
+    () =>
+      derivedEntry
+        ? labelHistoryEntry(bridgeConfig, {
+            ...derivedEntry,
+            paybackClaimStuck: stuckPaybackClaim(paybackState ?? undefined)
+          })
+        : null,
+    [bridgeConfig, derivedEntry, paybackState]
   );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
@@ -422,7 +431,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
-          paybackClaimStuck: tx.type === 'swap' ? stuckPaybackClaim(await getPaybackClaimState(tx)) : undefined,
           faucetId: tx.faucetId,
           outputNoteIds: tx.outputNoteIds,
           txType: tx.type,
