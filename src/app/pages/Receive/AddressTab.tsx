@@ -24,7 +24,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
-import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
+import { isBridgeInOfferedOnNetwork, useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
@@ -210,16 +210,14 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   }, [copyAddress, shareText, t]);
 
   // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
-  const crossChain = useBridgeInAvailability();
   // A network whose document configures no bridge-in route (mainnet's) has no Cross Chain, and no outage to report
   // either. With no accepted document nothing says what the network configures, so the tile stays, greyed, over its
-  // notice.
+  // notice. The same predicate is the fast-poll hold, so a hidden entry does not hold.
   const hasDocument = useBridgeConfigSnapshot().config !== null;
-  const crossChainOnNetwork = !(
-    hasDocument &&
-    crossChain.state === 'unavailable' &&
-    crossChain.reason === 'not-configured'
-  );
+  const crossChain = useBridgeInAvailability({
+    hold: availability => isBridgeInOfferedOnNetwork(hasDocument, availability)
+  });
+  const crossChainOnNetwork = isBridgeInOfferedOnNetwork(hasDocument, crossChain);
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:

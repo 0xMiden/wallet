@@ -7,7 +7,7 @@ import { isFeatureBlocked } from 'components/FeatureUnavailable';
 import { CardButton } from 'components/ui/Card';
 import { IconCircle } from 'components/ui/FactRow';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
+import { isBridgeInOfferedOnNetwork, useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { navigate } from 'lib/woozie';
 
 interface MoveTileProps {
@@ -47,9 +47,11 @@ const MoveTile: React.FC<MoveTileProps> = ({ icon, title, hint, tone, onClick, d
  */
 export const HomeMoveActions: React.FC = () => {
   const { t } = useTranslation();
-  const bridgeIn = useBridgeInAvailability();
   const hasDocument = useBridgeConfigSnapshot().config !== null;
-  const bridgeInOnNetwork = !(hasDocument && bridgeIn.state === 'unavailable' && bridgeIn.reason === 'not-configured');
+  const bridgeIn = useBridgeInAvailability({
+    hold: availability => isBridgeInOfferedOnNetwork(hasDocument, availability)
+  });
+  const bridgeInOnNetwork = isBridgeInOfferedOnNetwork(hasDocument, bridgeIn);
 
   return (
     <div className="flex gap-2" data-testid="home-move-actions">
