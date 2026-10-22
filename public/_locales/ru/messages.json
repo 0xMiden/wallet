@@ -75,14 +75,6 @@
     "message": "Моя активность",
     "englishSource": "My activity"
   },
-  "arcadeCoinsShort": {
-    "message": "Монеты",
-    "englishSource": "Coins"
-  },
-  "arcadeActivityShort": {
-    "message": "Активность",
-    "englishSource": "Activity"
-  },
   "arcadeOpenGame": {
     "message": "Открытая игра",
     "englishSource": "Open game"
@@ -151,29 +143,9 @@
     "message": "Игровые монеты пока не доступны в этой сети.",
     "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadeBrowseGames": {
-    "message": "Просмотр игр",
-    "englishSource": "Browse games"
-  },
-  "arcadeBalancePrivate": {
-    "message": "Ваш баланс остается конфиденциальным.",
-    "englishSource": "Your balance stays private."
-  },
-  "arcadeRankingsPrivate": {
-    "message": "Ранжируются только те балансы, которыми вы решили поделиться.",
-    "englishSource": "Only balances you choose to share are ranked."
-  },
   "arcadeActivityScope": {
     "message": "Включены только игры, перечисленные в разделе «Arcade».",
     "englishSource": "Only games listed in Arcade are included."
-  },
-  "arcadeActivityEmptyTitle": {
-    "message": "Игровой активности пока нет",
-    "englishSource": "No game activity yet"
-  },
-  "arcadeActivityEmptyBody": {
-    "message": "Здесь отображаются транзакции, которые вы совершаете в играх Arcade.",
-    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "Финансы",
@@ -7417,6 +7389,34 @@
   "runtimeUnsupportedBody": {
     "message": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "Монеты",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Активность",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Просмотр игр",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Ваш баланс остается конфиденциальным.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Ранжируются только те балансы, которыми вы решили поделиться.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Игровой активности пока нет",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Здесь отображаются транзакции, которые вы совершаете в играх Arcade.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGameCoins": {
     "message": "Игровые монеты",

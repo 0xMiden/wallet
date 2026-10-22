@@ -75,14 +75,6 @@
     "message": "Etkinliklerim",
     "englishSource": "My activity"
   },
-  "arcadeCoinsShort": {
-    "message": "Madeni paralar",
-    "englishSource": "Coins"
-  },
-  "arcadeActivityShort": {
-    "message": "Etkinlik",
-    "englishSource": "Activity"
-  },
   "arcadeOpenGame": {
     "message": "Açık oyun",
     "englishSource": "Open game"
@@ -151,29 +143,9 @@
     "message": "Oyun Paraları henüz bu ağda aktif değildir.",
     "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadeBrowseGames": {
-    "message": "Oyunlara göz atın",
-    "englishSource": "Browse games"
-  },
-  "arcadeBalancePrivate": {
-    "message": "Bakiyeniz gizli kalır.",
-    "englishSource": "Your balance stays private."
-  },
-  "arcadeRankingsPrivate": {
-    "message": "Yalnızca paylaşmayı seçtiğiniz bakiyeler sıralanır.",
-    "englishSource": "Only balances you choose to share are ranked."
-  },
   "arcadeActivityScope": {
     "message": "Yalnızca Arcade'de listelenen oyunlar dahil edilir.",
     "englishSource": "Only games listed in Arcade are included."
-  },
-  "arcadeActivityEmptyTitle": {
-    "message": "Henüz oyun etkinliği yok",
-    "englishSource": "No game activity yet"
-  },
-  "arcadeActivityEmptyBody": {
-    "message": "Arcade oyunlarında yaptığınız işlemler burada görünür.",
-    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "Finans",
@@ -7417,6 +7389,34 @@
   "runtimeUnsupportedBody": {
     "message": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "Madeni paralar",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Etkinlik",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Oyunlara göz atın",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Bakiyeniz gizli kalır.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Yalnızca paylaşmayı seçtiğiniz bakiyeler sıralanır.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Henüz oyun etkinliği yok",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Arcade oyunlarında yaptığınız işlemler burada görünür.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGameCoins": {
     "message": "Oyun Paraları",
