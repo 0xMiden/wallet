@@ -13,6 +13,7 @@ import {
   MAINNET_ONE_CLICK_MAX_CANDIDATES,
   MAINNET_ONE_CLICK_CAP_MICRO_USD,
   MAINNET_ONE_CLICK_PRICE_SOURCE,
+  chooseCheapestOneClickRoute,
   planOneClickRoundTrip,
   remainingOneClickCostBudget,
   searchSmallestViableAmount,
@@ -20,7 +21,7 @@ import {
 } from '../../helpers/mainnet-one-click-plan';
 import { fetchMainnetOneClickUsdPrices } from '../../helpers/mainnet-one-click-prices';
 import { createMainnetOneClickOriginFetcher } from '../../helpers/mainnet-one-click-origin';
-import { confirmMainnetOneClickReview, prepareMainnetOneClickReview, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
+import { confirmMainnetOneClickReview, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
 import { isSameOneClickUnderlyingAsset, ONE_CLICK_EVM_CHAIN_IDS, OneClickHttpError, parseOneClickQuoteResponse, requestOneClickQuote } from '../../../../src/lib/one-click/client';
 import type { OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../../src/lib/one-click/types';
 import { createWalletClient, http, isHash, isHex, type Hex } from 'viem';
@@ -153,7 +154,7 @@ async function connectExternalWallet(wallet: GuardianAwareWalletPage, counterpar
 
 async function actualReviewQuote(
   wallet: GuardianAwareWalletPage,
-  route: Parameters<typeof prepareMainnetOneClickReview>[1],
+  route: Parameters<typeof selectMainnetOneClickAssets>[1],
   expected: { originAsset: string; destinationAsset: string; amount: bigint; refundTo: string; recipient: string },
   selected = false
 ): Promise<OneClickQuoteResponse> {
@@ -169,14 +170,11 @@ async function actualReviewQuote(
     },
     { timeout: 120_000 }
   );
-  if (selected) {
-    await wallet.page.getByTestId('one-click-pay-amount').fill(route.amount);
-    await expect(wallet.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 120_000 });
-    await wallet.page.getByTestId('one-click-review-submit').click();
-    await expect(wallet.page.getByTestId('one-click-review-hero')).toBeVisible();
-  } else {
-    await prepareMainnetOneClickReview(wallet.page, route);
-  }
+  if (!selected) await selectMainnetOneClickAssets(wallet.page, route);
+  await wallet.page.getByTestId('one-click-pay-amount').fill(route.amount);
+  await expect(wallet.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 120_000 });
+  await wallet.page.getByTestId('one-click-review-submit').click();
+  await expect(wallet.page.getByTestId('one-click-review-hero')).toBeVisible();
   return parseOneClickQuoteResponse(await (await response).json());
 }
 
@@ -286,7 +284,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
           const forwardLoss = quoteLoss(forward, midenAsset, asset, prices.usdMicrosById);
           const reverseLoss = quoteLoss(reverse, asset, midenAsset, prices.usdMicrosById);
           if (forwardLoss + reverseLoss + midenFeeUsd + evmFeeUsd > MAINNET_ONE_CLICK_CAP_MICRO_USD) return undefined;
-          const plan = planOneClickRoundTrip([{
+          const plan = planOneClickRoundTrip({
             routeId: `${asset.blockchain}:${asset.symbol}`,
             symbol: midenAsset.symbol,
             amountBaseUnits: amount,
@@ -294,7 +292,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
             forward: { inputUsdMicros: 0n, minimumOutputUsdMicros: 0n, nativeFeeUsdMicros: midenFeeUsd },
             reverse: { inputUsdMicros: 0n, minimumOutputUsdMicros: 0n, nativeFeeUsdMicros: evmFeeUsd },
             providerFeesUsdMicros: forwardLoss + reverseLoss
-          }]);
+          });
           return { forward, reverse, plan };
         }
       });
@@ -316,14 +314,13 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
     });
   }
 
-  const selected = candidates.sort((left, right) => {
-    if (left.plan.worstCaseCostUsdMicros !== right.plan.worstCaseCostUsdMicros) {
-      return left.plan.worstCaseCostUsdMicros < right.plan.worstCaseCostUsdMicros ? -1 : 1;
-    }
-    return CHAIN_PRIORITY.findIndex(chain => chain === left.asset.blockchain) -
-      CHAIN_PRIORITY.findIndex(chain => chain === right.asset.blockchain);
-  })[0];
-  if (!selected) throw new Error('No funded 1Click route produced verified dry quotes within the $2.00 round-trip cap');
+  const selectedRoute = chooseCheapestOneClickRoute(candidates.map(candidate => ({
+    candidate,
+    plan: candidate.plan,
+    chainPriority: CHAIN_PRIORITY.findIndex(chain => chain === candidate.asset.blockchain)
+  })));
+  if (!selectedRoute) throw new Error('No funded 1Click route produced verified dry quotes within the $2.00 round-trip cap');
+  const selected = selectedRoute.candidate;
   assertMainnetEvmFunding(selected.holding, 0n);
   if (nativeFaucet.toLowerCase() === midenFaucetId.toLowerCase()) {
     throw new Error('The active route uses its principal token for Miden gas, so principal loss and fee cost cannot be bounded separately');
@@ -333,7 +330,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
   const preSubmitReverseCost = quoteLoss(selected.reverse, selected.asset, midenAsset, preSubmitPrices.usdMicrosById);
   const preSubmitNativeFee = tokenValueUsdMicro(midenFeeReserveBase, nativeMetadata.decimals, priceMicros(preSubmitPrices.usdMicrosById, nativeMetadata.coingeckoId), true) +
     tokenValueUsdMicro(selected.holding.gasReserveWei, 18, priceMicros(preSubmitPrices.usdMicrosById, 'ethereum'), true);
-  selected.plan = planOneClickRoundTrip([{
+  selected.plan = planOneClickRoundTrip({
     routeId: `${selected.asset.blockchain}:${selected.asset.symbol}`,
     symbol: midenAsset.symbol,
     amountBaseUnits: selected.amount,
@@ -341,7 +338,7 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
     forward: { inputUsdMicros: 0n, minimumOutputUsdMicros: 0n, nativeFeeUsdMicros: 0n },
     reverse: { inputUsdMicros: 0n, minimumOutputUsdMicros: 0n, nativeFeeUsdMicros: preSubmitNativeFee },
     providerFeesUsdMicros: preSubmitForwardCost + preSubmitReverseCost
-  }]);
+  });
   const selectedRouteId = `${selected.asset.blockchain}:${selected.asset.symbol}`;
   if (mode === 'preflight') {
     if (resumablePreflight && (resumablePreflight.routeId !== selectedRouteId ||

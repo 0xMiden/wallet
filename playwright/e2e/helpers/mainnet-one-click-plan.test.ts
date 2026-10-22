@@ -1,5 +1,6 @@
 import {
   MAINNET_ONE_CLICK_CAP_MICRO_USD,
+  chooseCheapestOneClickRoute,
   planOneClickRoundTrip,
   remainingOneClickCostBudget,
   searchSmallestViableAmount,
@@ -14,7 +15,7 @@ const candidate = (routeId: string, cost: bigint, available = 1_000n): OneClickR
   amountBaseUnits: 100n,
   availableBaseUnits: available,
   forward: { inputUsdMicros: 100_000_000n, minimumOutputUsdMicros: 100_000_000n - cost / 2n, nativeFeeUsdMicros: 0n },
-  reverse: { inputUsdMicros: 100_000_000n, minimumOutputUsdMicros: 100_000_000n - cost / 2n, nativeFeeUsdMicros: 0n }
+  reverse: { inputUsdMicros: 100_000_000n, minimumOutputUsdMicros: 100_000_000n - (cost - cost / 2n), nativeFeeUsdMicros: 0n }
 });
 
 describe('mainnet 1Click round-trip planner', () => {
@@ -69,22 +70,30 @@ describe('mainnet 1Click round-trip planner', () => {
     })).rejects.toThrow('bounded dry-quote search');
   });
 
-  it('selects the lowest-cost funded route and treats the cap as a ceiling', () => {
-    const plan = planOneClickRoundTrip([candidate('ethereum', 1_800_000n), candidate('base', 400_000n)]);
+  it('assesses an odd micro-dollar remainder without dropping cost', () => {
+    const plan = planOneClickRoundTrip(candidate('odd', 400_001n));
 
-    expect(plan.routeId).toBe('base');
-    expect(plan.worstCaseCostUsdMicros).toBe(400_000n);
+    expect(plan.worstCaseCostUsdMicros).toBe(400_001n);
   });
 
   it('accepts exactly $2.00 and rejects any amount above it', () => {
-    expect(planOneClickRoundTrip([candidate('at-cap', MAINNET_ONE_CLICK_CAP_MICRO_USD)]).worstCaseCostUsdMicros)
+    expect(planOneClickRoundTrip(candidate('at-cap', MAINNET_ONE_CLICK_CAP_MICRO_USD)).worstCaseCostUsdMicros)
       .toBe(MAINNET_ONE_CLICK_CAP_MICRO_USD);
-    expect(() => planOneClickRoundTrip([candidate('over-cap', MAINNET_ONE_CLICK_CAP_MICRO_USD + 1n)]))
+    expect(() => planOneClickRoundTrip(candidate('over-cap', MAINNET_ONE_CLICK_CAP_MICRO_USD + 1n)))
       .toThrow('$2.00 round-trip safety cap');
   });
 
+  it('selects the cheapest quoted route before applying chain priority to equal costs', () => {
+    const ethereum = { route: 'ethereum', chainPriority: 1, plan: planOneClickRoundTrip(candidate('ethereum', 500_000n)) };
+    const arbitrum = { route: 'arbitrum', chainPriority: 0, plan: planOneClickRoundTrip(candidate('arbitrum', 350_000n)) };
+    expect(chooseCheapestOneClickRoute([ethereum, arbitrum])).toBe(arbitrum);
+
+    const equalCostEthereum = { ...ethereum, plan: planOneClickRoundTrip(candidate('ethereum', 350_000n)) };
+    expect(chooseCheapestOneClickRoute([equalCostEthereum, arbitrum])).toBe(arbitrum);
+  });
+
   it('does not spend when the existing holding cannot cover the minimum principal', () => {
-    expect(() => planOneClickRoundTrip([candidate('short', 1n, 99n)])).toThrow('No funded 1Click route');
+    expect(() => planOneClickRoundTrip(candidate('short', 1n, 99n))).toThrow('cannot cover route short');
   });
 
   it('includes both legs native fees and quote loss in the cap', () => {
@@ -92,7 +101,7 @@ describe('mainnet 1Click round-trip planner', () => {
     item.forward.nativeFeeUsdMicros = 1_000_000n;
     item.reverse.nativeFeeUsdMicros = 1_000_001n;
 
-    expect(() => planOneClickRoundTrip([item])).toThrow('$2.00 round-trip safety cap');
+    expect(() => planOneClickRoundTrip(item)).toThrow('$2.00 round-trip safety cap');
   });
 
   it('budgets the reverse leg against realized cost plus its worst case bound', () => {

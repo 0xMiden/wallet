@@ -90,57 +90,50 @@ function legLossUsdMicros(leg: OneClickLegBound): bigint {
     : 0n;
 }
 
-export function planOneClickRoundTrip(
-  candidates: readonly OneClickRoundTripCandidate[],
-  capUsdMicros = MAINNET_ONE_CLICK_CAP_MICRO_USD
-): OneClickRoundTripPlan {
-  nonNegative('round-trip cap', capUsdMicros);
-  const viable = candidates
-    .filter(candidate => {
-      if (candidate.amountBaseUnits <= 0n || candidate.availableBaseUnits < 0n) {
-        throw new Error(`Invalid principal for route ${candidate.routeId}`);
-      }
-      return candidate.availableBaseUnits >= candidate.amountBaseUnits;
-    })
-    .map(candidate => {
-      const quoteLossUsdMicros = legLossUsdMicros(candidate.forward) + legLossUsdMicros(candidate.reverse);
-      const providerFeesUsdMicros = candidate.providerFeesUsdMicros ?? 0n;
-      nonNegative('provider fees USD value', providerFeesUsdMicros);
-      const nativeFeesUsdMicros = candidate.forward.nativeFeeUsdMicros + candidate.reverse.nativeFeeUsdMicros;
-      return {
-        ...candidate,
-        quoteLossUsdMicros,
-        providerFeesUsdMicros,
-        nativeFeesUsdMicros,
-        worstCaseCostUsdMicros: quoteLossUsdMicros + providerFeesUsdMicros + nativeFeesUsdMicros
-      };
-    })
-    .filter(candidate => candidate.worstCaseCostUsdMicros <= capUsdMicros)
-    .sort((left, right) => {
-      if (left.worstCaseCostUsdMicros !== right.worstCaseCostUsdMicros) {
-        return left.worstCaseCostUsdMicros < right.worstCaseCostUsdMicros ? -1 : 1;
-      }
-      return left.routeId.localeCompare(right.routeId);
-    });
-
-  const selected = viable[0];
-  if (!selected) {
+export function planOneClickRoundTrip(candidate: OneClickRoundTripCandidate): OneClickRoundTripPlan {
+  if (candidate.amountBaseUnits <= 0n || candidate.availableBaseUnits < 0n) {
+    throw new Error(`Invalid principal for route ${candidate.routeId}`);
+  }
+  if (candidate.availableBaseUnits < candidate.amountBaseUnits) {
+    throw new Error(`The existing holding cannot cover route ${candidate.routeId}`);
+  }
+  const quoteLossUsdMicros = legLossUsdMicros(candidate.forward) + legLossUsdMicros(candidate.reverse);
+  const providerFeesUsdMicros = candidate.providerFeesUsdMicros ?? 0n;
+  nonNegative('provider fees USD value', providerFeesUsdMicros);
+  const nativeFeesUsdMicros = candidate.forward.nativeFeeUsdMicros + candidate.reverse.nativeFeeUsdMicros;
+  const plan = {
+    ...candidate,
+    quoteLossUsdMicros,
+    providerFeesUsdMicros,
+    nativeFeesUsdMicros,
+    worstCaseCostUsdMicros: quoteLossUsdMicros + providerFeesUsdMicros + nativeFeesUsdMicros
+  };
+  if (plan.worstCaseCostUsdMicros > MAINNET_ONE_CLICK_CAP_MICRO_USD) {
     throw new Error('No funded 1Click route fits the $2.00 round-trip safety cap');
   }
-  return selected;
+  return plan;
+}
+
+export function chooseCheapestOneClickRoute<T extends { plan: OneClickRoundTripPlan; chainPriority: number }>(
+  candidates: readonly T[]
+): T | undefined {
+  return [...candidates].sort((left, right) => {
+    if (left.plan.worstCaseCostUsdMicros !== right.plan.worstCaseCostUsdMicros) {
+      return left.plan.worstCaseCostUsdMicros < right.plan.worstCaseCostUsdMicros ? -1 : 1;
+    }
+    return left.chainPriority - right.chainPriority;
+  })[0];
 }
 
 export function remainingOneClickCostBudget(
   realizedCostUsdMicros: bigint,
-  remainingWorstCaseUsdMicros: bigint,
-  capUsdMicros = MAINNET_ONE_CLICK_CAP_MICRO_USD
+  remainingWorstCaseUsdMicros: bigint
 ): bigint {
   nonNegative('realized cost', realizedCostUsdMicros);
   nonNegative('remaining worst-case cost', remainingWorstCaseUsdMicros);
-  nonNegative('round-trip cap', capUsdMicros);
   const total = realizedCostUsdMicros + remainingWorstCaseUsdMicros;
-  if (total > capUsdMicros) {
+  if (total > MAINNET_ONE_CLICK_CAP_MICRO_USD) {
     throw new Error('The remaining 1Click leg exceeds the $2.00 round-trip safety cap');
   }
-  return capUsdMicros - realizedCostUsdMicros;
+  return MAINNET_ONE_CLICK_CAP_MICRO_USD - realizedCostUsdMicros;
 }
