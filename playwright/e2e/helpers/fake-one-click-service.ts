@@ -1,4 +1,5 @@
 import { ed25519 } from '@noble/curves/ed25519';
+import bs58 from 'bs58';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
 import { hashOneClickQuote } from '../../../src/lib/one-click/signature';
@@ -13,11 +14,10 @@ import type {
 } from '../../../src/lib/one-click/types';
 
 const MAX_REQUEST_BYTES = 32_768;
-const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const TEST_SEED = Uint8Array.from({ length: 32 }, (_, index) => (index * 29 + 17) % 256);
 const TEST_PUBLIC_KEY = ed25519.getPublicKey(TEST_SEED);
 
-export const FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY = `ed25519:${base58Encode(TEST_PUBLIC_KEY)}`;
+export const FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY = `ed25519:${bs58.encode(TEST_PUBLIC_KEY)}`;
 
 export interface FakeOneClickRequestLog {
   method: string;
@@ -38,7 +38,7 @@ export type FakeOneClickQuoteBuilder = (
 export function signFakeOneClickQuote(response: Omit<OneClickQuoteResponse, 'signature'>): OneClickQuoteResponse {
   const unsigned: OneClickQuoteResponse = { ...response, signature: '' };
   const signature = ed25519.sign(new TextEncoder().encode(hashOneClickQuote(unsigned)), TEST_SEED);
-  return { ...unsigned, signature: `ed25519:${base58Encode(signature)}` };
+  return { ...unsigned, signature: `ed25519:${bs58.encode(signature)}` };
 }
 
 export class FakeOneClickService {
@@ -296,20 +296,4 @@ function readJson(request: IncomingMessage): Promise<unknown> {
       reject(error);
     });
   });
-}
-
-function base58Encode(bytes: Uint8Array): string {
-  let value = 0n;
-  for (const byte of bytes) value = value * 256n + BigInt(byte);
-  let output = '';
-  while (value > 0n) {
-    const digit = Number(value % 58n);
-    output = `${BASE58[digit]}${output}`;
-    value /= 58n;
-  }
-  for (const byte of bytes) {
-    if (byte !== 0) break;
-    output = `1${output}`;
-  }
-  return output;
 }

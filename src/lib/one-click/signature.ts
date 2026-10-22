@@ -1,5 +1,6 @@
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2';
+import bs58 from 'bs58';
 
 import { isRecord } from 'lib/update/guards';
 
@@ -7,44 +8,19 @@ import { isOneClickLocalE2EEnabled } from './e2e-gate';
 import type { OneClickQuote, OneClickQuoteResponse, OneClickSignedRequest } from './types';
 
 export const ONE_CLICK_MANAGER_PUBLIC_KEY = 'ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc';
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const PREFIX = 'ed25519:';
 
 function base58Encode(bytes: Uint8Array): string {
-  let value = 0n;
-  for (const byte of bytes) value = value * 256n + BigInt(byte);
-  let encoded = '';
-  while (value > 0n) {
-    const digit = Number(value % 58n);
-    encoded = BASE58_ALPHABET[digit] + encoded;
-    value /= 58n;
-  }
-  for (const byte of bytes) {
-    if (byte !== 0) break;
-    encoded = `1${encoded}`;
-  }
-  return encoded;
+  return bs58.encode(bytes);
 }
 
 function base58Decode(value: string): Uint8Array {
   if (!value || value.length > 128) throw new Error('invalid base58');
-  let decoded = 0n;
-  for (const character of value) {
-    const digit = BASE58_ALPHABET.indexOf(character);
-    if (digit < 0) throw new Error('invalid base58');
-    decoded = decoded * 58n + BigInt(digit);
+  try {
+    return bs58.decode(value);
+  } catch {
+    throw new Error('invalid base58');
   }
-  const bytes: number[] = [];
-  while (decoded > 0n) {
-    bytes.push(Number(decoded % 256n));
-    decoded /= 256n;
-  }
-  bytes.reverse();
-  for (const character of value) {
-    if (character !== '1') break;
-    bytes.unshift(0);
-  }
-  return Uint8Array.from(bytes);
 }
 
 function stableStringify(value: unknown): string {

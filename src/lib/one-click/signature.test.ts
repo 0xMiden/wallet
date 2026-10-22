@@ -1,4 +1,5 @@
 import { ed25519 } from '@noble/curves/ed25519';
+import bs58 from 'bs58';
 
 import { assertOneClickQuoteBinding, parseOneClickQuoteResponse } from './client';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
@@ -8,22 +9,6 @@ import type { OneClickQuoteResponse } from './types';
 
 const secretKey = new Uint8Array(32).fill(7);
 const publicKey = ed25519.getPublicKey(secretKey);
-const encodeBase58 = (bytes: Uint8Array) => {
-  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  let value = BigInt(`0x${Buffer.from(bytes).toString('hex')}`);
-  let output = '';
-  while (value > 0n) {
-    const remainder = Number(value % 58n);
-    output = alphabet[remainder] + output;
-    value /= 58n;
-  }
-  for (const byte of bytes) {
-    if (byte !== 0) break;
-    output = `1${output}`;
-  }
-  return output;
-};
-
 function signedResponse(dry: boolean): OneClickQuoteResponse {
   const response: OneClickQuoteResponse = {
     correlationId: 'trace-1',
@@ -57,7 +42,7 @@ function signedResponse(dry: boolean): OneClickQuoteResponse {
       ...(dry ? {} : { depositAddress: 'deposit-address', deadline: '2026-10-22T10:45:00.000Z' })
     }
   };
-  response.signature = `ed25519:${encodeBase58(ed25519.sign(new TextEncoder().encode(hashOneClickQuote(response)), secretKey))}`;
+  response.signature = `ed25519:${bs58.encode(ed25519.sign(new TextEncoder().encode(hashOneClickQuote(response)), secretKey))}`;
   return response;
 }
 
@@ -69,13 +54,13 @@ describe('OneClick quote signature', () => {
 
   it.each([true, false])('verifies the official %s quote payload', dry => {
     const response = signedResponse(dry);
-    expect(verifyOneClickQuoteSignature(response, `ed25519:${encodeBase58(publicKey)}`)).toBe(true);
+    expect(verifyOneClickQuoteSignature(response, `ed25519:${bs58.encode(publicKey)}`)).toBe(true);
   });
 
   it('rejects a wet quote when the signed deposit address is changed', () => {
     const response = signedResponse(false);
     response.quote.depositAddress = 'attacker-address';
-    expect(verifyOneClickQuoteSignature(response, `ed25519:${encodeBase58(publicKey)}`)).toBe(false);
+    expect(verifyOneClickQuoteSignature(response, `ed25519:${bs58.encode(publicKey)}`)).toBe(false);
   });
 
   it('rejects a wet quote when its signed deadline is changed', () => {
@@ -116,6 +101,12 @@ describe('OneClick quote signature', () => {
   it('rejects unsigned app fee edits before callers can rely on the configured fee', () => {
     const response = signedResponse(false);
     response.quoteRequest.appFees = [{ recipient: 'attacker.near', fee: 999 }];
-    expect(verifyOneClickQuoteSignature(response, `ed25519:${encodeBase58(publicKey)}`)).toBe(true);
+    expect(verifyOneClickQuoteSignature(response, `ed25519:${bs58.encode(publicKey)}`)).toBe(true);
+  });
+
+  it('rejects invalid and oversized Base58 keys', () => {
+    const response = signedResponse(false);
+    expect(verifyOneClickQuoteSignature(response, 'ed25519:0OIl')).toBe(false);
+    expect(verifyOneClickQuoteSignature(response, `ed25519:${'1'.repeat(129)}`)).toBe(false);
   });
 });
