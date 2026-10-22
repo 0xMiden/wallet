@@ -199,9 +199,9 @@ describe('getPaybackClaimStates', () => {
 
 describe('classifyPaybackClaimFailure', () => {
   it('names a fee shortfall', () => {
-    expect(classifyPaybackClaimFailure(claim('a', { rawError: 'the fee asset in the vault is insufficient 0x12ab' }))).toBe(
-      'fee'
-    );
+    expect(
+      classifyPaybackClaimFailure(claim('a', { rawError: 'the fee asset in the vault is insufficient 0x12ab' }))
+    ).toBe('fee');
   });
 
   it('names a Guardian refusal', () => {

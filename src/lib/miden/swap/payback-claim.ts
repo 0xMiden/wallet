@@ -8,7 +8,9 @@ import { holdsNotes } from 'lib/miden/transaction/verdict-rules';
 /** Why a swap's payback claim keeps failing, as the swap row and its detail page name it. */
 export type PaybackClaimStuckReason = 'fee' | 'guardian' | 'network' | 'other';
 
-export type PaybackClaimState = { stuck: false } | { stuck: true; failedClaimId: string; reason: PaybackClaimStuckReason };
+export type PaybackClaimState =
+  | { stuck: false }
+  | { stuck: true; failedClaimId: string; reason: PaybackClaimStuckReason };
 
 /** What the account's other consumes say about one note: claimed by a Completed one, held by a live one, or neither. */
 export type NoteCoverage = (noteId: string) => 'claimed' | 'held' | 'open';
@@ -84,9 +86,7 @@ export async function getPaybackClaimStates(swaps: ITransaction[]): Promise<Map<
     .where('extraInputs.swapOrderTxId')
     .anyOf(completed.map(swap => swap.id))
     .toArray();
-  const failedNoteIds = [
-    ...new Set(linked.filter(row => row.status === ITransactionStatus.Failed).flatMap(noteIdsOf))
-  ];
+  const failedNoteIds = [...new Set(linked.filter(row => row.status === ITransactionStatus.Failed).flatMap(noteIdsOf))];
   const [byScalar, byBatch] =
     failedNoteIds.length === 0
       ? [[], []]

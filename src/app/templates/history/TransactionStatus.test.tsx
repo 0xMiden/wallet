@@ -165,9 +165,9 @@ describe('StatusPill', () => {
 
   it('lets failure and cancellation outrank a stuck payout claim', () => {
     expect(transactionStatusOf({ status: ITransactionStatus.Failed, paybackClaimStuck: true })).toBe('failed');
-    expect(
-      transactionStatusOf({ status: ITransactionStatus.Failed, isCancelled: true, paybackClaimStuck: true })
-    ).toBe('cancelled');
+    expect(transactionStatusOf({ status: ITransactionStatus.Failed, isCancelled: true, paybackClaimStuck: true })).toBe(
+      'cancelled'
+    );
   });
 
   it('renders the failed variant as a negative-toned pill', () => {
