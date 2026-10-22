@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][all] Crash reports for a failed inbound bridge now name which wallet or network error it was (a chain, provider or RPC class, or a receipt wait that ran out of time), whether its balance was too low or could not be read, and, for a deposit the App closed before recording, how the App knew no screen still owned it and which USDCx route it recorded (BREAD-WALLET-2V, -2W, -2Y, -3S)
+- [FIX][all] The eligibility service enables Swap for Near Intents with an explicit switch and valid 1Click mapping, and supports manual deployment from the wallet main branch independently of wallet releases.
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
