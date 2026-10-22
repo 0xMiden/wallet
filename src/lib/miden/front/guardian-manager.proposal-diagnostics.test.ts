@@ -20,11 +20,18 @@ jest.mock('../sdk/helpers', () => ({
   canonicalWalletAccountId: (id: string) => id,
   sameWalletAccountId: (left: string, right: string) => left === right
 }));
+const mockSignerSet = jest.fn((): string[] => []);
 jest.mock('../guardian/account', () => ({
+  getSignerCommitmentsFromAccount: () => mockSignerSet(),
   getSignerDetailsFromAccount: () => mockSignerRead(),
   resolveGuardianEndpoint: () => 'https://guardian.invalid'
 }));
 jest.mock('lib/miden/guardian', () => ({ MultisigService: { init: () => mockServiceLoad() } }));
+const mockSigningCommitment = jest.fn(async (_publicKeyHex: string) => 'ab'.repeat(32));
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: (publicKeyHex: string) => mockSigningCommitment(publicKeyHex)
+}));
 
 const account: WalletAccount = {
   publicKey: 'private-account',
@@ -110,6 +117,32 @@ it('does not infer a local guard from an unrelated load error message', async ()
   mockServiceLoad.mockRejectedValueOnce(error);
   await expect(getOrCreateMultisigService(account.publicKey, providerFor([account]))).rejects.toBe(error);
   expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'service_load' });
+});
+
+it('names the hot signer facts on a Guardian authentication refusal while loading, and keeps them on the service', async () => {
+  mockSignerSet.mockReturnValue(['0x' + 'cd'.repeat(32), 'ef'.repeat(32)]);
+  const refusal = Object.assign(privateFailure(), {
+    name: 'GuardianHttpError',
+    status: 401,
+    code: 'authentication_failed'
+  });
+  mockServiceLoad.mockRejectedValueOnce(refusal);
+  const rotating = { ...account, requiresHotKeyRotation: true };
+  await expect(getOrCreateMultisigService(account.publicKey, providerFor([rotating]))).rejects.toBe(refusal);
+  expect(snapshotCrashDiagnostics(refusal)).toEqual({
+    proposalStep: 'service_load',
+    guardianSignerInSet: 'no',
+    guardianSigningKey: 'hot',
+    hotKeyRotationPending: 'yes'
+  });
+  expect(mockSigningCommitment).toHaveBeenCalledWith('private-hot-key');
+  mockSignerSet.mockReturnValue(['ab'.repeat(32)]);
+  const loaded = await getOrCreateMultisigService(account.publicKey, providerFor([account]));
+  expect(loaded.authFacts).toEqual({
+    guardianSignerInSet: 'yes',
+    guardianSigningKey: 'hot',
+    hotKeyRotationPending: 'no'
+  });
 });
 
 it('reuses a cached service after a successful load', async () => {
