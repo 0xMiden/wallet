@@ -901,6 +901,62 @@ describe('waiting for the session to approve an added chain', () => {
     );
     expect(jest.getTimerCount()).toBe(0);
   });
+
+  it('names a deletion that arrived while the add was pending when the rejection reread returns the old session', async () => {
+    let rejectAdd: (error: Error) => void = () => undefined;
+    const adding = new Promise<never>((_resolve, reject) => {
+      rejectAdd = reject;
+    });
+    jest.mocked(rawNativeReown.request).mockImplementationOnce(() => adding);
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession({ configured: true, connected: false, accounts: [] });
+    rejectAdd(new Error('User rejected'));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(rawNativeRequest).toHaveBeenCalledTimes(1);
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: watched.error });
+    expect(report).toBe(
+      'via usdcx; failed at precheck_session_chain; precheck session_missing; attempt rejected; evm error none'
+    );
+  });
+
+  it('names a deletion that arrived while the switch was pending when the wait reread throws', async () => {
+    let releaseSwitch: (value: { result: null }) => void = () => undefined;
+    const switching = new Promise<{ result: null }>(resolve => {
+      releaseSwitch = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockImplementationOnce(() => switching);
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockRejectedValue(new Error('reread down'))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession({ configured: true, connected: false, accounts: [] });
+    releaseSwitch({ result: null });
+    await jest.advanceTimersByTimeAsync(5000);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(jest.getTimerCount()).toBe(0);
+    const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: watched.error });
+    expect(report).toBe(
+      'via usdcx; failed at precheck_session_chain; precheck session_missing; attempt unconfirmed; evm error none'
+    );
+  });
 });
 
 describe('native session precheck reasons', () => {
