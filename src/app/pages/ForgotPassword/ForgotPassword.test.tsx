@@ -122,7 +122,7 @@ const readySnapshot = (onboarding?: { inviteOnly: boolean }): BridgeConfigSnapsh
     version: 1,
     'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
     supportedEvmChains: {},
-    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
     ...(onboarding ? { onboarding } : {})
   },
   derived: null,

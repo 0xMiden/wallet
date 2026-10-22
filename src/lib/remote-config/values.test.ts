@@ -69,7 +69,7 @@ const CONFIG: BridgeConfig = {
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true, nearIntents: false }
 };
 const ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
 const SEPOLIA_READS: DerivedChainConfig = {

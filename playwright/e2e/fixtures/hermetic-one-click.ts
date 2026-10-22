@@ -35,7 +35,8 @@ export const test = bridgeTest.extend<{}, { oneClick: HermeticOneClickFixture }>
                 serviceUrl: service.baseUrl,
                 midenAssets: [{ assetId: MIDEN_ASSET_ID, faucetId, decimals }]
               }
-            }
+            },
+            features: { ...localnetEpochDocument().features, nearIntents: true }
           };
           service.setTokens([
             { assetId: MIDEN_ASSET_ID, blockchain: 'miden', symbol: 'MLOCAL', decimals },

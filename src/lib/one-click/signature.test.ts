@@ -1,10 +1,10 @@
 import { ed25519 } from '@noble/curves/ed25519';
 
-import type { OneClickQuoteResponse } from './types';
+import { assertOneClickQuoteBinding, parseOneClickQuoteResponse } from './client';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
 import dryFixture from './test-fixtures-dry.json';
 import wetFixture from './test-fixtures-wet.json';
-import { assertOneClickQuoteBinding, parseOneClickQuoteResponse } from './client';
+import type { OneClickQuoteResponse } from './types';
 
 const secretKey = new Uint8Array(32).fill(7);
 const publicKey = ed25519.getPublicKey(secretKey);
@@ -88,17 +88,29 @@ describe('OneClick quote signature', () => {
     const response = parseOneClickQuoteResponse(dryFixture);
     const request = {
       amount: '1000000',
-      originAsset: { assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near', blockchain: 'eth', symbol: 'USDC', decimals: 6 },
+      originAsset: {
+        assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
+        blockchain: 'eth',
+        symbol: 'USDC',
+        decimals: 6
+      },
       destinationAsset: { assetId: 'nep141:base.omft.near', blockchain: 'base', symbol: 'ETH', decimals: 18 },
       refundTo: '0x1111111111111111111111111111111111111111',
       recipient: '0x2222222222222222222222222222222222222222',
       deadline: '2026-10-22T12:15:00.000Z',
       slippageTolerance: 100
     };
-    expect(() => assertOneClickQuoteBinding(request, response, true, { serviceUrl: 'https://proxy.example', midenAssets: [] }))
-      .not.toThrow();
-    expect(() => assertOneClickQuoteBinding({ ...request, recipient: '0x3333333333333333333333333333333333333333' }, response, true, { serviceUrl: 'https://proxy.example', midenAssets: [] }))
-      .toThrow('requested route');
+    expect(() =>
+      assertOneClickQuoteBinding(request, response, true, { serviceUrl: 'https://proxy.example', midenAssets: [] })
+    ).not.toThrow();
+    expect(() =>
+      assertOneClickQuoteBinding(
+        { ...request, recipient: '0x3333333333333333333333333333333333333333' },
+        response,
+        true,
+        { serviceUrl: 'https://proxy.example', midenAssets: [] }
+      )
+    ).toThrow('requested route');
   });
 
   it('rejects unsigned app fee edits before callers can rely on the configured fee', () => {

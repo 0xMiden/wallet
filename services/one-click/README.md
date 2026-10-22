@@ -2,7 +2,7 @@
 
 This Worker keeps the 1Click partner credential on the server. It accepts only bounded token, quote, status, deposit-submit, and optional Miden receipt requests, then forwards them to the fixed `https://1click.chaindefuser.com` API. It never accepts a caller-supplied upstream URL.
 
-The wallet remote config must publish `swap.oneClick` only on mainnet with the proxy `serviceUrl` and explicit Miden `assetId` / `faucetId` / `decimals` mappings. Cross-chain starts remain disabled until at least one mapping passes the wallet's on-chain faucet metadata check. Never use token symbol matching to create a mapping.
+The wallet enables the 1Click UI, catalog, and new funding only when `features.nearIntents` is explicitly `true`. A missing or false flag keeps the feature disabled even when `swap.oneClick.serviceUrl` and asset mappings are present. Mainnet is initially disabled; enabling it requires the wallet-config rollout in [PR #24](https://github.com/0xMiden/wallet-config/pull/24). Publish `swap.oneClick` on mainnet with the proxy `serviceUrl` and explicit Miden `assetId` / `faucetId` / `decimals` mappings, and set the rollout flag intentionally. Cross-chain starts also require at least one mapping to pass the wallet's on-chain faucet metadata check. Never use token symbol matching to create a mapping. Existing persisted tracking and history continue independently of this start gate.
 
 ## Routes
 
@@ -32,7 +32,7 @@ The receipt adapter must return only `{ "transactionHash": "...", "noteIds": [".
 
 ## Deploy
 
-Use Wrangler **4.151.3** with `services/one-click/wrangler.jsonc`. Set the Worker secrets and reviewed variables in the protected deployment environment, configure Cloudflare hostname and rate limiting, deploy, then publish that URL under `swap.oneClick.serviceUrl` in the mainnet wallet config. Configure the optional receipt adapter before enabling automatic incoming completion. There is no partner credential in the wallet bundle or remote config.
+Use Wrangler **4.151.3** with `services/one-click/wrangler.jsonc`. Set the Worker secrets and reviewed variables in the protected deployment environment, configure Cloudflare hostname and rate limiting, deploy, then publish that URL under `swap.oneClick.serviceUrl` in the mainnet wallet config. Keep `features.nearIntents` false until the rollout is intentionally enabled in wallet config. Configure the optional receipt adapter before enabling automatic incoming completion. There is no partner credential in the wallet bundle or remote config.
 
 ## Hermetic E2E gate
 
@@ -44,6 +44,7 @@ The local fake service is available only in the dedicated E2E build when all of 
 | `MIDEN_E2E_TEST` | `true` |
 | `MIDEN_E2E_ONE_CLICK_TESTNET` | `true` |
 | Remote config document network | `localnet` |
+| `features.nearIntents` | `true` |
 | 1Click service URL | Loopback HTTP or HTTPS |
 | `MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY` | The fake service's exported public key |
 

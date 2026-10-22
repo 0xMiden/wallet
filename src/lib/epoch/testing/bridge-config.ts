@@ -83,7 +83,7 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
       }
     }
   },
-  features: { earn: true },
+  features: { earn: true, nearIntents: false },
   swap: TEST_SWAP_SECTION
 };
 

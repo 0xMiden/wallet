@@ -168,10 +168,17 @@ describe('fake 1Click test service', () => {
     const submission: unknown = await submissionResponse.json();
     if (!isRecord(submission) || !isRecord(submission.swapDetails)) throw new Error('Invalid fake submit response');
     expect(submission.status).toBe('PROCESSING');
-    expect(verifyOneClickQuoteSignature(parseOneClickQuoteResponse(submission.quoteResponse), FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY)).toBe(true);
+    expect(
+      verifyOneClickQuoteSignature(
+        parseOneClickQuoteResponse(submission.quoteResponse),
+        FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY
+      )
+    ).toBe(true);
     expect(submission.swapDetails.depositedAmount).toBe(request.amount);
 
-    const statusResponse = await fetch(`${service.baseUrl}/v0/status?depositAddress=${encodeURIComponent(depositAddress)}`);
+    const statusResponse = await fetch(
+      `${service.baseUrl}/v0/status?depositAddress=${encodeURIComponent(depositAddress)}`
+    );
     const status: unknown = await statusResponse.json();
     if (!isRecord(status)) throw new Error('Invalid fake status response');
     expect(status.status).toBe('PROCESSING');
@@ -184,7 +191,10 @@ describe('fake 1Click test service', () => {
     const resolved: unknown = await resolvedResponse.json();
     expect(resolved).toEqual(receipts);
     expect(service.requests.map(entry => entry.path)).toEqual([
-      '/v0/quote', '/v0/deposit/submit', '/v0/status', '/v1/receipts/resolve'
+      '/v0/quote',
+      '/v0/deposit/submit',
+      '/v0/status',
+      '/v1/receipts/resolve'
     ]);
   });
 });

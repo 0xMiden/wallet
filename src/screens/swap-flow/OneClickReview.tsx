@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { NetworkLogo } from 'components/NetworkChip';
 import { ReviewLayout } from 'components/review';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
@@ -156,7 +157,7 @@ export const OneClickReview: React.FC<OneClickReviewProps> = ({
             <Pill size="sm" tone="neutral">
               {originNetworkName}
             </Pill>
-            <span aria-hidden="true">→</span>
+            <Icon name={IconName.ArrowRight} size="xs" aria-hidden="true" className="text-muted" />
             <Pill size="sm" tone="neutral">
               {destinationNetworkName}
             </Pill>

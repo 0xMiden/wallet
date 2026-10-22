@@ -444,6 +444,7 @@ Architecture: preserve the PSWAP form when both networks are Miden. Add remote-c
 - [x] Read the connected external wallet token/native balances, reserve gas, and recheck the exact transfer before signing while retaining the session on amount edits.
 - [ ] Run focused guarded checks and current-source CI coverage/build; add cost-bounded mainnet swap-out/swap-back E2E using existing funded accounts.
 - [x] Add mocked testnet 1Click E2E alongside mainnet, following the existing Epoch test harness.
+- [x] Gate the entire integration with wallet-config features.nearIntents, default false, plus an explicit false mainnet flag in the config repository.
 - [ ] Run the requested four-seat Council review and fix actionable findings.
 - [ ] Prepare the feature PR and final evidence, retaining external activation requirements.
 

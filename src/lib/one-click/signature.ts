@@ -3,8 +3,8 @@ import { sha256 } from '@noble/hashes/sha2';
 
 import { isRecord } from 'lib/update/guards';
 
-import type { OneClickQuote, OneClickQuoteResponse, OneClickSignedRequest } from './types';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
+import type { OneClickQuote, OneClickQuoteResponse, OneClickSignedRequest } from './types';
 
 export const ONE_CLICK_MANAGER_PUBLIC_KEY = 'ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc';
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -127,16 +127,13 @@ export function hashOneClickQuote(response: OneClickQuoteResponse): string {
   return base58Encode(sha256(new TextEncoder().encode(payload)));
 }
 
-export function verifyOneClickQuoteSignature(
-  response: OneClickQuoteResponse,
-  managerPublicKey?: string
-): boolean {
+export function verifyOneClickQuoteSignature(response: OneClickQuoteResponse, managerPublicKey?: string): boolean {
   try {
     if (!validResponse(response)) return false;
     const signature = decodeKey(response.signature, 64);
-    const selectedKey = managerPublicKey ?? (isOneClickLocalE2EEnabled()
-      ? process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY
-      : ONE_CLICK_MANAGER_PUBLIC_KEY);
+    const selectedKey =
+      managerPublicKey ??
+      (isOneClickLocalE2EEnabled() ? process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY : ONE_CLICK_MANAGER_PUBLIC_KEY);
     if (!selectedKey) return false;
     const publicKey = decodeKey(selectedKey, 32);
     return ed25519.verify(signature, new TextEncoder().encode(hashOneClickQuote(response)), publicKey);
@@ -152,8 +149,13 @@ function decodeKey(value: string, expectedLength: number): Uint8Array {
 }
 
 function validResponse(response: OneClickQuoteResponse): boolean {
-  return typeof response.signature === 'string' && response.signature.length > 0 &&
-    typeof response.timestamp === 'string' && Number.isFinite(Date.parse(response.timestamp)) &&
+  return (
+    typeof response.signature === 'string' &&
+    response.signature.length > 0 &&
+    typeof response.timestamp === 'string' &&
+    Number.isFinite(Date.parse(response.timestamp)) &&
     typeof response.quoteRequest?.dry === 'boolean' &&
-    typeof response.quote?.amountIn === 'string' && typeof response.quote?.amountOut === 'string';
+    typeof response.quote?.amountIn === 'string' &&
+    typeof response.quote?.amountOut === 'string'
+  );
 }

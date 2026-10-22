@@ -71,7 +71,7 @@ const TESTNET: BridgeConfig = {
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true, nearIntents: false }
 };
 const ETH: BridgeToken = {
   midenFaucetId: '0x0b372f2735e33e91216d995bf29b91',
@@ -660,8 +660,10 @@ describe('deriveBridgeConfig default I/O', () => {
     const storage = { slots: 'verified faucet storage' };
     mockGetAccountDetails.mockResolvedValue({ account: () => ({ storage: () => storage }) });
     mockFromAccountStorage.mockReturnValue({ symbol: () => ({ toString: () => 'USDC' }), decimals: () => 6 });
-    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC))
-      .resolves.toEqual({ symbol: 'USDC', decimals: 6 });
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).resolves.toEqual({
+      symbol: 'USDC',
+      decimals: 6
+    });
     expect(Endpoint).toHaveBeenCalledWith(RPC);
     expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
     await expect(readMidenFaucetMetadata('not-a-faucet', RPC)).rejects.toThrow('Invalid Miden faucet metadata request');

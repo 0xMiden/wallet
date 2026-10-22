@@ -14,9 +14,10 @@
  * and needs no hostile page at all — which is why the guard cannot live only in
  * the dApp request handler.
  */
-import { MAX_RECALL_BLOCKS } from '../helpers';
-import type { IOneClickTrackingData } from '../db/types';
 import type { OneClickAsset, OneClickConfig } from 'lib/one-click/types';
+
+import type { IOneClickTrackingData } from '../db/types';
+import { MAX_RECALL_BLOCKS } from '../helpers';
 import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction } from './initiate';
 
@@ -147,23 +148,31 @@ describe('initiateSendTransaction — reclaim window bounds', () => {
 
   it.each([
     ['the selected sender account', { accountAddress: 'another-account' }],
-    ['the signed deposit recipient', {
-      quote: { ...oneClickMetadata.quote, quote: { ...oneClickMetadata.quote.quote, depositAddress: 'another-recipient' } }
-    }],
+    [
+      'the signed deposit recipient',
+      {
+        quote: {
+          ...oneClickMetadata.quote,
+          quote: { ...oneClickMetadata.quote.quote, depositAddress: 'another-recipient' }
+        }
+      }
+    ],
     ['the selected faucet mapping', { config: { ...oneClickConfig, midenAssets: [] } }]
   ])('rejects metadata that changes %s before queueing', async (_label, patch) => {
-    await expect(Reflect.apply(initiateSendTransaction, undefined, [
-      sender,
-      recipient,
-      faucetId,
-      NoteTypeEnum.Public,
-      1000n,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { ...oneClickMetadata, ...patch }
-    ])).rejects.toThrow('The 1Click send does not match the signed Miden route.');
+    await expect(
+      Reflect.apply(initiateSendTransaction, undefined, [
+        sender,
+        recipient,
+        faucetId,
+        NoteTypeEnum.Public,
+        1000n,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { ...oneClickMetadata, ...patch }
+      ])
+    ).rejects.toThrow('The 1Click send does not match the signed Miden route.');
     expect(mockAdd).not.toHaveBeenCalled();
   });
 

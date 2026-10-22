@@ -1,7 +1,8 @@
-import { getOneClickConfig } from './config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { parseBridgeConfig } from 'lib/remote-config/schema';
 import testnet from 'lib/remote-config/testing/testnet.json';
-import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
+import { getOneClickConfig } from './config';
 
 const configBody = {
   ...testnet,
@@ -14,10 +15,11 @@ const configBody = {
   }
 };
 
-function snapshot(network: string, allowOneClickLocalE2E = false): BridgeConfigSnapshot {
+function snapshot(network: string, allowOneClickLocalE2E = false, nearIntentsEnabled = false): BridgeConfigSnapshot {
   const body = {
     ...configBody,
     network,
+    features: { ...configBody.features, nearIntents: nearIntentsEnabled },
     swap: {
       ...configBody.swap,
       oneClick: {
@@ -51,11 +53,30 @@ describe('getOneClickConfig', () => {
     expect(getOneClickConfig(snapshot('testnet', true))).toBeNull();
   });
 
+  it('keeps configured mainnet and hermetic E2E service/assets hidden while the switch is false', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
+    process.env.MIDEN_NETWORK = 'localhost';
+    expect(getOneClickConfig(snapshot('mainnet', false, false))).toBeNull();
+    expect(getOneClickConfig(snapshot('localnet', true, false))).toBeNull();
+  });
+
+  it('requires the explicit feature switch on mainnet as well as local E2E', () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'false';
+    process.env.MIDEN_NETWORK = 'mainnet';
+    expect(getOneClickConfig(snapshot('mainnet', false, true))?.serviceUrl).toBe('https://one-click.example');
+    process.env.MIDEN_E2E_TEST = 'true';
+    process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
+    process.env.MIDEN_NETWORK = 'localhost';
+    expect(getOneClickConfig(snapshot('localnet', true, true))?.serviceUrl).toBe('http://127.0.0.1:8550');
+  });
+
   it('exposes localnet 1Click only in the explicitly targeted localhost E2E build', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
     process.env.MIDEN_NETWORK = 'localhost';
-    expect(getOneClickConfig(snapshot('localnet', true))?.serviceUrl).toBe('http://127.0.0.1:8550');
+    expect(getOneClickConfig(snapshot('localnet', true, true))?.serviceUrl).toBe('http://127.0.0.1:8550');
     expect(getOneClickConfig(snapshot('mainnet', true))).toBeNull();
     expect(getOneClickConfig(snapshot('testnet', true))).toBeNull();
     expect(getOneClickConfig(snapshot('devnet', true))).toBeNull();

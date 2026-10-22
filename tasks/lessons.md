@@ -75,3 +75,5 @@
 - For #1738, distinguish the real Bread UI and WalletConnect protocol from the mocked settlement service. User accepted Chrome once that distinction was clear; do not add mobile-runner scope after that explicit choice.
 
 - Pin the explicitly requested Council release before preflight. For #1738 use 0.7.4, including its session panel-request setup; a copied earlier runtime is not sufficient.
+
+- For #1738, config presence is not the rollout switch. Require an explicit wallet-config features.nearIntents boolean, default false, before exposing or starting the integration; dedicated mocks opt in and mainnet acceptance honors the same flag.

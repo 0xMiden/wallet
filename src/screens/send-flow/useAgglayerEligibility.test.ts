@@ -31,7 +31,7 @@ const configNaming = (midenBridge: string): BridgeConfigSnapshot => ({
         }
       }
     },
-    features: { earn: false }
+    features: { earn: false, nearIntents: false }
   },
   derived: null,
   lastFetch: null

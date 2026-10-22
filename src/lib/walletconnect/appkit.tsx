@@ -133,7 +133,11 @@ if (process.env.MIDEN_E2E_TEST === 'true' && typeof window !== 'undefined') {
     return {
       connected: modal.getIsConnectedState(),
       ...(address ? { address } : {}),
-      ...(typeof chain === 'number' ? { chainId: chain } : typeof chain === 'string' && /^\d+$/.test(chain) ? { chainId: Number(chain) } : {})
+      ...(typeof chain === 'number'
+        ? { chainId: chain }
+        : typeof chain === 'string' && /^\d+$/.test(chain)
+          ? { chainId: Number(chain) }
+          : {})
     };
   };
 }

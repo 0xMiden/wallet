@@ -135,7 +135,11 @@ jest.mock('./OneClickAmounts', () => ({
     <div>
       <input aria-label="amount" onChange={event => props.onOfferAmountChange(event.target.value)} />
       <input aria-label="external address" onChange={event => props.onExternalAddressChange(event.target.value)} />
-      {props.onConnectExternal && <button type="button" onClick={props.onConnectExternal}>Connect wallet</button>}
+      {props.onConnectExternal && (
+        <button type="button" onClick={props.onConnectExternal}>
+          Connect wallet
+        </button>
+      )}
       {props.connectedExternalAddress && <span>{props.connectedExternalAddress}</span>}
       {props.evmBalance?.snapshot && <span>{props.evmBalance.snapshot.tokenBalance.toString()}</span>}
       <button type="button" disabled={!props.canContinue} onClick={props.onContinue}>
@@ -333,9 +337,11 @@ describe('OneClickFlow', () => {
     expect(screen.getByText(mockOriginAddress)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1.25' } });
     await waitFor(() =>
-      expect(jest.mocked(requestOneClickQuote).mock.calls.some(([, request, dry]) =>
-        dry === true && request.amount === '1250000'
-      )).toBe(true)
+      expect(
+        jest
+          .mocked(requestOneClickQuote)
+          .mock.calls.some(([, request, dry]) => dry === true && request.amount === '1250000')
+      ).toBe(true)
     );
     expect(mockConnectExternal).toHaveBeenCalledTimes(1);
     expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
@@ -344,9 +350,11 @@ describe('OneClickFlow', () => {
     expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
     await waitFor(() => expect(submitEvmOneClickDeposit).toHaveBeenCalledTimes(1));
-    expect(jest.mocked(requestOneClickQuote).mock.calls.some(([, request, dry]) =>
-      dry === false && request.amount === '1250000'
-    )).toBe(true);
+    expect(
+      jest
+        .mocked(requestOneClickQuote)
+        .mock.calls.some(([, request, dry]) => dry === false && request.amount === '1250000')
+    ).toBe(true);
     expect(mockConnectExternal).toHaveBeenCalledTimes(1);
   });
 

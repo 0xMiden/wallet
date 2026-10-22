@@ -53,7 +53,7 @@ const READY_CONFIG: BridgeConfig = {
   version: 1,
   'bridge-providers': { epoch: { positionsUrl: POSITIONS_URL }, agglayer: {}, usdcx: {} },
   supportedEvmChains: {},
-  features: { earn: true }
+  features: { earn: true, nearIntents: false }
 };
 const READY: BridgeConfigSnapshot = {
   network: 'testnet',

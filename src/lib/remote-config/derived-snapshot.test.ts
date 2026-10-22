@@ -246,7 +246,7 @@ it('reads a derivation that threw as every check failed, on every configured cha
         bridges: { usdcx: { ...route, domain: 6, tokens: {} } }
       }
     },
-    features: { earn: false }
+    features: { earn: false, nearIntents: false }
   };
   const error = { state: 'error', message: 'wasm init failed' };
   const reads = {

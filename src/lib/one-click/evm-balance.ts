@@ -157,7 +157,9 @@ export async function readOneClickEvmBalance(
     }
     const fallbackReserve = (gasFallback * maxFeePerGas + l1Fee) * RESERVE_MULTIPLIER;
     const knownGasShortfall = nativeBalance < fallbackReserve;
-    const knownNativeTokenShortfall = isNative && amountIn !== undefined &&
+    const knownNativeTokenShortfall =
+      isNative &&
+      amountIn !== undefined &&
       (nativeBalance <= fallbackReserve || nativeBalance - fallbackReserve < BigInt(amountIn));
     if (knownTokenShortfall || knownGasShortfall || knownNativeTokenShortfall) {
       estimatedGas = gasFallback;

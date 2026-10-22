@@ -15,7 +15,7 @@ export interface MainnetOneClickSetup {
 
 export function mainnetOneClickConfig(document: unknown): OneClickConfig | undefined {
   const parsed = parseBridgeConfig(document, 'mainnet');
-  return parsed?.swap?.oneClick;
+  return parsed?.features.nearIntents === true ? parsed.swap?.oneClick : undefined;
 }
 
 export async function loadMainnetOneClickSetup(

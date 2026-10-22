@@ -1,11 +1,4 @@
-export type OneClickBlockchain =
-  | 'eth'
-  | 'base'
-  | 'arb'
-  | 'op'
-  | 'arc'
-  | 'miden'
-  | (string & {});
+export type OneClickBlockchain = 'eth' | 'base' | 'arb' | 'op' | 'arc' | 'miden' | (string & {});
 
 export interface OneClickAsset {
   assetId: string;
@@ -137,9 +130,7 @@ export interface OneClickStatusResponse {
   swapDetails: OneClickSwapDetails;
 }
 
-export type OneClickOnchainMetadataResolver = (
-  asset: OneClickAsset,
-) => Promise<{ decimals: number; symbol?: string }>;
+export type OneClickOnchainMetadataResolver = (asset: OneClickAsset) => Promise<{ decimals: number; symbol?: string }>;
 
 export interface OneClickQuoteBinding {
   request: OneClickQuoteRequest;

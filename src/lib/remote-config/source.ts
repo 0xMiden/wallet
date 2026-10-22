@@ -31,8 +31,11 @@ export function bridgeConfigUrl(network: string): string {
 
 // Local http only in a document an E2E build serves itself; reading the published repo, it validates as production.
 const parseOptions = (network: string) => {
-  const enabled = process.env.MIDEN_E2E_ONE_CLICK_TESTNET === 'true' &&
-    process.env.MIDEN_E2E_TEST === 'true' && process.env.MIDEN_NETWORK === 'localhost' && network === 'localnet';
+  const enabled =
+    process.env.MIDEN_E2E_ONE_CLICK_TESTNET === 'true' &&
+    process.env.MIDEN_E2E_TEST === 'true' &&
+    process.env.MIDEN_NETWORK === 'localhost' &&
+    network === 'localnet';
   return { allowLocalHttp: e2eBaseUrl() !== null, allowOneClickLocalE2E: enabled };
 };
 

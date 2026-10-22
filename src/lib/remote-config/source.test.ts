@@ -32,13 +32,16 @@ const parsed = (version: number) => ({
 // A document an E2E harness serves, pointing at its local fakes.
 const localDoc = (version: number) =>
   doc(version, { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } });
-const oneClickDoc = (version: number) => doc(version, {
-  network: 'localnet',
-  swap: { oneClick: {
-    serviceUrl: 'http://127.0.0.1:8550',
-    midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
-  } }
-});
+const oneClickDoc = (version: number) =>
+  doc(version, {
+    network: 'localnet',
+    swap: {
+      oneClick: {
+        serviceUrl: 'http://127.0.0.1:8550',
+        midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+      }
+    }
+  });
 
 const memoryStorage = (initial: Record<string, unknown> = {}) => {
   const data: Record<string, unknown> = { ...initial };

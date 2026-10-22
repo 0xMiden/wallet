@@ -48,7 +48,7 @@ export function localnetEpochDocument(): BridgeConfigDocument {
         }
       }
     },
-    features: { earn: true }
+    features: { earn: true, nearIntents: false }
   };
 }
 
