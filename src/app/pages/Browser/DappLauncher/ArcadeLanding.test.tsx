@@ -44,7 +44,7 @@ const catalog: ExploreView = {
       name: 'A real game',
       tagline: 'An actual description',
       url: 'https://game.example/',
-      category: 'arcade',
+      category: 'games',
       isExchange: false
     }
   ],

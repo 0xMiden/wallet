@@ -20,7 +20,7 @@ const catalog: ExploreCatalog = {
   items: [
     {
       id: 'faucet',
-      category: 'finance',
+      category: 'tools',
       name: { en: 'Faucet' },
       tagline: { en: 'Mint', de: 'Prägen' },
       url: 'https://faucet.example',
@@ -28,7 +28,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'dex',
-      category: 'finance',
+      category: 'defi',
       name: { en: 'Dex' },
       tagline: { en: 'Swap' },
       url: 'https://dex.example',
@@ -36,7 +36,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'quest',
-      category: 'arcade',
+      category: 'games',
       name: { en: 'Quest', de: 'Abenteuer' },
       tagline: { en: 'Play' },
       url: 'https://quest.example',
@@ -85,7 +85,7 @@ describe('localizeExploreCatalog', () => {
   it('keeps every other field of an item as the document gave it', () => {
     expect(view().items[1]).toEqual({
       id: 'dex',
-      category: 'finance',
+      category: 'defi',
       name: 'Dex',
       tagline: 'Swap',
       url: 'https://dex.example',
@@ -139,7 +139,7 @@ describe('resolveExploreSections', () => {
         name: { en: category },
         tagline: { en: 'Catalog entry' },
         url: `https://${category}.example/`,
-        isExchange: category === 'finance'
+        isExchange: category === 'defi'
       })),
       sections: [{ id: 'catalog', kind: 'list', title: { en: 'Catalog' }, itemIds: [...EXPLORE_CATEGORIES] }]
     };
@@ -148,17 +148,25 @@ describe('resolveExploreSections', () => {
     const ids = (filter: Parameters<typeof resolveExploreSections>[1]) =>
       resolveExploreSections(mixedView, filter).flatMap(section => section.items.map(item => item.id));
 
-    expect(ids('finance')).toEqual(['finance']);
-    expect(ids('arcade')).toEqual(['arcade']);
-    expect(ids('others')).toEqual(['others']);
+    expect(ids('finance')).toEqual(['tools', 'defi']);
+    expect(ids('arcade')).toEqual(['games']);
+    expect(ids('others')).toEqual(['nft', 'learn']);
     expect(ids('all')).toEqual([...ids('finance'), ...ids('arcade'), ...ids('others')]);
-    expect(mixed.items.map(item => getExploreCategoryGroup(item.category))).toEqual([...EXPLORE_CATEGORIES]);
-    expect(searchExploreCatalog(mixedView, 'finance', 'catalog').map(item => item.id)).toEqual(['finance']);
-    expect(searchExploreCatalog(mixedView, 'others', 'catalog').map(item => item.id)).toEqual(['others']);
-    expect(searchExploreCatalog(mixedView, 'arcade', 'catalog').map(item => item.id)).toEqual(['arcade']);
+    expect(mixed.items.map(item => getExploreCategoryGroup(item.category))).toEqual([
+      'finance',
+      'finance',
+      'arcade',
+      'others',
+      'others'
+    ]);
+    expect(searchExploreCatalog(mixedView, 'finance', 'catalog').map(item => item.id)).toEqual(['tools', 'defi']);
+    expect(searchExploreCatalog(mixedView, 'others', 'catalog').map(item => item.id)).toEqual(['nft', 'learn']);
+    expect(searchExploreCatalog(mixedView, 'arcade', 'catalog').map(item => item.id)).toEqual(['games']);
     mockSwapEnabled = false;
     const gated = localizeExploreCatalog(getExploreCatalog(mixed), 'en', 'Recents');
-    expect(resolveExploreSections(gated, 'finance').flatMap(section => section.items.map(item => item.id))).toEqual([]);
+    expect(resolveExploreSections(gated, 'finance').flatMap(section => section.items.map(item => item.id))).toEqual([
+      'tools'
+    ]);
     expect(JSON.stringify(mixed)).toBe(original);
   });
 });

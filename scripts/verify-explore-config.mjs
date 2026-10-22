@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Local, no-chain config → real extension → UI harness.
- * node scripts/verify-explore-config.mjs --config-repo ../wallet-config-explore
+ * node scripts/verify-explore-config.mjs --config-repo ../wallet-explore --policy-repo ../wallet-config
  * Uses a disposable E2E mock-wallet profile, not the user's wallet or simulator.
  * Catalog requests use a real loopback HTTP server; only wallet/account readiness
  * is seeded through the existing E2E store. No balances, signing or chain writes.
@@ -19,26 +19,32 @@ import { expect } from '@playwright/test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = process.argv.indexOf('--config-repo');
-assert.ok(arg !== -1 && process.argv[arg + 1], 'Provide --config-repo pointing at the wallet-config worktree');
+assert.ok(arg !== -1 && process.argv[arg + 1], 'Provide --config-repo pointing at the wallet-explore checkout');
 const configRoot = path.resolve(process.argv[arg + 1]);
+const policyArg = process.argv.indexOf('--policy-repo');
+assert.ok(
+  policyArg !== -1 && process.argv[policyArg + 1],
+  'Provide --policy-repo pointing at a separate wallet-config checkout'
+);
+const policyRoot = path.resolve(process.argv[policyArg + 1]);
 const out = path.resolve(process.env.EXPLORE_HARNESS_OUTPUT || path.join(root, '../explore-harness-results'));
 mkdirSync(out, { recursive: true });
 const catalogs = Object.fromEntries(
   ['devnet', 'testnet'].map(network => [
     network,
-    JSON.parse(readFileSync(path.join(configRoot, 'explore', network + '.json'), 'utf8'))
+    JSON.parse(readFileSync(path.join(configRoot, network + '.json'), 'utf8'))
   ])
 );
-const validator = await import(pathToFileURL(path.join(configRoot, 'scripts/validate-explore.mjs')));
+const validator = await import(pathToFileURL(path.join(configRoot, 'scripts/validate.mjs')));
 for (const network of Object.keys(catalogs)) {
-  assert.deepEqual(validator.validateFile(`explore/${network}.json`, { root: configRoot }).errors, []);
-  assert.ok(catalogs[network].items.every(item => ['finance', 'arcade', 'others'].includes(item.category)));
+  assert.deepEqual(validator.validateFile(`${network}.json`, { root: configRoot }).errors, []);
+  assert.ok(catalogs[network].items.every(item => ['tools', 'defi', 'games', 'nft', 'learn'].includes(item.category)));
 }
 
 const policies = Object.fromEntries(
   Object.keys(catalogs).map(network => [
     network,
-    JSON.parse(readFileSync(path.join(configRoot, network + '.json'), 'utf8'))
+    JSON.parse(readFileSync(path.join(policyRoot, network + '.json'), 'utf8'))
   ])
 );
 
@@ -75,7 +81,7 @@ const server = createServer((req, res) => {
   } else if (url.pathname.startsWith('/explore/icons/')) {
     const name = path.basename(url.pathname);
     res.writeHead(200, { 'content-type': 'image/png' });
-    res.end(readFileSync(path.join(configRoot, 'explore/icons', name)));
+    res.end(readFileSync(path.join(configRoot, 'icons', name)));
   } else if (url.pathname.startsWith('/game/')) {
     requests.push({ path: url.pathname, mode, status: 200 });
     res.writeHead(200, { 'content-type': 'text/html' });
@@ -213,7 +219,7 @@ try {
     'Others'
   ]);
   await page.screenshot({ path: path.join(out, '01-published-arcade.png') });
-  check('Actual migrated catalog fetched over HTTP; four native tabs; configured game rendered');
+  check('Actual published wallet-explore catalog fetched over HTTP; four native tabs; configured game rendered');
   await page.getByTestId('explore-chip-finance').click();
   await page.getByText('Forkchoice Faucet', { exact: true }).waitFor();
   assert.equal(await page.getByText('Where Legends Grow', { exact: true }).count(), 0);
@@ -243,10 +249,10 @@ try {
     network: 'testnet',
     version: 100,
     items: [
-      localItem('fixture-finance', 'finance', 'Harness Finance', 'finance'),
-      localItem('fixture-game', 'arcade', 'Harness Game One', 'one?source=config#start'),
-      localItem('fixture-game-two', 'arcade', 'Harness Game Two', 'two'),
-      localItem('fixture-others', 'others', 'Harness Learning', 'learning')
+      localItem('fixture-finance', 'tools', 'Harness Finance', 'finance'),
+      localItem('fixture-game', 'games', 'Harness Game One', 'one?source=config#start'),
+      localItem('fixture-game-two', 'games', 'Harness Game Two', 'two'),
+      localItem('fixture-others', 'learn', 'Harness Learning', 'learning')
     ],
     sections: [
       {
@@ -280,7 +286,7 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   await page.screenshot({ path: path.join(out, '03-three-categories-popup.png') });
   check(
-    'Direct categories isolate Finance, Arcade and Others; multi-game featured carousel and three shortcuts render'
+    'Published categories map into Finance, Arcade and Others; multi-game featured carousel and three shortcuts render'
   );
 
   await page.getByTestId('explore-search-toggle').click();

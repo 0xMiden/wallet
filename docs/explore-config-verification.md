@@ -1,21 +1,24 @@
 # Explore configuration verification
 
-Story: Home / Explore → network-specific wallet-config catalog over HTTP →
-validation and versioned cache → direct Finance / Arcade / Others placement →
+Story: Home / Explore → network-specific wallet-explore catalog over HTTP →
+validation and versioned cache → reader grouping into Finance / Arcade / Others →
 explicit launch of the configured game URL through the existing dApp browser.
-All aggregates the three categories; it is not a catalog category.
+Published categories stay unchanged: tools + defi map to Finance, games to Arcade, and
+nft + learn to Others. All aggregates these three UI groups.
 
 ## Run locally
 
 With Node 22+, Yarn dependencies and Playwright Chromium installed:
 
 ```sh
-yarn test:explore-config --config-repo /path/to/wallet-config
+yarn test:explore-config --config-repo /path/to/wallet-explore --policy-repo /path/to/wallet-config
 ```
 
-Use the wallet-config branch paired with wallet #1512 (wallet-config #10 until
-merged). The command validates its actual `explore/devnet.json` and
-`explore/testnet.json`, starts a loopback HTTP server on an OS-assigned port,
+Use an unchanged checkout of published `0xMiden/wallet-explore/main` as the
+catalog source, plus a separate `0xMiden/wallet-config/main` checkout for startup
+policy fixtures. Wallet-config #10 is not required. The command validates
+wallet-explore's root `devnet.json` and `testnet.json` with `scripts/validate.mjs`,
+serves those documents and `icons/` on a loopback HTTP server on an OS-assigned port,
 builds the extension with the production UI and explicit E2E/mock flags, then
 opens a temporary Chromium profile. It closes only its own server/browser.
 It does not install over a user's browser or simulator, read wallet secrets,
@@ -29,11 +32,11 @@ before using `dist/chrome_unpacked` as a normal wallet.
 
 ## Boundaries and assertions
 
-- The server first serves the actual paired-repository catalogs and PNG files.
+- The server first serves the actual published wallet-explore catalogs and PNG files.
   Assertions verify an actual request, the exact four-tab order and network catalog
   rendering, not a mocked category function or intercepted catalog response.
-- An explicitly labeled local-only catalog fixture then exercises all three
-  categories and multiple featured games, without adding fake published apps.
+- An explicitly labeled local-only catalog fixture then exercises the three UI
+  groups and multiple featured games, without adding fake published apps.
 - Higher-version replacement, wrong-network rejection, HTTP failure retention,
   rollback rejection and devnet isolation exercise the real parser/cache/runtime.
   Only the cache timestamp is aged to trigger normal foreground revalidation.
@@ -51,7 +54,8 @@ before using `dist/chrome_unpacked` as a normal wallet.
 
 ## Explicit limits
 
-The loopback server also serves the paired repository's root policy documents and matching
+The loopback server separately serves the explicit `--policy-repo` checkout's root
+policy documents and matching
 explicitly allowed E2E eligibility decisions, so startup passes the current main
 access gate without calling or changing the production service.
 
@@ -64,5 +68,5 @@ expected denied public-price/third-party SDK requests are retained in diagnostic
 
 This is not native iOS/Android/Tauri acceptance. It does not make the GC balance
 reader, leaderboard service, challenge protocol or rewards functional. Those
-remain separate integration work. Publication still requires config merge first,
-then the matching wallet reader release; a local harness does not publish a catalog.
+remain separate integration work. The reader reuses the published catalog, snapshots and floors; no config publication,
+category migration or floor increase is required. A local harness does not publish a catalog.
