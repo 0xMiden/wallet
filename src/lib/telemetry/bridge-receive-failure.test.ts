@@ -6,6 +6,9 @@ import { englishWordlist } from '@miden/hd-key';
 import { markReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
+  BRIDGE_BALANCE_CHECKS,
+  BRIDGE_ORPHAN_CHECKS,
+  BRIDGE_SOURCE_ROUTES,
   BRIDGE_RECEIVE_LIBRARY_ERRORS,
   BRIDGE_RECEIVE_ROUTES,
   BRIDGE_RECEIVE_STEPS,
@@ -177,10 +180,54 @@ const LIBRARY_CASES: ReadonlyArray<readonly [string, unknown]> = [
   ['http_other', named('HttpRequestError', 'HTTP request failed.', { status: '429' })],
   ['unknown_rpc_error', 'An unknown RPC error occurred.\n\nDetails: Something went wrong.\nVersion: viem@2.55.4'],
   ['unknown_rpc_error', named('UnknownRpcError', 'An unknown error occurred.')],
+  ['receipt_timeout', named('WaitForTransactionReceiptTimeoutError', 'Timed out while waiting for transaction.')],
+  ['chain_mismatch', named('ChainMismatchError', 'The current chain of the wallet does not match.')],
+  ['chain_unconfigured', named('ChainNotFoundError', 'No chain was provided to the request.')],
+  ['chain_unconfigured', named('ClientChainNotConfiguredError', 'No chain was provided to the Client.')],
+  ['chain_unconfigured', named('InvalidChainIdError', 'Chain ID is invalid.')],
+  ['provider_unauthorized', named('UnauthorizedProviderError', 'Not authorized.')],
+  ['provider_unauthorized', { code: 4100, message: 'The requested method has not been authorized.' }],
+  ['method_unsupported', named('UnsupportedProviderMethodError', 'Unsupported method.')],
+  ['method_unsupported', named('MethodNotFoundRpcError', 'Method not found.')],
+  ['method_unsupported', named('MethodNotSupportedRpcError', 'Method not supported.')],
+  ['method_unsupported', { code: 4200, message: 'x' }],
+  ['method_unsupported', { code: -32601, message: 'x' }],
+  ['method_unsupported', { code: -32004, message: 'x' }],
+  ['provider_disconnected', named('ProviderDisconnectedError', 'Disconnected.')],
+  ['provider_disconnected', { code: 4900, message: 'x' }],
+  ['chain_disconnected', named('ChainDisconnectedError', 'Chain disconnected.')],
+  ['chain_disconnected', { code: 4901, message: 'x' }],
+  ['chain_switch_failed', named('SwitchChainError', 'Switch chain failed.')],
+  ['chain_switch_failed', { code: 4902, message: 'Unrecognized chain ID "0xaa36a7".' }],
+  ['request_invalid', named('ParseRpcError', 'Invalid JSON.')],
+  ['request_invalid', named('InvalidRequestRpcError', 'Invalid request.')],
+  ['request_invalid', named('InvalidParamsRpcError', 'Invalid parameters.')],
+  ['request_invalid', named('InvalidInputRpcError', 'Missing or invalid parameters.')],
+  ['request_invalid', { code: -32700, message: 'x' }],
+  ['request_invalid', { code: -32600, message: 'x' }],
+  ['request_invalid', { code: -32602, message: 'x' }],
+  // Nodes answer every server fault with -32000 (nonce too low, header not found); only viem's class names input.
+  ['other', { code: -32000, message: 'nonce too low' }],
+  ['rpc_internal', named('InternalRpcError', 'Internal error.')],
+  ['rpc_internal', { code: -32603, message: 'x' }],
+  ['rpc_unavailable', named('ResourceNotFoundRpcError', 'Resource not found.')],
+  ['rpc_unavailable', named('ResourceUnavailableRpcError', 'Resource unavailable.')],
+  ['rpc_unavailable', { code: -32001, message: 'x' }],
+  ['rpc_unavailable', { code: -32002, message: 'x' }],
+  ['transaction_rejected', named('TransactionRejectedRpcError', 'Transaction rejected.')],
+  ['transaction_rejected', { code: -32003, message: 'x' }],
+  ['rpc_limited', named('LimitExceededRpcError', 'Limit exceeded.')],
+  ['rpc_limited', { code: -32005, message: 'x' }],
   ['invalid_permissions', new Error('Invalid permissions for call.')],
   ['other', new Error('prefix Invalid permissions for call.')],
   ['other', new Error('invalid permissions for call.')],
   ['other', new Error('Invalid permissions for call')],
+  // Codes are matched exactly: a string, an unlisted number or a lookalike name names nothing new.
+  ['other', { code: '4100', message: 'x' }],
+  ['other', { code: 4999, message: 'x' }],
+  ['other', named('ChainMismatchErrorX', 'x')],
+  // A generic timeout stays a timeout; only the named receipt wait is a receipt timeout.
+  ['timeout', named('TimeoutError', 'The request took too long to respond.')],
   // The App's own words name no library error, its own timeout included.
   ['other', 'Bridge delivery timed out.'],
   ['other', 'Circle attested this deposit to a different amount.'],
@@ -351,7 +398,14 @@ it.each([
   [
     'background observation',
     () => REOWN_BACKGROUND_ANSWERS,
-    () => bridgePolicyClause('; background observation', '. When a native session precheck')
+    () => bridgePolicyClause('; background observation', '; balance check')
+  ],
+  ['balance check', () => BRIDGE_BALANCE_CHECKS, () => bridgePolicyClause('; balance check', '; orphan check')],
+  ['orphan check', () => BRIDGE_ORPHAN_CHECKS, () => bridgePolicyClause('; orphan check', '; USDCx source route')],
+  [
+    'USDCx source route',
+    () => BRIDGE_SOURCE_ROUTES,
+    () => bridgePolicyClause('; USDCx source route', 'When a native session precheck')
   ]
 ])(
   'the privacy policy lists every reportable inbound-bridge %s in its own clause, and nothing else',
@@ -413,6 +467,39 @@ it('reports the marked Android bridge cause as closed diagnostics on a cause-fre
   });
   expect(report.cause).toBeUndefined();
   expect(report.stack).toBeUndefined();
+});
+
+it('reports the balance check, orphan check and USDCx source route as closed diagnostics', () => {
+  reportBridge({
+    route: 'usdcx',
+    step: 'precheck_balance',
+    cause: new Error('Balance read failed for 0x9a2f6A2C2b5E7D2bC1a0F4b47cCF4d5F1A0dE9b3 holding 12.5 USDC'),
+    balanceCheck: 'read_failed',
+    orphanCheck: 'origin_lock',
+    sourceRoute: 'cctp_executor'
+  });
+  const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  if (!(report instanceof Error)) throw new Error('Missing report');
+  expect(snapshotCrashDiagnostics(report)).toEqual({
+    bridgeBalanceCheck: 'read_failed',
+    bridgeOrphanCheck: 'origin_lock',
+    bridgeSourceRoute: 'cctp_executor'
+  });
+  const sent = JSON.stringify([report.message, snapshotCrashDiagnostics(report)]);
+  for (const fragment of ['0x9a2f', '12.5', 'USDC holding', 'Balance read failed'])
+    expect(sent).not.toContain(fragment);
+});
+
+it('drops an unlisted balance check, orphan check or source route', () => {
+  // A stored or forged source can carry any value; JSON keeps the test from naming a type that forbids it.
+  reportBridge(
+    JSON.parse(
+      '{"route":"usdcx","step":"precheck_balance","balanceCheck":"shortfall_of_12","orphanCheck":"lock","sourceRoute":"0xdeadbeef"}'
+    )
+  );
+  const report = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+  if (!(report instanceof Error)) throw new Error('Missing report');
+  expect(snapshotCrashDiagnostics(report)).toEqual({});
 });
 
 it('permissionClassPreservesExistingPrecedence', () => {
