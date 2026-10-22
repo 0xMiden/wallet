@@ -157,23 +157,34 @@ test.describe('nightly round trip', () => {
     // inside the reserve, so the gate does not charge the fee a second time.
     await walletA.claimAllNotes(600_000);
     await walletB.claimAllNotes(600_000);
-    await walletA.refreshBalances();
-    await walletB.refreshBalances();
     const fee = await discoveredFee(walletA.page);
     const oneTx = TX_FEE_MULTIPLE * BigInt(fee);
     const required = roundTripReserve(SEND_BASE_UNITS, BigInt(fee));
+    const faucetId = await walletDiscoveredNativeFaucetId(walletA.page);
+    if (!faucetId) throw new Error('the wallet has not discovered the native fee asset');
+    // fetchBalances returns immediately when a read for that account is already running, so one
+    // refresh after the claim can still see the pre-claim vault.
+    await expect
+      .poll(
+        async () => {
+          await walletA.refreshBalances();
+          return vaultBalanceByFaucetId(walletA.page, faucetId);
+        },
+        { timeout: 60_000, message: `plain ${plain.address} native balance stayed short of ${required}` }
+      )
+      .toBeGreaterThanOrEqual(required);
+    await expect
+      .poll(
+        async () => {
+          await walletB.refreshBalances();
+          return vaultBalanceByFaucetId(walletB.page, faucetId);
+        },
+        { timeout: 60_000, message: `guardian ${guardianAddress} native balance stayed short of ${required}` }
+      )
+      .toBeGreaterThanOrEqual(required);
     const plainHolding = await nativeHolding(walletA.page);
     const guardianHolding = await nativeHolding(walletB.page);
     expect(guardianHolding.faucetId).toBe(plainHolding.faucetId);
-
-    expect(
-      plainHolding.base,
-      `plain ${plain.address} holds ${plainHolding.base} base units of ${plainHolding.faucetId}, short of ${required}`
-    ).toBeGreaterThanOrEqual(required);
-    expect(
-      guardianHolding.base,
-      `guardian ${guardianAddress} holds ${guardianHolding.base} base units of ${guardianHolding.faucetId}, short of ${required}`
-    ).toBeGreaterThanOrEqual(required);
 
     const before = {
       plain: await vaultBalanceByFaucetId(walletA.page, plainHolding.faucetId),

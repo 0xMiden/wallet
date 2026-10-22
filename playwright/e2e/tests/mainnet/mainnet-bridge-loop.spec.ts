@@ -64,16 +64,33 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
   // Same as the round trip: consume the plain account's notes before reading the vault. The
   // Guardian account is consumed in the round trip, which this job runs first.
   await walletA.claimAllNotes(600_000);
-  await walletA.refreshBalances();
   const baseFee = await walletDiscoveredBaseFee(walletA.page);
   const nativeId = await walletDiscoveredNativeFaucetId(walletA.page);
   if (baseFee === null || baseFee < 1 || !nativeId) {
     problems.push('the Miden account has not discovered its fee');
   } else {
     // Four USDCx burns, plus four claims and the AggLayer claim and return.
+    // Same in-flight balance read as the round trip: one refresh can still see the pre-claim vault.
     const need = midenFeeReserve(BigInt(baseFee), 4n, 6n);
-    const held = await vaultBalanceByFaucetId(walletA.page, nativeId);
-    if (held < need) {
+    let held = 0n;
+    let funded = false;
+    try {
+      await expect
+        .poll(
+          async () => {
+            await walletA.refreshBalances();
+            held = await vaultBalanceByFaucetId(walletA.page, nativeId);
+            return held;
+          },
+          { timeout: 60_000 }
+        )
+        .toBeGreaterThanOrEqual(need);
+      funded = true;
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (held >= need || (!text.includes('Timeout') && !text.includes('toBeGreaterThanOrEqual'))) throw error;
+    }
+    if (!funded) {
       problems.push(
         `${imported.address} holds ${held} native base units, short of ${need} for two nights of bridge fees`
       );
