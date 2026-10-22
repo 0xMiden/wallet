@@ -46,6 +46,7 @@ import { guardianHistoryIcon } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
+import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 import {
   earnWithdrawAmountFields,
   labelHistoryEntry,
@@ -568,6 +569,7 @@ async function fetchTransactionsAsHistoryEntries(
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
       swapSettlement: swapSettlementOf(tx),
+      ...(await resolveSwapHistoryProgress(tx)),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,

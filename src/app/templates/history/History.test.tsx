@@ -97,6 +97,8 @@ const mockUseRetryableSWR = jest.fn(
   }
 );
 
+jest.mock('./resolveSwapHistoryProgress', () => ({ resolveSwapHistoryProgress: jest.fn(async () => ({})) }));
+
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: [unknown, () => Promise<unknown>, Record<string, unknown>?]) =>
     mockRealSwr ? jest.requireActual('lib/swr').useRetryableSWR(...args) : mockUseRetryableSWR(...args)

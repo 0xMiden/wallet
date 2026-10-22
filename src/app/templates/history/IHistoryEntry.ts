@@ -115,6 +115,8 @@ export interface IHistoryEntry {
    * manual-claim orders.
    */
   swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  /** Requested-token execution ratio, independent of token display decimals. Unknown is omitted. */
+  swapFillProgress?: string;
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;

@@ -19,6 +19,7 @@ import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import HashChip from '../HashChip';
 import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
+import { swapFillProgress } from './swapFillProgress';
 import { deliveredRequestedToken, isPartialSwapFill } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon from './TransactionIcon';
@@ -90,15 +91,6 @@ interface SwapNoteRowProps {
   requestedSymbol?: string;
   requestedFaucetId?: string;
 }
-
-const progressPercentage = (filledAmount: bigint, requestedAmount: bigint): number => {
-  if (requestedAmount <= 0n || filledAmount <= 0n) return 0;
-  if (filledAmount >= requestedAmount) return 100;
-
-  // Truncating division would report any fill below a tenth of a percent as a
-  // flat 0 next to a non-zero filled amount, so keep the bar visibly non-empty.
-  return Number((filledAmount * 1000n) / requestedAmount) / 10 || 0.1;
-};
 
 // Constructing an Intl formatter is the expensive part; a receipt with many
 // fills was building one per row per render.
@@ -282,10 +274,8 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   // statement about a restored wallet whose order may long since have settled.
   // Unknown progress is therefore rendered with no bar, no percentage and no
   // `aria-valuenow`, which is what the ARIA indeterminate state is for.
-  const percentage =
-    filledAmount !== undefined && requestedAmount !== undefined
-      ? progressPercentage(filledAmount, requestedAmount)
-      : undefined;
+  const progress = swapFillProgress(filledAmount, requestedAmount);
+  const percentage = progress?.value;
   const progressKnown = percentage !== undefined;
   // Derived here rather than passed in: it is a statement about these two props,
   // and as a third prop a caller could contradict them - asserting a partial
@@ -369,13 +359,14 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percentage}
+            aria-valuetext={progress && t('swapProgressPercent', { percentage: progress.text })}
           >
             {percentage !== undefined && (
               <motion.div
                 data-testid="swap-amount-progress-fill"
                 className="h-full origin-left rounded-full bg-tx-swap"
                 initial={{ scaleX: 0 }}
-                animate={{ scaleX: percentage / 100 }}
+                animate={{ scaleX: Math.max(percentage, filledAmount && filledAmount > 0n ? 0.1 : 0) / 100 }}
                 transition={progressTransition}
               />
             )}
@@ -395,7 +386,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             </span>
             {percentage !== undefined && (
               <span className="shrink-0 text-sm font-semibold text-text-secondary-token">
-                {t('swapProgressPercent', { percentage })}
+                {t('swapProgressPercent', { percentage: progress?.text })}
               </span>
             )}
           </div>

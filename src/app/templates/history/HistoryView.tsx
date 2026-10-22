@@ -289,7 +289,14 @@ function buildRowProps(
           t('unknown')
         )} → ${guardianEndpointDisplayName(entry.newGuardianEndpoint, t('unknown'))}`
       : isSwap
-        ? swapPlacement
+        ? [
+            entry.swapFillProgress === undefined
+              ? undefined
+              : `${t('amountFilled')}: ${t('swapProgressPercent', { percentage: entry.swapFillProgress })}`,
+            swapPlacement
+          ]
+            .filter(Boolean)
+            .join(' · ')
         : entry.secondaryAddress
           ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
           : undefined;

@@ -2080,3 +2080,25 @@ describe('user-visible history load errors', () => {
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });
+
+describe('cancelled partial swap progress', () => {
+  it('retains the order time, progress and reclaim status without replacing the offered amount', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'ETH',
+      amount: '0.001',
+      requestedToken: 'USDT',
+      requestedAmount: '10',
+      swapSettlement: 'reclaimed',
+      swapFillProgress: '40'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'reclaimed');
+    expect(screen.getByTestId('activity-row')).toHaveAttribute(
+      'data-subtitle',
+      'amountFilled: swapProgressPercent · swapPlacedAt'
+    );
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+    expect(mockT).toHaveBeenCalledWith('swapProgressPercent', { percentage: '40' });
+  });
+});
