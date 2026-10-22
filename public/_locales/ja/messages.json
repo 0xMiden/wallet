@@ -2542,8 +2542,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "既存の 12 単語のリカバリ フレーズを使用します。他のウォレットプロバイダーからウォレットをインポートすることもできます。",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "別のウォレットから互換性のある12語の回復フレーズを使用して、Midenアカウントを作成することができます。これにより、他のネットワークから資産が転送されることはありません。",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "暗号化されたウォレットファイルを使用してインポートする",
@@ -2949,10 +2949,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "ウォレットの12語のリカバリーフレーズを入力してください。",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Midenのリカバリーフレーズのみがサポートされています。",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "ウォレットの準備が完了しました！",
@@ -3931,22 +3927,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ guardian(s) にアクセスできなかったため、検出が不完全である可能性があります。",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "Midenアカウントを復元、または新規作成するには、有効な12語の回復フレーズを入力してください。",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "サポートされているのは12語の回復フレーズのみです。貼り付けたフレーズはそれより長いため、何も入力されませんでした。",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "確認したGuardiansにはバックアップが見つかりませんでした",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "何も復元されませんでした。もし、当方が確認していないGuardianがこのフレーズのバックアップを保持している場合は、以下からそれを選択してください。そうでない場合は、このフレーズを使用して新しいアカウントを作成できます。",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "すべてのGuardianを確認することはできなかったため、バックアップが存在するかどうかは判断できません。もう一度試すか、以前に使用したGuardianを選択してください。",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "このフレーズを使用して新しいアカウントを作成してください",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "このフレーズを使って新しいアカウントを作成しますか？",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "これにより新しいアカウントが作成されます。既存のアカウントを復元するものではありません。",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "このフレーズがどのように生まれたのか、またその強度はどれほどなのかについては保証できません。もしこれが暴露された場合、これを使用しているすべてのウォレットが影響を受ける可能性があります。",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "リカバリーフレーズはこのデバイス上に保存されたままになります。",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "リスクを理解した上で、新規アカウントにこのフレーズを使用したいと考えています",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "このフレーズに対応する公開アカウントがまだ存在しない場合、インポートを行うと、それに基づいて新しいアカウントが作成されます。",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "もう一度検出してみてください",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "guardian では、お客様のアカウントが見つかりませんでした。URL を確認するか、代わりにパブリックアカウントとしてインポートしてください。",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "このGuardianのバックアップが見つかりませんでした。URLを確認するか、別のGuardianを選択してください。",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "このguardianは別のMidenネットワーク上で稼働しているため、こちらのアカウントを復旧することはできません。",
