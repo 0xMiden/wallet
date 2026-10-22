@@ -5,7 +5,7 @@ import whereLegendsGrowIcon from 'app/misc/dapp-icons/where-legends-grow.png';
 import devnet from './snapshot/devnet.json';
 import testnet from './snapshot/testnet.json';
 
-// Byte copies of 0xMiden/wallet-config's explore/ documents at release time: the catalog a device shows before its first
+// Byte copies of 0xMiden/wallet-explore's documents at release time: the catalog a device shows before its first
 // fetch lands, and whenever none ever has. Networks without a published document have none.
 const SNAPSHOTS: Record<string, unknown> = { devnet, testnet };
 

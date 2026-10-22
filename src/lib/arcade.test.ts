@@ -10,7 +10,7 @@ const catalog: ExploreCatalog = {
   items: [
     {
       id: 'game',
-      category: 'arcade',
+      category: 'games',
       name: { en: 'Game' },
       tagline: { en: 'Play' },
       url: 'https://game.example/play',
@@ -18,7 +18,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'second',
-      category: 'arcade',
+      category: 'games',
       name: { en: 'Second' },
       tagline: { en: 'Play again' },
       url: 'https://second.example/',
@@ -26,7 +26,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'finance',
-      category: 'finance',
+      category: 'tools',
       name: { en: 'Finance' },
       tagline: { en: 'Tools' },
       url: 'https://finance.example/',

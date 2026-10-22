@@ -1,6 +1,6 @@
 {
   "network": "devnet",
-  "version": 2,
+  "version": 1,
   "items": [
     {
       "id": "faucet",
@@ -11,7 +11,7 @@
         "en": "Get devnet tokens"
       },
       "url": "https://faucet.devnet.miden.io/",
-      "category": "finance",
+      "category": "tools",
       "icon": "icons/faucet.png",
       "brandColor": "#778C72",
       "isExchange": false

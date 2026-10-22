@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 /** Each snapshot directory, and the base its repository publishes the same file names under. */
 export const SNAPSHOT_SOURCES = [
   { dir: 'src/lib/token-list/snapshot', base: 'https://raw.githubusercontent.com/0xMiden/token-list/main' },
-  { dir: 'src/lib/explore-config/snapshot', base: 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/explore' }
+  { dir: 'src/lib/explore-config/snapshot', base: 'https://raw.githubusercontent.com/0xMiden/wallet-explore/main' }
 ];
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

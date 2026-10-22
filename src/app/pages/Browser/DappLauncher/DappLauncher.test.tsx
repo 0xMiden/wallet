@@ -103,7 +103,7 @@ const catalog: ExploreCatalog = {
   items: [
     {
       id: 'faucet',
-      category: 'finance',
+      category: 'tools',
       name: { en: 'Faucet' },
       tagline: { en: 'Get testnet MIDEN tokens' },
       url: 'https://faucet.example/',
@@ -113,7 +113,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'forkchoice',
-      category: 'finance',
+      category: 'tools',
       name: { en: 'Forkchoice Faucet' },
       tagline: { en: 'Get testnet tokens for swap', de: 'Testnet-Token für Swaps erhalten' },
       url: 'https://forkchoice.example/',
@@ -121,7 +121,7 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'quest',
-      category: 'arcade',
+      category: 'games',
       name: { en: 'Quest' },
       tagline: { en: 'Play' },
       url: 'https://quest.example/',

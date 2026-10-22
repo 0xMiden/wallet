@@ -1,11 +1,10 @@
 # Explore catalog from a config repo (#1361)
 
-Migration update (2026-10-17): this document records the original implementation.
-The follow-up in wallet-config #10 and wallet #1512 moves catalogs and icons to
-`0xMiden/wallet-config/main/explore/`, preserving cache keys, version floors and
-bundled fallback. The new schema uses `finance`, `arcade`, and `others` directly;
-legacy category conversion is confined to persisted cache reads. Publish the new catalogs before shipping that reader;
-older wallets continue to use wallet-explore. The original rationale below is historical.
+Reader grouping update (2026-10-22): wallet #1512 retains the published
+`0xMiden/wallet-explore` documents, schema, icons, cache identity and version floors.
+The wallet groups `tools` + `defi` under Finance, `games` under Arcade, and
+`nft` + `learn` under Others. This requires no config migration or publication;
+wallet-config #10 is not a dependency.
 
 Approved by the issue body and its comments (author and org member WiktorStarczewski), and by the user's answers on 2026-10-07: a new repo `0xMiden/wallet-explore` (kept over folding into wallet-config), no review on merge, created from this session with wallet-config's settings.
 

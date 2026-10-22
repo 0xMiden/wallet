@@ -160,7 +160,7 @@ describe('the snapshot', () => {
       name: { en: 'Faucet' },
       tagline: { en: 'Get testnet tokens' },
       url: 'https://faucet.example/',
-      category: 'finance',
+      category: 'tools',
       icon,
       isExchange: false
     });
