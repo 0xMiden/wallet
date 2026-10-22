@@ -373,8 +373,9 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   ): Promise<void>;
   /**
    * Import a Guardian account with its hot and EVM private key pair — the
-   * seed-less import path. Drives the real screens: Welcome → "Recover your
-   * account" → seed grid → "Import with key instead" link → key paste →
+   * seed-less import path. Drives the real screens: Welcome → Recover (on
+   * mainnet, "I don't have a code" then Recover) → seed grid → "Import with
+   * key instead" link → key paste →
    * submit → full password step → ImportRecoveryMethod (probe by hot-key
    * commitment, Guardian pinned) → Continue → Confirmation → submit → home.
    * Unlike `recoverGuardianFromSeed` this ends WITHOUT a hot-key rotation:
@@ -390,8 +391,10 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   revealHotKey(password?: string): Promise<string>;
   /**
    * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
-   * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
-   * stopping there instead of completing the rest of the recovery journey.
+   * ImportSeedPhrase 12-word grid, stopping there instead of completing the
+   * rest of the recovery journey. Test networks show "Recover your account".
+   * Mainnet Welcome is invite-only, so recovery is "I don't have a code",
+   * then "Recover your account", and there is no network notice.
    * For probes that only need to exercise seed-phrase VALIDATION (e.g.
    * case-insensitivity / paste handling) — see `recoverGuardianFromSeed`
    * for the full end-to-end recovery flow this is a prefix of. Requires the
@@ -1236,17 +1239,39 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
+   * Welcome through to the import-type choice.
+   *
+   * Test networks put Recover on the welcome screen (`#import-link`) and then show the network
+   * notice. Mainnet Welcome is invite-only, so that link is absent: recovery is the secondary
+   * action on "I don't have a code", and mainnet has no network notice.
+   */
+  private async openImportTypeScreen(): Promise<void> {
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    const recover = this.page.locator('#import-link');
+    const noCode = this.page.getByTestId('onboarding-no-code');
+    await recover.or(noCode).waitFor({ state: 'visible', timeout: 30_000 });
+    if (await noCode.isVisible()) {
+      await noCode.click();
+      await this.page.getByTestId('no-code-sheet-recover').click();
+    } else {
+      await recover.click();
+    }
+    const notice = this.page.getByTestId('onboarding-network-notice-acknowledge');
+    const importType = this.page.getByTestId('import-select-type');
+    await notice.or(importType).waitFor({ state: 'visible', timeout: 15_000 });
+    if (await notice.isVisible()) {
+      await acknowledgeNetworkNotice(this.page, 15_000);
+    }
+    await importType.waitFor({ timeout: 15_000 });
+  }
+
+  /**
    * See the interface doc comment (ChromeWalletPageApi).
    */
   async openImportSeedPhraseScreen(): Promise<void> {
-    // Welcome → "Recover your account" → ImportSeedPhrase (12-word grid).
-    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-    await this.page.locator('#import-link').click();
-    // The network notice (#875) precedes the import flow too.
-    await acknowledgeNetworkNotice(this.page, 15_000);
+    await this.openImportTypeScreen();
     // Import now asks WHICH credential first; this helper drives the seed-phrase one.
-    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
     await this.page.getByTestId('import-type-seed-phrase').click();
     await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   }
@@ -1635,11 +1660,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     newWalletPassword: string;
   }): Promise<void> {
     await suspendScreenCapture(this.page);
-    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-    await this.page.locator('#import-link').click();
-    await acknowledgeNetworkNotice(this.page, 15_000);
-    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.openImportTypeScreen();
     await this.page.getByTestId('import-type-wallet-file').click();
 
     await this.page.locator('input[type="file"]').setInputFiles(options.backupPath);

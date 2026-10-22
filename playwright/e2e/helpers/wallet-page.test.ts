@@ -520,3 +520,53 @@ describe('ChromeWalletPage create paths', () => {
     }
   );
 });
+
+describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /** Records clicks. Visibility is whether the selector is in the document. */
+  function pageRecording(log: string[]): Page {
+    const locator = (selector: string) => {
+      const self = {
+        waitFor: jest.fn(async () => undefined),
+        click: jest.fn(async () => {
+          log.push(`click ${selector}`);
+        }),
+        isVisible: jest.fn(async () => document.querySelector(selector) !== null),
+        or: () => self
+      };
+      return self;
+    };
+    return {
+      goto: jest.fn(async () => undefined),
+      getByTestId: jest.fn((id: string) => locator(`[data-testid="${id}"]`)),
+      locator: jest.fn((selector: string) => locator(selector))
+    } as unknown as Page;
+  }
+
+  it('recovers from the test-network Welcome and acknowledges the network notice', async () => {
+    document.body.innerHTML =
+      '<a id="import-link"></a><button data-testid="onboarding-network-notice-acknowledge"></button>';
+    const log: string[] = [];
+    await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
+    expect(log).toEqual([
+      'click #import-link',
+      'click [data-testid="onboarding-network-notice-acknowledge"]',
+      'click [data-testid="import-type-seed-phrase"]'
+    ]);
+  });
+
+  it('recovers a mainnet account through the no-code sheet, with no network notice', async () => {
+    document.body.innerHTML =
+      '<button data-testid="onboarding-no-code"></button><button data-testid="no-code-sheet-recover"></button>';
+    const log: string[] = [];
+    await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
+    expect(log).toEqual([
+      'click [data-testid="onboarding-no-code"]',
+      'click [data-testid="no-code-sheet-recover"]',
+      'click [data-testid="import-type-seed-phrase"]'
+    ]);
+  });
+});

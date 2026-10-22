@@ -50,6 +50,7 @@ function key(): Hex {
 }
 
 test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
+  test.setTimeout(2_400_000);
   const seed = process.env.E2E_MAINNET_PLAIN_SEED;
   if (!seed) throw new Error('E2E_MAINNET_PLAIN_SEED is unset');
   const signer = key();
@@ -60,6 +61,10 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
   const accountId = await accountHex(imported.address);
   const problems: string[] = [];
   await walletA.triggerSync(true);
+  // Same as the round trip: consume the plain account's notes before reading the vault. The
+  // Guardian account is consumed in the round trip, which this job runs first.
+  await walletA.claimAllNotes(600_000);
+  await walletA.refreshBalances();
   const baseFee = await walletDiscoveredBaseFee(walletA.page);
   const nativeId = await walletDiscoveredNativeFaucetId(walletA.page);
   if (baseFee === null || baseFee < 1 || !nativeId) {

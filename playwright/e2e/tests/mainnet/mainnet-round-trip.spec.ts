@@ -142,7 +142,7 @@ test.describe('nightly round trip', () => {
   test.skip(process.env.E2E_MAINNET_BOOTSTRAP === '1', 'registration does not spend');
 
   test('plain and guardian exchange one base unit of the native asset', async ({ walletA, walletB }) => {
-    test.setTimeout(1_200_000);
+    test.setTimeout(2_700_000);
     const seed = process.env.E2E_MAINNET_PLAIN_SEED;
     const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR;
     if (!seed || !keyPair) throw new Error('E2E_MAINNET_PLAIN_SEED or E2E_MAINNET_GUARDIAN_KEY_PAIR is unset');
@@ -153,6 +153,13 @@ test.describe('nightly round trip', () => {
 
     await walletA.triggerSync(true);
     await walletB.triggerSync(true);
+    // A top-up sits in Pending until the account consumes it, and the vault check below does not
+    // count Pending. The product wallet cannot claim for the plain account, so this job consumes
+    // both accounts before it judges the balance.
+    await walletA.claimAllNotes(600_000);
+    await walletB.claimAllNotes(600_000);
+    await walletA.refreshBalances();
+    await walletB.refreshBalances();
     const fee = await discoveredFee(walletA.page);
     const oneTx = TX_FEE_MULTIPLE * BigInt(fee);
     const required = NIGHTS * (SEND_BASE_UNITS + ROUND_TRIP_TXS * oneTx);
@@ -168,9 +175,6 @@ test.describe('nightly round trip', () => {
       guardianHolding.base,
       `guardian ${guardianAddress} holds ${guardianHolding.base} base units of ${guardianHolding.faucetId}, short of ${required}`
     ).toBeGreaterThanOrEqual(required);
-
-    await walletA.claimAllNotes();
-    await walletB.claimAllNotes();
 
     const before = {
       plain: await vaultBalanceByFaucetId(walletA.page, plainHolding.faucetId),
