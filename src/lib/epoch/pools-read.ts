@@ -155,25 +155,26 @@ function envelopeItems(body: unknown): unknown[] | null {
 }
 
 /**
- * One `/pools` page. A non-OK answer (the testnet host has no `/pools` route and answers 404) and a body that is not
- * the expected JSON envelope are `unserved`. A network failure, a timeout and a body that is too large reject.
+ * One `/pools` page. HTTP 404 is `unserved` for the testnet host with no `/pools` route; every other HTTP failure or
+ * body that is not the expected JSON envelope rejects. A network failure, timeout and oversized body also reject.
  */
 async function readPoolsPage(fetchFn: JsonFetch, url: string, timeoutMs: number): Promise<PageRead> {
   const seen = { refused: false };
   const watching: JsonFetch = async (requestUrl, init) => {
     const response = await fetchFn(requestUrl, init);
-    seen.refused = !response.ok;
+    seen.refused = response.status === 404;
     return response;
   };
   let body: unknown;
   try {
     body = await fetchBoundedJson(watching, url, { maxBytes: POOLS_PAGE_MAX_BYTES, timeoutMs });
   } catch (err) {
-    if (seen.refused || err instanceof SyntaxError) return { state: 'unserved', reason: errorMessage(err) };
+    if (seen.refused) return { state: 'unserved', reason: errorMessage(err) };
     throw err;
   }
   const items = envelopeItems(body);
-  return items ? { state: 'ok', items } : { state: 'unserved', reason: 'pools response is invalid' };
+  if (!items) throw new Error('Epoch pools response is invalid');
+  return { state: 'ok', items };
 }
 
 /**
@@ -369,7 +370,7 @@ async function readPositionsFallbackCatalog(
  * The vaults of `route` the document lists, in the list's order: its token's markets on its chain that an entry of
  * `route.listed` names. With no entry on the route it makes no request and gives no vault. Reads `/pools` page by
  * page until a page is short (at most EARN_POOLS_MAX_PAGES pages), each request bounded by `timeoutMs`. When the
- * first page is not served (a non-OK answer or a body that is not the envelope), reads the positions fallback.
+ * first page returns HTTP 404, reads the positions fallback.
  * Rejects when a request fails or times out, or when a later page or the fallback fails. A malformed item does not
  * fail the read: it is dropped and logged, as is a listed vault the catalogue does not serve.
  */
@@ -390,7 +391,13 @@ export async function readEarnVaults(
       sortBy: 'depositRate',
       sortDir: 'DESC'
     });
-    const read = await readPoolsPage(fetchFn, `${route.positionsUrl}/pools?${query.toString()}`, timeoutMs);
+    let read: PageRead;
+    try {
+      read = await readPoolsPage(fetchFn, `${route.positionsUrl}/pools?${query.toString()}`, timeoutMs);
+    } catch (err) {
+      if (page === 0) throw err;
+      throw new Error(`Epoch pools page ${page + 1} failed: ${errorMessage(err)}`);
+    }
     if (read.state === 'unserved') {
       if (page === 0) return readPositionsFallbackCatalog(fetchFn, route, listing, timeoutMs);
       throw new Error(`Epoch pools page ${page + 1} failed: ${read.reason}`);

@@ -278,7 +278,7 @@ describe('fetchEarnPositions', () => {
   });
 
   it('reports a failed catalogue read under its own label, and keeps the positions of supported markets', async () => {
-    serve({
+    const fetchMock = serve({
       pools: () => answer(null, 503),
       catalog: () => answer(null, 503),
       owner: () =>
@@ -297,6 +297,7 @@ describe('fetchEarnPositions', () => {
     ]);
     expect(result.vaults).toEqual([]);
     expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
+    expect(requestedPaths(fetchMock)).toEqual(['/pools', `/positions?account=${OWNER}`]);
   });
 
   it('reads no catalogue when told to skip it, and keeps the positions of supported markets', async () => {
