@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Этот маршрут недоступен для данного перевода. Вы можете продолжить, выбрав другой доступный маршрут. С этого экрана не было отправлено ни одной транзакции.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Этот маршрут недоступен для данного перевода, и в данный момент нет других доступных маршрутов. С этого экрана не было отправлено ни одной транзакции.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Продолжить через Agglayer",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Продолжить через Epoch",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "Сжигание USDCx",
     "englishSource": "Burn USDCx"
@@ -709,9 +733,33 @@
     "message": "Личные достижения вашего кошелька.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Заработанный",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Заблокирован",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Скоро",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Коллекция значков",
-    "englishSource": "Badge collection"
+    "message": "Все значки",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Только Mainnet",
@@ -722,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Значки открываются в Mainnet. Тестовая активность не учитывается.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Бейджи разблокируются в Mainnet. Тестовая активность не учитывается.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, получен",
@@ -5212,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "На этом счете может храниться не более $cap$ долларов США. На нем находится $held$ долларов США, и этот депозит добавляет $deposit$ долларов США. Введите меньшую сумму.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "На этом счете может храниться не более $cap$ долларов США, а у $token$ в данный момент нет цены, поэтому невозможно проверить соответствие депозита по нему. Попробуйте позже.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Мост запущен!",
     "englishSource": "Bridge initiated!"
@@ -6865,6 +6940,14 @@
     "message": "Мост в",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "Не удалось загрузить список токенов моста, поэтому некоторые токены могут отсутствовать. Попробуйте позже.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "Бридж не листирует этот токен в этой сети.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "Подключите свой кошелек",
     "englishSource": "Connect your wallet"
@@ -7122,5 +7205,13 @@
   "walletAccessUnavailableBody": {
     "message": "Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Этот браузер или устройство не поддерживает работу кошелька",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

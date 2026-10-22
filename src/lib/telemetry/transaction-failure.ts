@@ -228,6 +228,13 @@ export const PIPELINE_KILLS = [
 
 type PipelineKill = (typeof PIPELINE_KILLS)[number];
 
+// Facts an offscreen abort carries (miden-client-proxy.ts): whose deadline closed the document, which of its timers
+// fired, whether that op was a write, and whether this op's start signal had arrived (a dropped signal reads `no`).
+export const OFFSCREEN_DEADLINE_OWNERS = ['own', 'collateral', 'unavailable'] as const;
+export const OFFSCREEN_DEADLINE_TIMERS = ['dispatch', 'backstop', 'started', 'resumed', 'unavailable'] as const;
+export const OFFSCREEN_DEADLINE_KILLERS = ['write', 'read', 'unavailable'] as const;
+export const OFFSCREEN_OP_STARTED = ['yes', 'no', 'unavailable'] as const;
+
 export const EXECUTION_CAUSES = [
   'request_note_consumed',
   'request_note_processing',
@@ -532,8 +539,44 @@ const LOCK_EVICTIONS = new Map<unknown, PipelineKill>([
   ['realm-error', 'wasm_lock_evicted_realm_error']
 ]);
 
+function closedFact<T extends string>(read: () => unknown, values: readonly T[], fallback: T): T {
+  try {
+    const value = read();
+    return values.find(listed => listed === value) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// The facts are read field by field off the thrown value, so a value from another realm or a hostile accessor
+// degrades each one to `unavailable` rather than dropping the abort's name.
+function offscreenAbortFacts(link: unknown, kill: PipelineKill): string {
+  const field = (owner: () => unknown, name: string) => () => {
+    const value = owner();
+    return typeof value === 'object' && value !== null ? Reflect.get(value, name) : undefined;
+  };
+  const facts = field(() => link, 'facts');
+  const startedValue = field(facts, 'started');
+  const started = closedFact(
+    () => {
+      const value = startedValue();
+      return value === true ? 'yes' : value === false ? 'no' : undefined;
+    },
+    OFFSCREEN_OP_STARTED,
+    'unavailable'
+  );
+  if (kill !== 'offscreen_aborted_deadline' && kill !== 'offscreen_aborted_deadline_no_kill') {
+    return `${kill}; op start reported ${started}`;
+  }
+  const deadline = field(facts, 'deadline');
+  const owner = closedFact(field(deadline, 'owner'), OFFSCREEN_DEADLINE_OWNERS, 'unavailable');
+  const timer = closedFact(field(deadline, 'timer'), OFFSCREEN_DEADLINE_TIMERS, 'unavailable');
+  const killer = closedFact(field(deadline, 'killer'), OFFSCREEN_DEADLINE_KILLERS, 'unavailable');
+  return `${kill}; deadline owner ${owner}; deadline timer ${timer}; deadline op ${killer}; op start reported ${started}`;
+}
+
 // Named by class and reason, never by message: the abort's message carries the operation id.
-function killIdentity(error: unknown): PipelineKill | undefined {
+function killIdentity(error: unknown): string | undefined {
   for (const link of errorChain(error)) {
     try {
       const offscreen = isOperationAbortedError(link);
@@ -544,9 +587,8 @@ function killIdentity(error: unknown): PipelineKill | undefined {
       } catch {
         reason = undefined;
       }
-      return offscreen
-        ? (OFFSCREEN_ABORTS.get(reason) ?? 'offscreen_aborted_other')
-        : (LOCK_EVICTIONS.get(reason) ?? 'wasm_lock_evicted_other');
+      if (!offscreen) return LOCK_EVICTIONS.get(reason) ?? 'wasm_lock_evicted_other';
+      return offscreenAbortFacts(link, OFFSCREEN_ABORTS.get(reason) ?? 'offscreen_aborted_other');
     } catch {
       // A throwing accessor costs this link, not the report.
     }
@@ -707,6 +749,10 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...SUBMIT_LEG_BUCKETS,
   ...THROWN_CLASSES,
   ...PIPELINE_KILLS,
+  ...OFFSCREEN_DEADLINE_OWNERS,
+  ...OFFSCREEN_DEADLINE_TIMERS,
+  ...OFFSCREEN_DEADLINE_KILLERS,
+  ...OFFSCREEN_OP_STARTED,
   ...EXECUTION_CAUSES,
   ...SIGNING_STEPS,
   ...CONFIRMING_STEPS,
@@ -807,7 +853,11 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
               failure.feeAdmission === undefined ? 'unrecorded' : 'other'
             )}`
           ].join('')
-        : '';
+        : // Any row the loop requeued records its cause; only a recorded one is named, so a report that has none keeps its
+          // message and its Sentry group.
+          failure.lastDeferral === undefined
+          ? ''
+          : `; last deferral ${diagnostic<string>(failure.lastDeferral, CONSUME_DEFERRAL_CAUSES, 'other')}`;
     const platform: (typeof FAILURE_PLATFORMS)[number] = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');

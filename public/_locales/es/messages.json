@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Rápido · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Lento · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Esta ruta no está disponible para esta transferencia. Puede continuar con otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Esta ruta no está disponible para esta transferencia, y en este momento no hay ninguna otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Continúa en Agglayer",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Continuar en Epoch",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "Quemar USDCx",
     "englishSource": "Burn USDCx"
@@ -709,9 +733,33 @@
     "message": "Los logros privados de tu billetera.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Ganado",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Bloqueado",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "Próximamente",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Colección de insignias",
-    "englishSource": "Badge collection"
+    "message": "Todas las insignias",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Solo en Mainnet",
@@ -722,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Las insignias se desbloquean en Mainnet. La actividad de prueba no cuenta.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Las insignias se desbloquean en Mainnet. La actividad en la red de pruebas no cuenta.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, obtenida",
@@ -5212,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Esta cuenta puede contener como máximo $cap$ USD. Contiene $held$ USD y este depósito añade $deposit$ USD. Introduce una cantidad menor.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Esta cuenta puede contener como máximo $cap$ USD, y $token$ no tiene precio en este momento, por lo que no se puede comprobar el depósito con respecto a él. Inténtalo de nuevo más tarde.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "¡Puente iniciado!",
     "englishSource": "Bridge initiated!"
@@ -6865,6 +6940,14 @@
     "message": "Puente en",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "No se ha podido cargar la lista de tokens del puente, por lo que es posible que falten algunos tokens. Inténtalo de nuevo más tarde.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "El puente no cotiza este token en esta red.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "Conecta tu monedero",
     "englishSource": "Connect your wallet"
@@ -7122,5 +7205,13 @@
   "walletAccessUnavailableBody": {
     "message": "Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Este navegador o dispositivo no puede ejecutar la cartera",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

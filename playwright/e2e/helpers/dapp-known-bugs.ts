@@ -1,4 +1,4 @@
-import type { AxisLabel, FailureEvidence } from './dapp-cells';
+import type { AxisLabel, FailureEvidence, Surface } from './dapp-cells';
 import pinned from './dapp-pinned.json';
 
 /**
@@ -14,31 +14,49 @@ export interface FailureFacts {
   readonly evidence: FailureEvidence;
 }
 
+/** One place a known bug is red: an axis on a surface. */
+export interface CellPlacement {
+  readonly axis: AxisLabel;
+  readonly surface: Surface;
+}
+
 export interface KnownBug {
   readonly id: string;
   readonly title: string;
   /** Where the fix lives; the entry goes when it lands. */
   readonly tracking: string;
-  /** Each affected cell id and the axes it is red on. */
-  readonly cells: Readonly<Record<string, readonly AxisLabel[]>>;
+  /** Each affected cell and where it is red; a phase-1 entry covers a mobile cell only once a mobile run showed it. */
+  readonly cells: Readonly<Record<string, readonly CellPlacement[]>>;
+  /** The e2e-dapp.yml run id whose records showed this signature on iOS or Android; set once any placement is mobile. */
+  readonly mobileEvidenceRun?: string;
   /** True only for this bug's failure, so the same cell failing any other way stays new. */
   signature(facts: FailureFacts): boolean;
 }
 
 export interface KnownBugRegistry {
-  bugsFor(cellId: string, axis: AxisLabel): readonly KnownBug[];
+  bugsFor(cellId: string, surface: Surface, axis: AxisLabel): readonly KnownBug[];
 }
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
-const on = (ids: readonly string[], axes: readonly AxisLabel[]): Record<string, readonly AxisLabel[]> =>
-  Object.fromEntries(ids.map(id => [id, axes]));
+const EXTENSION: readonly Surface[] = ['extension'];
+const on = (
+  ids: readonly string[],
+  axes: readonly AxisLabel[],
+  surfaces: readonly Surface[] = EXTENSION
+): Record<string, readonly CellPlacement[]> =>
+  Object.fromEntries(ids.map(id => [id, surfaces.flatMap(surface => axes.map(axis => ({ axis, surface })))]));
+
+// The adapter's wrapper class for each refusal kind, shared with the cell assertions.
+// Keeping runtime imports JSON-only lets the mobile cells share these names without loading their journey here.
+export const REFUSAL_WRAPPERS = { connect: 'WalletConnectionError', transaction: 'WalletTransactionError' };
 
 export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K1',
     title: 'MidenWalletAdapter never follows the provider accountChange',
     tracking: '0xMiden/web-sdk#469 (open)',
-    cells: on(['S7', 'M1', 'WP7-switch', 'WP7-revoke'], BOTH),
+    mobileEvidenceRun: '39090853726',
+    cells: { ...on(['S7', 'WP7-switch', 'WP7-revoke'], BOTH), ...on(['M1'], BOTH, ['extension', 'ios', 'android']) },
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       // With no address from before the switch there is nothing the adapter could have kept.
@@ -77,6 +95,10 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   }
 ];
 
-export const knownBugRegistry: KnownBugRegistry = {
-  bugsFor: (cellId, axis) => KNOWN_BUGS.filter(bug => bug.cells[cellId]?.includes(axis))
-};
+/** A registry over `bugs`: an entry explains a cell only on the surface and the axis it names. */
+export const registryOf = (bugs: readonly KnownBug[]): KnownBugRegistry => ({
+  bugsFor: (cellId, surface, axis) =>
+    bugs.filter(bug => (bug.cells[cellId] ?? []).some(at => at.surface === surface && at.axis === axis))
+});
+
+export const knownBugRegistry: KnownBugRegistry = registryOf(KNOWN_BUGS);

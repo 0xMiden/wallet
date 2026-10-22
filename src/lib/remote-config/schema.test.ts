@@ -107,6 +107,7 @@ const withSection = (name: Section, fields: Record<string, ConfigValue>) => {
               ...chain.bridges,
               agglayer: {
                 ...chain.bridges.agglayer,
+                ...fields,
                 contractAddress: 'l1Bridge' in fields ? fields.l1Bridge : chain.bridges.agglayer.contractAddress,
                 midenBridgeId: fields.midenBridge ?? chain.bridges.agglayer.midenBridgeId
               }
@@ -201,6 +202,34 @@ it('reads absent sections as empty and absent switches as off', () => {
     features: ALL_OFF,
     mainnetCountdown: { enabled: false },
     swap: {}
+  });
+});
+
+describe('limits.bridgeInMaxBalanceUsd', () => {
+  it('reads the bridge-in balance ceiling', () => {
+    const parsed = parseBridgeConfig(doc({ limits: { bridgeInMaxBalanceUsd: 1232.462 } }), 'testnet');
+    expect(parsed?.limits).toStrictEqual({ bridgeInMaxBalanceUsd: 1232.462 });
+  });
+
+  it.each([
+    ['no limits section', doc()],
+    ['an empty limits section', doc({ limits: {} })],
+    ['a limits section with other fields', doc({ limits: { other: 1 } })]
+  ])('leaves limits out for %s', (_label, body) => {
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty('limits');
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, '1232.462', null, true])(
+    'fails the document on the malformed ceiling %p',
+    bridgeInMaxBalanceUsd => {
+      expect(parseBridgeConfig(doc({ limits: { bridgeInMaxBalanceUsd } }), 'testnet')).toBeNull();
+    }
+  );
+
+  it('fails the document on a limits section that is not an object', () => {
+    expect(parseBridgeConfig(doc({ limits: 1232 }), 'testnet')).toBeNull();
   });
 });
 
@@ -625,6 +654,56 @@ describe('the E2E local http allowance', () => {
   it.each(['http://allocator.example', 'http://10.0.2.2:8548'])('still rejects %s', input => {
     const body = withSection('epoch', { allocatorUrl: input });
     expect(parseBridgeConfig(body, 'testnet', { allowLocalHttp: true })).toBeNull();
+  });
+});
+
+describe('the AggLayer deposit tokens', () => {
+  const agglayerRoute = (body: ReturnType<typeof parseBridgeConfig>) =>
+    body?.supportedEvmChains.sepolia?.bridges.agglayer;
+
+  it('reads the listed tokens, addresses lowercase, and the Blockscout root without its trailing slash', () => {
+    const parsed = parseBridgeConfig(
+      withSection('agglayer', {
+        tokens: {
+          USDC: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' },
+          WBTC: { contractAddress: '0x21472DF1B5d2b673F6444B41258C6460294a2C06' }
+        },
+        tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2/'
+      }),
+      'testnet'
+    );
+    expect(agglayerRoute(parsed)).toMatchObject({
+      tokens: {
+        USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+        WBTC: { contractAddress: '0x21472df1b5d2b673f6444b41258c6460294a2c06' }
+      },
+      tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2'
+    });
+  });
+
+  it('leaves both out when the document names none', () => {
+    const route = agglayerRoute(parseBridgeConfig(doc(), 'testnet'));
+    expect(route).not.toHaveProperty('tokens');
+    expect(route).not.toHaveProperty('tokenApiUrl');
+  });
+
+  it.each<[string, Record<string, ConfigValue>]>([
+    ['a list instead of a map', { tokens: [] }],
+    ['a lower-case symbol', { tokens: { usdc: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' } } }],
+    ['a short address', { tokens: { USDC: { contractAddress: '0x1' } } }],
+    [
+      'one address twice',
+      {
+        tokens: {
+          USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+          USDT: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' }
+        }
+      }
+    ],
+    ['an http Blockscout root', { tokenApiUrl: 'http://eth-sepolia.blockscout.com/api/v2' }],
+    ['a Blockscout root with a query', { tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2?x=1' }]
+  ])('rejects %s', (_label, fields) => {
+    expect(parseBridgeConfig(withSection('agglayer', fields), 'testnet')).toBeNull();
   });
 });
 

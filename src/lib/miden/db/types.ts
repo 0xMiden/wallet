@@ -36,6 +36,19 @@ export enum ITransactionStatus {
 export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
 
+/**
+ * A claim of one settlement kind for one swap order that has not settled yet: queued, generating, or waiting for the
+ * node's verdict. Neither stamp writer marks the order settled while one is open (#1644).
+ */
+export const isOpenSettlementClaim = (
+  row: Pick<ITransaction, 'type' | 'status' | 'extraInputs'>,
+  settle: Pick<IConsumeSwapSettleExtraInputs, 'swapOrderTxId' | 'swapSettleKind'>
+): boolean =>
+  row.type === 'consume' &&
+  row.extraInputs?.swapOrderTxId === settle.swapOrderTxId &&
+  row.extraInputs?.swapSettleKind === settle.swapSettleKind &&
+  (isLiveTransaction(row) || row.status === ITransactionStatus.Unconfirmed);
+
 /** The pipeline is done with the row: it completed, failed, or waits for the node's verdict (#1081). */
 export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Completed ||
@@ -196,8 +209,24 @@ export interface IUsdcxCctpLeg {
 }
 
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
+/**
+ * The delivery of an AggLayer ERC-20 deposit, saved with its row so the match outlives the document. A test network
+ * registers a token's faucet on its first deposit, so a row may name only the token; its faucet and scale are then
+ * read from the registry when the delivery is matched.
+ */
+export interface IAgglayerDelivery {
+  /** The deposited ERC-20 on the source chain, lowercase. */
+  originToken: string;
+  /** The registry faucet for the deposited token: it mints the delivery and sends its note. Absent until registered. */
+  faucetId?: string;
+  /** The faucet's registry scale: a deposit of `w` source base units arrives as `floor(w / 10^scale)`. */
+  scale?: number;
+}
+
 export interface IBridgedReceiveExtraInputs {
   agglayerRoute?: AgglayerRecoveryConfig;
+  /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
+  agglayerDelivery?: IAgglayerDelivery;
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   /** EVM source chain; absent on legacy Sepolia rows. */
@@ -525,6 +554,8 @@ export interface IBridgeInInfo {
   sourceAmount?: string;
   /** EVM-side input token symbol (e.g. USDC). */
   sourceSymbol?: string;
+  /** agglayer: the deposited ERC-20's address, lowercase, copied from the tracker it settled; absent for ETH. */
+  sourceToken?: string;
   /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
   intentNonce?: string;
   intentOwner?: string;
@@ -561,6 +592,12 @@ export interface IConsumeSwapSettleExtraInputs {
   swapOrderTxId: string;
   /** Payback claim on fill vs. expiry-driven reclaim of the remaining tip. */
   swapSettleKind: 'settle' | 'reclaim';
+  /**
+   * Queued by a settlement pass that split the order over several claims, each at most MAX_NOTES_PER_UNATTENDED_CLAIM
+   * notes of one kind (#1644). Its completion never stamps the order: the settlement tick stamps it once no note of
+   * the order is left to claim.
+   */
+  swapSettlePartial?: boolean;
 }
 
 export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> & Partial<IConsumeSwapSettleExtraInputs>;
@@ -1006,6 +1043,13 @@ export interface ITransaction {
   neverCommittedAt?: number;
   /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
   attemptId?: string;
+  /**
+   * The candidate a Guardian attempt's proposal left on its Guardian, written once the proposal exists (#1666): its
+   * Guardian as the service spells it, its nonce, the wall-clock stamp taken before the proposal and the attempt it
+   * belongs to. The in-memory record that abandons a failed write's candidate dies with its process; only the
+   * startup sweep reads this, for an attempt a dead process left before its submit.
+   */
+  guardianCandidate?: { endpoint: string; nonce: number; proposedAt: number; attemptId: string };
 }
 
 /**

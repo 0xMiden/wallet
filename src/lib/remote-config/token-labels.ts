@@ -1,4 +1,6 @@
 // The leaf, never lib/miden/swap/tokens: the metadata overrides read these labels (see faucet-ids.ts).
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import type { IBridgeProvider } from 'lib/miden/db/types';
 import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
@@ -84,4 +86,24 @@ export function evmUsdcLabel(snapshot: BridgeConfigSnapshot, symbol: string): st
     Object.values(snapshot.config?.supportedEvmChains ?? {}).some(chain => chain.bridges.epoch?.tokens.USDC)
     ? TEST_EPOCH_USDC_LABEL
     : symbol;
+}
+
+/**
+ * The name a bridge-in's EVM source is shown under. ETH and Circle's USDC keep their symbol. An AggLayer row that saved
+ * the ERC-20 it deposited (`sourceToken`) takes the bridge USDC's label only when that token is the document's EVM
+ * USDC; any other ERC-20 keeps its symbol. A row with no saved token is ETH or the bridge's own USDC.
+ */
+export function bridgeInSourceLabel(
+  snapshot: BridgeConfigSnapshot,
+  source: { provider?: IBridgeProvider; symbol: string; sourceToken?: string }
+): string {
+  if (source.provider === 'usdcx' || source.symbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL) return source.symbol;
+  if (source.sourceToken !== undefined) {
+    const token = source.sourceToken.toLowerCase();
+    const isBridgeUsdc = Object.values(snapshot.config?.supportedEvmChains ?? {}).some(
+      chain => chain.bridges.epoch?.tokens.USDC?.contractAddress.toLowerCase() === token
+    );
+    if (!isBridgeUsdc) return source.symbol;
+  }
+  return evmUsdcLabel(snapshot, source.symbol);
 }

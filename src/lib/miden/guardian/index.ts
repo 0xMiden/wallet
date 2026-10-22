@@ -162,8 +162,12 @@ export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
  */
 export const PRIOR_CANDIDATE_CHECK_TIMEOUT_MS = 10_000;
 
-/** The Guardian's own hold on a candidate that never settles (600 s): past it the Guardian has released it (#1317). */
-export const GUARDIAN_CANDIDATE_HOLD_MS = 600_000;
+/**
+ * The Guardian's own hold on a candidate that never settles: past it the Guardian has released it (#1317). The
+ * production server waits out its 600 s submission grace, then 48 more checks 10 s apart (`CanonicalizationConfig::
+ * new(10, 48)` in the server's main.rs), so 1080 s, not the grace alone (#1644).
+ */
+export const GUARDIAN_CANDIDATE_HOLD_MS = 1_080_000;
 
 /** Where the delta a previous write left stands: still a `candidate`, `settled`, or `unknown`. */
 export type PriorCandidateState = 'candidate' | 'settled' | 'unknown';
@@ -461,9 +465,12 @@ export class MultisigService {
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
     return this.withChainSyncedHold('procedure-threshold proposal', () =>
-      withProposalStep('proposal_create', () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+      withProposalStep(
+        'proposal_create',
+        () =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold),
+        'update-procedure-threshold'
       )
     );
   }
@@ -887,8 +894,10 @@ export class MultisigService {
       const proposal = await this.withChainSyncedHold(
         'switch-guardian proposal',
         () =>
-          withProposalStep('proposal_create', () =>
-            this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+          withProposalStep(
+            'proposal_create',
+            () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
+            'switch-guardian'
           ),
         syncPhase
       );
@@ -978,8 +987,10 @@ export class MultisigService {
       description: 'Replace device (hot) signer'
     };
 
-    const proposal = await withProposalStep('proposal_create', () =>
-      this.multisig.createProposal(Date.now(), summaryBase64, metadata)
+    const proposal = await withProposalStep(
+      'proposal_create',
+      () => this.multisig.createProposal(Date.now(), summaryBase64, metadata),
+      'replace-hot-key'
     );
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;

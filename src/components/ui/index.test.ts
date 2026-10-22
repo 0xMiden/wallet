@@ -44,6 +44,7 @@ import { ListRow } from './ListRow';
 import { Notice } from './Notice';
 import { Pill } from './Pill';
 import { Popover } from './Popover';
+import { ProgressMeter } from './ProgressMeter';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
@@ -95,6 +96,7 @@ describe('components/ui barrel', () => {
     CopyChip,
     AnimatedCopyIcon,
     CopyLabel,
+    ProgressMeter,
     PromptCard,
     PromptCarousel,
     AssetListItem,

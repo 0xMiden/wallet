@@ -6,6 +6,7 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { classifyError } from 'lib/telemetry/classify';
+import { logOperationEnd } from 'lib/telemetry/diagnostic-log';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
@@ -301,6 +302,10 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
         ? { errorKind: classifyError(failureTextOf(otherValues)), step: stepOfStage(tx.stage) }
         : {})
     });
+    // Here rather than in the pipeline, so a swap that landed but could not be applied locally still ends.
+    if (tx.type === 'swap' && status === ITransactionStatus.Completed) {
+      logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
+    }
   }
 };
 

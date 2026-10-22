@@ -6,13 +6,13 @@ name: E2E Mainnet Nightly
 # ETH over AggLayer. The loops check every chain first and send nothing if any one of
 # them cannot cover tonight and tomorrow.
 #
-# The cron under `schedule` stays commented until the accounts on issue 1629 are funded.
-# workflow_dispatch is how the first funded run happens.
+# Until the accounts on issue 1629 are funded, a scheduled run fails without moving
+# funds, since the accounts hold none.
 
 on:
-  # After e2e-resilience.yml at 05:00 UTC. Commented until the accounts are funded.
-  # schedule:
-  #   - cron: '30 5 * * *'
+  # After e2e-resilience.yml at 05:00 UTC.
+  schedule:
+    - cron: '30 5 * * *'
   workflow_dispatch:
 
 permissions:

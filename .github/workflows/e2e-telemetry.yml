@@ -1,8 +1,6 @@
 name: Telemetry Egress E2E (Chrome)
 on:
-  push:
-    branches: [main]
-  # Also on PRs that touch the telemetry surface or this harness. The suite needs
+  # On PRs that touch the telemetry surface or this harness. The suite needs
   # its own build (~a few minutes) so it is not worth running on every PR, but a
   # change to the serializer, the sink or the consent gate is exactly what it
   # exists to catch, and finding that out after merge is worse.

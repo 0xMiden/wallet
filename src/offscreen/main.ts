@@ -54,6 +54,7 @@ import {
   OFFSCREEN_RELOAD_ENDPOINTS,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
+  OFFSCREEN_SUBMIT_GATE,
   OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
   b64ToBytes,
@@ -67,7 +68,9 @@ import {
   type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignResponse,
-  type OffscreenStageEvent
+  type OffscreenStageEvent,
+  type OffscreenSubmitGateRequest,
+  type OffscreenSubmitGateResponse
 } from 'lib/miden/back/offscreen-codec';
 import type {
   ConsumeTransaction,
@@ -458,6 +461,26 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // stamp it fires afterwards is correctly addressed to a row the SW has already
 // moved past — 'proving' arriving after the row completed would rewind the UI,
 // and 'submitting' would set may-have-submitted on a row already adjudicated.
+// The Guardian leaf's submit gate (#1644). Unlike a stage stamp it is AWAITED, and only an `ok` from the service
+// worker lets the leaf submit: the worker records the crossing before it answers, so an attempt it never let through
+// provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
+// A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
+// pre-submit step.
+async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields): Promise<void> {
+  const { op_id } = context;
+  if (!op_id || context.settled) throw new Error('offscreen submit gate: no live op to submit for');
+  const request: OffscreenSubmitGateRequest = {
+    target: SW_TARGET,
+    type: OFFSCREEN_SUBMIT_GATE,
+    op_id,
+    ...(evidence === undefined ? {} : { evidence })
+  };
+  const resp = (await chrome.runtime.sendMessage(request)) as OffscreenSubmitGateResponse | undefined;
+  if (resp?.ok !== true) {
+    throw new Error(`offscreen submit gate refused: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+  }
+}
+
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
   const { op_id } = context;
   if (!op_id || context.settled) return;
@@ -1093,17 +1116,18 @@ const DISPATCH: Record<string, DispatchFn> = {
       // local under a relaxed ceiling - so the same question has to be asked again.
       // Still pre-submit: nothing has been broadcast at this point.
       assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
+      // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
+      await passSubmitGate(
+        context,
+        readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+      );
+      // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
+      assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
     } catch (preSubmitError) {
       // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
       // own shape: markErrorBeforeSubmit never tags one.
       throw markErrorBeforeSubmit(preSubmitError);
     }
-    // Read under this op's own hold before the stamp, so the service worker can record what the attempt was (#1081).
-    postStageEvent(
-      context,
-      'submitting',
-      readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
-    );
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
     // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has

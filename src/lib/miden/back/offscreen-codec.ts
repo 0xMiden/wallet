@@ -52,6 +52,12 @@ export const OFFSCREEN_RELOAD_ENDPOINTS = 'OFFSCREEN_RELOAD_ENDPOINTS' as const;
  * never an un-serializable SDK handle (issue #260, slice 5, design §2). */
 export const OFFSCREEN_SIGN_REQUEST = 'OFFSCREEN_SIGN_REQUEST' as const;
 
+/** Message family for the Guardian leaf's submit gate (offscreen → SW → offscreen, #1644). The leaf asks before its
+ * submit call and submits only on `ok`; the service worker records the crossing before it answers, and refuses an op
+ * it no longer runs. So an attempt whose gate the service worker never opened provably never called submit, which a
+ * fire-and-forget {@link OFFSCREEN_STAGE_EVENT} cannot show: its absence proves nothing. */
+export const OFFSCREEN_SUBMIT_GATE = 'OFFSCREEN_SUBMIT_GATE' as const;
+
 /** Fire-and-forget control message (offscreen → SW): the op named by `op_id` has
  * just WON the offscreen WASM mutex and is about to execute. The SW arms that
  * write's deadline HERE — at execution start — rather than at dispatch, so the
@@ -229,6 +235,18 @@ export interface OffscreenSignRequest {
   publicKeyB64: string;
   signingInputsB64: string;
 }
+
+/** offscreen → SW submit gate request. See {@link OFFSCREEN_SUBMIT_GATE}. `evidence` is the submit evidence the
+ * 'submitting' stamp carries (#1081), untrusted on arrival like the stamp's. */
+export interface OffscreenSubmitGateRequest {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_SUBMIT_GATE;
+  op_id: string;
+  evidence?: SubmitEvidenceFields;
+}
+
+/** SW → offscreen submit gate answer: submit only on `ok: true`. */
+export type OffscreenSubmitGateResponse = { ok: true } | { ok: false; error: string };
 
 /**
  * offscreen → SW execution-start signal (issue #260 flip-prep #3). Posted from
@@ -449,13 +467,26 @@ export function errorNameOf(error: unknown): string | undefined {
 export class OperationAbortedError extends Error {
   readonly op_id: string;
   readonly reason: string;
+  /** Closed facts about the abort for crash reports; never an id or a duration. */
+  readonly facts?: OffscreenAbortFacts;
 
-  constructor(op_id: string, reason: string) {
+  constructor(op_id: string, reason: string, facts?: OffscreenAbortFacts) {
     super(`Offscreen operation ${op_id} aborted (${reason})`);
     this.name = 'OperationAbortedError';
     this.op_id = op_id;
     this.reason = reason;
+    if (facts !== undefined) this.facts = facts;
   }
+}
+
+/** Which timer of the deadline-holding op fired: armed at dispatch, the write backstop, at start, or after a sign. */
+export type OffscreenDeadlineTimer = 'dispatch' | 'backstop' | 'started' | 'resumed';
+
+export interface OffscreenAbortFacts {
+  /** Whether the offscreen doc's signal that this op won its mutex had arrived; the signal can be dropped. */
+  started: boolean;
+  /** For a deadline abort: whose deadline fired, which of its timers, and whether that op was a write. */
+  deadline?: { owner: 'own' | 'collateral'; timer: OffscreenDeadlineTimer; killer: 'write' | 'read' };
 }
 
 /**
