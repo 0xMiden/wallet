@@ -67,6 +67,19 @@ it('uses USDT first, converts current and prior prices, and caches market resolu
   expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(1);
 });
 
+it('gives a BTC quote whose change24h is in USD and whose percentageChange24h is a percent', async () => {
+  // Realistic 24hr ticker figures: BTC down $335.30 from $82,735.30, USDT at a flat $0.99958.
+  http.get.mockResolvedValueOnce(market('BTC')).mockResolvedValueOnce({
+    data: [ticker('USDTUSD', '0.99958'), ticker('USDCUSD', '1'), ticker('BTCUSDT', '82400.00', '-335.30')]
+  });
+  const btc = (await engine.fetchTokenPrices(['BTC'])).BTC;
+  expect(btc?.price).toBeCloseTo(82365.392, 3);
+  // The USD change, scaled by the USDT rate exactly as the price is.
+  expect(btc?.change24h).toBeCloseTo(-335.159, 3);
+  // -335.30 / 82735.30: a fraction of a percent, never the USD figure.
+  expect(btc?.percentageChange24h).toBeCloseTo(-0.40527, 4);
+});
+
 it('falls back to USDC only when the USDT market is absent or inactive', async () => {
   http.get
     .mockResolvedValueOnce({
