@@ -48,7 +48,10 @@ export type BackgroundAge = (typeof BACKGROUND_AGES)[number];
 export const PAGE_NAVIGATIONS = ['navigate', 'reload', 'back_forward', 'prerender', 'unknown'] as const;
 export type PageNavigation = (typeof PAGE_NAVIGATIONS)[number];
 
-/** The step a Guardian proposal's preparation was in when it failed, from the service lookup to the signing stage. */
+/**
+ * The step a Guardian proposal's preparation was in when it failed, from the service lookup through the signing stage
+ * to the submit crossing that hands the co-signed request to the transaction pipeline.
+ */
 export const PROPOSAL_STEPS = [
   'service_select',
   'service_account_read',
@@ -58,13 +61,31 @@ export const PROPOSAL_STEPS = [
   'reclaim_build',
   'reclaim_persist',
   'proposal_create',
-  'signing_stage_write'
+  'signing_stage_write',
+  'submit_serialize',
+  'submit_pin',
+  'client_build'
 ] as const;
 export type ProposalStep = (typeof PROPOSAL_STEPS)[number];
 
-/** The wallet's own checks that refuse to build a Guardian service for an account. */
-export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing'] as const;
+/** The wallet's own checks that refuse to build a Guardian service for an account, or to use one. */
+export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing', 'guardian_out_of_sync'] as const;
 export type ProposalGuard = (typeof PROPOSAL_GUARDS)[number];
+
+/**
+ * The account's own security changes. These are the names in `STRUCTURAL_GUARDIAN_TYPES` and nothing else: a
+ * proposal failure for one of them otherwise looks the same as the other two.
+ */
+export const SECURITY_CHANGE_ACTIONS = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const;
+export type SecurityChangeAction = (typeof SECURITY_CHANGE_ACTIONS)[number];
+
+/** The step a submitted transaction's completion was in when it failed, from reading its result to recording it. */
+export const COMPLETION_STEPS = ['result_read', 'row_read', 'result_serialize', 'status_write'] as const;
+export type CompletionStep = (typeof COMPLETION_STEPS)[number];
+
+/** The wallet's own checks that refuse an executed result its completion cannot record. */
+export const COMPLETION_GUARDS = ['no_input_notes', 'no_fungible_assets'] as const;
+export type CompletionGuard = (typeof COMPLETION_GUARDS)[number];
 
 export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
 export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
@@ -105,6 +126,9 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   userErrorSurface?: UserErrorSurface;
   proposalStep?: ProposalStep;
   proposalGuard?: ProposalGuard;
+  securityChange?: SecurityChangeAction;
+  completionStep?: CompletionStep;
+  completionGuard?: CompletionGuard;
 };
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
@@ -205,7 +229,10 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       userErrorId,
       userErrorSurface: suppliedSurface,
       proposalStep: suppliedStep,
-      proposalGuard: suppliedGuard
+      proposalGuard: suppliedGuard,
+      securityChange: suppliedChange,
+      completionStep: suppliedCompletionStep,
+      completionGuard: suppliedCompletionGuard
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -247,6 +274,15 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       safe.proposalStep = proposalStep;
       const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
       if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
+      // Only beside proposal creation, and only a listed change. A listed name on any other step is dropped.
+      const securityChange = SECURITY_CHANGE_ACTIONS.find(action => action === suppliedChange);
+      if (proposalStep === 'proposal_create' && securityChange !== undefined) safe.securityChange = securityChange;
+    }
+    const completionStep = COMPLETION_STEPS.find(step => step === suppliedCompletionStep);
+    if (completionStep !== undefined && previous.completionStep === undefined) {
+      safe.completionStep = completionStep;
+      const completionGuard = COMPLETION_GUARDS.find(guard => guard === suppliedCompletionGuard);
+      if (completionGuard !== undefined) safe.completionGuard = completionGuard;
     }
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
@@ -256,14 +292,33 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
-/** Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did. */
-export async function withProposalStep<T>(step: ProposalStep, operation: () => Promise<T>): Promise<T> {
+async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    annotateCrash(error, { proposalStep: step });
+    annotateCrash(error, diagnostics);
     throw error;
   }
+}
+
+/**
+ * Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did.
+ * `securityChange` is recorded with that step when this boundary is one of the account's own security changes.
+ */
+export function withProposalStep<T>(
+  step: ProposalStep,
+  operation: () => Promise<T>,
+  securityChange?: SecurityChangeAction
+): Promise<T> {
+  return annotatingRejection(
+    securityChange === undefined ? { proposalStep: step } : { proposalStep: step, securityChange },
+    operation
+  );
+}
+
+/** {@link withProposalStep} for the completion of a submitted transaction. */
+export function withCompletionStep<T>(step: CompletionStep, operation: () => Promise<T>): Promise<T> {
+  return annotatingRejection({ completionStep: step }, operation);
 }
 
 /** `error` and up to three of its causes, outermost first. */
@@ -359,6 +414,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
       Object.assign(snapshot, storage);
     }
   }
+  // A name recorded on proposal creation must not survive onto a later step in the cause chain.
+  if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
   return snapshot;
 }
 

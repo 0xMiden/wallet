@@ -461,9 +461,12 @@ export class MultisigService {
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
     return this.withChainSyncedHold('procedure-threshold proposal', () =>
-      withProposalStep('proposal_create', () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+      withProposalStep(
+        'proposal_create',
+        () =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold),
+        'update-procedure-threshold'
       )
     );
   }
@@ -887,8 +890,10 @@ export class MultisigService {
       const proposal = await this.withChainSyncedHold(
         'switch-guardian proposal',
         () =>
-          withProposalStep('proposal_create', () =>
-            this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+          withProposalStep(
+            'proposal_create',
+            () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
+            'switch-guardian'
           ),
         syncPhase
       );
@@ -978,8 +983,10 @@ export class MultisigService {
       description: 'Replace device (hot) signer'
     };
 
-    const proposal = await withProposalStep('proposal_create', () =>
-      this.multisig.createProposal(Date.now(), summaryBase64, metadata)
+    const proposal = await withProposalStep(
+      'proposal_create',
+      () => this.multisig.createProposal(Date.now(), summaryBase64, metadata),
+      'replace-hot-key'
     );
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;

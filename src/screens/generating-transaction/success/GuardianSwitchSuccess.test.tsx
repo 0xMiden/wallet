@@ -62,7 +62,7 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 jest.mock('app/icons/guardian-switch-success.svg', () => ({
-  ReactComponent: () => <svg data-testid="hero-art" />
+  ReactComponent: (props: { className?: string }) => <svg data-testid="hero-art" className={props.className} />
 }));
 
 jest.mock('components/Button', () => ({
@@ -230,7 +230,7 @@ describe('GuardianSwitchSuccess', () => {
     // without a single test noticing.
     render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
 
-    expect(screen.getByTestId('hero-art')).toBeInTheDocument();
+    expect(screen.getByTestId('hero-art')).toHaveClass('-mt-4');
     expect(body()).toHaveTextContent('guardianSwitchSuccessInfoTitle');
 
     const bullets = body().querySelectorAll('li');
@@ -255,7 +255,7 @@ describe('GuardianSwitchSuccess', () => {
       render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
 
       const heading = screen.getByRole('heading', { level: 2 });
-      expect(heading).toHaveTextContent('guardianSwitchSuccessInfoTitle');
+      expect(heading.querySelector('[data-slot="pill-label"]')).toHaveTextContent('guardianSwitchSuccessInfoTitle');
       const rows = rowsOf();
       expect(rows[0]?.closest('ul')).not.toBeNull();
       expect(rows).toHaveLength(4);
