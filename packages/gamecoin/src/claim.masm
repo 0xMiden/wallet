@@ -1,0 +1,60 @@
+use miden::protocol::active_note
+use miden::protocol::active_account
+use miden::protocol::tx
+use miden::protocol::note
+use miden::protocol::account_id
+use miden::core::crypto::hashes::poseidon2
+use miden::standards::note::note_target
+use miden::standards::note::note_reclaim
+use miden::standards::wallets::basic as wallet
+use miden::standards::faucets::fungible
+use miden::standards::inspection::code_inspection
+@note_script
+pub proc main
+    dropw
+    push.36.0 exec.active_note::get_bounded_storage eq.36 assert.err="claim storage length"
+    exec.active_note::is_public assert.err="public claim required"
+    mem_load.29 eq.1 assert.err="claim ABI version"
+    exec.active_note::get_sender mem_load.20 assert_eq.err="claimant suffix" mem_load.21 assert_eq.err="claimant prefix"
+    exec.active_note::get_initial_num_assets eq.1 assert.err="one native budget asset"
+    exec.active_account::get_id mem_load.20 mem_load.21 swap
+    # [claimant_suffix,claimant_prefix,account_suffix,account_prefix]
+    exec.account_id::eq
+    if.true
+        mem_load.21 mem_load.20 mem_load.28 exec.note_reclaim::assert_reclaimable
+        exec.wallet::move_note_assets_to_account
+    else
+        call.code_inspection::get_code_commitment
+        padw mem_loadw_le.24 assert_eqw.err="approved issuer code changed"
+        # H(domain || script || requestSerial || metadata || attachments || assets || storageSansReceiptSerial).
+        push.0.0.1.{RECEIPT_DOMAIN_TAG} mem_storew_le.200 dropw
+        exec.active_note::get_script_root mem_storew_le.204 dropw
+        exec.active_note::get_serial_number mem_storew_le.208 dropw
+        exec.active_note::get_metadata mem_storew_le.212 dropw
+        exec.active_note::get_attachments_commitment mem_storew_le.216 dropw
+        exec.active_note::get_initial_assets_info mem_storew_le.220 dropw drop
+        padw mem_loadw_le.0 mem_storew_le.224 dropw
+        push.8
+        repeat.7
+            dup padw movup.4 mem_loadw_le
+            dup.4 add.220 mem_storew_le dropw
+            add.4
+        end
+        drop
+        push.56.200 exec.poseidon2::hash_elements
+        padw mem_loadw_le.4 assert_eqw.err="receipt must bind full approval"
+        exec.tx::get_reference_block_number mem_load.28 lt assert.err="claim reclaim window opened"
+        push.100 exec.active_note::get_initial_assets drop
+        padw mem_loadw_le.100 exec.tx::get_fee_asset_id assert_eqw.err="native budget required"
+        exec.wallet::move_note_assets_to_account
+        # Construct canonical public mint arguments from the first24 storage items.
+        push.0.0
+        padw mem_loadw_le.0
+        padw mem_loadw_le.4
+        push.4.20 exec.note::compute_and_store_recipient
+        push.1 mem_load.16
+        padw mem_loadw_le.12 padw mem_loadw_le.8
+        call.fungible::mint_and_send
+        dropw dropw dropw dropw
+    end
+end

@@ -12,4 +12,5 @@ miden-standards = "=0.17.1"
 
 [dev-dependencies]
 miden-testing = "=0.17.1"
+miden-tx = "=0.17.1"
 tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread"] }

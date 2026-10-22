@@ -14,6 +14,8 @@
 
 ### Changes
 
+- [CHANGE][all] Add a funded GC claim protocol that returns unused issuance fees with each receipt, supports failed-request reclaim and binds delayed allocations to their approved week; wallet activation remains gated on Testnet acceptance (#1452).
+
 - [CHANGE][all] Add offline GC issuer policy tests for account-bound weekly allocations and user-funded issuance, documenting refund and clock limits before enabling Testnet claims (#1452).
 
 - [FEATURE][all] The Coins subpage adds a weekly 10 GC allowance card while Arcade stays focused on games, preserving the featured game and details design. Global balance rankings are removed; live claims and balances remain disabled pending the authoritative backend (#1691).

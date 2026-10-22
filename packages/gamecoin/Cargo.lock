@@ -557,6 +557,7 @@ dependencies = [
  "miden-protocol",
  "miden-standards",
  "miden-testing",
+ "miden-tx",
  "tokio",
 ]
 

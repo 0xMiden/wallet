@@ -1,4 +1,44 @@
-# GC protocol architecture probe
+# Funded GC claims (replacement protocol, offline proof)
+
+`funded::funded_issuer_builder` builds a **new issuer** with atomic actual-fee refunds. This module has not been deployed or accepted on Testnet. The older canonical-MINT probe below is retained as a comparison; its retained-surplus limitation does not describe the funded module.
+
+Pinned protocol/standards/testing/transaction executor: **0.17.1**; Rust **1.98.1**. Run `cargo test --locked -- --nocapture`. No credentials or network writes are used. Public construction vectors are emitted by `cargo run --locked --example funded_vector`; the committed fixture is `fixtures/funded-claim.json`.
+
+## Funded request and exact accounting
+
+A public `GC_CLAIM` note contains one native asset budget B and the claimant's immutable approval. Normal requests carry `NetworkAccountTarget(issuer, Always)`. Standard single-sig and GuardedMultisig senders execute the issuer fee-policy FPI; its zero quote means no additional fee-sponsorship note is emitted. The sender independently pays its own request transaction fee.
+
+The issuer credits each request budget, validates the approved issuer code, network domain, authenticated sender, week, expiry and height, then atomically writes `bread::gc::weekly_claims[sender_suffix, sender_prefix, week, 0] = [1,0,0,0]` and creates a public canonical P2ID receipt with exactly **10,000,000 GC units (10 GC, six decimals)**. Custom authentication preserves canonical network note/script allowlists, effect, native payment, sponsorship conservation and nonce checks. Only funded claims and the canonical expiration transaction script are admitted.
+
+After standard `fee::pay_fee` produces the actual native TX_FEE amount F, n requests divide it deterministically: q=floor(F/n), r=F mod n; input indices below r pay q+1 and the rest q. Every budget must independently cover its share. Each existing GC receipt receives exactly its own B-share native change. Initial issuer native reserves remain unchanged; no balance subsidizes another claim and no surplus is retained. A failed budget check rolls back the entire transaction and weekly entries. Request creation, receipt consumption and any reclaim transactions remain user-paid transactions with their own displayed fees.
+
+Admission uses the intrinsic output bound `MAX_OUTPUT_NOTES_PER_TX-1` (one possible TX_FEE output). There is no arbitrary single-claim or small batch limit. Local 1, 2 and 16 claim transactions execute and conserve all budgets. A theoretical 1,023 claim transaction encounters the protocol's global 16 MiB advice limit; it is not a supported resource promise. Post-payment settlement has a checked allowance of `4096 + 16384*n` cycles passed into standard fee computation; tests also assert the paid fee covers the final measured transaction cycle tier. Node batching remains subject to normal protocol resource limits.
+
+## One-time deployment bootstrap
+
+`bootstrap_claim_note` constructs the same fully bound request with no attachments. Canonical single-sig funding therefore performs no foreign-account quote against an issuer that does not yet exist. The first manually submitted issuer execution accepts this shape only at initial nonce zero. All ordinary weekly, code, network, amount, fee and refund checks still apply. Once the issuer nonce is nonzero, an unrouted claim rejects before entitlement mutation; subsequent requests require the normal network-target attachment.
+
+Bootstrap is permissionless: a front runner can only pay their own budget and receive their own normal weekly allocation. It cannot change owner, code or policy. The owner can remain a Bread account while a separate funded CLI claimant bootstraps without sharing Bread credentials. The local new-account test verifies missing foreign inclusion witness, nonce-zero success, nonce-one rejection and wrong issuer/code/network rejection. Deployment and node admission still require independent review and live evidence.
+
+## Approval binding, clock and recovery
+
+Storage has 36 felts: P2ID script root[0..4], derived receipt serial[4..8], GC asset ID[8..12], value[12..16], receipt tag[16], zero padding[17..20], claimant suffix/prefix[20..22], Monday week[22], expiry seconds[23], issuer code commitment[24..28], reclaim height[28], ABI version1[29], zero padding[30..32], network domain Word[32..36].
+
+The receipt serial is Poseidon2 `hash_elements` of 56 felts: `[0x47435231,1,0,0] || claim_script_root || request_serial || metadata_word || attachments_commitment || initial_assets_commitment || storage[0..4] || storage[8..36]`. Both Rust construction and the VM recompute it. This binds budget, routing, full outer metadata, all attachments and every semantic approval field without circularly hashing the receipt serial. Changing any bound field requires a new receipt preimage; reclaiming one request cannot masquerade as another request's receipt.
+
+Eligibility uses the reference timestamp and `floor((timestamp+259200)/604800)`. Approved semantics permit an authenticated Sunday-reference claim to commit Monday while consuming Sunday's allocation. A fresh Monday reference rejects that old approval; Monday requires a separately approved new week. Expiry also uses the reference clock. Protocol transaction expiration bounds reference-block staleness, not exact UTC inclusion time.
+
+Before finite reclaim height H, only issuer execution may issue GC. At reference height>=H, only the authenticated original sender can reclaim the native budget, paying its own transaction fee and minting no GC. Existing issuer and reclaim proofs can overlap across reference heights; the same request nullifier prevents both committing. These are real local MockChain execution/commit tests, not live node scheduling evidence.
+
+The public weekly map is the entitlement authority. Wallet recovery must pin network/genesis, issuer code and domain, obtain current public map proofs, and reconcile exact request nullifiers against the derived public receipt. No operator ledger or relay is an authority. Unsupported notes, extra outputs, wrong network/code/week/sender/asset and underfunded batch members fail closed. This issuer exposes no admitted administrative upgrade/configuration note; the earlier deployed issuer cannot be upgraded into this protocol.
+
+## Verification boundary
+
+Focused tests cover exact fee/refund accounting with zero and pre-existing reserves; zero fee and exact budget; duplicate rollback; wrong approval fields; sender-only reclaim; issuer/reclaim races; approved Sunday/Monday behavior; full request-to-receipt binding; real owner+Guardian funding approval; and standard FPI zero-quote behavior. Nonce-zero bootstrap and signed creation without a foreign issuer witness are covered locally. Real node automatic execution, SDK/mobile integration and deployment require separate evidence. Wallet activation stays disabled until those checks and independent review pass.
+
+---
+
+# Original canonical-MINT comparison probe
 
 **Offline research only. No deployed asset, service, wallet activation, or Testnet acceptance.**
 

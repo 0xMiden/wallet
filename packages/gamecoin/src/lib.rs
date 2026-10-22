@@ -99,3 +99,5 @@ fn fee_policy() -> anyhow::Result<miden_standards::account::fees::FeePolicy> {
         [component],
     )?)
 }
+
+pub mod funded;
