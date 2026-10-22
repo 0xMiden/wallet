@@ -78,6 +78,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
   const estimateUsdcxBurnFee = useWalletStore(s => s.estimateUsdcxBurnFee);
+  const readGcWeeklyClaim = useWalletStore(s => s.readGcWeeklyClaim);
+  const prepareGcWeeklyClaim = useWalletStore(s => s.prepareGcWeeklyClaim);
+  const submitGcWeeklyClaim = useWalletStore(s => s.submitGcWeeklyClaim);
   const storeConfirmDAppPermission = useWalletStore(s => s.confirmDAppPermission);
   const storeConfirmDAppSign = useWalletStore(s => s.confirmDAppSign);
   const storeConfirmDAppPrivateNotes = useWalletStore(s => s.confirmDAppPrivateNotes);
@@ -447,6 +450,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     getDAppPayload,
     simulateCustomTransaction,
     estimateUsdcxBurnFee,
+    readGcWeeklyClaim,
+    prepareGcWeeklyClaim,
+    submitGcWeeklyClaim,
     confirmDAppPermission,
     confirmDAppSign,
     confirmDAppDecrypt,

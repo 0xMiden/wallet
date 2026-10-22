@@ -9,12 +9,34 @@ export type WeeklyClaimStatus =
   | { kind: 'claimed'; nextEligibleAt: string }
   | { kind: 'pending' }
   | { kind: 'failed' }
+  | { kind: 'reclaimable'; reclaimHeight: number }
   | { kind: 'unavailable' };
 
+export interface WeeklyClaimRecovery {
+  operationId: string;
+  allocationWeekStart: string;
+}
+
 export interface WeeklyClaimSnapshot {
+  /** Authenticated older requests whose unused native budgets can be recovered. */
+  recoveries?: WeeklyClaimRecovery[];
+  /** Authoritative allocation week, supplied only after the backend reads chain entitlement. */
+  allocationWeekStart?: string;
   status: WeeklyClaimStatus;
   /** Formatted canonical GC amount; null means unread, never zero. No optimistic grant. */
   balance: string | null;
+}
+
+/** A backend quote for this account and allocation week; amounts are formatted native units. */
+export interface WeeklyClaimReview {
+  quoteId: string;
+  mode: 'claim' | 'reclaim';
+  allocationWeekStart: string;
+  expiresAt: string;
+  nativeSymbol: string;
+  requestFee: string;
+  issuerBudget: string;
+  receiptFeeBudget: string;
 }
 
 /**
@@ -23,18 +45,23 @@ export interface WeeklyClaimSnapshot {
  * authority, and reconcile the same account/week across devices. Eligibility ignores GC balance; unspent
  * tokens carry over, missed weeks do not stack. No transfer restriction or game allowlist.
  * Claims and result posting have user-funded network fees; no app-funded subsidy.
- * submit() must show actual fee estimation and wallet approval before any user-funded write. A local calendar is not authority.
+ * prepare() may quarantine/import locally and simulate without queueing or submitting; submit() redeems the exact reviewed quote after explicit approval.
+ * The backend binds each quote to the account/network/week and enforces its expiry. A local calendar is not authority.
  * `failed` means verified non-submission/failure, safe to retry; timeouts remain pending.
  * `claimed` requires confirmed GC delivery/receipt, not merely accepting a mint request.
  * read() must recover pending operations after unmount/reinstall; submit() must be idempotent.
  */
 export interface WeeklyClaimService {
   read(scope: ArcadeAccountScope): Promise<WeeklyClaimSnapshot>;
-  submit(scope: ArcadeAccountScope): Promise<WeeklyClaimSnapshot>;
+  prepare(scope: ArcadeAccountScope, operationId?: string): Promise<WeeklyClaimReview>;
+  submit(scope: ArcadeAccountScope, quoteId: string): Promise<WeeklyClaimSnapshot>;
 }
 
 export const unavailableWeeklyClaimService: WeeklyClaimService = {
   read: async () => ({ status: { kind: 'unavailable' }, balance: null }),
+  prepare: async () => {
+    throw new Error('Weekly GC claims are unavailable');
+  },
   submit: async () => ({ status: { kind: 'unavailable' }, balance: null })
 };
 

@@ -9,6 +9,8 @@ import { u8ToB64 } from 'lib/shared/helpers';
 
 /** What a dry run produced: the summary while authorization is pending, else the executed transaction. */
 export interface DryRunResult {
+  /** Exact enriched request executed by the dry run, encoded for the existing offscreen bridge. */
+  preparedRequestBytes?: string;
   /** Base64 serialized TransactionSummary. */
   summaryBytes?: string;
   /** Base64 serialized TransactionResult, when the account was already fully authorized. */
@@ -82,7 +84,7 @@ export async function dryRunRequest(
   }
   if (summary !== undefined) {
     assertWasmHoldCurrent(hold, 'before the dry run summary serialize');
-    return { summaryBytes: u8ToB64(summary.serialize()) };
+    return { summaryBytes: u8ToB64(summary.serialize()), preparedRequestBytes: u8ToB64(preparedBytes) };
   }
   if (
     (typeof WebAssembly !== 'undefined' && summaryFailure instanceof WebAssembly.RuntimeError) ||
@@ -99,5 +101,5 @@ export async function dryRunRequest(
     TransactionRequest.deserialize(preparedBytes)
   );
   assertWasmHoldCurrent(hold, 'before the dry run result serialize');
-  return { executedBytes: u8ToB64(executed.result.serialize()) };
+  return { executedBytes: u8ToB64(executed.result.serialize()), preparedRequestBytes: u8ToB64(preparedBytes) };
 }

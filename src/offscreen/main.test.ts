@@ -3015,7 +3015,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       const resp = sendResponse.mock.calls[0][0];
       expect(resp.ok).toBe(true);
       // The multisig mock's summary serializes to [0xab].
-      expect(decoded(resp)).toEqual({ summaryBytes: Buffer.from([0xab]).toString('base64') });
+      expect(decoded(resp)).toEqual({
+        summaryBytes: Buffer.from([0xab]).toString('base64'),
+        preparedRequestBytes: Buffer.from(REQUEST).toString('base64')
+      });
       const client = await G.__off.getMidenClient.mock.results[0].value;
       expect(G.__off.prepareCustomRequestBytes).toHaveBeenCalledWith(
         client.client,
@@ -3045,7 +3048,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
       const resp = sendResponse.mock.calls[0][0];
       expect(resp.ok).toBe(true);
-      expect(decoded(resp)).toEqual({ executedBytes: Buffer.from([55, 66, 77]).toString('base64') });
+      expect(decoded(resp)).toEqual({
+        executedBytes: Buffer.from([55, 66, 77]).toString('base64'),
+        preparedRequestBytes: Buffer.from(REQUEST).toString('base64')
+      });
       expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('0xaccount', {
         __trFromBytes: [1, 2, 3],
         authArg: expect.any(Function)
@@ -3067,7 +3073,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
       const resp = sendResponse.mock.calls[0][0];
       expect(resp.ok).toBe(true);
-      expect(decoded(resp)).toEqual({ executedBytes: Buffer.from([55, 66, 77]).toString('base64') });
+      expect(decoded(resp)).toEqual({
+        executedBytes: Buffer.from([55, 66, 77]).toString('base64'),
+        preparedRequestBytes: Buffer.from(REQUEST).toString('base64')
+      });
       expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('0xaccount', {
         __trFromBytes: [1, 2, 3],
         authArg: expect.any(Function)

@@ -658,6 +658,38 @@ describe('requeueFailedTransaction — imported rows', () => {
   });
 });
 
+describe('requeueFailedTransaction — funded GC operations', () => {
+  it('refuses generic retry of a captured GC reclaim row', async () => {
+    const row = failedRow({ type: 'execute', requestBytes: new Uint8Array([1, 2, 3]), gcReclaimOf: 'original-claim' });
+    wireRow(row);
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(/not retryable/i);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+  it('refuses generic retry even when the sender row has a never-committed verdict', async () => {
+    const row = failedRow({
+      type: 'execute',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      neverCommittedAt: 1_000,
+      gcClaim: {
+        version: 1,
+        scope: { genesisCommitment: 'genesis', accountId: 'acct-1', issuerId: 'issuer', approvedWeek: 123 },
+        issuerCodeCommitment: 'code',
+        nativeAssetId: 'native',
+        requestNoteId: 'request',
+        receiptRecipientCommitment: 'recipient',
+        nativeBudget: 10_000n,
+        outgoingNativeAmount: 11_700n,
+        approvalExpiresAt: 2_000_000_000,
+        reclaimHeight: 100
+      }
+    });
+    wireRow(row);
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(/not retryable/i);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.requestBytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
+});
+
 describe('requeueFailedTransaction', () => {
   it('resets the row to Queued and clears every failure/backoff field', async () => {
     // `execute` rather than the default `send`: this asserts the field clearing on

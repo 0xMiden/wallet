@@ -3,6 +3,7 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import type { ArcadeAccountScope } from 'lib/arcade/weekly-claim';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { getMessage } from 'lib/i18n';
 import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
@@ -1160,4 +1161,21 @@ export function prepareRecoveryTransaction(transactionId: string) {
 
 export function releaseRecoveryAuthorization(transactionId: string) {
   return clearRecoveryAuthorization(transactionId);
+}
+
+/** Internal wallet actions: the backend authenticates the active account and resolves deployment data. */
+export function readGcWeeklyClaim(scope: ArcadeAccountScope) {
+  return withUnlocked(async () => (await import('lib/arcade/gc-claim-service')).gcClaimBackendService.read(scope));
+}
+
+export function prepareGcWeeklyClaim(scope: ArcadeAccountScope, operationId?: string) {
+  return withUnlocked(async () =>
+    (await import('lib/arcade/gc-claim-service')).gcClaimBackendService.prepare(scope, operationId)
+  );
+}
+
+export function submitGcWeeklyClaim(scope: ArcadeAccountScope, quoteId: string) {
+  return withUnlocked(async () =>
+    (await import('lib/arcade/gc-claim-service')).gcClaimBackendService.submit(scope, quoteId)
+  );
 }

@@ -24,9 +24,9 @@ Miden 0.17.1 exposes reference-block time, not future inclusion time. Brian appr
 
 ## Wallet and recovery
 
-Reuse Guardian custom requests, the existing transaction queue, fee review and receipt consumption. Persist deterministic request/preimage identifiers before dispatch, scoped by genesis/account/issuer/week. Unknown submission outcomes stay pending and reconcile before any retry. Reinstall recovery reads authenticated weekly state and public request/receipt history; local storage is not entitlement authority.
+Reuse Guardian custom requests, the existing transaction queue, fee review and receipt consumption. Persist deterministic request/preimage identifiers before dispatch, scoped by genesis/account/issuer/week. Unknown submission outcomes stay pending and reconcile before any retry. Reinstall recovery reads weekly state and public request/receipt history from the configured trusted Testnet RPC; local storage is not entitlement authority.
 
-Derive the receipt serial with domain-separated Poseidon2 over the claim script root, request serial, public metadata, attachment commitment, asset commitment and all claim storage except the derived receipt serial itself. This binds every approved field and the entire outer note identity. Match a consumed request and its exact public receipt in the same committed block; the Web SDK does not expose a public issuer-transaction history API, so never invent a transaction ID. Receipt issuance and the user's later receipt consumption remain separate evidence.
+Derive the receipt serial with domain-separated Poseidon2 over the claim script root, request serial, public metadata, attachment commitment, asset commitment and all claim storage except the derived receipt serial itself. This binds every approved field and the entire outer note identity. Match a node-reported consumed request and its exact public receipt in the same committed block; the Web SDK does not expose a public issuer-transaction history API, so never invent a transaction ID. Receipt issuance and the user's later receipt consumption remain separate evidence.
 
 Approval separates the request fee, maximum issuer budget, expected receipt fee and possible failed-request reclaim fee. Issuance is not delivery: report a completed claim only after consuming the canonical receipt and refreshing the real balance. Unknown balances stay unknown.
 
@@ -39,3 +39,7 @@ Keep the protocol/refund delta above #1751, request/recovery and wallet activati
 ## Required evidence
 
 Real protocol transactions must cover exact budget = actual fee + receipt refund; zero/nonzero initial reserves; underfunding; zero surplus; wrong sender/issuer/asset/amount; duplicate week; expiry; reclaim before/after height; competing reclaim/issuer outcomes; Guardian generation with zero extra sponsorship; and the authenticated Sunday/Monday boundary. Follow with native Bread claim, uncertain-response/restart recovery, receipt consumption, balance and ordinary transfer. Report unsupported surfaces and pending registry publication explicitly.
+
+## RPC trust boundary
+
+The published Web SDK 0.17.5 does not expose account-witness verification against a block account root. Its underlying client checks response height and account ID, so issuer code/storage reads remain observations from the configured trusted RPC, not independently authenticated light-client state. The same trust applies to returned block headers, nullifier heights and history completeness. Note inclusion paths and complete request/receipt preimages are checked against those returned headers, which does not remove that endpoint trust. The on-chain issuer independently enforces code, network, allocation week and fee/reclaim rules. A stale or dishonest RPC can still cause an unnecessary funded request; claiming independent account-root authentication requires a future SDK capability.

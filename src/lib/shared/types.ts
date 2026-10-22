@@ -1,3 +1,4 @@
+import type { ArcadeAccountScope, WeeklyClaimReview, WeeklyClaimSnapshot } from 'lib/arcade/weekly-claim';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import type {
   PersistedSpendingLimit,
@@ -67,6 +68,12 @@ export enum WalletMessageType {
   ImportMnemonicAccountResponse = 'IMPORT_MNEMONIC_ACCOUNT_RESPONSE',
   UpdateSettingsRequest = 'UPDATE_SETTINGS_REQUEST',
   UpdateSettingsResponse = 'UPDATE_SETTINGS_RESPONSE',
+  ReadGcWeeklyClaimRequest = 'READ_GC_WEEKLY_CLAIM_REQUEST',
+  ReadGcWeeklyClaimResponse = 'READ_GC_WEEKLY_CLAIM_RESPONSE',
+  PrepareGcWeeklyClaimRequest = 'PREPARE_GC_WEEKLY_CLAIM_REQUEST',
+  PrepareGcWeeklyClaimResponse = 'PREPARE_GC_WEEKLY_CLAIM_RESPONSE',
+  SubmitGcWeeklyClaimRequest = 'SUBMIT_GC_WEEKLY_CLAIM_REQUEST',
+  SubmitGcWeeklyClaimResponse = 'SUBMIT_GC_WEEKLY_CLAIM_RESPONSE',
   GetSpendingLimitRequest = 'GET_SPENDING_LIMIT_REQUEST',
   GetSpendingLimitResponse = 'GET_SPENDING_LIMIT_RESPONSE',
   SaveSpendingLimitRequest = 'SAVE_SPENDING_LIMIT_REQUEST',
@@ -845,6 +852,38 @@ export interface UpdateSettingsResponse extends WalletMessageBase {
   type: WalletMessageType.UpdateSettingsResponse;
 }
 
+export interface ReadGcWeeklyClaimRequest extends WalletMessageBase {
+  type: WalletMessageType.ReadGcWeeklyClaimRequest;
+  scope: ArcadeAccountScope;
+}
+
+export interface ReadGcWeeklyClaimResponse extends WalletMessageBase {
+  type: WalletMessageType.ReadGcWeeklyClaimResponse;
+  snapshot: WeeklyClaimSnapshot;
+}
+
+export interface PrepareGcWeeklyClaimRequest extends WalletMessageBase {
+  type: WalletMessageType.PrepareGcWeeklyClaimRequest;
+  scope: ArcadeAccountScope;
+  operationId?: string;
+}
+
+export interface PrepareGcWeeklyClaimResponse extends WalletMessageBase {
+  type: WalletMessageType.PrepareGcWeeklyClaimResponse;
+  review: WeeklyClaimReview;
+}
+
+export interface SubmitGcWeeklyClaimRequest extends WalletMessageBase {
+  type: WalletMessageType.SubmitGcWeeklyClaimRequest;
+  scope: ArcadeAccountScope;
+  quoteId: string;
+}
+
+export interface SubmitGcWeeklyClaimResponse extends WalletMessageBase {
+  type: WalletMessageType.SubmitGcWeeklyClaimResponse;
+  snapshot: WeeklyClaimSnapshot;
+}
+
 export interface GetSpendingLimitRequest extends WalletMessageBase {
   type: WalletMessageType.GetSpendingLimitRequest;
   accountId: string;
@@ -1287,6 +1326,9 @@ export type WalletRequest =
   | ImportMnemonicAccountRequest
   | ConfirmationRequest
   | UpdateSettingsRequest
+  | ReadGcWeeklyClaimRequest
+  | PrepareGcWeeklyClaimRequest
+  | SubmitGcWeeklyClaimRequest
   | GetSpendingLimitRequest
   | SaveSpendingLimitRequest
   | AssessSpendingLimitRequest
@@ -1362,6 +1404,9 @@ export type WalletResponse =
   | ImportMnemonicAccountResponse
   | ConfirmationResponse
   | UpdateSettingsResponse
+  | ReadGcWeeklyClaimResponse
+  | PrepareGcWeeklyClaimResponse
+  | SubmitGcWeeklyClaimResponse
   | GetSpendingLimitResponse
   | SaveSpendingLimitResponse
   | AssessSpendingLimitResponse

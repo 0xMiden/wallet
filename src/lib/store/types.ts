@@ -1,5 +1,6 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { ArcadeAccountScope, WeeklyClaimReview, WeeklyClaimSnapshot } from 'lib/arcade/weekly-claim';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -186,6 +187,9 @@ export interface WalletActions {
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
+  readGcWeeklyClaim: (scope: ArcadeAccountScope) => Promise<WeeklyClaimSnapshot>;
+  prepareGcWeeklyClaim: (scope: ArcadeAccountScope, operationId?: string) => Promise<WeeklyClaimReview>;
+  submitGcWeeklyClaim: (scope: ArcadeAccountScope, quoteId: string) => Promise<WeeklyClaimSnapshot>;
   readSpendingLimit: (accountId: string) => Promise<SpendingLimitConfiguration | undefined>;
   saveSpendingLimit: (
     draft: SpendingLimitDraft,

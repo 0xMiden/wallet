@@ -198,6 +198,9 @@ jest.mock('lib/miden/back/actions', () => ({
   editAccount: jest.fn(),
   importAccount: jest.fn(),
   updateSettings: jest.fn(),
+  readGcWeeklyClaim: jest.fn(),
+  prepareGcWeeklyClaim: jest.fn(),
+  submitGcWeeklyClaim: jest.fn(),
   getSpendingLimit: jest.fn(),
   saveSpendingLimit: jest.fn(),
   assessOutgoingSpendingLimit: jest.fn(),
@@ -1654,4 +1657,24 @@ describe('scoped offscreen native identity relay', () => {
     expect(reply).toHaveBeenCalledWith({ ok: false });
     warn.mockRestore();
   });
+});
+
+it('routes internal weekly GC requests through the authenticated backend actions', async () => {
+  const scope = { accountId: 'account', networkId: 'testnet' };
+  Actions.readGcWeeklyClaim.mockResolvedValueOnce({ status: { kind: 'unavailable' }, balance: null });
+  Actions.prepareGcWeeklyClaim.mockResolvedValueOnce({ quoteId: 'quote-1' });
+  Actions.submitGcWeeklyClaim.mockResolvedValueOnce({ status: { kind: 'pending' }, balance: null });
+  expect(await dispatch({ type: WalletMessageType.ReadGcWeeklyClaimRequest, scope })).toEqual({
+    type: WalletMessageType.ReadGcWeeklyClaimResponse,
+    snapshot: { status: { kind: 'unavailable' }, balance: null }
+  });
+  expect(await dispatch({ type: WalletMessageType.PrepareGcWeeklyClaimRequest, scope })).toEqual({
+    type: WalletMessageType.PrepareGcWeeklyClaimResponse,
+    review: { quoteId: 'quote-1' }
+  });
+  expect(await dispatch({ type: WalletMessageType.SubmitGcWeeklyClaimRequest, scope, quoteId: 'quote-1' })).toEqual({
+    type: WalletMessageType.SubmitGcWeeklyClaimResponse,
+    snapshot: { status: { kind: 'pending' }, balance: null }
+  });
+  expect(Actions.submitGcWeeklyClaim).toHaveBeenLastCalledWith(scope, 'quote-1');
 });

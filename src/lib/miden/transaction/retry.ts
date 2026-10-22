@@ -137,9 +137,14 @@ export const isRequeueableTransaction = (tx: {
   type: ITransactionType;
   bridgeProvider?: IBridgeProvider;
   restoredFromBackup?: boolean;
+  gcClaim?: ITransaction['gcClaim'];
+  gcReclaimOf?: string;
 }): boolean => {
   if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
   if (tx.restoredFromBackup) return false;
+  // A GC request may already be funded or issued independently of this sender row. The GC
+  // operation reconciler must resolve its request/reclaim evidence before a fresh approval.
+  if (tx.gcClaim !== undefined || tx.gcReclaimOf !== undefined) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && tx.bridgeProvider === NON_REQUEUEABLE_BRIDGE_PROVIDER) return false;
   return true;

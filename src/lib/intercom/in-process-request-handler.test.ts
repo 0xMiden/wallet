@@ -9,6 +9,12 @@ import { WalletMessageType, WalletRequest } from 'lib/shared/types';
 
 import { processInProcessRequest } from './in-process-request-handler';
 
+const mockReadGc = jest.fn(async (_scope: unknown) => ({ status: { kind: 'unavailable' }, balance: null }));
+const mockPrepareGc = jest.fn(async (_scope: unknown, _operationId?: string) => ({ quoteId: 'quote-1' }));
+const mockSubmitGc = jest.fn(async (_scope: unknown, _quoteId: string) => ({
+  status: { kind: 'pending' },
+  balance: null
+}));
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
 const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _password?: string) => 'BAUG');
 const mockUnlock = jest.fn(async (_password: string) => undefined);
@@ -18,6 +24,9 @@ const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
   feeReserve: '315'
 }));
 jest.mock('lib/miden/back/actions', () => ({
+  readGcWeeklyClaim: (scope: unknown) => mockReadGc(scope),
+  prepareGcWeeklyClaim: (scope: unknown, operationId?: string) => mockPrepareGc(scope, operationId),
+  submitGcWeeklyClaim: (scope: unknown, quoteId: string) => mockSubmitGc(scope, quoteId),
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
   exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
@@ -119,4 +128,29 @@ describe('processInProcessRequest', () => {
     ).rejects.toThrow('Invalid password');
     expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
   });
+});
+
+it('routes GC read, read-only preparation and exact quote confirmation on mobile and desktop', async () => {
+  const scope = { accountId: 'account', networkId: 'testnet' };
+  for (const label of ['mobile', 'desktop']) {
+    expect(await processInProcessRequest({ type: WalletMessageType.ReadGcWeeklyClaimRequest, scope }, label)).toEqual({
+      type: WalletMessageType.ReadGcWeeklyClaimResponse,
+      snapshot: { status: { kind: 'unavailable' }, balance: null }
+    });
+    expect(
+      await processInProcessRequest({ type: WalletMessageType.PrepareGcWeeklyClaimRequest, scope }, label)
+    ).toEqual({ type: WalletMessageType.PrepareGcWeeklyClaimResponse, review: { quoteId: 'quote-1' } });
+    expect(
+      await processInProcessRequest(
+        { type: WalletMessageType.SubmitGcWeeklyClaimRequest, scope, quoteId: 'quote-1' },
+        label
+      )
+    ).toEqual({
+      type: WalletMessageType.SubmitGcWeeklyClaimResponse,
+      snapshot: { status: { kind: 'pending' }, balance: null }
+    });
+  }
+  expect(mockReadGc).toHaveBeenLastCalledWith(scope);
+  expect(mockPrepareGc).toHaveBeenLastCalledWith(scope, undefined);
+  expect(mockSubmitGc).toHaveBeenLastCalledWith(scope, 'quote-1');
 });

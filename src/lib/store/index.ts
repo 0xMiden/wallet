@@ -557,6 +557,28 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    readGcWeeklyClaim: async scope => {
+      const res = await request({ type: WalletMessageType.ReadGcWeeklyClaimRequest, scope });
+      assertResponse(res.type === WalletMessageType.ReadGcWeeklyClaimResponse);
+      return res.snapshot;
+    },
+
+    prepareGcWeeklyClaim: async (scope, operationId) => {
+      const res = await request({
+        type: WalletMessageType.PrepareGcWeeklyClaimRequest,
+        scope,
+        ...(operationId ? { operationId } : {})
+      });
+      assertResponse(res.type === WalletMessageType.PrepareGcWeeklyClaimResponse);
+      return res.review;
+    },
+
+    submitGcWeeklyClaim: async (scope, quoteId) => {
+      const res = await request({ type: WalletMessageType.SubmitGcWeeklyClaimRequest, scope, quoteId });
+      assertResponse(res.type === WalletMessageType.SubmitGcWeeklyClaimResponse);
+      return res.snapshot;
+    },
+
     readSpendingLimit: async accountId => {
       const res = await request({
         type: WalletMessageType.GetSpendingLimitRequest,

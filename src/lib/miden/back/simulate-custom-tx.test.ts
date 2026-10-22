@@ -532,3 +532,12 @@ describe('the dApp account reference', () => {
     expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 });
+
+it('captures the exact enriched request only when an internal approval flow asks for it', async () => {
+  const result = await simulateCustomTransaction({
+    address: 'mtst1abc',
+    transactionRequest: 'reqB64',
+    capturePreparedRequest: true
+  });
+  expect(result.preparedRequestBytes).toBe('b64:6');
+});

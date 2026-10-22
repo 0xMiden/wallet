@@ -1,6 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { GcClaimOperation } from 'lib/arcade/gc-claim-operation';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type {
@@ -706,6 +707,10 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /** Weekly GC operation evidence; inserted atomically with the ordinary execute request. */
+  gcClaim?: GcClaimOperation;
+  /** The GC operation whose funded note this captured, explicitly approved reclaim consumes. */
+  gcReclaimOf?: string;
   /** Origin network stamped at queue time for private badge evidence. Legacy/imported rows cannot earn credit. */
   badgeNetwork?: string;
   /**

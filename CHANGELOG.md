@@ -14,6 +14,8 @@
 
 ### Changes
 
+- [CHANGE][all] Prepare and persist exact weekly GC approvals in the existing transaction queue, recover public requests after reinstall, and reconcile refunds and reclaim attempts without duplicating uncertain submissions; Testnet deployment activation is separate (#1452).
+
 - [CHANGE][all] Add a funded GC claim protocol that returns unused issuance fees with each receipt, supports failed-request reclaim and binds delayed allocations to their approved week; wallet activation remains gated on Testnet acceptance (#1452).
 
 - [CHANGE][all] Add offline GC issuer policy tests for account-bound weekly allocations and user-funded issuance, documenting refund and clock limits before enabling Testnet claims (#1452).

@@ -1920,8 +1920,12 @@ describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () =
     const result = await midenClientProxy.dryRunTransaction('0xaccount', REQUEST, G.__px.inlineHold);
 
     // The multisig mock's summary serializes to [0xab].
-    expect(result).toEqual({ summaryBytes: Buffer.from([0xab]).toString('base64') });
+    expect(result).toEqual({
+      summaryBytes: Buffer.from([0xab]).toString('base64'),
+      preparedRequestBytes: Buffer.from(REQUEST).toString('base64')
+    });
     const inline = await G.__px.getMidenClient.mock.results[0].value;
+    expect(G.__px.prepareCustomRequestBytes).toHaveBeenCalledTimes(1);
     expect(G.__px.prepareCustomRequestBytes).toHaveBeenCalledWith(
       inline.client,
       '0xaccount',
@@ -1939,7 +1943,7 @@ describe('MidenClientProxy - dryRunTransaction (the USDCx burn fee probe)', () =
 
   it('flag ON → forwards ONE dryRunTransaction op with a deadline and parses its result', async () => {
     const { midenClientProxy } = await loadProxy(true);
-    const answer = { executedBytes: 'ZXhlY3V0ZWQ=' };
+    const answer = { executedBytes: 'ZXhlY3V0ZWQ=', preparedRequestBytes: 'AQID' };
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,
       op_id: env.op_id,

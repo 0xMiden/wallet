@@ -379,6 +379,42 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('weekly GC actions', () => {
+    it('carries an authorized recovery target and exact quote id through the wallet transport', async () => {
+      const scope = { accountId: 'account-a', networkId: 'testnet' };
+      const review = {
+        quoteId: 'quote-1',
+        mode: 'reclaim',
+        allocationWeekStart: '2026-10-19T00:00:00Z',
+        expiresAt: '2026-10-26T00:05:00Z',
+        nativeSymbol: 'MIDEN',
+        requestFee: '0.001',
+        issuerBudget: '0.002',
+        receiptFeeBudget: '0'
+      };
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.PrepareGcWeeklyClaimResponse, review });
+      await expect(useWalletStore.getState().prepareGcWeeklyClaim(scope, 'older-operation')).resolves.toEqual(review);
+      expect(mockRequest).toHaveBeenLastCalledWith({
+        type: WalletMessageType.PrepareGcWeeklyClaimRequest,
+        scope,
+        operationId: 'older-operation'
+      });
+      const snapshot = {
+        status: { kind: 'pending' },
+        balance: null,
+        allocationWeekStart: '2026-10-26T00:00:00Z',
+        recoveries: []
+      };
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SubmitGcWeeklyClaimResponse, snapshot });
+      await expect(useWalletStore.getState().submitGcWeeklyClaim(scope, 'quote-1')).resolves.toEqual(snapshot);
+      expect(mockRequest).toHaveBeenLastCalledWith({
+        type: WalletMessageType.SubmitGcWeeklyClaimRequest,
+        scope,
+        quoteId: 'quote-1'
+      });
+    });
+  });
+
   describe('spending-limit actions', () => {
     const draft = { accountId: 'account-a', limit: 90n };
 

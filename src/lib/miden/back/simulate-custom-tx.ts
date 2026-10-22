@@ -20,6 +20,8 @@ import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 
 export interface SimulateCustomTxInput {
+  /** Internal approval flows may retain the exact enriched bytes, without submitting them. */
+  capturePreparedRequest?: boolean;
   /** Bech32 sending account address (the custom-tx `address` field). */
   address: string;
   /** Base64 serialized Miden-SDK TransactionRequest. */
@@ -29,6 +31,7 @@ export interface SimulateCustomTxInput {
 }
 
 export interface SimulateCustomTxResult {
+  preparedRequestBytes?: string;
   /** Base64 serialized TransactionSummary when the dry run succeeded. */
   summaryBytes?: string;
   /**
@@ -231,7 +234,12 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         if (summary !== undefined) {
           // `summary.serialize()` borrows the client, so an evicted hold must not reach it.
           assertWasmHoldCurrent(hold, 'before the summary serialize');
-          return { summaryBytes: u8ToB64(summary.serialize()), introducedCredit, introducedCount };
+          return {
+            summaryBytes: u8ToB64(summary.serialize()),
+            introducedCredit,
+            introducedCount,
+            ...(input.capturePreparedRequest ? { preparedRequestBytes: u8ToB64(preparedBytes) } : {})
+          };
         }
 
         // Only two summary failures are retryable locally: the account was already fully
@@ -269,7 +277,12 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // `result.serialize()` borrows the same client — same rule as the
         // summary above. Still pre-submit: executeRequest broadcasts nothing.
         assertWasmHoldCurrent(hold, 'before the result serialize');
-        return { executedBytes: u8ToB64(executed.result.serialize()), introducedCredit, introducedCount };
+        return {
+          executedBytes: u8ToB64(executed.result.serialize()),
+          introducedCredit,
+          introducedCount,
+          ...(input.capturePreparedRequest ? { preparedRequestBytes: u8ToB64(preparedBytes) } : {})
+        };
       });
     } catch (e: any) {
       // An abandonment is reported as an interruption, not as its internal

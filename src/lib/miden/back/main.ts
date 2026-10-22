@@ -687,6 +687,18 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.UpdateSettingsResponse
       };
+    case WalletMessageType.ReadGcWeeklyClaimRequest: {
+      const snapshot = await Actions.readGcWeeklyClaim(req.scope);
+      return { type: WalletMessageType.ReadGcWeeklyClaimResponse, snapshot };
+    }
+    case WalletMessageType.PrepareGcWeeklyClaimRequest: {
+      const review = await Actions.prepareGcWeeklyClaim(req.scope, req.operationId);
+      return { type: WalletMessageType.PrepareGcWeeklyClaimResponse, review };
+    }
+    case WalletMessageType.SubmitGcWeeklyClaimRequest: {
+      const snapshot = await Actions.submitGcWeeklyClaim(req.scope, req.quoteId);
+      return { type: WalletMessageType.SubmitGcWeeklyClaimResponse, snapshot };
+    }
     case WalletMessageType.GetSpendingLimitRequest: {
       const configuration = await Actions.getSpendingLimit(req.accountId);
       return {

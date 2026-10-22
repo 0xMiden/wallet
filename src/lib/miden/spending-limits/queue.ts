@@ -1,3 +1,4 @@
+import { canonicalSpendingLimitIdentity, sameSpendingLimitIdentity } from './identity';
 import { assessSpendingLimit, MAX_WINDOW_SECONDS } from './policy';
 import {
   SpendingLimitAssessment,
@@ -11,7 +12,6 @@ import {
 import { resolveSpendsUsd } from './valuation';
 import { IConsumedAssetTotal, ITransaction } from '../db/types';
 import * as Repo from '../repo';
-import { canonicalSpendingLimitIdentity, sameSpendingLimitIdentity } from './identity';
 
 const MAX_AUTHORIZATION_LIFETIME_SECONDS = 2 * 60;
 
@@ -147,7 +147,9 @@ export const queueOutgoingTransaction = async (
   transaction: ITransaction,
   spends: readonly IConsumedAssetTotal[],
   authorization?: SpendingLimitAuthorization,
-  now: number = Math.floor(Date.now() / 1000)
+  now: number = Math.floor(Date.now() / 1000),
+  /** Database-only admission/CAS under the same write lock as the insert; never perform network reads here. */
+  admit?: () => Promise<void>
 ): Promise<void> => {
   // An account with no cap must pay for neither a price lookup nor a window scan - but the insert
   // itself still has to happen inside a write lock, or a saveSpendingLimit committing between this
@@ -155,6 +157,7 @@ export const queueOutgoingTransaction = async (
   if ((await readPolicy(transaction.accountId)) === undefined) {
     const inserted = await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
       if ((await readPolicy(transaction.accountId)) !== undefined) return false;
+      await admit?.();
       await Repo.transactions.add(transaction);
       return true;
     });
@@ -175,6 +178,7 @@ export const queueOutgoingTransaction = async (
   }
 
   await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
+    await admit?.();
     const persisted = await readPolicy(transaction.accountId);
     if (persisted === undefined) {
       await Repo.transactions.add(transaction);

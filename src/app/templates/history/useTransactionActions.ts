@@ -177,6 +177,8 @@ export const useTransactionActions = (
           // Epoch (Fast) bridged sends are not replayable - their Epoch intent is
           // already gone, so a requeue would mint a second orphan collateral note.
           bridgeProvider: entry.bridgeProvider,
+          gcClaim: transaction?.gcClaim,
+          gcReclaimOf: transaction?.gcReclaimOf,
           restoredFromBackup: transaction?.restoredFromBackup
         }));
 
