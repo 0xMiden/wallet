@@ -22,6 +22,8 @@ interface ActivityPendingHistoryProps {
   filter: ActivityFilter;
   predicate?: (entry: IHistoryEntry) => boolean;
   catalogPending?: boolean;
+  /** The filter's own empty state, in place of the generic one. */
+  emptyState?: React.ReactNode;
   programId?: string | null;
   /** Forwarded to the list below, which owns the loading state the caller reports on. */
   onInitialLoad?: () => void;
@@ -33,7 +35,8 @@ export const ActivityPendingHistory = ({
   programId,
   onInitialLoad,
   predicate,
-  catalogPending
+  catalogPending,
+  emptyState
 }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
   const {
@@ -168,6 +171,7 @@ export const ActivityPendingHistory = ({
             programId={programId}
             fullHistory
             centerEmptyState
+            emptyState={emptyState}
             scrollParentRef={scrollRef}
             searchQuery={search}
             filter={filter}

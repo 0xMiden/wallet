@@ -75,6 +75,14 @@
     "message": "Моя активность",
     "englishSource": "My activity"
   },
+  "arcadeCoinsShort": {
+    "message": "Монеты",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Активность",
+    "englishSource": "Activity"
+  },
   "arcadeOpenGame": {
     "message": "Открытая игра",
     "englishSource": "Open game"
@@ -92,8 +100,8 @@
     "englishSource": "Games will appear here when they are available on this network."
   },
   "arcadeOpeningNotice": {
-    "message": "Запуск игры не приводит к подключению вашего кошелька и не означает одобрение транзакции. Bread запрашивает разрешение отдельно, когда игра запрашивает доступ.",
-    "englishSource": "Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access."
+    "message": "Запуск игры не приведет к подключению вашего кошелька. Bread сначала спросит у вас разрешения.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
   },
   "arcadeGCRankings": {
     "message": "Рейтинги GC",
@@ -128,28 +136,44 @@
     "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
   },
   "arcadeRankingsUnavailable": {
-    "message": "Рейтинги пока не подключены",
-    "englishSource": "Rankings are not connected yet"
+    "message": "Рейтинги будут отображаться здесь",
+    "englishSource": "Rankings will appear here"
   },
   "arcadeRankingsDescription": {
-    "message": "В рейтингах GC будут использоваться балансы, которые игроки решат предоставить. В этой предварительной версии рейтинги игроков недоступны.",
-    "englishSource": "GC rankings will use balances that players choose to submit. No player rankings are available in this preview."
+    "message": "Рейтинги в этой сети пока не доступны.",
+    "englishSource": "Rankings aren't live on this network yet."
   },
   "arcadeCoinsUnavailable": {
-    "message": "GC пока не подключен",
-    "englishSource": "GC is not connected yet"
+    "message": "Ваш баланс будет отображаться здесь",
+    "englishSource": "Your balance will appear here"
   },
   "arcadeCoinsDescription": {
-    "message": "Ваш баланс GC появится здесь после настройки актива Game Coin для этой сети. Баланс по умолчанию отсутствует.",
-    "englishSource": "Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed."
+    "message": "Игровые монеты пока не доступны в этой сети.",
+    "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadePrivateBalanceNotice": {
-    "message": "Ваш баланс GC остается конфиденциальным, пока вы сами не решите его раскрыть. Открытие этой страницы не приводит к публикации каких-либо данных.",
-    "englishSource": "Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing."
+  "arcadeBrowseGames": {
+    "message": "Просмотр игр",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Ваш баланс остается конфиденциальным.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Ранжируются только те балансы, которыми вы решили поделиться.",
+    "englishSource": "Only balances you choose to share are ranked."
   },
   "arcadeActivityScope": {
-    "message": "Отображает зарегистрированные транзакции кошельков, связанные с играми, которые в настоящее время представлены в этой сети. Неотслеживаемые игровые раунды и обычные переводы GC не включены.",
-    "englishSource": "Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included."
+    "message": "Включены только игры, перечисленные в разделе «Arcade».",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Игровой активности пока нет",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Здесь отображаются транзакции, которые вы совершаете в играх Arcade.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "Финансы",

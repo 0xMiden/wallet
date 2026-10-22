@@ -58,7 +58,11 @@ it('places featured games, three shortcuts, and suggested games in the agreed or
   expect(children[1]).toHaveAttribute('data-testid', 'arcade-quick-actions');
   expect(children[2]).toHaveAttribute('data-testid', 'arcade-game-list');
   const actions = within(screen.getByTestId('arcade-quick-actions')).getAllByRole('button');
-  expect(actions.map(button => button.textContent)).toEqual(['arcadeRankings', 'arcadeCoins', 'arcadeMyActivity']);
+  expect(actions.map(button => button.textContent)).toEqual([
+    'arcadeRankings',
+    'arcadeCoinsShort',
+    'arcadeActivityShort'
+  ]);
   actions.forEach(button => fireEvent.click(button));
   expect(jest.mocked(navigate).mock.calls.map(call => call[0])).toEqual([
     ARCADE_RANKINGS_PATH,

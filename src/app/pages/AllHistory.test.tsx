@@ -215,7 +215,6 @@ describe('AllHistory', () => {
     expect(screen.getByTestId('arcade-history')).toBeInTheDocument();
     expect(screen.queryByTestId('grouped-history')).toBeNull();
     expect(screen.getByRole('radio', { name: 'categoryArcade' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByTestId('arcade-activity-scope')).toHaveTextContent('arcadeActivityScope');
     expect(localStorage.getItem('activity_view_setting')).toBe('groups');
   });
   beforeEach(() => {

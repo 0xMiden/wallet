@@ -11,7 +11,6 @@ import { ArcadeActivityHistory } from 'app/templates/history/ArcadeActivityHisto
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeaderAction, TabRootHeader } from 'components/ui';
-import { Notice } from 'components/ui/Notice';
 import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -210,12 +209,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
           store's contract assumes. Renders nothing while the store is empty.
           Under the filter row, so an empty store costs the page nothing. */}
       <DeadletteredNotesNotice className="shrink-0 mx-4 mt-2" />
-
-      {view === 'list' && shownFilter === 'arcade' && (
-        <Notice variant="inline" className="mx-4" data-testid="arcade-activity-scope">
-          {t('arcadeActivityScope')}
-        </Notice>
-      )}
 
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
       {view === 'groups' ? (

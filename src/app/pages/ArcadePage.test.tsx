@@ -29,24 +29,23 @@ afterAll(() => {
   process.env.MODE_ENV = originalMode;
 });
 
-it('does not invent a balance or ranking and requires an explicit update before review', () => {
+it('does not invent a ranking and offers no balance update until rankings are live', () => {
   render(<ArcadePage page="rankings" />);
   expect(screen.getByText('arcadeRankingsUnavailable')).toBeInTheDocument();
+  expect(screen.getByText('arcadeRankingsPrivate')).toBeInTheDocument();
   expect(screen.queryByText('disposable-account')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'arcadeUpdateBalance' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'arcadeSubmitBalance' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'arcadeUpdateBalance' }));
-  expect(screen.getByText('arcadeBalanceDisclosure')).toBeInTheDocument();
-  expect(screen.getByText('disposable-account')).toBeInTheDocument();
-  expect(screen.getByText('testnet')).toBeInTheDocument();
-  expect(screen.getByText('arcadeNotRead')).toBeInTheDocument();
-  expect(screen.getByText('arcadeConnectionRequired')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'arcadeSubmitBalance' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'arcadeBrowseGames' }));
+  expect(navigate).toHaveBeenCalledWith('/browser?category=arcade');
 });
 
 it('distinguishes an unconfigured GC asset from a real zero balance', () => {
   render(<ArcadePage page="coins" />);
   expect(screen.getByText('arcadeCoinsUnavailable')).toBeInTheDocument();
-  expect(screen.getByText('arcadePrivateBalanceNotice')).toBeInTheDocument();
+  expect(screen.getByText('arcadeBalancePrivate')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'arcadeBrowseGames' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'arcadeGCRankings' })).toBeNull();
   expect(screen.queryByText('0 GC')).toBeNull();
 });
 
@@ -58,8 +57,9 @@ it.each<'coins' | 'rankings'>(['coins', 'rankings'])(
     const footer = frame.querySelector('[data-slot="footer"]');
     const body = frame.querySelector('[data-slot="body"]');
     expect(footer).not.toBeNull();
-    expect(body).not.toContainElement(screen.getByRole('button', { name: 'arcadeMyActivity' }));
-    expect(footer).toContainElement(screen.getByRole('button', { name: 'arcadeMyActivity' }));
+    const action = screen.getByRole('button', { name: 'arcadeBrowseGames' });
+    expect(body).not.toContainElement(action);
+    expect(footer).toContainElement(action);
   }
 );
 
@@ -113,6 +113,6 @@ it('cannot activate sample balances via a production URL and keeps real submissi
   render(<ArcadePage page="rankings" />);
   expect(screen.queryByTestId('arcade-sample-hero')).toBeNull();
   expect(screen.queryByRole('button', { name: 'arcadePreview' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'arcadeUpdateBalance' }));
-  expect(screen.getByRole('button', { name: 'arcadeSubmitBalance' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'arcadeUpdateBalance' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'arcadeSubmitBalance' })).toBeNull();
 });

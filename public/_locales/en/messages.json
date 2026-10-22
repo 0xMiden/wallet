@@ -75,6 +75,14 @@
     "message": "My activity",
     "englishSource": "My activity"
   },
+  "arcadeCoinsShort": {
+    "message": "Coins",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Activity",
+    "englishSource": "Activity"
+  },
   "arcadeOpenGame": {
     "message": "Open game",
     "englishSource": "Open game"
@@ -92,8 +100,8 @@
     "englishSource": "Games will appear here when they are available on this network."
   },
   "arcadeOpeningNotice": {
-    "message": "Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access.",
-    "englishSource": "Opening a game does not connect your wallet or approve a transaction. Bread asks separately when a game requests access."
+    "message": "Opening a game won't connect your wallet. Bread asks first.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
   },
   "arcadeGCRankings": {
     "message": "GC rankings",
@@ -128,28 +136,44 @@
     "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
   },
   "arcadeRankingsUnavailable": {
-    "message": "Rankings are not connected yet",
-    "englishSource": "Rankings are not connected yet"
+    "message": "Rankings will appear here",
+    "englishSource": "Rankings will appear here"
   },
   "arcadeRankingsDescription": {
-    "message": "GC rankings will use balances that players choose to submit. No player rankings are available in this preview.",
-    "englishSource": "GC rankings will use balances that players choose to submit. No player rankings are available in this preview."
+    "message": "Rankings aren't live on this network yet.",
+    "englishSource": "Rankings aren't live on this network yet."
   },
   "arcadeCoinsUnavailable": {
-    "message": "GC is not connected yet",
-    "englishSource": "GC is not connected yet"
+    "message": "Your balance will appear here",
+    "englishSource": "Your balance will appear here"
   },
   "arcadeCoinsDescription": {
-    "message": "Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed.",
-    "englishSource": "Your GC balance will appear here after the Game Coin asset is configured for this network. No balance is assumed."
+    "message": "Game Coins aren't live on this network yet.",
+    "englishSource": "Game Coins aren't live on this network yet."
   },
-  "arcadePrivateBalanceNotice": {
-    "message": "Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing.",
-    "englishSource": "Your GC balance stays private unless you choose to submit it. Opening this page publishes nothing."
+  "arcadeBrowseGames": {
+    "message": "Browse games",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Your balance stays private.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Only balances you choose to share are ranked.",
+    "englishSource": "Only balances you choose to share are ranked."
   },
   "arcadeActivityScope": {
-    "message": "Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included.",
-    "englishSource": "Shows recorded wallet transactions associated with games currently listed on this network. Untracked game rounds and ordinary GC transfers are not included."
+    "message": "Only games listed in Arcade are included.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "No game activity yet",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Transactions you make in Arcade games show up here.",
+    "englishSource": "Transactions you make in Arcade games show up here."
   },
   "categoryFinance": {
     "message": "Finance",
