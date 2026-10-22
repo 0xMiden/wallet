@@ -2,16 +2,6 @@
 
 ## 1.17.6 (TBD)
 
-### Changes
-
-- [CHANGE][all] Arcade polish: the featured game card's actions run edge to edge like Activity's pending card and drop the redundant Arcade tag, game details show a one-line wallet-access footnote, the Rankings / Coins / Activity shortcuts are a row of taller chips, and Rankings, Game Coins and Activity's Arcade filter show a dashed coming-soon state with a privacy footnote and a Browse games action instead of unreachable balance actions.
-
-## 1.17.5 (TBD)
-
-### Features
-
-- [FEATURE][all] A transaction-failure crash report says why the transaction failed, in fixed values only: the wallet's own reason (a cancel, the startup sweep, the stuck reaper, a queue expiry, the rotation gate, or the node check of a claim), a Guardian refusal's HTTP status and published error code, or the device key's refusal code. A code outside those lists is sent as `other`, no failure text is sent, and the privacy policy lists every value. These failures move from their earlier crash-report titles, which named only a broad error category, to new titles that carry these values, so they start new crash-report issues.
-
 ### Fixes
 
 - [CHANGE][all] Add native Arcade discovery and game details, catalog-scoped Activity, and unavailable GC balance/ranking pages. Explore groups the existing wallet-explore catalog into Finance/Arcade/Others without changing published categories, cached documents or version floors (#1452).
@@ -23,6 +13,8 @@
 - [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
 
 ### Changes
+
+- [CHANGE][all] Arcade polish: the featured game card's actions run edge to edge like Activity's pending card and drop the redundant Arcade tag, game details show a one-line wallet-access footnote, the Rankings / Coins / Activity shortcuts are a row of taller chips, and Rankings, Game Coins and Activity's Arcade filter show a dashed coming-soon state with a privacy footnote and a Browse games action instead of unreachable balance actions.
 
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
 - [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
