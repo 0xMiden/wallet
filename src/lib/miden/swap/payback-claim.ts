@@ -1,4 +1,5 @@
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { compareAccountIds } from 'lib/miden/activity/utils';
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { isUserCancelledTransaction } from 'lib/miden/transaction/constants';
@@ -8,7 +9,15 @@ export type PaybackClaimStuckReason = 'fee' | 'guardian' | 'network' | 'other';
 
 export type PaybackClaimState = { stuck: false } | { stuck: true; failedClaimId: string; reason: PaybackClaimStuckReason };
 
+/** What the account's other consumes say about one note: claimed by a Completed one, held by a live one, or neither. */
+export type NoteCoverage = (noteId: string) => 'claimed' | 'held' | 'open';
+
 const NOT_STUCK: PaybackClaimState = { stuck: false };
+
+const noteIdsOf = (tx: ITransaction): string[] => tx.noteIds ?? (tx.noteId ? [tx.noteId] : []);
+
+const isLiveOrUnconfirmed = (tx: ITransaction): boolean =>
+  tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed;
 
 /**
  * Names a failed payback claim's cause from its own error text. The text is the only stable join key across the
@@ -22,15 +31,11 @@ export function classifyPaybackClaimFailure(claim: ITransaction): PaybackClaimSt
   return 'other';
 }
 
-/**
- * A completed swap whose payout has not settled reads stuck while its latest payback claim failed and none is still
- * live or waiting on its verdict. Settlement claims are hidden from Activity (`suppressedLinkedConsumeIds`), so this
- * is the only place a failing payout shows. The daily retry (#313) keeps running; a later attempt clears it.
- */
-export function paybackClaimStateFrom(swap: ITransaction, linkedRows: ITransaction[]): PaybackClaimState {
-  if (swap.type !== 'swap' || swap.status !== ITransactionStatus.Completed) return NOT_STUCK;
-  if (swap.extraInputs?.settledAt != null) return NOT_STUCK;
-  const claims = linkedRows.filter(
+const isCompletedSwap = (swap: ITransaction): boolean =>
+  swap.type === 'swap' && swap.status === ITransactionStatus.Completed;
+
+const paybackClaimsOf = (swap: ITransaction, linkedRows: ITransaction[]): ITransaction[] =>
+  linkedRows.filter(
     row =>
       row.type === 'consume' &&
       row.extraInputs?.swapOrderTxId === swap.id &&
@@ -38,25 +43,81 @@ export function paybackClaimStateFrom(swap: ITransaction, linkedRows: ITransacti
       !isUserCancelledTransaction(row.error) &&
       !row.restoredFromBackup
   );
-  if (claims.some(row => row.status !== ITransactionStatus.Completed && row.status !== ITransactionStatus.Failed))
-    return NOT_STUCK;
-  const latest = claims.reduce<ITransaction | undefined>(
+
+/**
+ * A completed swap reads stuck while no payout claim is live and a failed payout claim still has a note that no
+ * other consume of the account has claimed or holds. Settlement claims are hidden from Activity
+ * (`suppressedLinkedConsumeIds`), so this is the only place a failing payout shows. Neither the latest row nor a
+ * stamp can say it: settlement queues one claim per chunk, and the stamp repair writes `settledAt` or `reclaimedAt`
+ * while a failed chunk remains. The daily retry (#313) keeps running; a claim that lands clears it.
+ */
+export function paybackClaimStateFrom(
+  swap: ITransaction,
+  linkedRows: ITransaction[],
+  coverage: NoteCoverage
+): PaybackClaimState {
+  if (!isCompletedSwap(swap)) return NOT_STUCK;
+  const claims = paybackClaimsOf(swap, linkedRows);
+  if (claims.some(isLiveOrUnconfirmed)) return NOT_STUCK;
+  const unclaimed = claims.filter(
+    row =>
+      row.status === ITransactionStatus.Failed &&
+      !noteIdsOf(row).some(noteId => coverage(noteId) === 'held') &&
+      (noteIdsOf(row).length === 0 || noteIdsOf(row).some(noteId => coverage(noteId) === 'open'))
+  );
+  const latest = unclaimed.reduce<ITransaction | undefined>(
     (newest, row) => (newest === undefined || row.initiatedAt > newest.initiatedAt ? row : newest),
     undefined
   );
-  if (latest?.status !== ITransactionStatus.Failed) return NOT_STUCK;
-  return { stuck: true, failedClaimId: latest.id, reason: classifyPaybackClaimFailure(latest) };
+  return latest ? { stuck: true, failedClaimId: latest.id, reason: classifyPaybackClaimFailure(latest) } : NOT_STUCK;
+}
+
+/**
+ * Every swap's state from one linked-claim read and one note read, so a history refresh costs two queries however
+ * many swaps it lists. The note read follows the claim dedup's rule (`queueConsumeRows`): a consume of the same
+ * account covers a note, Completed or still live, and a row restored from a backup covers nothing.
+ */
+export async function getPaybackClaimStates(swaps: ITransaction[]): Promise<Map<string, PaybackClaimState>> {
+  const states = new Map<string, PaybackClaimState>();
+  const completed = swaps.filter(isCompletedSwap);
+  if (completed.length === 0) return states;
+  const linked = await Repo.transactions
+    .where('extraInputs.swapOrderTxId')
+    .anyOf(completed.map(swap => swap.id))
+    .toArray();
+  const failedNoteIds = [
+    ...new Set(linked.filter(row => row.status === ITransactionStatus.Failed).flatMap(noteIdsOf))
+  ];
+  const [byScalar, byBatch] =
+    failedNoteIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          Repo.transactions.where('noteId').anyOf(failedNoteIds).toArray(),
+          Repo.transactions.where('noteIds').anyOf(failedNoteIds).toArray()
+        ]);
+  const covering = [...byScalar, ...byBatch].filter(
+    row =>
+      row.type === 'consume' &&
+      !row.restoredFromBackup &&
+      (row.status === ITransactionStatus.Completed || isLiveOrUnconfirmed(row))
+  );
+  for (const swap of completed) {
+    const coverage: NoteCoverage = noteId => {
+      const rows = covering.filter(row => compareAccountIds(row.accountId, swap.accountId) && noteIdsOf(row).includes(noteId));
+      if (rows.some(row => row.status === ITransactionStatus.Completed)) return 'claimed';
+      return rows.some(isLiveOrUnconfirmed) ? 'held' : 'open';
+    };
+    states.set(swap.id, paybackClaimStateFrom(swap, linked, coverage));
+  }
+  return states;
 }
 
 export async function getPaybackClaimState(swap: ITransaction): Promise<PaybackClaimState> {
-  if (swap.type !== 'swap' || swap.status !== ITransactionStatus.Completed || swap.extraInputs?.settledAt != null)
-    return NOT_STUCK;
-  const linked = await Repo.transactions.where('extraInputs.swapOrderTxId').equals(swap.id).toArray();
-  return paybackClaimStateFrom(swap, linked);
+  return (await getPaybackClaimStates([swap])).get(swap.id) ?? NOT_STUCK;
 }
 
 /** The history entry's field: the failed claim and its reason while stuck, else nothing. */
 export const stuckPaybackClaim = (
-  state: PaybackClaimState
+  state: PaybackClaimState | undefined
 ): { failedClaimId: string; reason: PaybackClaimStuckReason } | undefined =>
-  state.stuck ? { failedClaimId: state.failedClaimId, reason: state.reason } : undefined;
+  state?.stuck ? { failedClaimId: state.failedClaimId, reason: state.reason } : undefined;

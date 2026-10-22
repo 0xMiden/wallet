@@ -115,7 +115,7 @@ export interface IHistoryEntry {
    * manual-claim orders.
    */
   swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
-  /** Swap only: its latest payback claim failed and none is in flight (`getPaybackClaimState`). */
+  /** Swap only: a failed payout claim's notes are still unclaimed and no payout claim is live (`getPaybackClaimStates`). */
   paybackClaimStuck?: { failedClaimId: string; reason: PaybackClaimStuckReason };
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
