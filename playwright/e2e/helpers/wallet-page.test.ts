@@ -9,6 +9,7 @@ function makePage(): Page {
   return {
     url: () => 'chrome-extension://test/fullpage.html#/',
     waitForFunction: jest.fn(async () => undefined),
+    waitForTimeout: jest.fn(async () => undefined),
     evaluate: jest.fn(async <T>(callback: (arg: T) => unknown, arg: T) => callback(arg))
   } as unknown as Page;
 }
@@ -89,6 +90,7 @@ function installBalanceState(state: Record<string, unknown>, notes: Array<Record
 describe('ChromeWalletPage balance scoping', () => {
   afterEach(() => {
     Reflect.deleteProperty(window, '__TEST_STORE__');
+    Reflect.deleteProperty(window, '__TEST_BALANCE_READ_STATE__');
     jest.restoreAllMocks();
   });
 
@@ -173,6 +175,183 @@ describe('ChromeWalletPage balance scoping', () => {
     expect(snapshotSpy).toHaveBeenCalledWith({ symbol: 'tst' });
     expect(state.fetchBalances.mock.invocationCallOrder[0]!).toBeLessThan(snapshotSpy.mock.invocationCallOrder[0]!);
   });
+
+  it('does not treat a skipped in-flight refresh as a landed post-claim vault', async () => {
+    const readState = { inFlight: true };
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => {
+        if (readState.inFlight) return;
+        state.balances['account-a'] = [{ tokenId: 'native-faucet', balance: 10 }];
+        state.balancesLastFetched['account-a'] = 2;
+      })
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? readState : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    setTimeout(() => {
+      readState.inFlight = false;
+    }, 0);
+
+    await wallet.refreshBalances();
+
+    expect(state.balances['account-a'][0]?.balance).toBe(10);
+  });
+
+  it('rejects when an idle-started refresh returns without landing', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => undefined)
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: false } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+
+    await expect(wallet.refreshBalances()).rejects.toThrow();
+  });
+
+  it('retries waitForBalanceAbove when a skipped refresh does not land', async () => {
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    jest.spyOn(wallet, 'triggerSync').mockResolvedValue(undefined);
+    jest
+      .spyOn(wallet, 'getBalance')
+      .mockRejectedValueOnce(new Error('refreshBalances did not land for account-a'))
+      .mockResolvedValueOnce(5);
+
+    await expect(wallet.waitForBalanceAbove(1, 10_000)).resolves.toBe(5);
+  });
+
+  it('retries refreshBalancesLanded when an idle-started refresh does not land', async () => {
+    let fetches = 0;
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => {
+        fetches += 1;
+        if (fetches === 1) return;
+        state.balances['account-a'] = [{ tokenId: 'native-faucet', balance: 10 }];
+        state.balancesLastFetched['account-a'] = 2;
+      })
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: false } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+
+    await wallet.refreshBalancesLanded(10_000);
+
+    expect(state.balances['account-a'][0]?.balance).toBe(10);
+  });
+
+  it('rejects when a refresh stays in flight past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => undefined)
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: true } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const started = Date.now();
+
+    await expect(wallet.refreshBalancesLanded(1_000)).rejects.toThrow('refreshBalances did not land');
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(state.fetchBalances).not.toHaveBeenCalled();
+  });
+
+  it('rejects waitForBalanceAbove when a refresh stays in flight past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => undefined)
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: true } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    jest.spyOn(wallet, 'triggerSync').mockResolvedValue(undefined);
+    const started = Date.now();
+
+    await expect(wallet.waitForBalanceAbove(1, 1_000)).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('rejects when an idle-started fetch never settles past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(() => new Promise(() => undefined))
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: false } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const started = Date.now();
+
+    await expect(wallet.refreshBalancesLanded(1_000)).rejects.toThrow('refreshBalances did not land');
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('rejects when a fetch with no idle hook never settles past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(() => new Promise(() => undefined))
+    };
+    installBalanceState(state, []);
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const started = Date.now();
+
+    await expect(wallet.refreshBalancesLanded(1_000)).rejects.toThrow('refreshBalances did not land');
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('caps waitForBalanceAbove retry sleep to remaining time', async () => {
+    const page = makePage();
+    (page.waitForTimeout as jest.Mock).mockImplementation(
+      (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+    );
+    const wallet = new ChromeWalletPage(page, 'test');
+    jest.spyOn(wallet, 'triggerSync').mockResolvedValue(undefined);
+    jest.spyOn(wallet, 'getBalance').mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 2_000));
+      throw new Error('refreshBalances did not land for account-a');
+    });
+
+    await expect(wallet.waitForBalanceAbove(1, 6_000)).rejects.toThrow();
+    expect((page.waitForTimeout as jest.Mock).mock.calls[0]?.[0]).toBeLessThan(5_000);
+  }, 15_000);
 
   it('delegates an unscoped getBalance call without inventing a filter', async () => {
     const state = {
@@ -519,4 +698,136 @@ describe('ChromeWalletPage create paths', () => {
       }
     }
   );
+});
+
+describe('ChromeWalletPage.openImportSeedPhraseScreen', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  interface RecordedControl {
+    waitFor: jest.Mock;
+    click: jest.Mock;
+    isVisible: jest.Mock;
+    or(other: { isVisible(): Promise<boolean> }): RecordedUnion;
+  }
+
+  interface RecordedUnion extends RecordedControl {
+    first(): RecordedUnion;
+  }
+
+  /**
+   * Records clicks. A control that is not in the document cannot be waited on or clicked, and
+   * `or` is visible when either side is. A mainnet Welcome has no `#import-link`, so a helper
+   * that only waits for that link fails here. Selectors in `hang` append themselves to `pending`
+   * and never settle their own `waitFor`; `isVisible` still reports the document. `or().first()`
+   * is that same combined locator, and its `waitFor` resolves when either side is visible without
+   * calling either side's `waitFor`.
+   */
+  function pageRecording(log: string[], hang: ReadonlySet<string> = new Set(), pending: string[] = []): Page {
+    const locator = (selector: string): RecordedControl => {
+      const present = () => document.querySelector(selector) !== null;
+      const api: RecordedControl = {
+        waitFor: jest.fn(async () => {
+          if (hang.has(selector)) {
+            pending.push(selector);
+            await new Promise<void>(() => undefined);
+            return;
+          }
+          if (!present()) throw new Error(`not visible: ${selector}`);
+        }),
+        click: jest.fn(async () => {
+          if (!present()) throw new Error(`not clickable: ${selector}`);
+          log.push(`click ${selector}`);
+        }),
+        isVisible: jest.fn(async () => present()),
+        or(other) {
+          const combined: RecordedUnion = {
+            waitFor: jest.fn(async () => {
+              if (present() || (await other.isVisible())) return;
+              throw new Error(`not visible: ${selector}`);
+            }),
+            isVisible: jest.fn(async () => present() || (await other.isVisible())),
+            click: api.click,
+            or(otherControl) {
+              return api.or(otherControl);
+            },
+            first() {
+              return this;
+            }
+          };
+          return combined;
+        }
+      };
+      return api;
+    };
+    return {
+      goto: jest.fn(async () => undefined),
+      getByTestId: jest.fn((id: string) => locator(`[data-testid="${id}"]`)),
+      locator: jest.fn((selector: string) => locator(selector))
+    } as unknown as Page;
+  }
+
+  it('recovers from the test-network Welcome and acknowledges the network notice', async () => {
+    document.body.innerHTML = [
+      '<div data-testid="onboarding-welcome"></div>',
+      '<a id="import-link"></a>',
+      '<button data-testid="onboarding-network-notice-acknowledge"></button>',
+      '<div data-testid="import-select-type"></div>',
+      '<button data-testid="import-type-seed-phrase"></button>',
+      '<div data-testid="import-seed-phrase"></div>'
+    ].join('');
+    const log: string[] = [];
+    await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
+    expect(log).toEqual([
+      'click #import-link',
+      'click [data-testid="onboarding-network-notice-acknowledge"]',
+      'click [data-testid="import-type-seed-phrase"]'
+    ]);
+  });
+
+  it('recovers a mainnet account through the no-code sheet, with no network notice', async () => {
+    document.body.innerHTML = [
+      '<div data-testid="onboarding-welcome"></div>',
+      '<button data-testid="onboarding-no-code"></button>',
+      '<button data-testid="no-code-sheet-recover"></button>',
+      '<div data-testid="import-select-type"></div>',
+      '<button data-testid="import-type-seed-phrase"></button>',
+      '<div data-testid="import-seed-phrase"></div>'
+    ].join('');
+    const log: string[] = [];
+    await new ChromeWalletPage(pageRecording(log), 'test').openImportSeedPhraseScreen();
+    expect(log).toEqual([
+      'click [data-testid="onboarding-no-code"]',
+      'click [data-testid="no-code-sheet-recover"]',
+      'click [data-testid="import-type-seed-phrase"]'
+    ]);
+  });
+
+  it('does not leave the unselected import control waiting', async () => {
+    document.body.innerHTML = [
+      '<div data-testid="onboarding-welcome"></div>',
+      '<button data-testid="onboarding-no-code"></button>',
+      '<button data-testid="no-code-sheet-recover"></button>',
+      '<div data-testid="import-select-type"></div>',
+      '<button data-testid="import-type-seed-phrase"></button>',
+      '<div data-testid="import-seed-phrase"></div>'
+    ].join('');
+    const log: string[] = [];
+    const pending: string[] = [];
+    await new ChromeWalletPage(
+      pageRecording(
+        log,
+        new Set(['#import-link', '[data-testid="onboarding-network-notice-acknowledge"]']),
+        pending
+      ),
+      'test'
+    ).openImportSeedPhraseScreen();
+    expect(pending).toEqual([]);
+    expect(log).toEqual([
+      'click [data-testid="onboarding-no-code"]',
+      'click [data-testid="no-code-sheet-recover"]',
+      'click [data-testid="import-type-seed-phrase"]'
+    ]);
+  });
 });
