@@ -686,6 +686,7 @@ describe('a transaction-failure report', () => {
     const cases: [TransactionFailure, string][] = [];
     for (const lastDeferral of CONSUME_DEFERRAL_CAUSES) {
       cases.push([{ type: 'consume', lastDeferral }, `; last deferral ${lastDeferral};`]);
+      cases.push([{ type: 'send', reason: 'queued_expired', lastDeferral }, `; last deferral ${lastDeferral};`]);
     }
     for (const feeAdmission of CLAIM_FEE_ADMISSIONS) {
       cases.push([{ type: 'consume', feeAdmission }, `; claim fee admission ${feeAdmission};`]);

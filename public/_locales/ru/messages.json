@@ -957,6 +957,22 @@
     "message": "Восстановление было выполнено из резервной копии, поэтому кошелек не может проверить, прошло ли восстановление, или повторить попытку. Проверьте кошелек, прежде чем повторять операцию.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "Во время отправки этого сообщения произошел сбой соединения. Кошелек не может подтвердить, прошла ли операция. Она может ещё завершиться, поэтому проверьте, прежде чем повторить попытку.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Ваш «Guardian» отклонил эту заявку. Попытайтесь ещё раз.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "Сеть отклонила эту заявку. Попробуйте ещё раз.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "Ответ на эту отправку не поступил. Кошелек не может подтвердить, прошла ли она. Возможно, операция всё ещё завершается, поэтому проверьте, прежде чем повторить попытку.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "Показать полный текст ошибки",
     "englishSource": "Show full error"
@@ -5260,6 +5276,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "На этом счете может храниться не более $cap$ долларов США. На нем находится $held$ долларов США, и этот депозит добавляет $deposit$ долларов США. Введите меньшую сумму.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "На этом счете может храниться не более $cap$ долларов США, а у $token$ в данный момент нет цены, поэтому невозможно проверить соответствие депозита по нему. Попробуйте позже.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Мост запущен!",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7221,13 @@
   "walletAccessUnavailableBody": {
     "message": "Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Этот браузер или устройство не поддерживает работу кошелька",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

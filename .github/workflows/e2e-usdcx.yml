@@ -1,6 +1,6 @@
 name: E2E USDCx
 
-# Runs the live USDCx suites on the extension after every push to main, through the runner `yarn e2e:real` uses
+# Runs the live USDCx suites on the extension when Release E2E dispatches it, through the runner `yarn e2e:real` uses
 # (scripts/e2e-real.mjs), in two jobs. The Arc job runs usdcx-in (a deposit from the CI key into a fresh Guardian wallet),
 # usdcx-burn (a Send burn to that key from a fresh standard and a fresh Guardian wallet, each waiting for Circle's payout)
 # and usdcx (the round trip: burn, payout, deposit back). The L2 job then runs usdcx-in-l2 (a deposit the same key signs
@@ -22,9 +22,6 @@ name: E2E USDCx
 # Not a per-PR gate: it spends public testnet funds and depends on services the project does not run.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:

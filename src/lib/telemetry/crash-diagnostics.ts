@@ -72,6 +72,13 @@ export type ProposalStep = (typeof PROPOSAL_STEPS)[number];
 export const PROPOSAL_GUARDS = ['account_not_guardian', 'hot_key_missing', 'guardian_out_of_sync'] as const;
 export type ProposalGuard = (typeof PROPOSAL_GUARDS)[number];
 
+/**
+ * The account's own security changes. These are the names in `STRUCTURAL_GUARDIAN_TYPES` and nothing else: a
+ * proposal failure for one of them otherwise looks the same as the other two.
+ */
+export const SECURITY_CHANGE_ACTIONS = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const;
+export type SecurityChangeAction = (typeof SECURITY_CHANGE_ACTIONS)[number];
+
 /** The step a submitted transaction's completion was in when it failed, from reading its result to recording it. */
 export const COMPLETION_STEPS = ['result_read', 'row_read', 'result_serialize', 'status_write'] as const;
 export type CompletionStep = (typeof COMPLETION_STEPS)[number];
@@ -119,6 +126,7 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   userErrorSurface?: UserErrorSurface;
   proposalStep?: ProposalStep;
   proposalGuard?: ProposalGuard;
+  securityChange?: SecurityChangeAction;
   completionStep?: CompletionStep;
   completionGuard?: CompletionGuard;
 };
@@ -222,6 +230,7 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       userErrorSurface: suppliedSurface,
       proposalStep: suppliedStep,
       proposalGuard: suppliedGuard,
+      securityChange: suppliedChange,
       completionStep: suppliedCompletionStep,
       completionGuard: suppliedCompletionGuard
     } = diagnostics;
@@ -265,6 +274,9 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       safe.proposalStep = proposalStep;
       const proposalGuard = PROPOSAL_GUARDS.find(guard => guard === suppliedGuard);
       if (proposalGuard !== undefined) safe.proposalGuard = proposalGuard;
+      // Only beside proposal creation, and only a listed change. A listed name on any other step is dropped.
+      const securityChange = SECURITY_CHANGE_ACTIONS.find(action => action === suppliedChange);
+      if (proposalStep === 'proposal_create' && securityChange !== undefined) safe.securityChange = securityChange;
     }
     const completionStep = COMPLETION_STEPS.find(step => step === suppliedCompletionStep);
     if (completionStep !== undefined && previous.completionStep === undefined) {
@@ -289,9 +301,19 @@ async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: 
   }
 }
 
-/** Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did. */
-export function withProposalStep<T>(step: ProposalStep, operation: () => Promise<T>): Promise<T> {
-  return annotatingRejection({ proposalStep: step }, operation);
+/**
+ * Awaits `operation` and rethrows its rejection unchanged, naming `step` on it unless a step inside already did.
+ * `securityChange` is recorded with that step when this boundary is one of the account's own security changes.
+ */
+export function withProposalStep<T>(
+  step: ProposalStep,
+  operation: () => Promise<T>,
+  securityChange?: SecurityChangeAction
+): Promise<T> {
+  return annotatingRejection(
+    securityChange === undefined ? { proposalStep: step } : { proposalStep: step, securityChange },
+    operation
+  );
 }
 
 /** {@link withProposalStep} for the completion of a submitted transaction. */
@@ -392,6 +414,8 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
       Object.assign(snapshot, storage);
     }
   }
+  // A name recorded on proposal creation must not survive onto a later step in the cause chain.
+  if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
   return snapshot;
 }
 

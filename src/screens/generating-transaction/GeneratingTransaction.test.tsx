@@ -701,6 +701,160 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  const networkRefusal =
+    'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+  const submitDeadline =
+    'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: request to Miden node timed out; the node may be under heavy load';
+
+  it('explains an explicit submit refusal and retries through the existing action', async () => {
+    mockReconcileUnconfirmed.mockClear();
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: networkRefusal
+      }),
+      loaded: true
+    };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain('submissionRejectedByNetwork');
+    expect(container.textContent).not.toContain('invalid request parameters');
+    expect(container.textContent).not.toContain('notConfirmed');
+    expect(container.querySelector('.size-16 > .bg-status-negative')).not.toBeNull();
+    expect(stepStates(container).submitting).toBe('failed');
+    expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+    const retryButton = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'retry');
+    expect(retryButton).toBeTruthy();
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(requeueFailedTransactionMock).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+  });
+
+  it('explains a dropped connection and a missing answer without calling the transaction failed', async () => {
+    mockReconcileUnconfirmed.mockClear();
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: 'TypeError: Failed to fetch'
+      }),
+      loaded: true
+    };
+
+    const dropped = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(dropped.container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(dropped.container.textContent).toContain('submissionInterrupted');
+    expect(dropped.container.textContent).not.toContain('transactionFailed');
+    expect(dropped.container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+    expect(stepStates(dropped.container).submitting).toBe('pending');
+    expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+    act(() => dropped.root.unmount());
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting',
+        type: 'consume',
+        error: submitDeadline
+      }),
+      loaded: true
+    };
+    const quiet = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(quiet.container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(quiet.container.textContent).toContain('submissionUnanswered');
+    expect(quiet.container.textContent).not.toContain('transactionFailed');
+    expect(requeueFailedTransactionMock).not.toHaveBeenCalled();
+    expect(mockReconcileUnconfirmed).toHaveBeenCalled();
+    act(() => quiet.root.unmount());
+  });
+
+  it('keeps an in-progress submission on the spinner and Hide, and a late success on the receipt path', async () => {
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.GeneratingTransaction, stage: 'submitting', type: 'consume' }),
+      loaded: true
+    };
+    const pending = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(pending.container.textContent).toContain('generatingTransactionDescription');
+    expect(pending.container.textContent).toContain('hide');
+    expect(pending.container.textContent).not.toContain('submissionUnanswered');
+    expect(pending.container.textContent).not.toContain('submissionRejectedByNetwork');
+    act(() => pending.root.unmount());
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        error: submitDeadline
+      }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(container.textContent).toContain('submissionUnanswered');
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Completed,
+        stage: 'submitting',
+        type: 'consume',
+        error: "Transaction 0xabc was accepted into the node's mempool at block 9 but the local store update failed."
+      }),
+      loaded: true
+    };
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+    await flush();
+    expect(container.textContent).not.toContain('submissionUnanswered');
+    expect(container.textContent).toContain('transactionCompleted');
+    act(() => root.unmount());
+  });
+
+  it('gives an unrecognized submit error the existing failed copy and full-error disclosure, not a verdict', async () => {
+    const unrecognized = 'Note is invalid';
+    mockRowState = {
+      row: makeTx({ status: ITransactionStatus.Failed, stage: 'submitting', type: 'consume', error: unrecognized }),
+      loaded: true
+    };
+    const definite = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(definite.container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(definite.container.textContent).toContain(unrecognized);
+    expect(definite.container.textContent).not.toMatch(/submission(Rejected|Interrupted|Unanswered)/);
+    act(() => definite.root.unmount());
+
+    mockRowState = {
+      row: makeTx({
+        status: ITransactionStatus.Failed,
+        stage: 'submitting',
+        type: 'consume',
+        mayHaveSubmitted: true,
+        error: unrecognized
+      }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(container.textContent).toContain('transactionUndeterminedHint');
+    expect(container.textContent).not.toMatch(/submission(Rejected|Interrupted|Unanswered)/);
+    expect(container.textContent).not.toContain(unrecognized);
+    const showFullError = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'showFullError');
+    expect(showFullError).toBeTruthy();
+    await act(async () => {
+      showFullError!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(container.textContent).toContain(unrecognized);
+    act(() => root.unmount());
+  });
+
   it("keeps a not-confirmed row's own error one tap away behind Show full error", async () => {
     mockRowState = { row: makeTx({ status: 3, mayHaveSubmitted: true, error: 'Error: 503' }), loaded: true };
 

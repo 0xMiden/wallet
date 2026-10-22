@@ -189,6 +189,10 @@
   "transactionNotConfirmedHint": "A carteira não conseguiu confirmar se a operação foi concluída. Ela ainda pode ser concluída; portanto, verifique a carteira após a sincronização antes de tentar novamente.",
   "transactionUndeterminedHint": "A carteira não conseguiu determinar se a operação foi concluída e não está verificando isso. Verifique a carteira antes de tentar novamente.",
   "transactionRestoredHint": "Isso foi restaurado a partir de um backup, portanto a carteira não pode verificar se a operação foi bem-sucedida nem repeti-la. Verifique a carteira antes de repetir a operação.",
+  "submissionInterrupted": "A conexão caiu enquanto isso estava sendo enviado. A carteira não pode confirmar se a operação foi concluída. Ela ainda pode ser concluída, portanto, verifique antes de tentar novamente.",
+  "submissionRejectedByGuardian": "Seu “Guardian” recusou este envio. Tente novamente.",
+  "submissionRejectedByNetwork": "A rede rejeitou este envio. Tente novamente.",
+  "submissionUnanswered": "Não houve resposta a este envio. A carteira não pode confirmar se ele foi processado. Ele ainda pode ser concluído, portanto, verifique antes de tentar novamente.",
   "showFullError": "Mostrar o erro completo",
   "hideFullError": "Ocultar o erro completo",
   "noteDeliveryPendingTitle": "Entrega não confirmada",
@@ -1175,6 +1179,8 @@
   "bridgeDepositFailed": "Falha no depósito da ponte",
   "bridgeDepositBalanceTooLow": "Sua carteira conectada possui $balance$ $token$ na $network$, valor inferior ao necessário para este depósito. Nada foi enviado.",
   "bridgeDepositBalanceReadFailed": "Não foi possível verificar seu saldo de $token$ na $network$. Nada foi enviado.",
+  "bridgeDepositBalanceCapExceeded": "Esta conta pode conter, no máximo, $cap$ em dólares americanos. Ela contém $held$ em dólares americanos e este depósito acrescenta $deposit$ em dólares americanos. Insira um valor menor.",
+  "bridgeDepositBalanceCapUnpriced": "Esta conta pode conter, no máximo, $cap$ em dólares americanos, e $token$ não tem preço no momento, portanto, o depósito não pode ser verificado em relação a ele. Tente novamente mais tarde.",
   "bridgeDepositSubmitted": "Bridge iniciada!",
   "bridgeDepositDeliveryDescription": "A transação de origem foi confirmada. Seus fundos aparecerão no Miden assim que a entrega pela ponte for concluída.",
   "viewOnEtherscan": "Ver no Etherscan",
@@ -1587,5 +1593,7 @@
   "walletAccessRestrictedTitle": "Carteira indisponível na sua região",
   "walletAccessRestrictedBody": "A carteira não está disponível na sua localização atual.",
   "walletAccessUnavailableTitle": "Não foi possível verificar a disponibilidade",
-  "walletAccessUnavailableBody": "Verifique a sua ligação e tente novamente."
+  "walletAccessUnavailableBody": "Verifique a sua ligação e tente novamente.",
+  "runtimeUnsupportedTitle": "Este navegador ou dispositivo não é compatível com a carteira",
+  "runtimeUnsupportedBody": "A carteira precisa do WebAssembly SIMD, que este navegador ou dispositivo não oferece. Abra a carteira em outro dispositivo ou em um navegador atualizado."
 }

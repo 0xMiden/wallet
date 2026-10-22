@@ -957,6 +957,22 @@
     "message": "此操作是從備份還原而來，因此錢包無法檢查操作是否成功，也無法重新嘗試。請在重複操作前檢查錢包。",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "提交過程中網路連線中斷。錢包無法確認是否已成功傳送。該操作仍可能完成，請先確認後再嘗試。",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "您的「Guardian」拒絕了此提交。請重新嘗試。",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "系統拒絕了此提交。請重新嘗試。",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "此提交未收到任何回應。錢包無法確認該操作是否成功傳送。該操作仍可能完成，因此請先確認後再嘗試。",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "顯示完整錯誤訊息",
     "englishSource": "Show full error"
@@ -5260,6 +5276,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "此帳戶最多可持有 $cap$ 美元。目前持有 $held$ 美元，本次存款將增加 $deposit$ 美元。請輸入較小的金額。",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "此帳戶最多可持有 $cap$ 美元，且 $token$ 目前無價格，因此無法據此核對存款金額。請稍後再試。",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "橋接已啟動！",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7221,13 @@
   "walletAccessUnavailableBody": {
     "message": "請檢查網路連線後重試。",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "此瀏覽器或裝置無法執行該錢包",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "此錢包需要 WebAssembly SIMD，而此瀏覽器或裝置並未提供此功能。請在另一台裝置上或使用最新版本的瀏覽器開啟錢包。",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

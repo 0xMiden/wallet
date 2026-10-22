@@ -30,12 +30,26 @@ export function hasNoUsdMarket(symbol: string): boolean {
   return !isListedSymbol(symbol) && krakenMarkets.get(symbol) === null;
 }
 
+/** The symbols the feed asks Kraken about once Binance has ruled them out. */
+function krakenSymbol(symbol: string): boolean {
+  return /^[A-Z0-9]{1,30}$/.test(symbol);
+}
+
+/**
+ * True while a USD quote for `symbol` may still come: until the feed has ruled its market out at both providers. A
+ * symbol the feed never sends to Kraken waits on Binance's verdict alone, and no symbol waits on nothing.
+ */
+export function usdMarketPending(symbol: string | undefined): boolean {
+  if (symbol === undefined) return false;
+  return krakenSymbol(symbol) ? !hasNoUsdMarket(symbol) : isListedSymbol(symbol);
+}
+
 /** Fetch Binance prices first, then direct USD prices for assets it does not list. */
 export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
   const prices = await fetchBinancePrices(symbols);
   // PYUSD has a Kraken USD market but no Binance USDT or USDC market.
   // Use this fallback only when both Binance markets are absent, not when a request fails.
-  const queue = [...new Set(symbols)].filter(symbol => /^[A-Z0-9]{1,30}$/.test(symbol) && !isListedSymbol(symbol));
+  const queue = [...new Set(symbols)].filter(symbol => krakenSymbol(symbol) && !isListedSymbol(symbol));
   const resolved = new Map<string, string>();
   const resolveNext = async (): Promise<void> => {
     for (let symbol = queue.shift(); symbol !== undefined; symbol = queue.shift()) {

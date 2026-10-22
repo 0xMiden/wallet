@@ -1,5 +1,6 @@
 import type { JsonResponse } from 'lib/remote-json';
 
+import { devEligibilityOpen } from './dev-eligibility-open';
 import { lookupFeatureEligibility } from './geo-lookup';
 
 const answer = { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: false } };
@@ -11,10 +12,15 @@ function jsonResponse(body: unknown, ok = true): JsonResponse {
 describe('lookupFeatureEligibility', () => {
   const savedUrl = process.env.FEATURE_ELIGIBILITY_URL;
   const savedE2e = process.env.MIDEN_E2E_TEST;
+  const savedOpen = process.env.MIDEN_ELIGIBILITY_OPEN;
+  const savedMode = process.env.MODE_ENV;
 
   beforeEach(() => {
     process.env.FEATURE_ELIGIBILITY_URL = 'https://eligibility.example/v1/eligibility';
     process.env.MIDEN_E2E_TEST = 'false';
+    delete process.env.MIDEN_ELIGIBILITY_OPEN;
+    if (savedMode === undefined) delete process.env.MODE_ENV;
+    else process.env.MODE_ENV = savedMode;
     jest.useFakeTimers();
   });
 
@@ -23,6 +29,10 @@ describe('lookupFeatureEligibility', () => {
     else process.env.MIDEN_E2E_TEST = savedE2e;
     if (savedUrl === undefined) delete process.env.FEATURE_ELIGIBILITY_URL;
     else process.env.FEATURE_ELIGIBILITY_URL = savedUrl;
+    if (savedOpen === undefined) delete process.env.MIDEN_ELIGIBILITY_OPEN;
+    else process.env.MIDEN_ELIGIBILITY_OPEN = savedOpen;
+    if (savedMode === undefined) delete process.env.MODE_ENV;
+    else process.env.MODE_ENV = savedMode;
   });
 
   it('requests only the network and returns the decisions without retaining geo or sending credentials', async () => {
@@ -68,6 +78,63 @@ describe('lookupFeatureEligibility', () => {
     const fetchImpl = jest.fn();
     await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('allows every feature for yarn dev without calling the service', async () => {
+    process.env.MODE_ENV = 'development';
+    process.env.MIDEN_ELIGIBILITY_OPEN = 'true';
+    delete process.env.FEATURE_ELIGIBILITY_URL;
+    const fetchImpl = jest.fn();
+    await expect(lookupFeatureEligibility('devnet', 4, { fetchImpl })).resolves.toEqual({
+      network: 'devnet',
+      version: 4,
+      allowed: { wallet: true, earn: true, swap: true }
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('allows every feature for yarn dev even when an endpoint is configured', async () => {
+    process.env.MODE_ENV = 'development';
+    process.env.MIDEN_ELIGIBILITY_OPEN = 'true';
+    const fetchImpl = jest.fn();
+    await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toEqual({
+      network: 'testnet',
+      version: 13,
+      allowed: { wallet: true, earn: true, swap: true }
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an inherited flag without an explicit development build', { MIDEN_ELIGIBILITY_OPEN: 'true' }],
+    ['a production build that inherited the flag', { MODE_ENV: 'production', MIDEN_ELIGIBILITY_OPEN: 'true' }],
+    [
+      'an end-to-end development build that inherited the flag',
+      { MODE_ENV: 'development', MIDEN_E2E_TEST: 'true', MIDEN_ELIGIBILITY_OPEN: 'true' }
+    ]
+  ])('does not open eligibility for %s', (label, env) => {
+    expect(devEligibilityOpen(env)).toBe(false);
+    expect(label).toBeTruthy();
+  });
+
+  it('opens eligibility only for an explicit non-E2E development build', () => {
+    expect(
+      devEligibilityOpen({ MODE_ENV: 'development', MIDEN_ELIGIBILITY_OPEN: 'true', MIDEN_E2E_TEST: 'false' })
+    ).toBe(true);
+  });
+
+  it('does not treat a development-mode build as yarn dev', async () => {
+    const savedMode = process.env.MODE_ENV;
+    process.env.MODE_ENV = 'development';
+    delete process.env.FEATURE_ELIGIBILITY_URL;
+    const fetchImpl = jest.fn();
+    try {
+      await expect(lookupFeatureEligibility('testnet', 13, { fetchImpl })).resolves.toBeNull();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      if (savedMode === undefined) delete process.env.MODE_ENV;
+      else process.env.MODE_ENV = savedMode;
+    }
   });
 
   it.each([

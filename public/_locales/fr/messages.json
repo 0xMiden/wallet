@@ -957,6 +957,22 @@
     "message": "Cette opération a été restaurée à partir d’une sauvegarde ; le portefeuille ne peut donc pas vérifier si elle a abouti ni la réessayer. Vérifiez le portefeuille avant de répéter l’opération.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "La connexion a été interrompue pendant l’envoi de cette demande. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle pourrait tout de même aboutir ; veuillez donc vérifier avant de réessayer.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Votre « Guardian » a refusé cette soumission. Réessayez.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "Le réseau a rejeté cette soumission. Veuillez réessayer.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "Aucune réponse n’a été reçue suite à cette soumission. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle peut encore aboutir, veuillez donc vérifier avant de réessayer.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "Afficher l'erreur complète",
     "englishSource": "Show full error"
@@ -5260,6 +5276,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Ce compte peut contenir au maximum $cap$ USD. Il contient $held$ USD et ce dépôt ajoute $deposit$ USD. Saisissez un montant inférieur.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Ce compte peut contenir au maximum $cap$ USD, et $token$ n’a pas de cours pour le moment ; le dépôt ne peut donc pas être validé par rapport à ce montant. Veuillez réessayer plus tard.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Pont lancé !",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7221,13 @@
   "walletAccessUnavailableBody": {
     "message": "Vérifiez votre connexion et réessayez.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Ce navigateur ou cet appareil ne peut pas exécuter le portefeuille",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Le portefeuille nécessite WebAssembly SIMD, ce que ce navigateur ou cet appareil ne prend pas en charge. Ouvrez le portefeuille sur un autre appareil ou dans un navigateur à jour.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

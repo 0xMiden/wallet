@@ -40,6 +40,10 @@ import {
   FAILURE_REASONS,
   HOT_KEY_CODES,
   NEVER_COMMITTED_RULES,
+  OFFSCREEN_DEADLINE_KILLERS,
+  OFFSCREEN_DEADLINE_OWNERS,
+  OFFSCREEN_DEADLINE_TIMERS,
+  OFFSCREEN_OP_STARTED,
   PIPELINE_KILLS,
   PROVING_PREFERENCES,
   REAP_AGES,
@@ -47,7 +51,10 @@ import {
   REPORTED_IDENTITIES,
   reportTransactionFailure,
   SIGNING_STEPS,
+  STARTUP_SELECTIONS,
+  STORED_STAGE_AGES,
   SUBMIT_ENDPOINTS,
+  SUBMIT_RECORDS,
   SUBMIT_GRPC_STATUSES,
   SUBMIT_HIDDEN_ANSWERS,
   SUBMIT_LEG_BUCKETS,
@@ -175,6 +182,10 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     ['under_9s', '9_to_11s', 'over_11s', 'unavailable'],
     THROWN_CLASS_VALUES,
     PIPELINE_KILLS,
+    OFFSCREEN_DEADLINE_OWNERS,
+    OFFSCREEN_DEADLINE_TIMERS,
+    OFFSCREEN_DEADLINE_KILLERS,
+    OFFSCREEN_OP_STARTED,
     EXECUTION_CAUSES,
     SIGNING_STEPS,
     CONFIRMING_STEPS,
@@ -183,6 +194,9 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     CLAIM_FEE_ADMISSIONS,
     REAP_AGES,
     REAPED_ATTEMPT_ORIGINS,
+    STARTUP_SELECTIONS,
+    STORED_STAGE_AGES,
+    SUBMIT_RECORDS,
     ['none', 'unrecorded', 'unavailable', 'other'],
     HOT_KEY_CODES,
     GUARDIAN_ERROR_CODES,
@@ -388,7 +402,7 @@ it.each([
   }
 );
 
-it('omits all claim-only segments from a send even when claim fields are present', async () => {
+it('omits the claim-only segments from a send but keeps its recorded last deferral', async () => {
   reportTransactionFailure({
     type: 'send',
     entryPoint: 'claim',
@@ -397,8 +411,35 @@ it('omits all claim-only segments from a send even when claim fields are present
   });
   const message = await reportedMessage();
   expect(message).not.toContain('queued by');
-  expect(message).not.toContain('last deferral');
   expect(message).not.toContain('claim fee admission');
+  expect(message).toMatch(/; platform (?:desktop|extension|ios|android); last deferral wallet_locked; point pipeline;/);
+});
+
+// Without a recorded deferral the segment is left out, so the existing non-consume groups keep their message.
+it('adds no last deferral segment to a non-consume report that recorded none', async () => {
+  reportTransactionFailure({ type: 'swap', reason: 'queued_expired' });
+  expect(await reportedMessage()).not.toContain('last deferral');
+});
+
+it('names an unlisted non-consume deferral as other', async () => {
+  const failure: TransactionFailure = { type: 'send', reason: 'queued_expired' };
+  Reflect.set(failure, 'lastDeferral', 'nonsense');
+  reportTransactionFailure(failure);
+  expect(await reportedMessage()).toContain('; last deferral other; point pipeline;');
+});
+
+it('sends only the fixed deferral of an expired send whose error carries ids, hex and amounts', async () => {
+  const accountId = '0x7bfb0f38b0fafa103f86a805594170';
+  const noteId = '0x' + 'ab12'.repeat(16);
+  reportTransactionFailure({
+    type: 'send',
+    reason: 'queued_expired',
+    lastDeferral: 'guardian_backpressure',
+    error: new Error(`send of 1250000 to ${accountId} with note ${noteId} expired after 42 attempts`)
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('; last deferral guardian_backpressure; point pipeline; queued_expired.');
+  for (const leaked of [accountId, noteId, '1250000', '42 attempts', 'ab12']) expect(message).not.toContain(leaked);
 });
 
 it('places claim segments after platform and before the failure point in the first sentence', async () => {
@@ -468,6 +509,60 @@ it.each([
   expect(message).toContain(`; reap age ${age}; reaped attempt ${attempt}; point pipeline; stuck_reaped.`);
   expect(message).not.toContain('nonsense');
 });
+
+it('places startup segments after platform and before the failure point for a startup-interrupted claim', async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'signing-proposal',
+    entryPoint: 'claim',
+    reason: 'interrupted_on_startup',
+    startup: { selection: 'before_session', stageAge: 'under_10m', submit: 'no_submit_recorded' }
+  });
+  expect(await reportedMessage()).toMatch(
+    /; claim fee admission unrecorded; startup selection before_session; stored stage age under_10m; submit no_submit_recorded; point pipeline; interrupted_on_startup\. authentication/
+  );
+});
+
+it.each([
+  { name: 'absent', startup: undefined, selection: 'unavailable', age: 'unavailable', submit: 'unavailable' },
+  {
+    name: 'listed',
+    startup: { selection: 'future_stamp', stageAge: 'over_1d', submit: 'submit_recorded' },
+    selection: 'future_stamp',
+    age: 'over_1d',
+    submit: 'submit_recorded'
+  },
+  {
+    name: 'unlisted',
+    startup: { selection: 'nonsense', stageAge: 'nonsense', submit: 'nonsense' },
+    selection: 'unavailable',
+    age: 'unavailable',
+    submit: 'unavailable'
+  }
+])('reports $name startup fields through their closed lists', async ({ startup, selection, age, submit }) => {
+  const failure: TransactionFailure = { type: 'send', reason: 'interrupted_on_startup' };
+  Reflect.set(failure, 'startup', startup);
+  reportTransactionFailure(failure);
+  const message = await reportedMessage();
+  expect(message).toContain(
+    `; startup selection ${selection}; stored stage age ${age}; submit ${submit}; point pipeline; interrupted_on_startup.`
+  );
+  expect(message).not.toContain('nonsense');
+});
+
+it.each(['stuck_reaped', 'user_cancelled', undefined] as const)(
+  'omits startup segments for reason %s',
+  async reason => {
+    reportTransactionFailure({
+      type: 'consume',
+      reason,
+      startup: { selection: 'missing_start', stageAge: 'under_1m', submit: 'submit_recorded' }
+    });
+    const message = await reportedMessage();
+    expect(message).not.toContain('startup selection');
+    expect(message).not.toContain('stored stage age');
+  }
+);
 
 it.each(['queued_expired', 'user_cancelled', undefined] as const)('omits reap segments for reason %s', async reason => {
   reportTransactionFailure({
@@ -1137,12 +1232,14 @@ describe('a submit the node refused', () => {
 describe('a pipeline killed from outside', () => {
   const sync = (cause: unknown) => new Error(`pre-flight sync for ${ACCOUNT} failed`, { cause });
 
+  const unrecorded =
+    'deadline owner unavailable; deadline timer unavailable; deadline op unavailable; op start reported unavailable';
   it.each([
-    ['deadline', 'offscreen_aborted_deadline'],
-    ['deadline-no-kill', 'offscreen_aborted_deadline_no_kill'],
-    ['doc-closed', 'offscreen_aborted_doc_closed'],
-    ['transport', 'offscreen_aborted_transport'],
-    [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other']
+    ['deadline', `offscreen_aborted_deadline; ${unrecorded}`],
+    ['deadline-no-kill', `offscreen_aborted_deadline_no_kill; ${unrecorded}`],
+    ['doc-closed', 'offscreen_aborted_doc_closed; op start reported unavailable'],
+    ['transport', 'offscreen_aborted_transport; op start reported unavailable'],
+    [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other; op start reported unavailable']
   ])('names an offscreen abort for %s by its reason, never its operation id', async (reason, identity) => {
     reportTransactionFailure({
       type: 'consume',
@@ -1186,8 +1283,60 @@ describe('a pipeline killed from outside', () => {
     await settle();
     const [evicted, aborted] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
     expect(evicted).toContain('; point pipeline; wasm_lock_evicted_other. ');
-    expect(aborted).toContain('; point pipeline; offscreen_aborted_other. ');
+    expect(aborted).toContain('; point pipeline; offscreen_aborted_other; op start reported unavailable. ');
     expectNoTransactionData(`${evicted} ${aborted}`);
+  });
+
+  it.each([
+    [
+      'its own deadline after it started',
+      { started: true, deadline: { owner: 'own', timer: 'started', killer: 'write' } },
+      'deadline owner own; deadline timer started; deadline op write; op start reported yes'
+    ],
+    [
+      "another op's dispatch deadline before it started",
+      { started: false, deadline: { owner: 'collateral', timer: 'dispatch', killer: 'read' } },
+      'deadline owner collateral; deadline timer dispatch; deadline op read; op start reported no'
+    ],
+    [
+      'a resumed deadline',
+      { started: true, deadline: { owner: 'own', timer: 'resumed', killer: 'write' } },
+      'deadline owner own; deadline timer resumed; deadline op write; op start reported yes'
+    ],
+    [
+      'values outside the lists',
+      { started: 'yes', deadline: { owner: ACCOUNT_HEX, timer: AMOUNT, killer: OP_ID } },
+      'deadline owner unavailable; deadline timer unavailable; deadline op unavailable; op start reported unavailable'
+    ]
+  ])('names a deadline abort with %s by closed facts only', async (_label, facts, expected) => {
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'sending',
+      error: sync(new OperationAbortedError(OP_ID, 'deadline', facts as never))
+    });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; offscreen_aborted_deadline; ${expected}. authentication`);
+    expectNoTransactionData(message);
+  });
+
+  it('names whether a transport abort had started, and survives a hostile facts accessor', async () => {
+    const hostile = new OperationAbortedError(OP_ID, 'transport');
+    Object.defineProperty(hostile, 'facts', {
+      get: () => {
+        throw new Error(`facts for ${ACCOUNT_HEX}`);
+      }
+    });
+    reportTransactionFailure({
+      type: 'consume',
+      stage: 'sending',
+      error: new OperationAbortedError(OP_ID, 'transport', { started: true })
+    });
+    reportTransactionFailure({ type: 'consume', stage: 'sending', error: hostile });
+    await settle();
+    const [started, unreadable] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+    expect(started).toContain('; point pipeline; offscreen_aborted_transport; op start reported yes. ');
+    expect(unreadable).toContain('; point pipeline; offscreen_aborted_transport; op start reported unavailable. ');
+    expectNoTransactionData(`${started} ${unreadable}`);
   });
 
   it('names the kill rather than the unknown outcome text it abandoned', async () => {
@@ -1716,6 +1865,9 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ],
   ['reap age', () => [...REAP_AGES, 'unavailable'], () => policyText('The stuck-transaction check')],
   ['reaped attempt', () => [...REAPED_ATTEMPT_ORIGINS, 'unavailable'], () => policyText('The stuck-transaction check')],
+  ['startup selection', () => [...STARTUP_SELECTIONS, 'unavailable'], () => policyText('The startup check')],
+  ['stored stage age', () => [...STORED_STAGE_AGES, 'unavailable'], () => policyText('The startup check')],
+  ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )

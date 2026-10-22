@@ -189,6 +189,10 @@
   "transactionNotConfirmedHint": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again.",
   "transactionUndeterminedHint": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again.",
   "transactionRestoredHint": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it.",
+  "submissionInterrupted": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
+  "submissionRejectedByGuardian": "Your Guardian refused this submission. Try again.",
+  "submissionRejectedByNetwork": "The network refused this submission. Try again.",
+  "submissionUnanswered": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
   "showFullError": "Show full error",
   "hideFullError": "Hide full error",
   "noteDeliveryPendingTitle": "Delivery unconfirmed",
@@ -1175,6 +1179,8 @@
   "bridgeDepositFailed": "Bridge deposit failed",
   "bridgeDepositBalanceTooLow": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
   "bridgeDepositBalanceReadFailed": "Could not check your $token$ balance on $network$. Nothing was sent.",
+  "bridgeDepositBalanceCapExceeded": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+  "bridgeDepositBalanceCapUnpriced": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
   "bridgeDepositSubmitted": "Bridge initiated!",
   "bridgeDepositDeliveryDescription": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
   "viewOnEtherscan": "View on Etherscan",
@@ -1588,5 +1594,7 @@
   "walletAccessRestrictedTitle": "Wallet unavailable in your region",
   "walletAccessRestrictedBody": "The wallet is not available from your current location.",
   "walletAccessUnavailableTitle": "Could not check availability",
-  "walletAccessUnavailableBody": "Check your connection and try again."
+  "walletAccessUnavailableBody": "Check your connection and try again.",
+  "runtimeUnsupportedTitle": "This browser or device can't run the wallet",
+  "runtimeUnsupportedBody": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
 }

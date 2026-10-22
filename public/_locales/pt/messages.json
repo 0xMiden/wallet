@@ -957,6 +957,22 @@
     "message": "Isso foi restaurado a partir de um backup, portanto a carteira não pode verificar se a operação foi bem-sucedida nem repeti-la. Verifique a carteira antes de repetir a operação.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "A conexão caiu enquanto isso estava sendo enviado. A carteira não pode confirmar se a operação foi concluída. Ela ainda pode ser concluída, portanto, verifique antes de tentar novamente.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Seu “Guardian” recusou este envio. Tente novamente.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "A rede rejeitou este envio. Tente novamente.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "Não houve resposta a este envio. A carteira não pode confirmar se ele foi processado. Ele ainda pode ser concluído, portanto, verifique antes de tentar novamente.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "Mostrar o erro completo",
     "englishSource": "Show full error"
@@ -5260,6 +5276,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Esta conta pode conter, no máximo, $cap$ em dólares americanos. Ela contém $held$ em dólares americanos e este depósito acrescenta $deposit$ em dólares americanos. Insira um valor menor.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Esta conta pode conter, no máximo, $cap$ em dólares americanos, e $token$ não tem preço no momento, portanto, o depósito não pode ser verificado em relação a ele. Tente novamente mais tarde.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Bridge iniciada!",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7221,13 @@
   "walletAccessUnavailableBody": {
     "message": "Verifique a sua ligação e tente novamente.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Este navegador ou dispositivo não é compatível com a carteira",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "A carteira precisa do WebAssembly SIMD, que este navegador ou dispositivo não oferece. Abra a carteira em outro dispositivo ou em um navegador atualizado.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

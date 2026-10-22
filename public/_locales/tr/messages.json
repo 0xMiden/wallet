@@ -957,6 +957,22 @@
     "message": "Bu işlem bir yedekten geri yüklendi, bu nedenle cüzdan işlemin başarılı olup olmadığını kontrol edemez veya yeniden deneme yapamaz. Tekrar etmeden önce cüzdanı kontrol edin.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
+  "submissionInterrupted": {
+    "message": "Bu işlem gönderilirken bağlantı kesildi. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu yüzden tekrar denemeden önce kontrol edin.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Guardian'ınız bu gönderimi reddetti. Lütfen tekrar deneyin.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "Bu gönderimden herhangi bir yanıt alınamadı. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce kontrol edin.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
   "showFullError": {
     "message": "Hatanın tamamını göster",
     "englishSource": "Show full error"
@@ -5260,6 +5276,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Bu hesap en fazla $cap$ USD tutabilir. Şu anda $held$ USD tutmaktadır ve bu para yatırma işlemiyle $deposit$ USD eklenecektir. Daha düşük bir tutar girin.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Bu hesap en fazla $cap$ USD tutabilir ve $token$'ın şu anda bir fiyatı bulunmadığından, para yatırma işlemi bu değerle karşılaştırılamaz. Daha sonra tekrar deneyin.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Köprü başlatıldı!",
     "englishSource": "Bridge initiated!"
@@ -7178,5 +7221,13 @@
   "walletAccessUnavailableBody": {
     "message": "Bağlantınızı kontrol edip tekrar deneyin.",
     "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Bu tarayıcı veya cihaz cüzdanı çalıştıramıyor",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

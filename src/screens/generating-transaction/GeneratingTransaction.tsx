@@ -27,6 +27,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
@@ -124,6 +125,14 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
       !firstLoadedRow.current.failed
       ? 'raw_transaction_failed'
       : null,
+    'status_screen'
+  );
+  const submissionMessage =
+    active !== undefined && (status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed)
+      ? submissionFeedback(active)
+      : undefined;
+  useUserVisibleError(
+    submissionMessage !== undefined && submissionMessage.rowCopy === undefined ? submissionMessage.messageKey : null,
     'status_screen'
   );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
@@ -350,7 +359,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
-  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
+  const submission = failedRow !== undefined ? submissionFeedback(failedRow) : undefined;
+  const outcomeUnconfirmed =
+    transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
+  // A stored submit refusal is a definite failure even after the submit stamp. A stored timeout,
+  // drop, or missing answer stays not confirmed, including when the row was marked Failed.
+  const unconfirmed = submission?.kind === 'rejected' ? false : submission !== undefined ? true : outcomeUnconfirmed;
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
   // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
   // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.
@@ -392,6 +406,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
+      if (submission !== undefined) return submission.rowCopy ?? t(submission.messageKey);
       if (unconfirmed && failedRow !== undefined) return t(notConfirmedHintKey(failedRow));
       // Prefer the row's own error. The pipeline writes prose here for the failures it
       // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
@@ -416,7 +431,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     commitUnconfirmed,
     activeTransaction,
     completedTransaction,
-    guardianBusy
+    guardianBusy,
+    submission
   ]);
 
   const dismissalDescription = useMemo(() => {
@@ -584,8 +600,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <p className="w-full pt-4 text-center font-heading text-sm font-bold text-ink">{footerDescription}</p>
           )}
           {/* The row's own text stays one tap away, as on its Activity card. */}
-          {unconfirmed && (
-            <ErrorDetails details={failedRow?.rawError ?? failedRow?.error} className="mt-2 w-full items-center" />
+          {(unconfirmed || submission?.details !== undefined) && (
+            <ErrorDetails
+              details={submission?.details ?? failedRow?.rawError ?? failedRow?.error}
+              className="mt-2 w-full items-center"
+            />
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>
