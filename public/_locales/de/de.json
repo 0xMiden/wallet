@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "Einzahlung über die Bridge fehlgeschlagen",
   "bridgeDepositBalanceTooLow": "Ihre verbundene Wallet enthält $balance$ $token$ auf $network$, was weniger ist, als für diese Einzahlung erforderlich ist. Es wurde nichts gesendet.",
   "bridgeDepositBalanceReadFailed": "Ihr $token$-Guthaben auf $network$ konnte nicht überprüft werden. Es wurde nichts gesendet.",
+  "bridgeDepositBalanceCapExceeded": "Dieses Konto kann maximal $cap$ USD enthalten. Es enthält $held$ USD, und diese Einzahlung fügt $deposit$ USD hinzu. Geben Sie einen geringeren Betrag ein.",
+  "bridgeDepositBalanceCapUnpriced": "Dieses Konto kann maximal $cap$ USD enthalten, und $token$ hat derzeit keinen Preis, sodass die Einzahlung nicht dagegen abgeglichen werden kann. Versuchen Sie es später erneut.",
   "bridgeDepositSubmitted": "Brücke initiiert!",
   "bridgeDepositDeliveryDescription": "Die Quelltransaktion wurde bestätigt. Ihr Guthaben wird auf Miden angezeigt, sobald die Überweisung über die Bridge abgeschlossen ist.",
   "viewOnEtherscan": "Auf Etherscan anzeigen",
@@ -1587,5 +1589,7 @@
   "walletAccessRestrictedTitle": "Wallet in deiner Region nicht verfügbar",
   "walletAccessRestrictedBody": "Die Wallet ist an deinem aktuellen Standort nicht verfügbar.",
   "walletAccessUnavailableTitle": "Verfügbarkeit konnte nicht geprüft werden",
-  "walletAccessUnavailableBody": "Prüfe deine Verbindung und versuche es erneut."
+  "walletAccessUnavailableBody": "Prüfe deine Verbindung und versuche es erneut.",
+  "runtimeUnsupportedTitle": "Dieser Browser oder dieses Gerät kann die Wallet nicht ausführen",
+  "runtimeUnsupportedBody": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser."
 }

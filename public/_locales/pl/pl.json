@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "Niepowodzenie wpłaty na most",
   "bridgeDepositBalanceTooLow": "Twój podłączony portfel zawiera $balance$ $token$ w sieci $network$, co stanowi kwotę mniejszą niż wymagana do dokonania wpłaty. Nic nie zostało wysłane.",
   "bridgeDepositBalanceReadFailed": "Nie udało się sprawdzić salda $token$ w sieci $network$. Nic nie zostało wysłane.",
+  "bridgeDepositBalanceCapExceeded": "Na tym koncie można przechowywać maksymalnie $cap$ USD. Znajduje się na nim $held$ USD, a ta wpłata dodaje $deposit$ USD. Wprowadź mniejszą kwotę.",
+  "bridgeDepositBalanceCapUnpriced": "Na tym koncie można przechowywać maksymalnie $cap$ USD, a $token$ nie ma obecnie ceny, więc nie można sprawdzić wpłaty w odniesieniu do tej waluty. Spróbuj ponownie później.",
   "bridgeDepositSubmitted": "Most uruchomiony!",
   "bridgeDepositDeliveryDescription": "Transakcja źródłowa została potwierdzona. Twoje środki pojawią się w Miden po zakończeniu transferu mostkowego.",
   "viewOnEtherscan": "Zobacz na Etherscan",
@@ -1587,5 +1589,7 @@
   "walletAccessRestrictedTitle": "Portfel niedostępny w Twoim regionie",
   "walletAccessRestrictedBody": "Portfel nie jest dostępny w Twojej obecnej lokalizacji.",
   "walletAccessUnavailableTitle": "Nie udało się sprawdzić dostępności",
-  "walletAccessUnavailableBody": "Sprawdź połączenie i spróbuj ponownie."
+  "walletAccessUnavailableBody": "Sprawdź połączenie i spróbuj ponownie.",
+  "runtimeUnsupportedTitle": "Ta przeglądarka lub to urządzenie nie obsługuje portfela",
+  "runtimeUnsupportedBody": "Portfel wymaga obsługi WebAssembly SIMD, której ta przeglądarka lub to urządzenie nie zapewnia. Otwórz portfel na innym urządzeniu lub w zaktualizowanej przeglądarce."
 }

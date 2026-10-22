@@ -205,6 +205,34 @@ it('reads absent sections as empty and absent switches as off', () => {
   });
 });
 
+describe('limits.bridgeInMaxBalanceUsd', () => {
+  it('reads the bridge-in balance ceiling', () => {
+    const parsed = parseBridgeConfig(doc({ limits: { bridgeInMaxBalanceUsd: 1232.462 } }), 'testnet');
+    expect(parsed?.limits).toStrictEqual({ bridgeInMaxBalanceUsd: 1232.462 });
+  });
+
+  it.each([
+    ['no limits section', doc()],
+    ['an empty limits section', doc({ limits: {} })],
+    ['a limits section with other fields', doc({ limits: { other: 1 } })]
+  ])('leaves limits out for %s', (_label, body) => {
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty('limits');
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, '1232.462', null, true])(
+    'fails the document on the malformed ceiling %p',
+    bridgeInMaxBalanceUsd => {
+      expect(parseBridgeConfig(doc({ limits: { bridgeInMaxBalanceUsd } }), 'testnet')).toBeNull();
+    }
+  );
+
+  it('fails the document on a limits section that is not an object', () => {
+    expect(parseBridgeConfig(doc({ limits: 1232 }), 'testnet')).toBeNull();
+  });
+});
+
 describe('onboarding.inviteOnly', () => {
   it.each([true, false])('reads inviteOnly %s', inviteOnly => {
     expect(parseBridgeConfig(doc({ onboarding: { inviteOnly } }), 'testnet')?.onboarding).toStrictEqual({ inviteOnly });

@@ -38,7 +38,7 @@ import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from '
 
 import { WalletStore } from './types';
 import { balancePrice } from './utils/balancePrice';
-import { fetchBalances, fetchingAddresses } from './utils/fetchBalances';
+import { balanceReadStateForTest, fetchBalances, fetchingAddresses } from './utils/fetchBalances';
 
 // Singleton intercom client
 let intercom: IIntercomClient | null = null;
@@ -1186,6 +1186,7 @@ export const isWalletReadyNow = (): boolean => selectIsReady(useWalletStore.getS
 // Use globalThis (not window) so this works in both extension pages and the
 // service worker context where window is undefined.
 if (process.env.MIDEN_E2E_TEST === 'true') {
+  Reflect.set(globalThis, '__TEST_BALANCE_READ_STATE__', balanceReadStateForTest);
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
