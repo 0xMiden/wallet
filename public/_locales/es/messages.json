@@ -446,6 +446,18 @@
     "message": "Retirar",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Depósito",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "En Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Fuera de Miden",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Ingresar más",
     "englishSource": "Deposit more"
@@ -5988,8 +6000,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Conecta únicamente un monedero de prueba",
-    "englishSource": "Connect a test wallet only"
+    "message": "Utiliza únicamente una cartera de prueba",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Fondos de prueba únicamente",
@@ -6969,24 +6981,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Conecta la cartera que contiene los tokens que deseas transferir a Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "El monedero que contiene los tokens que deseas transferir a Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Conectar monedero",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Cartera externa",
-    "englishSource": "External wallet"
+    "message": "Tu monedero",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Aún no conectado",
-    "englishSource": "Not connected yet"
+    "message": "Sin relación",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "Tras conectarse",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow o cualquier monedero de WalletConnect.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Elige tu transferencia",
@@ -7001,12 +7017,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Comprueba la ruta y las comisiones y, a continuación, aprueba la transferencia en tu monedero.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Comprueba la ruta y las comisiones y, a continuación, aprueba la operación en tu monedero.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Utiliza un monedero independiente solo con tokens de prueba. Nunca conectes un monedero que contenga fondos reales.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Nunca conectes un monedero que contenga fondos reales.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Elige una ruta",

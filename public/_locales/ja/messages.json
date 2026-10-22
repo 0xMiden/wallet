@@ -446,6 +446,18 @@
     "message": "出金",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "預入",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "Into Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "ミデンより",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "さらに預け入れる",
     "englishSource": "Deposit more"
@@ -5988,8 +6000,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "テスト用ウォレットのみを接続してください",
-    "englishSource": "Connect a test wallet only"
+    "message": "テストウォレットのみを使用してください",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "テスト用資金のみ",
@@ -6969,24 +6981,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Midenに持ち込みたいトークンを保有しているウォレットを接続してください。",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Midenに持ち込みたいトークンを保管しているウォレット。",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "ウォレットを接続する",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "外部ウォレット",
-    "englishSource": "External wallet"
+    "message": "ウォレット",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "まだ接続されていません",
-    "englishSource": "Not connected yet"
+    "message": "関連なし",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "接続後",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask、Rainbow、またはWalletConnect対応のウォレット。",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "送金方法を選択してください",
@@ -7001,12 +7017,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "ルートと手数料を確認し、ウォレットで送金を承認してください。",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "ルートと手数料を確認した上で、ウォレットで承認してください。",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "テスト用トークンのみの専用ウォレットを使用してください。実際の資金を保有しているウォレットを絶対に接続しないでください。",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "実際の資金を保有しているウォレットを絶対に接続しないでください。",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "ルートを選択してください",

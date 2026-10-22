@@ -446,6 +446,18 @@
     "message": "Withdraw",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Deposit",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "Into Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Out of Miden",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Deposit more",
     "englishSource": "Deposit more"
@@ -5988,8 +6000,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Connect a test wallet only",
-    "englishSource": "Connect a test wallet only"
+    "message": "Use a test wallet only",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Test funds only",
@@ -6969,24 +6981,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Connect the wallet holding the tokens you want to bring to Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "The wallet holding the tokens you want to bring to Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Connect wallet",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "External wallet",
-    "englishSource": "External wallet"
+    "message": "Your wallet",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Not connected yet",
-    "englishSource": "Not connected yet"
+    "message": "Not connected",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "After connecting",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow or any WalletConnect wallet.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Choose your transfer",
@@ -7001,12 +7017,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Check the route and fees, then approve the transfer in your wallet.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Check the route and fees, then approve in your wallet.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Never connect a wallet holding real funds.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Choose a route",
