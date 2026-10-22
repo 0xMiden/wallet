@@ -80,7 +80,9 @@ describe('Release E2E', () => {
       const declared = dispatchInputs(read(file));
       expect(onBlock(read(file)).some(l => /^ {2}workflow_dispatch:/.test(l))).toBe(true);
       for (const flag of flags) expect(declared).toContain(/-f (\w+)=/.exec(flag)?.[1]);
-      if (declared.includes('network')) expect(flags).toContain('-f network=testnet');
+      const networkFlags = flags.filter(flag => flag.startsWith('-f network='));
+      const expectedNetworkFlags = declared.includes('network') ? ['-f network=testnet'] : [];
+      expect(networkFlags).toEqual(expectedNetworkFlags);
     }
   });
 

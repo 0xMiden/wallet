@@ -10,6 +10,7 @@ import {
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
   cancelTransaction,
+  failInterruptedTransactions,
   markStartedInThisRealm,
   markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
@@ -197,6 +198,92 @@ describe('committed terminal transaction failure reports', () => {
       'manual',
       expect.anything()
     );
+  });
+
+  describe('the startup sweep', () => {
+    const accountId = `0x${'ab'.repeat(15)}`;
+    const noteId = `0x${'cd'.repeat(32)}`;
+    const startupRow = (overrides: Partial<ITransaction>): ITransaction =>
+      row({
+        id: `tx-${'ef'.repeat(16)}`,
+        type: 'consume',
+        accountId,
+        noteId,
+        noteIds: [noteId],
+        stage: 'signing-proposal',
+        ...overrides
+      });
+
+    it.each([
+      [
+        'a row with no recorded start',
+        { processingStartedAt: undefined, stageTimestamps: undefined },
+        'missing_start',
+        'unavailable',
+        'no_submit_recorded'
+      ],
+      [
+        'a row started before this session that recorded a submit',
+        {
+          processingStartedAt: SESSION_STARTED_AT - 600,
+          stageTimestamps: { 'signing-proposal': Date.now() - 5 * 60_000 },
+          mayHaveSubmitted: true
+        },
+        'before_session',
+        'under_10m',
+        'submit_recorded'
+      ],
+      [
+        'a row stamped further ahead than the clock can explain',
+        {
+          processingStartedAt: Math.floor(Date.now() / 1000) + MAX_WAIT_BEFORE_CANCEL + 3600,
+          stageTimestamps: { 'signing-proposal': Date.now() - 3 * 86_400_000 }
+        },
+        'future_stamp',
+        'over_1d',
+        'no_submit_recorded'
+      ]
+    ] as const)(
+      'reports %s with its startup facts and nothing the row holds',
+      async (_name, overrides, selection, age, submit) => {
+        const actual = jest.requireActual<typeof import('lib/telemetry/transaction-failure')>(
+          'lib/telemetry/transaction-failure'
+        );
+        report.mockImplementationOnce(actual.reportTransactionFailure);
+        const claim = startupRow(overrides);
+        await Repo.transactions.put(claim);
+
+        await failInterruptedTransactions();
+
+        expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Failed);
+        expect(report).toHaveBeenCalledTimes(1);
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({
+            reason: 'interrupted_on_startup',
+            // The row's own facts reach the reporter as read; only the message renders an unknown age as `unavailable`.
+            startup: { selection, stageAge: age === 'unavailable' ? undefined : age, submit }
+          })
+        );
+        expect(captureCrash).toHaveBeenCalledTimes(1);
+        const [captured] = jest.mocked(captureCrash).mock.calls[0] ?? [];
+        const message = captured instanceof Error ? captured.message : '';
+        expect(message).toContain(
+          `; startup selection ${selection}; stored stage age ${age}; submit ${submit}; point pipeline; interrupted_on_startup.`
+        );
+        for (const leak of [accountId, noteId, claim.id, 'abab', 'cdcd', 'efef']) expect(message).not.toContain(leak);
+      }
+    );
+
+    it('spares a row this realm started and reports nothing for it', async () => {
+      const claim = startupRow({ processingStartedAt: undefined });
+      await Repo.transactions.put(claim);
+      markStartedInThisRealm(claim.id);
+
+      await failInterruptedTransactions();
+
+      expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(report).not.toHaveBeenCalled();
+    });
   });
 
   it.each([

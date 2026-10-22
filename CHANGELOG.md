@@ -12,6 +12,7 @@
 
 ### Changes
 
+- [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
 - [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
 - [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.
 - [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
