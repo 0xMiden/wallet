@@ -813,7 +813,11 @@ const STORED_STAGE_AGE_LIMITS: ReadonlyArray<[number, NonNullable<StartupSnapsho
  * it, how long ago it entered its stored stage, and whether it recorded a submit crossing. The age comes from the
  * stage's own wall-clock stamp, so a clock set back while the app was down reads as no age at all.
  */
-const startupSnapshot = (tx: Transaction, nowSeconds: number, nowMs: number): StartupSnapshot => {
+const startupSnapshot = (
+  tx: Transaction & Pick<ITransaction, 'stage' | 'stageTimestamps' | 'mayHaveSubmitted'>,
+  nowSeconds: number,
+  nowMs: number
+): StartupSnapshot => {
   const enteredAt = tx.stage === undefined ? undefined : tx.stageTimestamps?.[tx.stage];
   const ageMs = enteredAt === undefined ? undefined : nowMs - enteredAt;
   return {
