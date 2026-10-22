@@ -3,10 +3,6 @@ name: Deploy Feature Eligibility
 on:
   workflow_call:
     inputs:
-      deployment_source:
-        type: string
-        required: false
-        default: published-release
       release_tag:
         type: string
         required: true
