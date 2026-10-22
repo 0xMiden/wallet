@@ -4966,6 +4966,30 @@
     "message": "Fonların iadesi",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "Ödeme takıldı",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Bu takas işleminden elde edilecek ödeme, bu hesabın ödemeyi almak için gerekli ağ ücretini ödeyememesi nedeniyle sürekli başarısız oluyor. Cüzdan günde bir kez yeniden dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Bu takas işleminden elde edilen ödeme, Guardian'ınızda sürekli başarısız oluyor. Cüzdan günde bir kez tekrar dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Ağa ulaşılamadığı için bu takas işleminden elde edilecek ödeme başarısız olmaya devam ediyor. Cüzdan günde bir kez tekrar dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Bu takas işleminden elde edilecek ödeme sürekli başarısız oluyor. Cüzdan günde bir kez tekrar dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Ödemeyi yeniden dene",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "Geri döndü · $time$",
     "englishSource": "Returned · $time$",
