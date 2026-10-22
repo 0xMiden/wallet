@@ -4004,6 +4004,18 @@
     "message": "Изменения в активах",
     "englishSource": "Asset changes"
   },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Эта транзакция также перемещает актив, который кошелек не может отобразить, например NFT. Продолжайте только в том случае, если доверяете ей.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
+  },
   "unknown": {
     "message": "Неизвестно",
     "englishSource": "Unknown"
