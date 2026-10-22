@@ -98,4 +98,24 @@ class BreadAuthManifestTest {
         assertTrue(onNewIntent.contains("super.onNewIntent(BreadAuthCallbacks.consume(intent));"))
         assertFalse(onNewIntent.contains("super.onNewIntent(intent)"))
     }
+
+    @Test
+    fun onlyDebugFixtureHostTrustsUserCertificates() {
+        val debug = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("src/debug/res/xml/network_security_config.xml"))
+        val production = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("src/main/res/xml/network_security_config.xml"))
+        val fixtureConfigs = debug.elements("domain-config").filter { config ->
+            config.getElementsByTagName("domain").let { domains ->
+                (0 until domains.length).any { domains.item(it).textContent.trim() == "10.0.2.2" }
+            }
+        }
+        assertEquals(1, fixtureConfigs.size)
+        val anchors = fixtureConfigs.single().getElementsByTagName("certificates")
+        val sources = (0 until anchors.length).map { anchors.item(it).attributes.getNamedItem("src")!!.nodeValue }.sorted()
+        assertEquals(listOf("system", "user"), sources)
+        assertFalse(production.getElementsByTagName("certificates").let { certificates ->
+            (0 until certificates.length).any { certificates.item(it).attributes.getNamedItem("src")?.nodeValue == "user" }
+        })
+    }
 }

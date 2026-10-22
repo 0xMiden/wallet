@@ -389,6 +389,19 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 
 Review: focused native review has no actionable source finding. First real OS recording exposed the host in 8 of 529 source frames; retaining covered snapshot ownership removes that exposure in all 425 source frames of the second recording. Coverage remains CI-only with every threshold unchanged at 95%. Final integrated acceptance passes in the production Provider: same-document minimize/restore, shared native/game headers and three real OS resumes without Explore or the white Bread privacy image. Publication belongs to the companion PR.
 
+## Wallet #1586 Android Auth Tab emulator acceptance
+
+- [x] Read the current PR, Auth Tab spec, CI workflow contract, lessons and decision profile; preserve the implemented production behavior.
+- [x] Add a focused, manually dispatched CI acceptance lane using one API 34 Google Play emulator and actual Chrome.
+- [x] Serve the auth dApp and redirect fixture from the local emulator host over HTTPS with a test CA limited to the debug fixture host.
+- [x] Exercise Chrome Auth Tab success and cancellation, then a real unsupported Custom Tabs provider through the existing fallback.
+- [ ] Record exact CI source SHA, emulator image, browser package versions, queried Auth Tab capability and nonzero executed test count.
+- [ ] Run source review and current-head CI, fix all actionable findings, then update PR #1621 and complete its authorized merge gates.
+
+## Wallet #1586 acceptance plan review
+
+The single-emulator lane avoids the known GMS contention of the existing two-emulator jobs. Chrome proves the result-channel path; Firefox is selected as the default Custom Tabs provider for the unsupported path. Both browsers must be queried on-device and the suite must fail if either browser is missing or reports an unexpected capability. The local fixture uses a synthetic login handle and never logs callback data. The test CA is generated per run, installed only in the disposable emulator, and trusted by the debug wallet only for the fixture host.
+
 ## iOS wallet canvas bottom 2026-10-13
 
 - [x] Prove native viewport reaches the edge and body safe-area padding shortens the canvas.
