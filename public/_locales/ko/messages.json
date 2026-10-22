@@ -5017,6 +5017,30 @@
     "message": "자금 반환",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "지급이 중단됨",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "이 스왑의 지급이 계속 실패하는 이유는 해당 계정이 지급을 청구하기 위한 네트워크 수수료를 지불할 수 없기 때문입니다. 지갑은 하루에 한 번씩 다시 시도하며, 지금 바로 재시도할 수도 있습니다.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "이 스왑의 지급이 귀하의 Guardian에서 계속 실패하고 있습니다. 지갑은 하루에 한 번 다시 시도하며, 지금 바로 재시도할 수도 있습니다.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "네트워크에 연결할 수 없어 이 스왑의 지급이 계속 실패하고 있습니다. 지갑은 하루에 한 번 다시 시도하며, 지금 바로 재시도할 수도 있습니다.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "이 스왑의 지급이 계속 실패하고 있습니다. 지갑은 하루에 한 번 다시 시도하거나, 지금 바로 재시도할 수 있습니다.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "지급 재시도",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "반환됨 · $time$",
     "englishSource": "Returned · $time$",
