@@ -111,6 +111,20 @@ export function importedNoteAssets(b64: string, options: NoteDecodeOptions = {})
 }
 
 /**
+ * The NFTs a summary's NET vault delta moves. One consumed into a created note never touches the vault, so it
+ * appears on neither side, exactly as a fungible amount that nets to zero does.
+ */
+function netNfts(created: NftAsset[], consumed: NftAsset[]): { leaving: NftAsset[]; entering: NftAsset[] } {
+  const key = (nft: NftAsset) => `${nft.faucetId}|${nft.assetId}`;
+  const createdKeys = new Set(created.map(key));
+  const consumedKeys = new Set(consumed.map(key));
+  return {
+    leaving: created.filter(nft => !consumedKeys.has(key(nft))),
+    entering: consumed.filter(nft => !createdKeys.has(key(nft)))
+  };
+}
+
+/**
  * The summary path's incoming/outgoing with the fee taken back out of the account delta.
  *
  * Only the SUMMARY path needs this. Its totals come from the account DELTA — a NET vault
@@ -158,15 +172,21 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
   const added = vault.addedFungibleAssets();
   const removed = vault.removedFungibleAssets();
   const { incoming, outgoing } = reconcileFee(toAmounts(added), toAmounts(removed), fee);
+  const inputNotes = ts.inputNotes();
+  const { leaving, entering } = netNfts(
+    userNotes.flatMap(note => noteNfts(note)),
+    inputNotes.notes().flatMap(note => noteNfts(note.note()))
+  );
   return {
     account: getBech32AddressFromAccountId(delta.id()),
     outgoing,
     incoming,
-    outgoingNfts: [],
-    incomingNfts: [],
-    // One delta entry per faucet, so the fungible entries are the two lists' lengths together.
-    unlistedAssets: Math.max(0, vault.numAssets() - added.length - removed.length),
-    inputNotesConsumed: ts.inputNotes().numNotes(),
+    outgoingNfts: leaving,
+    incomingNfts: entering,
+    // The SDK exposes the vault delta's NFT side only as a count. One delta entry per faucet makes the fungible
+    // entries the two lists' lengths together, and the NFTs read from the notes are the entries it explains.
+    unlistedAssets: Math.max(0, vault.numAssets() - added.length - removed.length - leaving.length - entering.length),
+    inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
     fee,
     storageChanged: !delta.storage().isEmpty()

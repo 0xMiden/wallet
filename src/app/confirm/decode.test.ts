@@ -89,7 +89,7 @@ describe('summaryToView', () => {
         vault: () => vaultOf([fa('fA', 10n)], [fa('fB', 3n)]),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       // `notes()` too: the summary's output notes go through the fee split now, since
       // `fee::pay_fee` runs inside auth BEFORE the summary is built, so the kernel's fee
       // note is among them exactly as it is on an executed transaction.
@@ -115,7 +115,7 @@ describe('summaryToView', () => {
         vault: () => vaultOf([fa('fA', 10n)], [fa('fB', 3n)]),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       // `notes()` too: the summary's output notes go through the fee split now, since
       // `fee::pay_fee` runs inside auth BEFORE the summary is built, so the kernel's fee
       // note is among them exactly as it is on an executed transaction.
@@ -185,7 +185,7 @@ describe('the network fee, on both decode paths', () => {
         vault: () => vaultOf([fa('fA', 10n), fa(NATIVE_FAUCET, 5n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 2, notes: () => [note([fa('fA', 10n)]), feeNote(2n)] })
     };
 
@@ -207,7 +207,7 @@ describe('the network fee, on both decode paths', () => {
         vault: () => vaultOf([fa(NATIVE_FAUCET, 2n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(2n)] })
     };
 
@@ -228,7 +228,7 @@ describe('the network fee, on both decode paths', () => {
         vault: () => vaultOf([fa(NATIVE_FAUCET, 8n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(9n)] })
     };
 
@@ -249,7 +249,7 @@ describe('the network fee, on both decode paths', () => {
         vault: () => vaultOf([], [fa(NATIVE_FAUCET, 8n)]),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 1 }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(2n)] })
     } as any);
 
@@ -478,7 +478,7 @@ describe('simulatedBytesToView', () => {
         vault: () => vaultOf([fa('fA', 10n)], []),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 0 }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [note([])] })
     });
 
@@ -628,7 +628,7 @@ describe('NFTs on the approval view (#1600)', () => {
         vault: () => vaultOf([fa('fA', 10n)], [], 2),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 0 }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [note([fa('fA', 10n)])] })
     };
 
@@ -638,6 +638,76 @@ describe('NFTs on the approval view (#1600)', () => {
     expect(view.outgoingNfts).toEqual([]);
   });
 
+  it('summary view lists the NFT of a created note as leaving, and counts it as explained', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 1),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toEqual([{ faucetId: 'bech32:nftFaucet', assetId: '0xaa11bb22\u2026cc33dd' }]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view lists the NFT of a consumed note as entering', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 1),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftIn]) }] }),
+      outputNotes: () => ({ numNotes: () => 0, notes: () => [] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.incomingNfts).toHaveLength(1);
+    expect(view.outgoingNfts).toEqual([]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view shows an NFT consumed and re-created in one transaction on neither side', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 0),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([], [nftOut]) }] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toEqual([]);
+    expect(view.incomingNfts).toEqual([]);
+    expect(view.unlistedAssets).toBe(0);
+  });
+
+  it('summary view still counts a delta entry that no note explains beside a listed NFT', () => {
+    const ts = {
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => vaultOf([], [], 2),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([], [nftOut])] })
+    };
+
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoingNfts).toHaveLength(1);
+    expect(view.unlistedAssets).toBe(1);
+  });
+
   it('summary view reports nothing unlisted when every vault entry is a fungible one it listed', () => {
     const ts = {
       accountDelta: () => ({
@@ -645,7 +715,7 @@ describe('NFTs on the approval view (#1600)', () => {
         vault: () => vaultOf([fa('fA', 10n)], [fa('fB', 3n)]),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 0 }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
       outputNotes: () => ({ numNotes: () => 0, notes: () => [] })
     };
 

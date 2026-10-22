@@ -1058,7 +1058,7 @@ describe('sign payload — signingInputs', () => {
     };
     const ts = {
       accountDelta: () => accountDelta,
-      inputNotes: () => ({ numNotes: () => 2 }),
+      inputNotes: () => ({ numNotes: () => 2, notes: () => [] }),
       // `notes()` as well: summary output notes now go through the fee split, because
       // `fee::pay_fee` runs in auth BEFORE the summary is built.
       outputNotes: () => ({

@@ -228,7 +228,7 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
         }),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 0 }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
       // `notes()` as well: summary output notes now go through the fee split, because
       // `fee::pay_fee` runs in auth BEFORE the summary is built.
       outputNotes: () => ({
