@@ -18,11 +18,9 @@ import {
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from '../../helpers/balance-truth';
-import { NIGHTS, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
+import { roundTripReserve, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
 
 const SEND_BASE_UNITS = 1n;
-/** Leftover claim, the send, and the incoming claim. */
-const ROUND_TRIP_TXS = 3n;
 
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial' });
@@ -155,14 +153,15 @@ test.describe('nightly round trip', () => {
     await walletB.triggerSync(true);
     // A top-up sits in Pending until the account consumes it, and the vault check below does not
     // count Pending. The product wallet cannot claim for the plain account, so this job consumes
-    // both accounts before it judges the balance.
+    // both accounts before it judges the balance. That consume is the leftover claim already
+    // inside the reserve, so the gate does not charge the fee a second time.
     await walletA.claimAllNotes(600_000);
     await walletB.claimAllNotes(600_000);
     await walletA.refreshBalances();
     await walletB.refreshBalances();
     const fee = await discoveredFee(walletA.page);
     const oneTx = TX_FEE_MULTIPLE * BigInt(fee);
-    const required = NIGHTS * (SEND_BASE_UNITS + ROUND_TRIP_TXS * oneTx);
+    const required = roundTripReserve(SEND_BASE_UNITS, BigInt(fee));
     const plainHolding = await nativeHolding(walletA.page);
     const guardianHolding = await nativeHolding(walletB.page);
     expect(guardianHolding.faucetId).toBe(plainHolding.faucetId);

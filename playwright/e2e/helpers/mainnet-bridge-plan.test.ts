@@ -6,6 +6,8 @@ import {
   depositGasReserve,
   LOOP_USDC,
   midenFeeReserve,
+  ROUND_TRIP_TXS,
+  roundTripReserve,
   TX_FEE_MULTIPLE,
   usdcReserve,
   usdcxShortfall,
@@ -77,6 +79,16 @@ describe('mainnet bridge loops', () => {
         maxFeePerGas: 1n
       })
     ).toBeUndefined();
+  });
+
+  it('charges the round-trip funding consume once, before the vault is read', () => {
+    const fee = 7n;
+    const send = 1n;
+    const oneTx = TX_FEE_MULTIPLE * fee;
+    const beforeClaim = 2n * (send + ROUND_TRIP_TXS * oneTx);
+    expect(roundTripReserve(send, fee)).toBe(beforeClaim - oneTx);
+    expect(() => roundTripReserve(0n, fee)).toThrow('positive base-unit amount');
+    expect(() => roundTripReserve(send, 0n)).toThrow('positive base fee');
   });
 
   it('prices fees in base-fee units, so a base fee of 7 is a fraction of one USDCx', () => {

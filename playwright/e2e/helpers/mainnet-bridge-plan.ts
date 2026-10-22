@@ -16,6 +16,8 @@ export const ETHEREUM_PAYOUT_ALLOWANCE = 1_500_000n;
 export const DIRECT_PAYOUT_ALLOWANCE = 100_000n;
 /** The wallet's own cap: a transaction costs at most 30 base fees. Observed ones land near 17. */
 export const TX_FEE_MULTIPLE = 30n;
+/** One nightly exchange: the funding consume, the send, and the claim of what came back. */
+export const ROUND_TRIP_TXS = 3n;
 /** A measured mainnet USDCx burn was 36 base fees. The wallet adds 25% headroom. */
 export const BURN_FEE_MULTIPLE = 45n;
 
@@ -59,6 +61,20 @@ export function usdcReserve(quotedForwardFee: bigint, payoutAllowance: bigint): 
   const deposit = LOOP_USDC + FORWARD_FEE_MULTIPLE * quotedForwardFee;
   const consumed = quotedForwardFee + payoutAllowance;
   return deposit + consumed;
+}
+
+/**
+ * Native base units that must still be in the vault after the funding consume.
+ *
+ * Two nights of one round trip count that consume inside `ROUND_TRIP_TXS`. The nightly
+ * pays it once, up front, and then reads the vault, so the gate subtracts one transaction
+ * and still keeps tomorrow's consume.
+ */
+export function roundTripReserve(sendBaseUnits: bigint, baseFee: bigint): bigint {
+  if (sendBaseUnits < 1n) throw new Error(`send amount ${sendBaseUnits} is not a positive base-unit amount`);
+  if (baseFee < 1n) throw new Error(`base fee ${baseFee} is not a positive base fee`);
+  const oneTx = TX_FEE_MULTIPLE * baseFee;
+  return NIGHTS * (sendBaseUnits + ROUND_TRIP_TXS * oneTx) - oneTx;
 }
 
 /** Native base units for two nights. Burns cost more than an ordinary transaction. */
