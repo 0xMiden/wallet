@@ -388,7 +388,7 @@ it.each([
   }
 );
 
-it('omits all claim-only segments from a send even when claim fields are present', async () => {
+it('omits the claim-only segments from a send but keeps its recorded last deferral', async () => {
   reportTransactionFailure({
     type: 'send',
     entryPoint: 'claim',
@@ -397,8 +397,35 @@ it('omits all claim-only segments from a send even when claim fields are present
   });
   const message = await reportedMessage();
   expect(message).not.toContain('queued by');
-  expect(message).not.toContain('last deferral');
   expect(message).not.toContain('claim fee admission');
+  expect(message).toMatch(/; platform (?:desktop|extension|ios|android); last deferral wallet_locked; point pipeline;/);
+});
+
+// Without a recorded deferral the segment is left out, so the existing non-consume groups keep their message.
+it('adds no last deferral segment to a non-consume report that recorded none', async () => {
+  reportTransactionFailure({ type: 'swap', reason: 'queued_expired' });
+  expect(await reportedMessage()).not.toContain('last deferral');
+});
+
+it('names an unlisted non-consume deferral as other', async () => {
+  const failure: TransactionFailure = { type: 'send', reason: 'queued_expired' };
+  Reflect.set(failure, 'lastDeferral', 'nonsense');
+  reportTransactionFailure(failure);
+  expect(await reportedMessage()).toContain('; last deferral other; point pipeline;');
+});
+
+it('sends only the fixed deferral of an expired send whose error carries ids, hex and amounts', async () => {
+  const accountId = '0x7bfb0f38b0fafa103f86a805594170';
+  const noteId = '0x' + 'ab12'.repeat(16);
+  reportTransactionFailure({
+    type: 'send',
+    reason: 'queued_expired',
+    lastDeferral: 'guardian_backpressure',
+    error: new Error(`send of 1250000 to ${accountId} with note ${noteId} expired after 42 attempts`)
+  });
+  const message = await reportedMessage();
+  expect(message).toContain('; last deferral guardian_backpressure; point pipeline; queued_expired.');
+  for (const leaked of [accountId, noteId, '1250000', '42 attempts', 'ab12']) expect(message).not.toContain(leaked);
 });
 
 it('places claim segments after platform and before the failure point in the first sentence', async () => {

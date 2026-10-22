@@ -797,7 +797,11 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
               failure.feeAdmission === undefined ? 'unrecorded' : 'other'
             )}`
           ].join('')
-        : '';
+        : // Any row the loop requeued records its cause; only a recorded one is named, so a report that has none keeps its
+          // message and its Sentry group.
+          failure.lastDeferral === undefined
+          ? ''
+          : `; last deferral ${diagnostic<string>(failure.lastDeferral, CONSUME_DEFERRAL_CAUSES, 'other')}`;
     const platform: (typeof FAILURE_PLATFORMS)[number] = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
