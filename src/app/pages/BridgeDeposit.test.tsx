@@ -134,7 +134,7 @@ describe('BridgeDeposit (#875)', () => {
 
     const warning = screen.getByTestId('evm-connect-test-wallet-warning');
     expect(warning).toHaveAttribute('role', 'note');
-    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning).toHaveAttribute('data-tone', 'caution');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeConnectTestWalletBody');
   });
@@ -143,7 +143,8 @@ describe('BridgeDeposit (#875)', () => {
     mockEffectiveNetwork = 'mainnet';
     render(<BridgeDeposit />);
 
-    expect(screen.getByText('bridgeConnectWalletTitle')).toBeInTheDocument();
+    // The title heads the page and names step 1.
+    expect(screen.getAllByText('bridgeConnectWalletTitle')).toHaveLength(2);
     expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 

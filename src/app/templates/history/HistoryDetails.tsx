@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import guardianSwitchAvatarUrl from 'app/icons/guardian-switch-avatar.svg?url';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
@@ -776,11 +777,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
-                <GuardianChangeSummary
-                  kind="switch"
-                  previousEndpoint={entry.previousGuardianEndpoint}
-                  newEndpoint={entry.newGuardianEndpoint}
-                />
+                <>
+                  {/* Titled like the activity row; the status pill follows it and the change card comes last. */}
+                  {/* The same Guardian avatar as the Activity row, at the 72px transaction-icon size. */}
+                  <img src={guardianSwitchAvatarUrl} alt="" className="mb-3 h-18 w-18 rounded-full" />
+                  <h2 className="text-center text-hero-name text-ink">{t('guardianSwitchedRowTitle')}</h2>
+                  <GuardianChangeSummary
+                    kind="switch"
+                    previousEndpoint={entry.previousGuardianEndpoint}
+                    newEndpoint={entry.newGuardianEndpoint}
+                    className="order-last mt-4"
+                  />
+                </>
               ) : rotationGuardianEndpoint ? (
                 <GuardianChangeSummary kind="single" endpoint={rotationGuardianEndpoint} />
               ) : (
@@ -845,8 +853,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
             {/* Transfer Details: flush under the hero, whose own 20px is the gap above the rule. */}
             <div>
-              <SectionDivider color={sectionDividerColor} />
-              <div className="mt-5">
+              {/* A Guardian switch's change card already closes the hero, so it takes no colored rule. */}
+              {!isGuardianSwitch && <SectionDivider color={sectionDividerColor} />}
+              <div className={isGuardianSwitch ? undefined : 'mt-5'}>
                 <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 

@@ -167,7 +167,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
       testId="pending-activity-row"
       entryKey={note.id}
       className="min-w-0 flex-1 py-3"
-      icon={<Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />}
+      icon={<Icon name={IconName.Receive} size="sm" className="text-pure-white" />}
       iconBg="bg-tx-received"
       title={t('received')}
       subtitle={`${t('from')}: ${sender}`}

@@ -408,6 +408,12 @@ button:disabled,
   line-height: var(--tw-leading, 22px);
   font-weight: var(--tw-font-weight, 400);
 }
+@utility text-explainer-heading {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  line-height: var(--tw-leading, 22px);
+  font-weight: var(--tw-font-weight, 600);
+}
 @utility text-body-sm {
   font-family: var(--font-sans);
   font-size: 14px;
@@ -773,6 +779,8 @@ body[data-home-band]::before {
     --action-receive: var(--card-green);
     --action-earn: var(--card-slate);
     --action-swap: var(--card-purple);
+    /* The Swap action's glyph only: the light lavender, kept off --action-swap so the Swap buttons keep their contrast. */
+    --action-swap-icon: #beacd2;
     --action-send-tint: #eceff2;
     --action-receive-tint: #eff1ee;
     --action-earn-tint: #efeef0;
@@ -885,6 +893,8 @@ body[data-home-band]::before {
     --ds-action-bar: #f9f9f9;
     --ds-hairline: rgba(63, 63, 63, 0.1);
     --ds-ink: #3f3f3f;
+    /* The header back arrow: a step softer than `ink`. */
+    --ds-back-glyph: #484848;
     --ds-muted: #6b6b6b;
     --ds-accent-tint: #fdeee5;
     --ds-accent-tint-ink: #a84a18;
@@ -947,6 +957,7 @@ body[data-home-band]::before {
     --action-receive-ink: var(--action-receive);
     --action-earn-ink: #8d8a9a;
     --action-swap-ink: var(--action-swap);
+    --action-swap-icon: var(--action-swap);
     /* Dark mode's send, receive and swap fills are pastels, where white falls under 3:1. */
     --accent-brand-on: #ffffff;
     --accent-send-on: #191919;
@@ -1013,6 +1024,7 @@ body[data-home-band]::before {
       inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5);
     --ds-shadow-raised-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.06);
     --ds-ink: #ffffff;
+    --ds-back-glyph: var(--ds-ink);
     --ds-muted: #a8a29c;
     --ds-accent-tint: #3a2418;
     --ds-accent-tint-ink: #f2a57a;

@@ -8,6 +8,7 @@
 
 ### Changes
 
+- [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; the Swap action icon takes a lighter lavender; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito.
 - [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
 - [CHANGE][all] Profile and My badges polish: every badge has its own illustrated medallion; Profile shows the address as one copy chip with a network tag and opens My badges from a progress card; My badges leads with Earned / Locked / Coming soon counts, an earned fraction beside All badges, and the Mainnet note at the foot of the page.
 - [CHANGE][extension] The EVM wallet connect modal on the extension opens on the WalletConnect QR code and hides the browser-extension, EIP-6963 and Coinbase wallets and the "All Wallets" grid, since an extension page cannot reach another extension's wallet.

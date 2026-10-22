@@ -412,12 +412,13 @@ describe('TabLayout — action colours', () => {
     ['send', 'Send'],
     ['receive', 'Receive'],
     ['earn', 'Earn'],
-    ['swap', 'Convert']
-  ])('draws the %s icon in its action colour', (action, icon) => {
+    ['swap', 'Convert', 'text-action-swap-icon']
+  ])('draws the %s icon in its action colour', (action, icon, colour = `text-action-${action}`) => {
     mockLocation.pathname = '/';
     renderLayout();
     const glyph = within(screen.getByTestId(`action-${action}`)).getByTestId(`icon-${icon}`);
-    expect(glyph).toHaveClass(`text-action-${action}`);
+    // Swap's glyph takes its own lighter lavender, kept off the Swap buttons' purple.
+    expect(glyph).toHaveClass(colour);
   });
 });
 

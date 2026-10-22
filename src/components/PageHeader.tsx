@@ -65,6 +65,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
             appearance="filled"
             label={t('back')}
             onClick={onBack}
+            className="text-back-glyph"
             data-testid={backTestId}
           />
         )}

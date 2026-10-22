@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
+import guardianSwitchAvatarUrl from 'app/icons/guardian-switch-avatar.svg?url';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
@@ -216,11 +217,16 @@ function buildRowProps(
   } else if (isFailed) {
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-[#CC5D5D]';
+  } else if (entry.txType === 'switch-guardian') {
+    // A full avatar (ring, cream disc and the Guardian robot), drawn as an image so the row's
+    // 16px glyph sizing does not shrink it.
+    iconNode = <img src={guardianSwitchAvatarUrl} alt="" className="h-10 w-10 rounded-full" />;
+    iconBg = 'bg-page';
   } else if (isGuardianOp(entry.txType)) {
     iconNode = <Icon name={IconName.Key} size="sm" fill="currentColor" className="text-pure-white" />;
     iconBg = 'bg-[#777487]';
   } else if (icon === 'RECEIVE') {
-    iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
+    iconNode = <Icon name={IconName.Receive} size="sm" className="text-pure-white" />;
     iconBg = 'bg-tx-received';
     amountDirection = 'positive';
   } else if (icon === 'SEND') {
