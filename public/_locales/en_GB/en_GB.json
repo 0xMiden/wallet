@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "Bridge deposit failed",
   "bridgeDepositBalanceTooLow": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
   "bridgeDepositBalanceReadFailed": "Could not check your $token$ balance on $network$. Nothing was sent.",
+  "bridgeDepositBalanceCapExceeded": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+  "bridgeDepositBalanceCapUnpriced": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
   "bridgeDepositSubmitted": "Bridge initiated!",
   "bridgeDepositDeliveryDescription": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
   "viewOnEtherscan": "View on Etherscan",

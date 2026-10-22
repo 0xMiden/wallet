@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "桥接存款失败",
   "bridgeDepositBalanceTooLow": "您已连接的钱包在$network$上持有$balance$的$token$，该金额低于本次存款所需。未发送任何资金。",
   "bridgeDepositBalanceReadFailed": "无法在$network$上查询您的$token$余额。未发送任何内容。",
+  "bridgeDepositBalanceCapExceeded": "该账户最多可持有$cap$美元。当前持有$held$美元，本次存款将增加$deposit$美元。请输入较小的金额。",
+  "bridgeDepositBalanceCapUnpriced": "该账户最多可持有$cap$美元，且$token$当前无价格，因此无法根据该代币核对存款。请稍后再试。",
   "bridgeDepositSubmitted": "桥接已启动！",
   "bridgeDepositDeliveryDescription": "源交易已确认。当跨链转账完成后，您的资金将显示在 Miden 上。",
   "viewOnEtherscan": "在 Etherscan 上查看",

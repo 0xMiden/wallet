@@ -1175,6 +1175,8 @@
   "bridgeDepositFailed": "Niepowodzenie wpłaty na most",
   "bridgeDepositBalanceTooLow": "Twój podłączony portfel zawiera $balance$ $token$ w sieci $network$, co stanowi kwotę mniejszą niż wymagana do dokonania wpłaty. Nic nie zostało wysłane.",
   "bridgeDepositBalanceReadFailed": "Nie udało się sprawdzić salda $token$ w sieci $network$. Nic nie zostało wysłane.",
+  "bridgeDepositBalanceCapExceeded": "Na tym koncie można przechowywać maksymalnie $cap$ USD. Znajduje się na nim $held$ USD, a ta wpłata dodaje $deposit$ USD. Wprowadź mniejszą kwotę.",
+  "bridgeDepositBalanceCapUnpriced": "Na tym koncie można przechowywać maksymalnie $cap$ USD, a $token$ nie ma obecnie ceny, więc nie można sprawdzić wpłaty w odniesieniu do tej waluty. Spróbuj ponownie później.",
   "bridgeDepositSubmitted": "Most uruchomiony!",
   "bridgeDepositDeliveryDescription": "Transakcja źródłowa została potwierdzona. Twoje środki pojawią się w Miden po zakończeniu transferu mostkowego.",
   "viewOnEtherscan": "Zobacz na Etherscan",

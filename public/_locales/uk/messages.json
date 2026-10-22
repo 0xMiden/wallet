@@ -5260,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Цей рахунок може містити не більше $cap$ доларів США. На ньому знаходиться $held$ доларів США, і цей депозит додає $deposit$ доларів США. Введіть меншу суму.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Цей рахунок може містити не більше $cap$ доларів США, а $token$ наразі не має ціни, тому депозит не можна перевірити за ним. Спробуйте пізніше.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Міст ініційовано!",
     "englishSource": "Bridge initiated!"

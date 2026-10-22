@@ -5260,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Na tym koncie można przechowywać maksymalnie $cap$ USD. Znajduje się na nim $held$ USD, a ta wpłata dodaje $deposit$ USD. Wprowadź mniejszą kwotę.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Na tym koncie można przechowywać maksymalnie $cap$ USD, a $token$ nie ma obecnie ceny, więc nie można sprawdzić wpłaty w odniesieniu do tej waluty. Spróbuj ponownie później.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Most uruchomiony!",
     "englishSource": "Bridge initiated!"

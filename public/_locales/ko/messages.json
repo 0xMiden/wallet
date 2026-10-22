@@ -5260,6 +5260,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "이 계좌에는 최대 $cap$ USD까지 보관할 수 있습니다. 현재 $held$ USD가 예치되어 있으며, 이번 입금으로 $deposit$ USD가 추가됩니다. 더 적은 금액을 입력하십시오.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "이 계좌는 최대 $cap$ USD까지 보유할 수 있으며, 현재 $token$의 가격이 없으므로 입금액을 해당 토큰 기준으로 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "브릿지 시작되었습니다!",
     "englishSource": "Bridge initiated!"

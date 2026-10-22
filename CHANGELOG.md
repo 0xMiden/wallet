@@ -10,6 +10,7 @@
 
 ### Changes
 
+- [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.
 - [CHANGE][all] The Guardian switch success screen sits higher and labels its "What changes now" section with a pill.
 - [CHANGE][all] Profile and My badges polish: every badge has its own illustrated medallion; Profile shows the address as one copy chip with a network tag and opens My badges from a progress card; My badges leads with Earned / Locked / Coming soon counts, an earned fraction beside All badges, and the Mainnet note at the foot of the page.
 - [CHANGE][extension] The EVM wallet connect modal on the extension opens on the WalletConnect QR code and hides the browser-extension, EIP-6963 and Coinbase wallets and the "All Wallets" grid, since an extension page cannot reach another extension's wallet.
