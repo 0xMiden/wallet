@@ -260,7 +260,8 @@ describe('committed terminal transaction failure reports', () => {
         expect(report).toHaveBeenCalledWith(
           expect.objectContaining({
             reason: 'interrupted_on_startup',
-            startup: { selection, stageAge: age, submit }
+            // The row's own facts reach the reporter as read; only the message renders an unknown age as `unavailable`.
+            startup: { selection, stageAge: age === 'unavailable' ? undefined : age, submit }
           })
         );
         expect(captureCrash).toHaveBeenCalledTimes(1);
