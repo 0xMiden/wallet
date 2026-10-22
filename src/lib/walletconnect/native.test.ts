@@ -794,7 +794,7 @@ describe('waiting for the session to approve an added chain', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('does not keep a buffered approval when the session is deleted before that wait settles', async () => {
+  it('does not let a reread restore an approval that a deletion superseded before the wait', async () => {
     let releaseSwitch: (value: { result: null }) => void = () => undefined;
     const switching = new Promise<{ result: null }>(resolve => {
       releaseSwitch = resolve;
@@ -803,15 +803,26 @@ describe('waiting for the session to approve an added chain', () => {
       .mocked(rawNativeReown.request)
       .mockResolvedValueOnce({ result: null })
       .mockImplementationOnce(() => switching);
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA, ARC]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]));
     const watched = watch(prepareNativeSessionChain(ARC));
 
     await jest.advanceTimersByTimeAsync(0);
     updateSession(sessionState([SEPOLIA, ARC]));
-    releaseSwitch({ result: null });
     updateSession({ configured: true, connected: false, accounts: [] });
-    await jest.advanceTimersByTimeAsync(5000);
+    releaseSwitch({ result: null });
+    await jest.advanceTimersByTimeAsync(0);
 
-    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(watched.settled).toBe(false);
+
+    updateSession(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('accepts a state read that starts after a deletion and then approves the chain', async () => {
