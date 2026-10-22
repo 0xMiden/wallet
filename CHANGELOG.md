@@ -36,6 +36,7 @@
 
 ### Fixes
 
+- [FIX][all] yarn dev allows wallet, Earn and Swap without calling the eligibility service, so a local session opens when the eligibility URL is unset. The open flag is ignored unless that build is an explicit development build and not an end-to-end build, so a production build cannot inherit it.
 - [FIX][all] Profile and My Badges show the network the wallet runs on: after Mainnet invitation onboarding on a Testnet build they read Mainnet, and a dApp that names no network is given the wallet's effective node instead of the build default (#1655).
 - [FIX][all] The USDC bridge-in route and review show an estimated arrival of about 2 minutes instead of 20 (#1647).
 - [CHANGE][all] Activity's filters are All, Pending, Transfer, Swap, Earn and Others; Transfer covers sent, received and bridged entries. On Mainnet, faucet requests are hidden from every Activity list, group and search; the stored rows and balances are unchanged (#1646).
