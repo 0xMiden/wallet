@@ -412,6 +412,26 @@ it('reports the real consume proposal boundary once without changing terminal be
   expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
 });
 
+it('sends the signer facts with a Guardian authentication refusal and no key, signature or identifier', async () => {
+  const refusal = Object.assign(privateFailure(), {
+    name: 'GuardianHttpError',
+    status: 401,
+    code: 'authentication_failed'
+  });
+  mockConsumeProposal.mockRejectedValueOnce(refusal);
+  await run();
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+  await failureEventWith(
+    {
+      proposalStep: 'proposal_create',
+      guardianSignerInSet: 'unknown',
+      guardianSigningKey: 'hot',
+      hotKeyRotationPending: 'no'
+    },
+    'stage signing'
+  );
+});
+
 function expectHookRejection(
   report: jest.SpyInstance<
     ReturnType<typeof transactionFailure.reportTransactionFailure>,
