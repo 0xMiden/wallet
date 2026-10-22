@@ -1,11 +1,14 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { Route, RouteOptions } from './Route';
 import { AgglayerEligibility } from './useAgglayerEligibility';
@@ -41,6 +44,10 @@ jest.mock('lib/miden/metadata/resolve', () => ({
 }));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 const DOWN: FeatureAvailability = {
@@ -51,6 +58,30 @@ const DOWN: FeatureAvailability = {
 const UP = { fastAvailability: AVAILABLE, slowAvailability: AVAILABLE };
 
 describe('Route', () => {
+  it('names the disabled Epoch route while Agglayer Continue remains usable', () => {
+    const onConfirm = jest.fn();
+    render(
+      <Route
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        fastAvailability={DOWN}
+        slowAvailability={AVAILABLE}
+        onConfirm={onConfirm}
+      />
+    );
+    expect(screen.getByTestId('bridge-route-fast')).toHaveTextContent('bridgeRouteEpoch');
+    expect(screen.getByTestId('bridge-route-slow')).toHaveTextContent('bridgeRouteAgglayer');
+
+    expect(screen.getByTestId('feature-unavailable-notice-fast')).toHaveTextContent('bridgeRouteUnavailableBody');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    const continueButton = screen.getByTestId('bridge-route-confirm');
+    expect(continueButton).toHaveTextContent('bridgeContinueAgglayer');
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
   it('pins its CTA in a flow footer that slides and snaps its cushion, like every flow page', () => {
     render(<Route route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} {...UP} onConfirm={jest.fn()} />);
 
@@ -104,13 +135,113 @@ describe('RouteOptions', () => {
     }
   );
 
+  it.each(['off', 'not-configured', 'not-deployed', 'service-down'] as const)(
+    'describes %s as route availability without claiming a service outage',
+    reason => {
+      render(
+        <RouteOptions
+          route="agglayer"
+          onRouteChange={jest.fn()}
+          fastQuoteLoading={false}
+          slowStatus="allowed"
+          fastAvailability={{ state: 'unavailable', reason, detail: 'private diagnostics' }}
+          slowAvailability={AVAILABLE}
+        />
+      );
+      const notice = screen.getByTestId('feature-unavailable-notice-fast');
+      expect(notice).toHaveTextContent('bridgeRouteUnavailableBody');
+      expect(notice).not.toHaveTextContent('bridgeFeatureUnavailableBody');
+      expect(notice).not.toHaveTextContent('private diagnostics');
+      expect(notice).toHaveAttribute('data-tone', 'neutral');
+    }
+  );
+
+  it('preserves the restricted-region explanation', () => {
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        fastAvailability={{ state: 'unavailable', reason: 'restricted', detail: 'fixture' }}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    expect(screen.getByTestId('feature-unavailable-notice-fast')).toHaveTextContent('geoRestrictedBody');
+  });
+
+  it.each(['epoch', 'agglayer'] as const)('keeps the selected %s route hint with its card', route => {
+    render(
+      <RouteOptions
+        route={route}
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        notice="fixture hint"
+        {...UP}
+      />
+    );
+    const card = screen.getByTestId(route === 'epoch' ? 'bridge-route-fast' : 'bridge-route-slow');
+    expect(card.parentElement).toContainElement(screen.getByText('fixture hint'));
+  });
+
+  it.each<AgglayerEligibility>(['loading', 'unsupported', 'error'])(
+    'contains the Agglayer %s explanation within its card',
+    slowStatus => {
+      render(
+        <RouteOptions
+          route="epoch"
+          onRouteChange={jest.fn()}
+          fastQuoteLoading={false}
+          slowStatus={slowStatus}
+          {...UP}
+        />
+      );
+      expect(screen.getByTestId('bridge-route-slow-card')).toContainElement(screen.getByRole('status'));
+      expect(screen.getByTestId('bridge-route-slow')).toHaveAttribute('aria-describedby', 'bridge-route-slow-status');
+    }
+  );
+
+  it('contains USDCx burn help within its card', () => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+    expect(screen.getByTestId('bridge-route-usdcx-card')).toContainElement(screen.getByTestId('usdcx-burn-notice'));
+  });
+
   it('enables Slow after approval', () => {
     render(
       <RouteOptions route="agglayer" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...UP} />
     );
     expect(screen.getByTestId('bridge-route-slow')).toBeEnabled();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    expect(screen.queryByText('bridgeFeatureUnavailableTitle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-fast')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-slow')).not.toBeInTheDocument();
+  });
+
+  it('contains the Epoch explanation inside its visible card boundary', () => {
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        fastAvailability={DOWN}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    const card = screen.getByTestId('bridge-route-fast-card');
+    expect(card).toContainElement(screen.getByTestId('feature-unavailable-notice-fast'));
+    expect(card).toHaveClass('border');
+    expect(card).not.toHaveClass('disabled:opacity-50');
+    expect(screen.getByTestId('bridge-route-fast')).toBeDisabled();
   });
 
   it('greys out an unavailable Fast route under its own notice, and takes no tap', () => {
@@ -132,9 +263,9 @@ describe('RouteOptions', () => {
     expect(onRouteChange).not.toHaveBeenCalled();
     expect(screen.getByTestId('bridge-route-slow')).toBeEnabled();
     const notice = screen.getByTestId('feature-unavailable-notice-fast');
-    expect(notice).toHaveTextContent('bridgeFeatureUnavailableTitle');
+    expect(notice).toHaveTextContent('bridgeRouteUnavailableBody');
     expect(fast).toHaveAttribute('aria-describedby', notice.id);
-    expect(fast.parentElement).toBe(notice.parentElement);
+    expect(fast.parentElement).toContainElement(notice);
   });
 
   it('greys out Slow while its feature is unavailable, even with the token allowed', () => {
@@ -154,7 +285,7 @@ describe('RouteOptions', () => {
     expect(fast).toBeEnabled();
     const notice = screen.getByTestId('feature-unavailable-notice-slow');
     expect(slow).toHaveAttribute('aria-describedby', notice.id);
-    expect(slow.parentElement).toBe(notice.parentElement);
+    expect(slow.parentElement).toContainElement(notice);
     expect(fast).not.toHaveAttribute('aria-describedby');
   });
 
@@ -170,7 +301,7 @@ describe('RouteOptions', () => {
         slowAvailability={AVAILABLE}
       />
     );
-    expect(screen.getAllByText('bridgeFeatureUnavailableTitle')).toHaveLength(1);
+    expect(screen.getAllByText('bridgeRouteUnavailableBody')).toHaveLength(1);
     expect(screen.queryByTestId('feature-unavailable-notice-slow')).not.toBeInTheDocument();
     const notice = screen.getByTestId('feature-unavailable-notice-fast');
     expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-describedby', notice.id);
@@ -189,12 +320,34 @@ describe('RouteOptions', () => {
         slowAvailability={DOWN}
       />
     );
-    expect(screen.getAllByText('bridgeFeatureUnavailableTitle')).toHaveLength(2);
+    expect(screen.queryByText('bridgeRouteUnavailableBody')).not.toBeInTheDocument();
+    expect(screen.getAllByText('bridgeRouteNoneAvailableBody')).toHaveLength(2);
     const fastNotice = screen.getByTestId('feature-unavailable-notice-fast');
     const slowNotice = screen.getByTestId('feature-unavailable-notice-slow');
     expect(fastNotice.id).not.toBe(slowNotice.id);
     expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-describedby', fastNotice.id);
     expect(screen.getByTestId('bridge-route-slow')).toHaveAttribute('aria-describedby', slowNotice.id);
+  });
+
+  // The Fast notice may point at another route only when the Slow card can be chosen now.
+  it.each<[string, React.ComponentProps<typeof RouteOptions>['slowStatus'], FeatureAvailability]>([
+    ['refused by its token check', 'unsupported', AVAILABLE],
+    ['still loading its availability', 'allowed', { state: 'loading' }]
+  ])('says no route is available when Fast is down and Slow is %s', (_case, slowStatus, slowAvailability) => {
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus={slowStatus}
+        fastAvailability={DOWN}
+        slowAvailability={slowAvailability}
+      />
+    );
+    expect(screen.getByTestId('bridge-route-slow')).toBeDisabled();
+    const notice = screen.getByTestId('feature-unavailable-notice-fast');
+    expect(notice).toHaveTextContent('bridgeRouteNoneAvailableBody');
+    expect(notice).not.toHaveTextContent('bridgeRouteUnavailableBody');
   });
 
   it('holds both routes while availability is still loading, with no notice', () => {
@@ -211,7 +364,8 @@ describe('RouteOptions', () => {
     );
     expect(screen.getByTestId('bridge-route-fast')).toBeDisabled();
     expect(screen.getByTestId('bridge-route-slow')).toBeDisabled();
-    expect(screen.queryByText('bridgeFeatureUnavailableTitle')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-fast')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice-slow')).not.toBeInTheDocument();
   });
 
   it('names the native fee asset under the USDCx route, never MIDEN', () => {
@@ -305,5 +459,69 @@ describe('RouteOptions', () => {
 
     expect(screen.queryByTestId('usdcx-payout-fee')).not.toBeInTheDocument();
     expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
+  });
+});
+
+describe('route availability report', () => {
+  const mockReport = jest.mocked(reportUserVisibleError);
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockReport.mockClear();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it('reports the unavailable-feature event for a route down for a non-geographic reason', () => {
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        fastAvailability={DOWN}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+  });
+
+  it('reports nothing while both routes are available', () => {
+    render(
+      <RouteOptions route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...UP} />
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport).not.toHaveBeenCalled();
+  });
+});
+
+// The route cards and Continue name their provider; a translation that renames the brand, or reads "continue
+// reading" or "on the website", tells the user something else.
+describe('provider route labels', () => {
+  const LOCALES_DIR = path.join(__dirname, '../../../public/_locales');
+  const locales = fs
+    .readdirSync(LOCALES_DIR)
+    .filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
+
+  it('sweeps every locale', () => {
+    expect(locales).toHaveLength(14);
+  });
+
+  it.each(locales)('%s names each provider on its route label and Continue', locale => {
+    const dir = path.join(LOCALES_DIR, locale);
+    const messages = JSON.parse(fs.readFileSync(path.join(dir, 'messages.json'), 'utf8'));
+    // The app renders the flat bundle; the translation job keeps messages.json. Both must agree.
+    const bundle = JSON.parse(fs.readFileSync(path.join(dir, `${locale}.json`), 'utf8'));
+    const labels: Array<[string, string]> = [
+      ['bridgeRouteEpoch', 'Epoch'],
+      ['bridgeRouteAgglayer', 'Agglayer'],
+      ['bridgeContinueEpoch', 'Epoch'],
+      ['bridgeContinueAgglayer', 'Agglayer']
+    ];
+    for (const [key, provider] of labels) {
+      for (const label of [messages[key].message as string, bundle[key] as string]) {
+        expect(label).toContain(provider);
+        expect(label).not.toMatch(/読|읽|阅读|閱讀|stronie|serwisie/);
+      }
+    }
   });
 });

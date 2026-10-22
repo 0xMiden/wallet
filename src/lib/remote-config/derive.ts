@@ -17,6 +17,7 @@ import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
 import {
+  type AgglayerDepositTokenConfig,
   type BridgeConfig,
   EARN_LENDER_KEYS,
   epochCollateralFaucetId,
@@ -42,6 +43,18 @@ export interface BridgeToken {
 export interface TokenMetadata {
   symbol: string;
   decimals: number;
+}
+
+/**
+ * An ERC-20 the deposit picker offers on an AggLayer chain: the document's symbol, the contract's decimals, and the
+ * faucet the bridge registry holds for its address, which mints its deliveries at `scale`.
+ */
+export interface AgglayerDepositToken {
+  symbol: string;
+  contractAddress: EvmAddress; // lowercase
+  decimals: number;
+  midenFaucetId: string; // '0x' + 30 lowercase hex
+  scale: number;
 }
 
 export interface DerivedBridgeConfig {
@@ -70,6 +83,8 @@ export interface DerivedChainConfig {
     tokens: Probe<BridgeToken[]>;
     evmNetworkId: Probe<number>;
     l1BridgeCode: Probe<true>;
+    /** The document's deposit tokens, each verified against the registry; skipped while the document lists none. */
+    depositTokens: Probe<AgglayerDepositToken[]>;
   };
   epoch: { evmUsdc: Probe<TokenMetadata> };
 }
@@ -437,6 +452,67 @@ async function probeErc20(reads: EvmReads | null, token: EvmAddress | undefined)
   return code.state === 'ok' ? attempt(() => reads.erc20(token)) : code;
 }
 
+// The derivation settles only once every probe has, so the list a document may name is capped.
+const DEPOSIT_TOKENS_MAX = 16;
+
+/**
+ * The document's deposit tokens the registry confirms: a token is kept only when the bridge holds a faucet for its
+ * address on this chain's network, and at the decimals its contract reports, since the deposit converts the typed
+ * amount with them. A token the registry does not hold, or whose address has no code, costs only its own listing; a
+ * failed contract read fails the probe, so no token is offered at an unchecked scale. Nothing to offer is `absent`.
+ * On a test network the picker offers the connected wallet's holdings as well (lib/agglayer/token-holdings.ts).
+ */
+async function probeDepositTokens(
+  reads: EvmReads | null,
+  listed: Record<string, AgglayerDepositTokenConfig> | undefined,
+  registry: Probe<{ rollupId: number; tokens: BridgeToken[] }>,
+  evmNetworkId: Probe<number>
+): Promise<Probe<AgglayerDepositToken[]>> {
+  const entries = Object.entries(listed ?? {});
+  if (!reads || entries.length === 0) return { state: 'skipped' };
+  if (registry.state !== 'ok') return registry;
+  if (evmNetworkId.state !== 'ok') return evmNetworkId;
+  if (entries.length > DEPOSIT_TOKENS_MAX) {
+    return {
+      state: 'error',
+      message: `The document lists ${entries.length} deposit tokens, more than the ${DEPOSIT_TOKENS_MAX} the wallet verifies`
+    };
+  }
+  const networkId = evmNetworkId.value;
+  const registered = registry.value.tokens;
+  return attempt(async () => {
+    const tokens = await Promise.all(
+      entries.map(async ([symbol, { contractAddress }]): Promise<AgglayerDepositToken | null> => {
+        const faucet = registered.find(
+          token => token.originToken === contractAddress && token.originNetwork === networkId
+        );
+        if (!faucet) return null;
+        const metadata = await probeErc20(reads, contractAddress);
+        switch (metadata.state) {
+          case 'ok':
+            return {
+              symbol,
+              contractAddress,
+              decimals: metadata.value.decimals,
+              midenFaucetId: faucet.midenFaucetId,
+              scale: faucet.scale
+            };
+          case 'absent':
+            return null;
+          case 'error':
+            throw new Error(`${symbol} at ${contractAddress}: ${metadata.message}`);
+          case 'skipped':
+          default:
+            throw new Error(`${symbol} at ${contractAddress}: the chain has no reads`);
+        }
+      })
+    );
+    const verified = tokens.filter((token): token is AgglayerDepositToken => token !== null);
+    if (verified.length === 0) throw new NotDeployedError('no listed deposit token is registered on the bridge');
+    return verified;
+  });
+}
+
 // The checksummed form of a 20-byte hex address, or null for anything else.
 const checksummed = (value: string | undefined): EvmAddress | null =>
   value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value) ? getAddress(`0x${value.slice(2)}`) : null;
@@ -529,12 +605,14 @@ export async function deriveBridgeConfig(
       let tokens: Probe<BridgeToken[]> =
         registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
       if (tokens.state === 'ok' && tokens.value.length === 0) tokens = { state: 'absent' };
+      const depositTokens = await probeDepositTokens(reads, agglayer?.tokens, registry, l1Bridge.networkId);
       chains[chain.chainId] = {
         agglayer: {
           rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
           tokens,
           evmNetworkId: l1Bridge.networkId,
-          l1BridgeCode: l1Bridge.code
+          l1BridgeCode: l1Bridge.code,
+          depositTokens
         },
         epoch: { evmUsdc }
       };

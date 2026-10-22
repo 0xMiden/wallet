@@ -117,7 +117,8 @@ const SEPOLIA_SKIPPED: DerivedChainConfig = {
     rollupId: { state: 'skipped' },
     tokens: { state: 'skipped' },
     evmNetworkId: { state: 'skipped' },
-    l1BridgeCode: { state: 'skipped' }
+    l1BridgeCode: { state: 'skipped' },
+    depositTokens: { state: 'skipped' }
   },
   epoch: { evmUsdc: { state: 'skipped' } }
 };

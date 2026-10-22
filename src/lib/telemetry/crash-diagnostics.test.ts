@@ -1,13 +1,20 @@
 import { runInNewContext } from 'node:vm';
 
+import { STRUCTURAL_GUARDIAN_TYPES } from 'lib/miden/db/types';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
 import {
+  COMPLETION_GUARDS,
+  COMPLETION_STEPS,
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
+  SECURITY_CHANGE_ACTIONS,
   annotateCrash,
+  backgroundAgeOf,
+  readPageNavigation,
   snapshotCrashDiagnostics,
+  withCompletionStep,
   withProposalStep
 } from './crash-diagnostics';
 import { USER_ERROR_SURFACES } from './user-visible-error';
@@ -659,6 +666,77 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(error)).toEqual({ portReconnected: false });
   });
 
+  it("reads the request shape, registry state and age the background's code carries after the state", () => {
+    const error = new Error('Not Found');
+    annotateCrash(error, {
+      confirmationHandler: 'confirmation_unknown:array_with_string:pruned:10_to_60s',
+      pageNavigation: 'reload'
+    });
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      confirmationHandler: 'unknown',
+      confirmationRequestShape: 'array_with_string',
+      confirmationRegistry: 'pruned',
+      backgroundAge: '10_to_60s',
+      pageNavigation: 'reload'
+    });
+  });
+
+  it('drops the whole code when any part after the state is not exactly one of its values', () => {
+    for (const confirmationHandler of [
+      'confirmation_unknown:',
+      'confirmation_unknown:string',
+      'confirmation_unknown:string:empty',
+      'confirmation_unknown:string:empty:under_10s:',
+      'confirmation_unknown:string:empty:under_10s:navigate',
+      'confirmation_unknown:V1StGXR8_Z5jdHi6B-myT:empty:under_10s',
+      'confirmation_unknown:string:V1StGXR8_Z5jdHi6B-myT:under_10s',
+      'confirmation_unknown:string:empty:12034',
+      'confirmation_V1StGXR8_Z5jdHi6B-myT:string:empty:under_10s'
+    ]) {
+      const error = new Error('Not Found');
+      annotateCrash(error, { confirmationHandler, pageNavigation: 'https://evil.example/' });
+      expect(snapshotCrashDiagnostics(error)).toEqual({});
+    }
+  });
+
+  it.each([
+    [0, 'under_10s'],
+    [9_999, 'under_10s'],
+    [10_000, '10_to_60s'],
+    [59_999, '10_to_60s'],
+    [60_000, '60_to_300s'],
+    [299_999, '60_to_300s'],
+    [300_000, 'over_300s'],
+    [-1, 'unknown'],
+    [Number.NaN, 'unknown'],
+    [Number.POSITIVE_INFINITY, 'unknown']
+  ])('buckets a background running for %p ms as %s', (ms, age) => {
+    expect(backgroundAgeOf(ms)).toBe(age);
+  });
+
+  it("reads the page's navigation type, and unknown for anything else", () => {
+    const withEntries = (getEntriesByType: (type: string) => unknown): string => {
+      Object.defineProperty(performance, 'getEntriesByType', { configurable: true, value: getEntriesByType });
+      try {
+        return readPageNavigation();
+      } finally {
+        Reflect.deleteProperty(performance, 'getEntriesByType');
+      }
+    };
+    for (const type of ['navigate', 'reload', 'back_forward', 'prerender']) {
+      expect(withEntries(kind => (kind === 'navigation' ? [{ type }] : []))).toBe(type);
+    }
+    expect(withEntries(() => [{ type: 'https://evil.example/' }])).toBe('unknown');
+    expect(withEntries(() => [])).toBe('unknown');
+    expect(withEntries(() => [null])).toBe('unknown');
+    expect(
+      withEntries(() => {
+        throw new Error('no timeline');
+      })
+    ).toBe('unknown');
+    expect(readPageNavigation()).toBe('unknown');
+  });
+
   it('returns detached snapshots and preserves annotations across wrappers', () => {
     const cause = new Error('cause');
     annotateCrash(cause, { operation: 'sdk_initialize', stage: 'client_create', workerMode: 'disabled' });
@@ -669,6 +747,58 @@ describe('source-bound crash diagnostics', () => {
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
     Object.defineProperty(cause, 'cause', { value: outer });
     expect(snapshotCrashDiagnostics(outer).stage).toBe('client_create');
+  });
+
+  it('reports the structural guardian actions and no fourth name', () => {
+    expect(SECURITY_CHANGE_ACTIONS).toEqual(STRUCTURAL_GUARDIAN_TYPES);
+  });
+
+  it('names only a closed security change beside the proposal step it records', () => {
+    const accountId = 'mtst1qprivateaccount00';
+    const hex = '0xabcdef1234';
+    const amount = '987654321';
+    const privateFailure = () => new Error(`fungible vault account ${accountId} ${hex} amount ${amount}`);
+    for (const securityChange of ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const) {
+      const error = privateFailure();
+      annotateCrash(error, { proposalStep: 'proposal_create', securityChange });
+      const snapshot = snapshotCrashDiagnostics(error);
+      expect(snapshot).toEqual({ proposalStep: 'proposal_create', securityChange });
+      const reported = JSON.stringify(snapshot);
+      expect(reported).not.toContain(accountId);
+      expect(reported).not.toContain(hex);
+      expect(reported).not.toContain(amount);
+      expect(reported).not.toMatch(/0x[0-9a-f]/i);
+    }
+    const unlisted = privateFailure();
+    annotateCrash(unlisted, { proposalStep: 'proposal_create', securityChange: `rotation ${hex} amount ${amount}` });
+    annotateCrash(unlisted, { proposalStep: 'proposal_create', securityChange: { toString: () => 'switch-guardian' } });
+    const unlistedSnapshot = snapshotCrashDiagnostics(unlisted);
+    expect(unlistedSnapshot).toEqual({ proposalStep: 'proposal_create' });
+    expect(JSON.stringify(unlistedSnapshot)).not.toContain(accountId);
+    expect(JSON.stringify(unlistedSnapshot)).not.toContain(hex);
+    expect(JSON.stringify(unlistedSnapshot)).not.toContain(amount);
+    const alone = privateFailure();
+    annotateCrash(alone, { securityChange: 'switch-guardian' });
+    expect(snapshotCrashDiagnostics(alone)).toEqual({});
+    const otherStep = privateFailure();
+    annotateCrash(otherStep, { proposalStep: 'chain_sync', securityChange: 'switch-guardian' });
+    expect(snapshotCrashDiagnostics(otherStep)).toEqual({ proposalStep: 'chain_sync' });
+    const inner = privateFailure();
+    annotateCrash(inner, { proposalStep: 'proposal_create', securityChange: 'switch-guardian' });
+    const wrapped = new Error('wrapper', { cause: inner });
+    annotateCrash(wrapped, { proposalStep: 'chain_sync' });
+    expect(snapshotCrashDiagnostics(wrapped)).toEqual({ proposalStep: 'chain_sync' });
+    const kept = privateFailure();
+    annotateCrash(kept, { proposalStep: 'proposal_create', securityChange: 'replace-hot-key' });
+    annotateCrash(kept, {
+      proposalStep: 'chain_sync',
+      securityChange: 'switch-guardian',
+      proposalGuard: 'hot_key_missing'
+    });
+    expect(snapshotCrashDiagnostics(kept)).toEqual({
+      proposalStep: 'proposal_create',
+      securityChange: 'replace-hot-key'
+    });
   });
 
   it('accepts every proposal step and guard, and a guard only beside its step', () => {
@@ -701,6 +831,46 @@ describe('source-bound crash diagnostics', () => {
     await expect(withProposalStep('proposal_create', async () => 7)).resolves.toBe(7);
     const refusal = { status: 409 };
     await expect(withProposalStep('proposal_create', () => Promise.reject(refusal))).rejects.toBe(refusal);
+  });
+
+  it('names the submit-crossing steps and the guardian sync guard as proposal facts', () => {
+    expect(PROPOSAL_STEPS).toEqual(expect.arrayContaining(['submit_serialize', 'submit_pin', 'client_build']));
+    expect(PROPOSAL_GUARDS).toContain('guardian_out_of_sync');
+    const error = new Error('guardian out of sync');
+    annotateCrash(error, { proposalStep: 'service_select', proposalGuard: 'guardian_out_of_sync' });
+    expect(snapshotCrashDiagnostics(error)).toEqual({
+      proposalStep: 'service_select',
+      proposalGuard: 'guardian_out_of_sync'
+    });
+  });
+
+  it('accepts every completion step and guard, and a guard only beside its step', () => {
+    for (const completionStep of COMPLETION_STEPS) {
+      for (const completionGuard of COMPLETION_GUARDS) {
+        const error = new Error('completion failed');
+        annotateCrash(error, { completionStep, completionGuard });
+        expect(snapshotCrashDiagnostics(error)).toEqual({ completionStep, completionGuard });
+      }
+    }
+    const guardOnly = new Error('guard only');
+    annotateCrash(guardOnly, { completionGuard: 'no_input_notes' });
+    expect(snapshotCrashDiagnostics(guardOnly)).toEqual({});
+    const unlisted = new Error('unlisted');
+    annotateCrash(unlisted, { completionStep: 'result_read 0xabcdef', completionGuard: 'other' });
+    annotateCrash(unlisted, { completionStep: { toString: () => 'status_write' } });
+    expect(snapshotCrashDiagnostics(unlisted)).toEqual({});
+  });
+
+  it('keeps the innermost completion step and leaves proposal facts alone', async () => {
+    const error = new Error('write failed');
+    const inner = withCompletionStep('status_write', () => Promise.reject(error));
+    await expect(withCompletionStep('result_read', () => inner)).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ completionStep: 'status_write' });
+    annotateCrash(error, { proposalStep: 'chain_sync' });
+    expect(snapshotCrashDiagnostics(error)).toEqual({ completionStep: 'status_write', proposalStep: 'chain_sync' });
+    await expect(withCompletionStep('row_read', async () => 7)).resolves.toBe(7);
+    const refusal = { status: 409 };
+    await expect(withCompletionStep('row_read', () => Promise.reject(refusal))).rejects.toBe(refusal);
   });
 });
 

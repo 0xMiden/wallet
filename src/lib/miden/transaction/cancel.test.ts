@@ -3,10 +3,13 @@ import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { captureDiagnosticLog } from 'lib/telemetry/crash';
+import { _resetDiagnosticLogLimitsForTest } from 'lib/telemetry/diagnostic-log';
 
 import { cancelTransaction, cancelTransactionAfterPipelineStopped, isTransactionStuck } from './cancel';
 import {
   CLAIM_VAULT_SHORTFALL_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
@@ -48,6 +51,10 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/telemetry/crash', () => ({
+  ...jest.requireActual('lib/telemetry/crash'),
+  captureDiagnosticLog: jest.fn()
+}));
 jest.mock('../back/background-notification', () => ({
   notifyBackgroundTransactionFailed: jest.fn(),
   notifyBackgroundTransactionNotConfirmed: jest.fn(),
@@ -215,6 +222,54 @@ describe('cancelTransaction background notification', () => {
 });
 
 // A kill wrapped in another error is still a kill: the pipeline may still submit (#1313).
+describe('the end of a swap, recorded when its row fails (#1660)', () => {
+  const swapRow = (id: string): Transaction => {
+    const row = {
+      id,
+      type: 'swap',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'creating-proposal',
+      initiatedAt: Math.floor(Date.now() / 1000) - 3,
+      displayIcon: 'SWAP'
+    };
+    mockRows.set(id, row);
+    return row as unknown as Transaction;
+  };
+  const ends = () => jest.mocked(captureDiagnosticLog).mock.calls.map(([event, attributes]) => [event, attributes]);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRows.clear();
+    _resetDiagnosticLogLimitsForTest();
+  });
+
+  it.each([
+    ['a user cancel', USER_CANCELLED_TRANSACTION_REASON, 'cancelled'],
+    ['the stuck reaper', TRANSACTION_STUCK_ERROR, 'timeout'],
+    ['the startup sweep', TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted'],
+    ['a failure that timed out', new Error('guardian request timed out'), 'timeout'],
+    ['any other failure', new Error('mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe refused'), 'failed']
+  ])('names %s as %s', async (_label, error, outcome) => {
+    await cancelTransaction(swapRow('swap-1'), error);
+    expect(ends()).toEqual([['operation_end', { operation: 'swap', outcome, duration: '1_to_5s' }]]);
+  });
+
+  it('records nothing for a row that was not failed', async () => {
+    const row = swapRow('swap-2');
+    mockRows.set('swap-2', { ...row, status: ITransactionStatus.Completed });
+    await cancelTransaction(row, new Error('late'));
+    expect(captureDiagnosticLog).not.toHaveBeenCalled();
+  });
+
+  it('records nothing for a transaction other than a swap', async () => {
+    const row = swapRow('send-1');
+    mockRows.set('send-1', { ...row, type: 'send' });
+    await cancelTransaction(row, new Error('failed'));
+    expect(captureDiagnosticLog).not.toHaveBeenCalled();
+  });
+});
+
 describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another error', () => {
   const sendRow = (fields: Record<string, unknown> = {}): Transaction => {
     const row = {
