@@ -341,6 +341,9 @@ async function requestSessionChain(
   if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return { state, recovery: 'unsupported' };
 
   const hexChainId = `0x${chainId.toString(16)}`;
+  // A session event during either request is already on the watch before this catch samples a
+  // generation for the reread, so the reread's generation check does not see it.
+  const generationBeforeRequest = watch.generation;
   try {
     await NativeReown.request({
       topic: state.topic,
@@ -365,12 +368,23 @@ async function requestSessionChain(
   } catch (err) {
     console.warn(`[NativeReown] could not add or switch to eip155:${chainId}`, err);
     const started = watch.generation;
-    const reread = await readNativeState(state);
+    const buffered = generationBeforeRequest !== started ? watch.latest : undefined;
+    const reread = await readNativeState(buffered ?? state);
     const newer = newerSession(watch, started);
+    // A failed reread keeps a buffered event. A re-read that lacks the chain does not replace a
+    // buffered approval. A session event during the reread still wins, including a deletion.
+    let observed = buffered ?? state;
+    if (newer) observed = newer;
+    else if (
+      !reread.unread &&
+      !(buffered && sessionApproves(buffered, chainId) && !sessionApproves(reread.state, chainId))
+    ) {
+      observed = reread.state;
+    }
     return {
-      state: newer ?? reread.state,
+      state: observed,
       native: readReownNativeFailure(err),
-      recovery: !newer && reread.unread ? 'rejected_unread' : 'rejected'
+      recovery: newer || buffered || !reread.unread ? 'rejected' : 'rejected_unread'
     };
   }
   const waited = await waitForSessionChain(state, chainId, watch);
