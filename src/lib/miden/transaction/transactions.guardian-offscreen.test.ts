@@ -445,11 +445,12 @@ const makeResult = (bytes: number[] = [9, 9, 9]) => ({
 // The inline (flag-off) SW client leaf: execute→prove→submit→apply, returning the
 // TransactionExecution whose `.result` runGuardianPipeline hands back.
 const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
+  const submit = jest.fn(async () => ({ result, apply: jest.fn(async () => {}) }));
   const executeRequest = jest.fn(async () => ({
     id: result.executedTransaction().id(),
     result,
     prove: async () => ({
-      submit: async () => ({ result, apply: jest.fn(async () => {}) })
+      submit
     })
   }));
   const client = {
@@ -464,7 +465,8 @@ const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
     client,
-    __executeRequest: executeRequest
+    __executeRequest: executeRequest,
+    __submit: submit
   };
 };
 
@@ -2514,6 +2516,28 @@ describe('guardian leaf per-step stage stamps (PR #524 × #260)', () => {
 // rebuilding the serial that is the only reason the chain would reject the
 // duplicate. Both leaves must therefore stamp `mayHaveSubmitted` themselves.
 describe('guardian leaf records the submit crossing', () => {
+  it('refuses an expired 1Click send after proving and before submit', async () => {
+    const row = {
+      type: 'send' as const,
+      secondaryAccountId: 'deposit-address',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: { oneClick: { quote: { quote: { deadline: '2000-01-01T00:00:00.000Z' } } } }
+    };
+    const { inline } = arrange('one-click-expired-inline', row);
+
+    await generateTransaction(
+      buildTx('one-click-expired-inline', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(inline.__submit).not.toHaveBeenCalled();
+    expect(mockComplete.send).not.toHaveBeenCalled();
+  });
+
   it('flag OFF: the inline leaf stamps mayHaveSubmitted', async () => {
     arrange('cross-inline', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
 

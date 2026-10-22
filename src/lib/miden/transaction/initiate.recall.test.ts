@@ -47,6 +47,36 @@ const send = (recallBlocks?: number) =>
 beforeEach(() => jest.clearAllMocks());
 
 describe('initiateSendTransaction — reclaim window bounds', () => {
+  it('persists the signed 1Click route on the ordinary send row before queueing', async () => {
+    const metadata = {
+      quote: { quote: { deadline: '2026-10-22T12:00:00.000Z' } },
+      config: { serviceUrl: 'https://one-click.example', midenAssets: [] },
+      network: 'testnet',
+      accountAddress: 'mtst1sender'
+    };
+
+    await Reflect.apply(initiateSendTransaction, undefined, [
+      'mtst1sender',
+      'deposit-address',
+      'mtst1faucet',
+      NoteTypeEnum.Public,
+      1000n,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      metadata
+    ]);
+
+    expect(mockAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'send',
+        secondaryAccountId: 'deposit-address',
+        extraInputs: expect.objectContaining({ oneClick: metadata })
+      })
+    );
+  });
+
   it.each([
     ['one past the u32 ceiling', MAX_RECALL_BLOCKS + 1],
     ['a full u32 wraparound', 2 ** 32],
