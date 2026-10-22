@@ -4994,6 +4994,30 @@
     "message": "Возврат средств",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "Застрявшая выплата",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Выплата по этому свопу постоянно завершается неудачей, поскольку данный аккаунт не может оплатить сетевую комиссию для её получения. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку прямо сейчас.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Выплата по этому свопу постоянно завершается сбоем на вашем Guardian. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку сейчас.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Выплата по этому свопу постоянно завершается сбоем, поскольку не удалось установить соединение с сетью. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку прямо сейчас.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Выплата по этому свопу постоянно завершается неудачей. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку сейчас.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Повторная попытка выплаты",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "Вернуто · $time$",
     "englishSource": "Returned · $time$",

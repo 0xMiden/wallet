@@ -1719,6 +1719,21 @@ describe('HistoryView swap settlement status', () => {
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', status);
   });
+
+  it('reads a stuck payout claim as paybackStuck ahead of its pending settlement (#1644)', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'MDN',
+      requestedToken: 'ETH',
+      requestedAmount: '0.5',
+      amount: '10',
+      message: 'swap settled',
+      swapSettlement: 'pending',
+      paybackClaimStuck: { failedClaimId: 'payback-claim-1', reason: 'fee' }
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'paybackStuck');
+  });
 });
 
 // A Smart Deposit row goes database-Completed as soon as the Miden collateral

@@ -4994,6 +4994,30 @@
     "message": "退还资金",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "提现受阻",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "此次掉期交易的结算屡屡失败，是因为该账户无法支付网络手续费来提取资金。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "此次掉期交易的结算在您的Guardian处屡次失败。钱包每天会尝试一次，您也可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "此次掉期交易的结算屡次失败，原因是无法连接到网络。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "此次掉期交易的款项发放一直失败。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "重试支付",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "已退回 · $time$",
     "englishSource": "Returned · $time$",
