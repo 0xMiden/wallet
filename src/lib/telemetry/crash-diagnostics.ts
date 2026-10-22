@@ -99,6 +99,18 @@ export type CompletionStep = (typeof COMPLETION_STEPS)[number];
 export const COMPLETION_GUARDS = ['no_input_notes', 'no_fungible_assets'] as const;
 export type CompletionGuard = (typeof COMPLETION_GUARDS)[number];
 
+/**
+ * Beside a Guardian authentication refusal: whether the key this device signed with commits to one of the account's
+ * signers on chain, which of its keys that was, and whether the account still waits for its everyday key to be
+ * replaced.
+ */
+export const GUARDIAN_SIGNER_IN_SET = ['yes', 'no', 'unknown'] as const;
+export type GuardianSignerInSet = (typeof GUARDIAN_SIGNER_IN_SET)[number];
+export const GUARDIAN_SIGNING_KEYS = ['hot', 'cold'] as const;
+export type GuardianSigningKey = (typeof GUARDIAN_SIGNING_KEYS)[number];
+export const HOT_KEY_ROTATION_PENDING = ['yes', 'no'] as const;
+export type HotKeyRotationPending = (typeof HOT_KEY_ROTATION_PENDING)[number];
+
 export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
 export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
 export type PageVisibility = 'visible' | 'hidden' | 'unknown';
@@ -144,6 +156,9 @@ export type CrashDiagnostics = WasmStartupEvidence & {
   bridgeBalanceCheck?: BridgeBalanceCheck;
   bridgeOrphanCheck?: BridgeOrphanCheck;
   bridgeSourceRoute?: BridgeSourceRoute;
+  guardianSignerInSet?: GuardianSignerInSet;
+  guardianSigningKey?: GuardianSigningKey;
+  hotKeyRotationPending?: HotKeyRotationPending;
 };
 
 const nativeKeys: ReadonlyArray<keyof CrashDiagnostics> = [
@@ -250,7 +265,10 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       completionGuard: suppliedCompletionGuard,
       bridgeBalanceCheck: suppliedBalanceCheck,
       bridgeOrphanCheck: suppliedOrphanCheck,
-      bridgeSourceRoute: suppliedSourceRoute
+      bridgeSourceRoute: suppliedSourceRoute,
+      guardianSignerInSet: suppliedSignerInSet,
+      guardianSigningKey: suppliedSigningKey,
+      hotKeyRotationPending: suppliedRotationPending
     } = diagnostics;
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
@@ -308,6 +326,13 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     if (bridgeOrphanCheck !== undefined) safe.bridgeOrphanCheck = bridgeOrphanCheck;
     const bridgeSourceRoute = BRIDGE_SOURCE_ROUTES.find(value => value === suppliedSourceRoute);
     if (bridgeSourceRoute !== undefined) safe.bridgeSourceRoute = bridgeSourceRoute;
+    // The three describe one signing attempt, so a partial set is dropped rather than joined to another's.
+    const guardianSignerInSet = GUARDIAN_SIGNER_IN_SET.find(value => value === suppliedSignerInSet);
+    const guardianSigningKey = GUARDIAN_SIGNING_KEYS.find(value => value === suppliedSigningKey);
+    const hotKeyRotationPending = HOT_KEY_ROTATION_PENDING.find(value => value === suppliedRotationPending);
+    if (guardianSignerInSet !== undefined && guardianSigningKey !== undefined && hotKeyRotationPending !== undefined) {
+      Object.assign(safe, { guardianSignerInSet, guardianSigningKey, hotKeyRotationPending });
+    }
     // A native annotation replaces a request's whole group, including absent optional observations.
     if (nativeKeys.some(key => key in diagnostics)) clearNativeDiagnostics(previous);
     diagnosticsByError.set(error, { ...previous, ...safe, ...nativeDiagnostics(diagnostics) });
