@@ -15,14 +15,21 @@ import {
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
-import { annotateCrash, withProposalStep } from 'lib/telemetry/crash-diagnostics';
+import {
+  annotateCrash,
+  withProposalStep,
+  type ProposalStep,
+  type SecurityChangeAction
+} from 'lib/telemetry/crash-diagnostics';
 
 import {
   assertGuardianKeyCommitment,
+  getSignerCommitmentsFromAccount,
   getSignerDetailsFromAccount,
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
+import { readGuardianAuthFacts, withGuardianAuthFacts, type GuardianAuthFacts } from './auth-facts';
 import {
   GuardianProbeTimeoutError,
   isGuardianAccountAlreadyRegistered,
@@ -55,19 +62,7 @@ import {
 import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
-/**
- * Structural GuardianHttpError auth-rejection check (401 /
- * `authentication_failed` / `signer_not_authorized`). Duck-typed rather than
- * `instanceof GuardianHttpError` so it survives test mocks of the multisig
- * client and any duplicate-package instance of the error class (same
- * convention as the 409 check in `./serialize.ts`).
- */
-export const isGuardianAuthRejection = (err: unknown): boolean => {
-  if (typeof err !== 'object' || err === null) return false;
-  const status = 'status' in err ? err.status : undefined;
-  const code = 'code' in err ? err.code : undefined;
-  return status === 401 || code === 'authentication_failed' || code === 'signer_not_authorized';
-};
+export { isGuardianAuthRejection } from './auth-facts';
 
 /**
  * The chain sync a proposal runs right before it is built failed. That is the node's answer, never
@@ -193,6 +188,8 @@ export class MultisigService {
   // could otherwise drive `syncState()` concurrently and clobber `syncRetryCount`.
   private syncInFlight: Promise<void> | null = null;
   private switchProposalId?: string;
+  /** The signer facts a Guardian authentication refusal is reported with, read when the service was built. */
+  authFacts?: GuardianAuthFacts;
 
   constructor(
     multisig: Multisig,
@@ -203,6 +200,15 @@ export class MultisigService {
     this.multisig = multisig;
     this.client = client;
     this.guardianEndpoint = guardianEndpoint;
+  }
+
+  /** {@link withProposalStep}, also naming this service's signer facts on a Guardian authentication refusal. */
+  private proposalStep<T>(
+    step: ProposalStep,
+    operation: () => Promise<T>,
+    securityChange?: SecurityChangeAction
+  ): Promise<T> {
+    return withGuardianAuthFacts(this.authFacts, () => withProposalStep(step, operation, securityChange));
   }
 
   /**
@@ -333,19 +339,32 @@ export class MultisigService {
     // retry, not a wrong commitment written to the guardian. Should this method
     // ever read a field that a rotation moves, that reasoning expires and the
     // threading is required.
-    const commitment = await withWasmClientLock(
-      async () => (await getSignerDetailsFromAccount(account, true)).commitment,
+    const { commitment, signerCommitments } = await withWasmClientLock(
+      async () => ({
+        commitment: (await getSignerDetailsFromAccount(account, true)).commitment,
+        signerCommitments: getSignerCommitmentsFromAccount(account)
+      }),
       lockOptions
     );
     const guardianEndpoint = resolveGuardianEndpoint(walletAccount);
-    return MultisigService.init(
-      account,
+    const authFacts = await readGuardianAuthFacts(
       `0x${walletAccount.coldPublicKey}`,
-      `0x${commitment}`,
-      signWordFn,
-      guardianEndpoint,
-      lockOptions
+      signerCommitments,
+      'cold',
+      walletAccount.requiresHotKeyRotation === true
     );
+    const service = await withGuardianAuthFacts(authFacts, () =>
+      MultisigService.init(
+        account,
+        `0x${walletAccount.coldPublicKey}`,
+        `0x${commitment}`,
+        signWordFn,
+        guardianEndpoint,
+        lockOptions
+      )
+    );
+    service.authFacts = authFacts;
+    return service;
   }
 
   static async importAccountFromGuardian(
@@ -414,7 +433,7 @@ export class MultisigService {
     noteType: NoteType
   ): Promise<Proposal> {
     return this.withChainSyncedHold('send proposal', () =>
-      withProposalStep('proposal_create', () =>
+      this.proposalStep('proposal_create', () =>
         this.multisig.createP2idProposal(
           accountRefToSdk(recipientId).toString(),
           accountRefToSdk(faucetId).toString(),
@@ -430,7 +449,7 @@ export class MultisigService {
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
     return this.withChainSyncedHold('consume proposal', () =>
-      withProposalStep('proposal_create', () => this.multisig.createConsumeNotesProposal(noteIds))
+      this.proposalStep('proposal_create', () => this.multisig.createConsumeNotesProposal(noteIds))
     );
   }
 
@@ -465,7 +484,7 @@ export class MultisigService {
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
     return this.withChainSyncedHold('procedure-threshold proposal', () =>
-      withProposalStep(
+      this.proposalStep(
         'proposal_create',
         () =>
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -490,7 +509,7 @@ export class MultisigService {
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
     return await this.withChainSyncedHold('custom proposal', () =>
-      withProposalStep('proposal_create', () => this.multisig.createCustomProposal(requestBytes, proposalType))
+      this.proposalStep('proposal_create', () => this.multisig.createCustomProposal(requestBytes, proposalType))
     );
   }
 
@@ -523,7 +542,7 @@ export class MultisigService {
       const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
       const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
-      const proposal = await withProposalStep('proposal_create', () =>
+      const proposal = await this.proposalStep('proposal_create', () =>
         this.multisig.createCustomProposal(rebased, proposalType)
       );
       return { proposal, requestBytes: rebased };
@@ -547,7 +566,7 @@ export class MultisigService {
     { allowNodeNote = false }: PswapCancelRequestOptions = {}
   ): Promise<Proposal> {
     return await this.withChainSyncedHold('PSWAP cancel proposal', async hold => {
-      const requestBytes = await withProposalStep('reclaim_build', () =>
+      const requestBytes = await this.proposalStep('reclaim_build', () =>
         midenClientProxy.buildPswapCancelRequest(
           this.accountId,
           noteId,
@@ -556,9 +575,9 @@ export class MultisigService {
         )
       );
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after the cancel-request build');
-      await withProposalStep('reclaim_persist', () => persistRequest(requestBytes));
+      await this.proposalStep('reclaim_persist', () => persistRequest(requestBytes));
       assertWasmHoldCurrent(hold, 'PSWAP cancel proposal: after persisting the request');
-      return withProposalStep('proposal_create', () =>
+      return this.proposalStep('proposal_create', () =>
         this.multisig.createCustomProposal(requestBytes, 'custom_transaction')
       );
     });
@@ -894,7 +913,7 @@ export class MultisigService {
       const proposal = await this.withChainSyncedHold(
         'switch-guardian proposal',
         () =>
-          withProposalStep(
+          this.proposalStep(
             'proposal_create',
             () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
             'switch-guardian'
@@ -987,7 +1006,7 @@ export class MultisigService {
       description: 'Replace device (hot) signer'
     };
 
-    const proposal = await withProposalStep(
+    const proposal = await this.proposalStep(
       'proposal_create',
       () => this.multisig.createProposal(Date.now(), summaryBase64, metadata),
       'replace-hot-key'

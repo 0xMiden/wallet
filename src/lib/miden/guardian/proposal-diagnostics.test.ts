@@ -132,6 +132,24 @@ it.each([
   expect(mockReclaimProposal).not.toHaveBeenCalled();
 });
 
+it('names the signer facts beside the step on a Guardian authentication refusal, and only on one', async () => {
+  const facts = { guardianSignerInSet: 'no', guardianSigningKey: 'hot', hotKeyRotationPending: 'yes' } as const;
+  const refusal = Object.assign(privateFailure(), {
+    name: 'GuardianHttpError',
+    status: 401,
+    code: 'authentication_failed'
+  });
+  mockConsumeProposal.mockRejectedValueOnce(refusal);
+  const loaded = await service();
+  loaded.authFacts = facts;
+  await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(refusal);
+  expect(snapshotCrashDiagnostics(refusal)).toEqual({ proposalStep: 'proposal_create', ...facts });
+  const other = privateFailure();
+  mockConsumeProposal.mockRejectedValueOnce(other);
+  await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(other);
+  expect(snapshotCrashDiagnostics(other)).toEqual({ proposalStep: 'proposal_create' });
+});
+
 it('names the consume proposal rejection without wrapping the original Error', async () => {
   const error = privateFailure();
   mockConsumeProposal.mockRejectedValueOnce(error);
