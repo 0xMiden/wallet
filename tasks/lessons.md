@@ -61,3 +61,17 @@
 - When a shared footer spacing contract changes, search all consumer tests for the prior class before final full gates. A stale onboarding-wrapper assertion can cost a second crypto-heavy full run even when the rendered geometry is correct.
 
 - A quiet redirected test log does not prove that no suites have run. Use completed summary counts and process evidence; do not label the runner as stuck before its first suite from missing PASS lines.
+
+# Session lessons
+
+- Follow the explicit issue-scoped implementation routing: define bounded tasks, then use the requested implementation workers. The finished-code review uses the requested four-seat roster at xhigh, overriding the global default for #1738.
+
+- #1738 acceptance uses the existing mainnet E2E suite and already-funded accounts. Add a cost-bounded swap-out/swap-back loop. Do not replace live settlement coverage with a simulated cross-chain service; keep mocks for deterministic unit and component failure cases.
+
+- Mainnet 1Click E2E uses $2 as the total round-trip safety cap, including both swaps and network gas. Optimize for the cheapest viable route and minimum viable amount; do not treat the cap as a target. Reuse the funded accounts and recycle actual received principal.
+
+- Extend #1738 acceptance with mocked testnet E2E when requested, following Epoch. A rejection of replacing live settlement does not forbid deterministic mocked coverage alongside the funded mainnet loop.
+
+- For #1738, distinguish the real Bread UI and WalletConnect protocol from the mocked settlement service. User accepted Chrome once that distinction was clear; do not add mobile-runner scope after that explicit choice.
+
+- Pin the explicitly requested Council release before preflight. For #1738 use 0.7.4, including its session panel-request setup; a copied earlier runtime is not sufficient.

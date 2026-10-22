@@ -104,6 +104,40 @@ export const modal = createAppKit({
   features: { analytics: false, email: false, socials: false, connectMethodsOrder: ['wallet'] }
 });
 
+declare global {
+  interface Window {
+    __TEST_APPKIT_CONNECT_URI__?: () => Promise<string>;
+    __TEST_APPKIT_STATE__?: () => { connected: boolean; address?: string; chainId?: number };
+  }
+}
+
+if (process.env.MIDEN_E2E_TEST === 'true' && typeof window !== 'undefined') {
+  let nextUri: ((uri: string) => void) | undefined;
+  void modal
+    .ready()
+    .then(() => modal.getUniversalProvider())
+    .then(provider => {
+      provider?.on('display_uri', (uri: string) => {
+        nextUri?.(uri);
+        nextUri = undefined;
+      });
+    })
+    .catch(() => {});
+  window.__TEST_APPKIT_CONNECT_URI__ = () =>
+    new Promise(resolve => {
+      nextUri = resolve;
+    });
+  window.__TEST_APPKIT_STATE__ = () => {
+    const address = modal.getAddress('eip155');
+    const chain = modal.getChainId();
+    return {
+      connected: modal.getIsConnectedState(),
+      ...(address ? { address } : {}),
+      ...(typeof chain === 'number' ? { chainId: chain } : typeof chain === 'string' && /^\d+$/.test(chain) ? { chainId: Number(chain) } : {})
+    };
+  };
+}
+
 // Read only, for relay failure reports: whether the connect modal is open, and whether the relay connected. AppKit's
 // start has created the universal provider by the time ready() resolves, so reading it then creates nothing.
 try {

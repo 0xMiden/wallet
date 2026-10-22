@@ -404,12 +404,13 @@ export function encodeArg(value: unknown): string {
  * for wire compatibility only: nothing reads it, because the leaf executes at
  * the tip against the block the request's auth args bind.
  *
- * The two optional slots are `| null`, not `| undefined`: the packer always
- * sends four elements and {@link encodeArg} maps an absent value to JSON
+ * The optional slots are `| null`, not `| undefined`: the packer always sends
+ * six elements and {@link encodeArg} maps an absent value to JSON
  * `null`, so a PACKED slot never arrives as `undefined`. A short envelope still
  * leaves the tail `undefined` (only hand-built test envelopes do that today),
  * which is why the leaf tests `delegateTransaction` for truthiness rather than
- * for `null`. The anchor slot has no receiver.
+ * for `null`. The anchor slot has no receiver, and the deadline is only read
+ * for a 1Click send.
  *
  * `trBytes` MUST stay a top-level element — {@link encodeArg} only recognizes a
  * `Uint8Array` at the top level, and a nested one would be JSON-mangled,
@@ -419,7 +420,9 @@ export type GuardianPipelineArgs = [
   accountId: string,
   trBytes: Uint8Array,
   delegateTransaction: boolean | null,
-  chainAnchorB64: string | null
+  chainAnchorB64: string | null,
+  oneClickDeadline: string | null,
+  oneClickRequired: boolean | null
 ];
 
 /** Inverse of {@link encodeArg}. */

@@ -373,7 +373,7 @@ async function reconcileUsdcxExecutorRow(
 
 async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans: boolean): Promise<void> {
   const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
-  if (inputs === undefined) return;
+  if (inputs === undefined || inputs.provider === 'near-intents') return;
   // Terminalize rather than skip. Resuming would register a pending bridge-in
   // for the dump's `sourceAddress` and drive the incoming-funds UI off it with
   // no user action - but merely skipping strands the row: these rows are born
@@ -404,8 +404,10 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
       await reconcileUsdcxRow(row, inputs);
       return;
     case 'epoch':
-    default:
       await reconcileEpochRow(row, inputs);
+      return;
+    default:
+      return;
   }
 }
 
@@ -419,7 +421,13 @@ async function readUnsettledRows(): Promise<ITransaction[]> {
       // written row without `extraInputs` would silently disable reconciliation
       // for every genuine row, on every tick.
       const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-      if (inputs === undefined || inputs.phase === 'received' || inputs.phase === 'failed') return false;
+      if (
+        inputs === undefined ||
+        inputs.provider === 'near-intents' ||
+        inputs.phase === 'received' ||
+        inputs.phase === 'failed'
+      )
+        return false;
       // A ready USDCx row stays for the cutoff alone: no consume tagged it, so it could otherwise read Confirmed
       // forever. A restored one is left out, since reading it would fail it.
       if (inputs.phase === 'ready') return inputs.provider === 'usdcx' && tx.restoredFromBackup !== true;

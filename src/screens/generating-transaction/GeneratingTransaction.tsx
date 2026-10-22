@@ -30,6 +30,7 @@ import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { isOneClickDeadlineError } from 'lib/one-click/deadline';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
@@ -59,6 +60,42 @@ import type {
   TransactionStepState
 } from './types';
 import { useTransactionRow } from './useTransactionRow';
+
+const OneClickRecovery = React.lazy(() =>
+  import('screens/swap-flow/OneClickRecovery').then(module => ({ default: module.OneClickRecovery }))
+);
+
+export function isRecoverableExpiredOneClick(
+  active:
+    | {
+        type?: string;
+        status?: ITransactionStatus;
+        mayHaveSubmitted?: boolean;
+        error?: string;
+        rawError?: string;
+        processingStartedAt?: number;
+        extraInputs?: { oneClick?: { direction?: string } };
+      }
+    | undefined,
+  status: ITransactionStatus | undefined
+): boolean {
+  return (
+    status === ITransactionStatus.Failed &&
+    active?.type === 'send' &&
+    active.status === ITransactionStatus.Failed &&
+    active.mayHaveSubmitted !== true &&
+    !isOutcomeUnconfirmed({
+      type: active.type,
+      status: active.status,
+      error: active.error,
+      rawError: active.rawError,
+      mayHaveSubmitted: active.mayHaveSubmitted,
+      processingStartedAt: active.processingStartedAt
+    }) &&
+    isOneClickDeadlineError(active.error) &&
+    active.extraInputs?.oneClick?.direction === 'miden-to-evm'
+  );
+}
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
 
@@ -131,6 +168,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     active !== undefined && (status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed)
       ? submissionFeedback(active)
       : undefined;
+  const expiredOneClick = isRecoverableExpiredOneClick(active, status);
   useUserVisibleError(
     submissionMessage !== undefined && submissionMessage.rowCopy === undefined ? submissionMessage.messageKey : null,
     'status_screen'
@@ -291,25 +329,37 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         were unreachable for the same reason.
       */}
       <div className={classNames('flex min-h-0 flex-1 flex-col w-full')}>
-        <GeneratingTransaction
-          onDoneClick={onClose}
-          transactionComplete={transactionComplete}
-          hasErrors={hasErrors}
-          keepOpen={keepOpen}
-          activeStage={activeStage}
-          activeType={activeType}
-          isGuardian={isGuardian}
-          activeTransaction={active}
-          completedTransaction={active}
-          completedTxHash={receiptTxHash}
-          onViewExplorer={explorerUrl ? onViewExplorer : undefined}
-          onRetry={onRetry}
-          onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
-          canRetry={canRetry}
-          isRetrying={isRetrying}
-          retryError={retryError?.text}
-          retryErrorId={retryError?.id}
-        />
+        {expiredOneClick && active?.extraInputs?.oneClick ? (
+          <React.Suspense
+            fallback={<div className="flex min-h-0 flex-1 items-center justify-center bg-app-bg" aria-busy="true" />}
+          >
+            <OneClickRecovery
+              tracking={active.extraInputs.oneClick}
+              transactionAccountId={active.accountId}
+              onBack={onClose}
+            />
+          </React.Suspense>
+        ) : (
+          <GeneratingTransaction
+            onDoneClick={onClose}
+            transactionComplete={transactionComplete}
+            hasErrors={hasErrors}
+            keepOpen={keepOpen}
+            activeStage={activeStage}
+            activeType={activeType}
+            isGuardian={isGuardian}
+            activeTransaction={active}
+            completedTransaction={active}
+            completedTxHash={receiptTxHash}
+            onViewExplorer={explorerUrl ? onViewExplorer : undefined}
+            onRetry={onRetry}
+            onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
+            canRetry={canRetry}
+            isRetrying={isRetrying}
+            retryError={retryError?.text}
+            retryErrorId={retryError?.id}
+          />
+        )}
       </div>
     </div>
   );

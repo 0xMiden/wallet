@@ -120,6 +120,7 @@ import {
 import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { assertOneClickDeadline } from 'lib/one-click/deadline';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
@@ -875,7 +876,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       noteType: unknown;
       amount: string;
       delegateTransaction?: boolean;
-      extraInputs: { recallBlocks?: number };
+      extraInputs: {
+        recallBlocks?: number;
+        oneClick?: { quote: { quote: { deadline?: string } } };
+      };
     }
   ) => {
     // `context` arrived bound to THIS op (threaded by `handleCall` before any
@@ -983,7 +987,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // than re-declared here, so this list and the SW-side packer cannot drift.
   // The historical anchor slot remains on the wire; execution uses the request's bound block at the tip.
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
-    const [accountId, trBytes, delegateTransaction] = args;
+    const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired] = args;
     // This op's own id and lock hold, threaded in by `handleCall` before any
     // await so both are provably ours (issue #775). The hold is what keeps a pause from
     // silencing the watchdog of whichever holder took the lock after an
@@ -1123,6 +1127,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       );
       // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
       assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
+      if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
     } catch (preSubmitError) {
       // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
       // own shape: markErrorBeforeSubmit never tags one.

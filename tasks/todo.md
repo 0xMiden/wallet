@@ -427,3 +427,48 @@ Report only fixed transaction/stage/route categories, shipped dependency version
 Independent review found stale authentication diagnostics after retry and pending reports surviving stop/re-enable boundaries. Retry diagnostics are cleared per attempt, and both capture and transport consent awaits reject stopped reporting generations. Re-review found no remaining actionable findings.
 
 Validation: 934 tests across 34 focused Jest suites and 29 native SDK tests pass. Type checking, full ESLint, i18n and E2E harness lint, native prover pin validation and the background build pass; the expected background artifact exists. Wire regressions reject raw failure data and prove both consent races. The optional whole-repository noncoverage run was stopped while exercising unchanged password derivation; full-suite testing and the unchanged 95% coverage thresholds remain CI gates. No local coverage was run.
+
+# Cross-chain swaps through 1Click (#1738)
+
+Spec: https://github.com/0xMiden/wallet/issues/1738
+
+User decisions: build the config-gated integration before Miden is listed; delegate implementation tasks; review finished code with four independent Council seats at xhigh.
+
+Architecture: preserve the PSWAP form when both networks are Miden. Add remote-configured 1Click assets and a server-side partner-key proxy. Verify signed quotes and exact request binding before exposing deposit instructions. Ordinary Miden sends retain Guardian, spending limits and native fees, with a persisted deadline enforced immediately before broadcast. Track swaps durably and resume polling from the app root. Incoming SUCCESS remains arriving until an exact destination note is available locally.
+
+- [x] Inspect the issue, fresh main, API contract and existing swap/bridge/send flows.
+- [x] Confirm the unmet listing prerequisite and the user's config-gated choice.
+- [x] Implement validated config, signed quote/status client, EVM transfer and partner-key service with tests.
+- [x] Implement durable swap tracking, local note confirmation and deadline-safe ordinary sends with tests.
+- [x] Integrate network selection, quote/review/deposit UI, contacts and history using shared components and localization.
+- [x] Read the connected external wallet token/native balances, reserve gas, and recheck the exact transfer before signing while retaining the session on amount edits.
+- [ ] Run focused guarded checks and current-source CI coverage/build; add cost-bounded mainnet swap-out/swap-back E2E using existing funded accounts.
+- [x] Add mocked testnet 1Click E2E alongside mainnet, following the existing Epoch test harness.
+- [ ] Run the requested four-seat Council review and fix actionable findings.
+- [ ] Prepare the feature PR and final evidence, retaining external activation requirements.
+
+## Integration contracts
+
+Shared types live in src/lib/one-click/types.ts. Core worker publishes exact exported signatures before implementation consumers begin. Config is swap.oneClick with serviceUrl and explicit midenAssets (assetId, faucetId, decimals). Missing config or no validated mapped Miden asset disables all cross-chain starts. No fabricated production mappings or partner key is committed.
+
+The existing send API gains optional final oneClick metadata rather than changing its positional arguments. Tracking uses ordinary transaction rows with extraInputs.oneClick; incoming tracking-only rows use a dedicated supported transaction shape determined by the tracking worker. The deposit quote, route, addresses, amounts, asset identities, deadline and service URL are persisted before external transfer, so a restart cannot lose an in-flight deposit.
+
+Delivery note IDs must be resolved from the provider's destination transaction hashes through an explicitly configured Miden receipt adapter on the quote service. The current 1Click listing supplies no Miden receipt contract. Until exact IDs are available the wallet conservatively retains arriving, never completes by matching an unrelated amount.
+
+## Verification constraints
+
+Use ~/.codex/bin/ci-local for local checks, at most two workers. Full suites, coverage and builds run in CI; global coverage thresholds remain 95% for all metrics. Record expected red proofs before fixes. The mainnet E2E harness must reuse existing funded accounts and recycle principal with an out-and-back swap. A live run remains unavailable until Miden is listed and activation prerequisites are configured. No merge or deployment is authorized. Screenshots are capped at 1800px and reviewed for affected UI states. Review dependency sources must be available before paid panels.
+
+## Review
+
+Implementation frozen for finished-code review. Focused guarded tests, type checking and scoped UI lint pass. Two real Chrome UI scenarios cover WalletConnect session retention, revised-amount transfer, quote refresh, incomplete/refunded status and exact linked-note delivery. Browser execution, rendered screenshots, full suites/builds and the unchanged 95% coverage gates remain pending CI. The funded mainnet harness is implemented but cannot run before the provider lists Miden and activation is configured.
+
+- Mainnet 1Click E2E uses $2 as the total round-trip safety cap, including both swaps and network gas. Optimize for the cheapest viable route and minimum viable amount; do not treat the cap as a target. Reuse the funded accounts and recycle actual received principal.
+
+- Additional acceptance: a mocked testnet E2E runs alongside nightly mainnet, following Epoch. It exercises deterministic wallet execution and status/failure paths while retaining real funded-mainnet settlement coverage.
+
+- Swap-in balance contract: read the selected chain for the connected address; compare base units exactly, retain native gas, refresh stale reads, and refuse unverified or insufficient funds before the transfer request. Amount edits retain the WalletConnect session and invalidate the old quote/review.
+
+2026-10-22 12:22UTC: user explicitly confirmed hermetic local-chain mocked E2E, matching Epoch. The dedicated localhost/localnet gate is confirmed. Real mainnet acceptance remains additive.
+
+2026-10-22 12:30UTC: user explicitly accepted Chrome for the mocked suite provided WalletConnect works there. Required acceptance drives real Bread UI, actual WalletConnect handshake to test counterparty, amount edit without reconnection, and one revised-amount transfer. No phone runner is required.

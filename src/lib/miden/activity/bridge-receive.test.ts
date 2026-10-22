@@ -104,6 +104,23 @@ beforeEach(() => {
 const WEEK_AGO_SEC = Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60;
 
 describe('reconcileBridgedReceives', () => {
+  it('leaves 1Click rows to their dedicated reconciler', async () => {
+    rows.push({
+      id: 'one-click-row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: { provider: 'near-intents', phase: 'submitting', oneClick: { direction: 'evm-to-miden' } }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(fetchDeposits).not.toHaveBeenCalled();
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(registerBridgeIn).not.toHaveBeenCalled();
+  });
+
   it('resumes an AggLayer receipt read when a hash was persisted', async () => {
     rows.push({
       id: 'agg-row',

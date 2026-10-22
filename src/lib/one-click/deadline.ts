@@ -1,0 +1,34 @@
+export const ONE_CLICK_EXPIRED_ERROR = 'The 1Click quote has expired. Request a new quote before depositing.';
+export const ONE_CLICK_INVALID_DEADLINE_ERROR =
+  'The 1Click quote deadline is invalid. Request a new quote before depositing.';
+
+export class OneClickDeadlineError extends Error {
+  readonly errorBeforeSubmit = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'OneClickDeadlineError';
+  }
+}
+
+export function isOneClickDeadlineError(error: unknown): boolean {
+  if (error instanceof OneClickDeadlineError) return true;
+  if (typeof error === 'string') {
+    return error.includes(ONE_CLICK_EXPIRED_ERROR) || error.includes(ONE_CLICK_INVALID_DEADLINE_ERROR);
+  }
+  if (typeof error !== 'object' || error === null) return false;
+  const name: unknown = Reflect.get(error, 'name');
+  const message: unknown = Reflect.get(error, 'message');
+  return (
+    name === 'OneClickDeadlineError' ||
+    (typeof message === 'string' &&
+      (message.includes(ONE_CLICK_EXPIRED_ERROR) || message.includes(ONE_CLICK_INVALID_DEADLINE_ERROR)))
+  );
+}
+
+export function assertOneClickDeadline(deadline: string | undefined, now = Date.now()): void {
+  if (typeof deadline !== 'string' || !Number.isFinite(Date.parse(deadline))) {
+    throw new OneClickDeadlineError(ONE_CLICK_INVALID_DEADLINE_ERROR);
+  }
+  if (Date.parse(deadline) <= now) throw new OneClickDeadlineError(ONE_CLICK_EXPIRED_ERROR);
+}

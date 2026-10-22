@@ -3688,9 +3688,8 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(env.method).toBe('guardianPipeline');
     expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
     expect(env.deadline_ms).toBe(180_000);
-    // DTO: [accountId (s:string), trBytes (b:bytes), delegate (s:bool),
-    // chainAnchorB64 (s:string|null)].
-    expect(env.argsB64).toHaveLength(4);
+    // DTO: accountId, proof bytes, delegate, compatibility anchor, deadline, required flag.
+    expect(env.argsB64).toHaveLength(6);
     expect(env.argsB64[0]).toBe(`s:${JSON.stringify('mtst1qguardian')}`);
     expect(env.argsB64[2]).toBe('s:false');
     // §4.0: the co-signed request crossed as RAW BYTES, byte-for-byte intact —
@@ -3701,6 +3700,8 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     // maps it to the wire NULL rather than dropping it, so the offscreen
     // dispatch's positional parameters stay aligned.
     expect(env.argsB64[3]).toBe('s:null');
+    expect(env.argsB64[4]).toBe('s:null');
+    expect(env.argsB64[5]).toBe('s:false');
     // criticalOp + sign callback bracketed AROUND the op, cleaned up after.
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -3738,8 +3739,10 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     await p;
 
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
-    expect(env.argsB64).toHaveLength(4);
+    expect(env.argsB64).toHaveLength(6);
     expect(env.argsB64[3]).toBe('s:"BwcH"');
+    expect(env.argsB64[4]).toBe('s:null');
+    expect(env.argsB64[5]).toBe('s:false');
   });
 
   it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {

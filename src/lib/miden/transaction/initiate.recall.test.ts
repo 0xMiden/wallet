@@ -15,6 +15,8 @@
  * the dApp request handler.
  */
 import { MAX_RECALL_BLOCKS } from '../helpers';
+import type { IOneClickTrackingData } from '../db/types';
+import type { OneClickAsset, OneClickConfig } from 'lib/one-click/types';
 import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction } from './initiate';
 
@@ -40,6 +42,79 @@ jest.mock('../sdk/miden-client', () => ({ withWasmClientLock: async (fn: () => u
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
+jest.mock('lib/one-click/client', () => ({ assertOneClickQuoteBinding: jest.fn() }));
+
+const sender = 'mtst1sender';
+const recipient = 'mtst1recipient';
+const faucetId = 'mtst1faucet';
+const deadline = new Date(Date.now() + 60 * 60_000).toISOString();
+const depositDeadline = new Date(Date.now() + 30 * 60_000).toISOString();
+const midenAsset: OneClickAsset = { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6 };
+const evmAsset: OneClickAsset = {
+  assetId: 'eth-usdc',
+  blockchain: 'eth' as const,
+  symbol: 'USDC',
+  decimals: 6,
+  contractAddress: '0x1111111111111111111111111111111111111111',
+  chainId: 1
+};
+const oneClickConfig: OneClickConfig = {
+  serviceUrl: 'https://one-click.example',
+  midenAssets: [{ assetId: midenAsset.assetId, faucetId, decimals: midenAsset.decimals }]
+};
+const oneClickMetadata: IOneClickTrackingData = {
+  direction: 'miden-to-evm',
+  request: {
+    amount: '1000',
+    originAsset: midenAsset,
+    destinationAsset: evmAsset,
+    refundTo: sender,
+    recipient,
+    deadline,
+    slippageTolerance: 100
+  },
+  quote: {
+    correlationId: 'test-correlation',
+    timestamp: new Date().toISOString(),
+    signature: 'fixture-signature',
+    quoteRequest: {
+      dry: false,
+      swapType: 'EXACT_INPUT',
+      slippageTolerance: 100,
+      originAsset: midenAsset.assetId,
+      depositType: 'ORIGIN_CHAIN',
+      destinationAsset: evmAsset.assetId,
+      amount: '1000',
+      refundTo: sender,
+      refundType: 'ORIGIN_CHAIN',
+      recipient,
+      recipientType: 'DESTINATION_CHAIN',
+      deadline
+    },
+    quote: {
+      depositAddress: recipient,
+      amountIn: '1000',
+      amountInFormatted: '0.001',
+      amountInUsd: '0.001',
+      minAmountIn: '1000',
+      amountOut: '1000',
+      amountOutFormatted: '0.001',
+      amountOutUsd: '0.001',
+      minAmountOut: '990',
+      deadline: depositDeadline,
+      timeEstimate: 60
+    }
+  },
+  config: oneClickConfig,
+  network: 'testnet',
+  accountId: sender,
+  accountAddress: sender,
+  originAsset: midenAsset,
+  destinationAsset: evmAsset,
+  faucetId,
+  amount: '1000',
+  phase: 'depositing'
+};
 
 const send = (recallBlocks?: number) =>
   initiateSendTransaction('mtst1sender', 'mtst1recipient', 'mtst1faucet', NoteTypeEnum.Private, 1000n, recallBlocks);
@@ -48,33 +123,48 @@ beforeEach(() => jest.clearAllMocks());
 
 describe('initiateSendTransaction — reclaim window bounds', () => {
   it('persists the signed 1Click route on the ordinary send row before queueing', async () => {
-    const metadata = {
-      quote: { quote: { deadline: '2026-10-22T12:00:00.000Z' } },
-      config: { serviceUrl: 'https://one-click.example', midenAssets: [] },
-      network: 'testnet',
-      accountAddress: 'mtst1sender'
-    };
-
     await Reflect.apply(initiateSendTransaction, undefined, [
-      'mtst1sender',
-      'deposit-address',
-      'mtst1faucet',
+      sender,
+      recipient,
+      faucetId,
       NoteTypeEnum.Public,
       1000n,
       undefined,
       undefined,
       undefined,
       undefined,
-      metadata
+      oneClickMetadata
     ]);
 
     expect(mockAdd).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'send',
-        secondaryAccountId: 'deposit-address',
-        extraInputs: expect.objectContaining({ oneClick: metadata })
+        secondaryAccountId: recipient,
+        extraInputs: expect.objectContaining({ oneClick: oneClickMetadata })
       })
     );
+  });
+
+  it.each([
+    ['the selected sender account', { accountAddress: 'another-account' }],
+    ['the signed deposit recipient', {
+      quote: { ...oneClickMetadata.quote, quote: { ...oneClickMetadata.quote.quote, depositAddress: 'another-recipient' } }
+    }],
+    ['the selected faucet mapping', { config: { ...oneClickConfig, midenAssets: [] } }]
+  ])('rejects metadata that changes %s before queueing', async (_label, patch) => {
+    await expect(Reflect.apply(initiateSendTransaction, undefined, [
+      sender,
+      recipient,
+      faucetId,
+      NoteTypeEnum.Public,
+      1000n,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...oneClickMetadata, ...patch }
+    ])).rejects.toThrow('The 1Click send does not match the signed Miden route.');
+    expect(mockAdd).not.toHaveBeenCalled();
   });
 
   it.each([

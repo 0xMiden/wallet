@@ -13,7 +13,8 @@ import {
   deriveBridgeConfig,
   type EvmReads,
   NotAFaucetError,
-  NotDeployedError
+  NotDeployedError,
+  readMidenFaucetMetadata
 } from './derive';
 import type { BridgeConfig } from './schema';
 import { parseSwapPairs } from './swap-pairs';
@@ -654,6 +655,17 @@ describe('deriveBridgeConfig default I/O', () => {
       usdcx: {}
     }
   };
+
+  it('exports verified faucet metadata reads for feature-specific asset catalogs', async () => {
+    const storage = { slots: 'verified faucet storage' };
+    mockGetAccountDetails.mockResolvedValue({ account: () => ({ storage: () => storage }) });
+    mockFromAccountStorage.mockReturnValue({ symbol: () => ({ toString: () => 'USDC' }), decimals: () => 6 });
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC))
+      .resolves.toEqual({ symbol: 'USDC', decimals: 6 });
+    expect(Endpoint).toHaveBeenCalledWith(RPC);
+    expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
+    await expect(readMidenFaucetMetadata('not-a-faucet', RPC)).rejects.toThrow('Invalid Miden faucet metadata request');
+  });
 
   it('reads the Miden USDC faucet over the effective RPC', async () => {
     const storage = { slots: 'faucet storage' };

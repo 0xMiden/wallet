@@ -181,6 +181,31 @@ jobs:
         # --retries=1: a small margin for a loaded-runner sync hiccup, not a
         # flake-masker (a genuine P2ID regression fails all attempts on the assertion).
         run: xvfb-run -a yarn playwright test --config playwright.bridge-guardian.config.ts --retries=1
+
+      - name: Build extension for hermetic 1Click E2E
+        run: yarn test:e2e:one-click-local:build
+
+      - name: Verify extension manifest for hermetic 1Click E2E
+        run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
+
+      - name: Run hermetic 1Click E2E
+        timeout-minutes: 20
+        run: xvfb-run -a yarn test:e2e:one-click-local:run
+
+      - name: Require executed 1Click test cases
+        if: success()
+        run: |
+          node -e 'const fs = require("node:fs"); const path = "test-results/one-click-local/results.json"; if (!fs.existsSync(path)) { console.error("1Click Playwright report is missing"); process.exit(1); } const report = JSON.parse(fs.readFileSync(path, "utf8")); const expected = report.stats?.expected; const skipped = report.stats?.skipped; console.log(`1Click expected: ${expected}; skipped: ${skipped}`); if (!Number.isSafeInteger(expected) || expected < 1 || skipped !== 0) process.exit(1);'
+
+      - name: Upload hermetic 1Click results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-click-local-e2e-report
+          path: test-results/one-click-local/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Report flaky (retried-then-passed) specs
         # A spec that failed once and passed on the retry above is reported as a
         # plain green run, so the flake it represents is invisible. Print one

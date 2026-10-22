@@ -906,7 +906,10 @@ type OffscreenSendDto = {
   noteType: NoteType;
   amount: string;
   delegateTransaction?: boolean;
-  extraInputs: { recallBlocks?: number };
+  extraInputs: {
+    recallBlocks?: number;
+    oneClick?: { quote: { quote: { deadline?: string } } };
+  };
 };
 
 /** `swapTransaction` reads exactly these fields off the `SwapTransaction` row
@@ -1031,11 +1034,20 @@ export function dispatchGuardianPipeline(
   // at the tip against the block the request's auth args bind.
   chainAnchorB64?: string,
   // The leaf's submit gate (#1644): the offscreen leaf submits only once it opened.
-  submitGate?: SubmitGate
+  submitGate?: SubmitGate,
+  oneClickDeadline?: string,
+  oneClickRequired = false
 ): Promise<TransactionResult> {
   // Typed against the shared wire contract so a dropped or reordered slot is a
   // compile error here rather than an argument the offscreen leaf silently misreads.
-  const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
+  const args: GuardianPipelineArgs = [
+    accountId,
+    trBytes,
+    delegateTransaction ?? null,
+    chainAnchorB64 ?? null,
+    oneClickDeadline ?? null,
+    oneClickRequired
+  ];
   return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage, submitGate);
 }
 
@@ -1746,7 +1758,12 @@ export const midenClientProxy = {
       noteType: transaction.noteType,
       amount: transaction.amount.toString(),
       delegateTransaction: transaction.delegateTransaction,
-      extraInputs: { recallBlocks: transaction.extraInputs?.recallBlocks }
+      extraInputs: {
+        recallBlocks: transaction.extraInputs?.recallBlocks,
+        ...(transaction.extraInputs?.oneClick
+          ? { oneClick: { quote: { quote: { deadline: transaction.extraInputs.oneClick.quote.quote.deadline } } } }
+          : {})
+      }
     };
     return dispatchOffscreenWrite('sendTransaction', [dto], signCallback, onStage);
   },

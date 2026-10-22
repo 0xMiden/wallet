@@ -2524,7 +2524,7 @@ describe('guardian leaf records the submit crossing', () => {
       amount: '1',
       extraInputs: { oneClick: { quote: { quote: { deadline: '2000-01-01T00:00:00.000Z' } } } }
     };
-    const { inline } = arrange('one-click-expired-inline', row);
+    const { inline, service } = arrange('one-click-expired-inline', row);
 
     await generateTransaction(
       buildTx('one-click-expired-inline', row) as never,
@@ -2536,6 +2536,11 @@ describe('guardian leaf records the submit crossing', () => {
     expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
     expect(inline.__submit).not.toHaveBeenCalled();
     expect(mockComplete.send).not.toHaveBeenCalled();
+    const finalRow = txStore.find(item => item.id === 'one-click-expired-inline')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
   });
 
   it('flag OFF: the inline leaf stamps mayHaveSubmitted', async () => {

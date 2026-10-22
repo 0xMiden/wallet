@@ -1,6 +1,7 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
+  IOneClickTrackingData,
   IBridgedReceivePhase,
   IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
@@ -187,6 +188,7 @@ export interface IHistoryEntry {
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
+  oneClickTracking?: IOneClickTrackingData;
   bridgeInSourceAddress?: string;
   bridgeInSourceChainId?: number;
   bridgeInSourceConfig?: UsdcxSourceChain;

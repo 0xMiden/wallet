@@ -555,6 +555,105 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  it('formats persisted 1Click amounts with their asset decimals and shows both route networks', async () => {
+    setMockRow({
+      ...baseSendTx,
+      id: 'one-click-history',
+      type: 'bridged-receive',
+      extraInputs: {
+        provider: 'near-intents',
+        phase: 'submitting',
+        oneClick: {
+          direction: 'evm-to-miden',
+          request: {
+            amount: '1000000',
+            originAsset: 'usdc',
+            destinationAsset: 'miden-usdc',
+            refundTo: 'refund',
+            recipient: 'account',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'correlation',
+            timestamp: '2026-10-22T11:00:00.000Z',
+            signature: 'signature',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: 'usdc',
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: 'miden-usdc',
+              amount: '1000000',
+              refundTo: 'refund',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: 'account',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'deposit',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'account',
+          accountAddress: 'account',
+          faucetId: 'faucet',
+          amount: '245000000',
+          originAsset: { assetId: 'usdc', blockchain: 'eth', symbol: 'USDC', decimals: 6 },
+          destinationAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          phase: 'arriving',
+          depositAddress: 'deposit',
+          providerStatus: 'SUCCESS',
+          updatedAt: Date.now(),
+          statusResponse: {
+            correlationId: 'correlation',
+            quoteResponse: { signature: 'signature' },
+            status: 'SUCCESS',
+            updatedAt: '2026-10-22T11:01:00.000Z',
+            swapDetails: {
+              intentHashes: [],
+              nearTxHashes: [],
+              amountIn: '1000000',
+              amountOut: '245000000',
+              depositedAmount: '1000000',
+              originChainTxHashes: [],
+              destinationChainTxHashes: []
+            }
+          }
+        }
+      }
+    });
+    (formatAmount as jest.Mock).mockClear();
+
+    await renderAndLoad({ transactionId: 'one-click-history' });
+
+    expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent('eth');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+      'miden'
+    );
+    expect(formatAmount).toHaveBeenCalledWith(245000000n, 6);
+    expect(formatAmount).toHaveBeenCalledWith(240000000n, 6);
+    expect(formatAmount).toHaveBeenCalledWith(1000000n, 6);
+  });
+
   it('shows both Guardians on a recovered switch receipt', async () => {
     setMockRow({
       ...baseSendTx,

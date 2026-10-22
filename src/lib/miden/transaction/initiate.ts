@@ -1,3 +1,4 @@
+import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -10,6 +11,8 @@ import {
   isNoteTransportConfigured
 } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { assertOneClickQuoteBinding } from 'lib/one-click/client';
+import { assertOneClickDeadline } from 'lib/one-click/deadline';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -843,7 +846,8 @@ export const initiateSendTransaction = async (
   delegateTransaction?: boolean,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
-  dappOrigin?: string
+  dappOrigin?: string,
+  oneClick?: IOneClickTrackingData
 ): Promise<string> => {
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
@@ -854,6 +858,28 @@ export const initiateSendTransaction = async (
   // `parseInt`ing a date the user picked from a calendar, so an out-of-range
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
+
+  if (oneClick) {
+    assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
+    assertOneClickDeadline(oneClick.quote.quote.deadline);
+    const midenAsset = oneClick.originAsset;
+    const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
+    if (
+      oneClick.direction !== 'miden-to-evm' ||
+      midenAsset.blockchain !== 'miden' ||
+      oneClick.destinationAsset.blockchain === 'miden' ||
+      oneClick.accountId !== senderAccountId ||
+      !sameWalletAccountId(oneClick.request.refundTo, oneClick.accountAddress) ||
+      !sameWalletAccountId(oneClick.accountAddress, senderAccountId) ||
+      oneClick.quote.quote.depositAddress !== recipientAccountId ||
+      oneClick.quote.quote.amountIn !== amount.toString() ||
+      oneClick.faucetId !== faucetId ||
+      !configuredAsset ||
+      configuredAsset.faucetId !== faucetId
+    ) {
+      throw new Error('The 1Click send does not match the signed Miden route.');
+    }
+  }
 
   if (noteType === NoteTypeEnum.Private && !isNoteTransportConfigured()) {
     throw new Error(
@@ -870,6 +896,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },

@@ -3798,6 +3798,34 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([55, 66, 77]);
   });
 
+  it('guardianPipeline: refuses an expired 1Click quote after proving and before submit', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-g-expired',
+        method: 'guardianPipeline',
+        argsB64: [
+          encodeArg('mtst1qguardian'),
+          encodeArg(new Uint8Array([1, 2, 3, 4])),
+          encodeArg(false),
+          encodeArg(null),
+          encodeArg('2000-01-01T00:00:00.000Z'),
+          encodeArg(true)
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).not.toBe(true);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+    expect(sendResponse.mock.calls[0][0].error).toContain('expired');
+  });
+
   it('guardianPipeline: stops before proving when the hold is evicted during executeRequest (#777)', async () => {
     // `executeRequest` is a network round trip on the NORMAL ceiling — the pause
     // brackets in this pipeline cover proving, not this — so a node that accepts and

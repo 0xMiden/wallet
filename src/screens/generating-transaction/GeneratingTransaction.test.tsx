@@ -8,7 +8,11 @@ import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/t
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
-import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
+import {
+  GeneratingTransaction,
+  GeneratingTransactionPage,
+  isRecoverableExpiredOneClick
+} from './GeneratingTransaction';
 
 jest.mock('lib/telemetry/user-visible-error', () => ({
   ...jest.requireActual('lib/telemetry/user-visible-error'),
@@ -361,6 +365,21 @@ describe('GeneratingTransactionPage container effects', () => {
 
     expect(container.querySelector('[data-testid="redirect"]')?.textContent).toBe('redirect:/');
     act(() => root.unmount());
+  });
+
+  it('only recovers definite pre-submit OneClick deadline failures', () => {
+    const failedOneClick = {
+      status: ITransactionStatus.Failed,
+      type: 'send',
+      error: 'The 1Click quote has expired. Request a new quote before depositing.',
+      extraInputs: { oneClick: { direction: 'miden-to-evm' } }
+    };
+
+    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.Failed)).toBe(true);
+    expect(isRecoverableExpiredOneClick({ ...failedOneClick, mayHaveSubmitted: true }, ITransactionStatus.Failed)).toBe(
+      false
+    );
+    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.GeneratingTransaction)).toBe(false);
   });
 
   // #602 — the processing screen nests a fixed-height full-screen page

@@ -234,6 +234,10 @@ const sharedDefine = {
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  'process.env.MIDEN_E2E_ONE_CLICK_TESTNET': JSON.stringify(process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'),
+  'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY': JSON.stringify(
+    process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''
+  ),
   // E2E builds read the bridge config document from this base instead of the published repo. Ignored unless
   // MIDEN_E2E_TEST is 'true' (lib/remote-config/source.ts); empty by default, so every other build reads the repo.
   'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),

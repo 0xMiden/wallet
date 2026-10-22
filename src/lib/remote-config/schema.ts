@@ -8,6 +8,23 @@ import { type GeoBlocks, readGeoBlocks } from './geo';
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
 export type BridgeSwitch = 'earn';
 
+export interface OneClickMidenAssetConfig {
+  assetId: string;
+  faucetId: string;
+  decimals: number;
+}
+
+export interface OneClickAppFeeConfig {
+  recipient: string;
+  fee: number;
+}
+
+export interface OneClickConfig {
+  serviceUrl: string;
+  midenAssets: OneClickMidenAssetConfig[];
+  appFees?: OneClickAppFeeConfig[];
+}
+
 export interface SwapConfig {
   /**
    * The DEX solver's base URL. The swap registry is its `/v2/pairs` (see `swap-pairs.ts`), and
@@ -15,6 +32,7 @@ export interface SwapConfig {
    * tokens and no quotes.
    */
   etaUrl?: string;
+  oneClick?: OneClickConfig;
 }
 
 /** The picker pings every listed Guardian operator, so the list is bounded. */
@@ -224,6 +242,43 @@ function baseUrl(value: unknown, allowLocalHttp: boolean): string {
     return invalid();
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+function oneClick(value: unknown, network: string, allowLocalHttp: boolean, allowOneClickLocalE2E: boolean): OneClickConfig | undefined {
+  if (network !== 'mainnet' && !(network === 'localnet' && allowOneClickLocalE2E)) return undefined;
+  const config = section(value);
+  const serviceUrl = baseUrl(config.serviceUrl, network === 'localnet' && allowOneClickLocalE2E && allowLocalHttp);
+  if (network === 'localnet' && allowOneClickLocalE2E && !LOCAL_HTTP_HOSTS.includes(new URL(serviceUrl).hostname)) return invalid();
+  const entries = config.midenAssets;
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 64) return invalid();
+  const ids = new Set<string>();
+  const faucets = new Set<string>();
+  const midenAssets = entries.map(entry => {
+    const asset = section(entry);
+    if (typeof asset.assetId !== 'string' || asset.assetId.length < 1 || asset.assetId.length > 256 || CONTROL_CHARACTER.test(asset.assetId)) return invalid();
+    const assetId = asset.assetId;
+    const faucetId = midenAccountId(asset.faucetId);
+    if (!isSafeIntegerInRange(asset.decimals, 0, 38) || ids.has(assetId) || faucets.has(faucetId)) return invalid();
+    ids.add(assetId);
+    faucets.add(faucetId);
+    return { assetId, faucetId, decimals: asset.decimals };
+  });
+  let appFees: OneClickAppFeeConfig[] | undefined;
+  if (config.appFees !== undefined) {
+    if (!Array.isArray(config.appFees) || config.appFees.length > 3) return invalid();
+    appFees = config.appFees.map(entry => {
+      const fee = section(entry);
+      if (typeof fee.recipient !== 'string' || fee.recipient.length < 2 || fee.recipient.length > 64 || !/^[a-z0-9._-]+$/.test(fee.recipient)) return invalid();
+      if (!isSafeIntegerInRange(fee.fee, 0, 1000)) return invalid();
+      return { recipient: fee.recipient, fee: fee.fee };
+    });
+    if (appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000) return invalid();
+  }
+  return { serviceUrl, midenAssets, ...(appFees === undefined ? {} : { appFees }) };
+}
+
+function isSafeIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max;
 }
 
 function featureSwitch(features: Record<string, unknown>, name: string): boolean {
@@ -463,7 +518,7 @@ function readGuardians(value: unknown, url: (value: unknown) => string): Guardia
   return guardians;
 }
 
-function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
+function readConfig(body: unknown, network: string, allowLocalHttp: boolean, allowOneClickLocalE2E: boolean): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
   if (body.network !== network || !isPositiveSafeInteger(version)) return invalid();
@@ -488,6 +543,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const irisUrl = read(usdcx, 'irisUrl', url);
   const swap = section(body.swap);
   const etaUrl = read(swap, 'etaUrl', url);
+  const oneClickConfig = swap.oneClick === undefined ? undefined : read(swap, 'oneClick', value => oneClick(value, network, allowLocalHttp, allowOneClickLocalE2E));
   const supportedEvmChains = supportedChains(body.supportedEvmChains, url);
   // A route without the provider values it runs on is left out; so is a token output nothing declares.
   for (const { bridges } of Object.values(supportedEvmChains)) {
@@ -528,7 +584,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
     ...(limits === undefined ? {} : { limits }),
-    swap: etaUrl === undefined ? {} : { etaUrl },
+    swap: { ...(etaUrl === undefined ? {} : { etaUrl }), ...(oneClickConfig === undefined ? {} : { oneClick: oneClickConfig }) },
     ...(guardians === undefined ? {} : { guardians }),
     ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } }),
     ...(geo === undefined ? {} : { geo })
@@ -550,10 +606,10 @@ export function epochCollateralFaucetId(config: BridgeConfig): string | undefine
 export function parseBridgeConfig(
   body: unknown,
   network: string,
-  options: { allowLocalHttp?: boolean } = {}
+  options: { allowLocalHttp?: boolean; allowOneClickLocalE2E?: boolean } = {}
 ): BridgeConfig | null {
   try {
-    return readConfig(body, network, options.allowLocalHttp === true);
+    return readConfig(body, network, options.allowLocalHttp === true, options.allowOneClickLocalE2E === true);
   } catch {
     return null;
   }

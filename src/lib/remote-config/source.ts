@@ -30,7 +30,11 @@ export function bridgeConfigUrl(network: string): string {
 }
 
 // Local http only in a document an E2E build serves itself; reading the published repo, it validates as production.
-const parseOptions = () => ({ allowLocalHttp: e2eBaseUrl() !== null });
+const parseOptions = (network: string) => {
+  const enabled = process.env.MIDEN_E2E_ONE_CLICK_TESTNET === 'true' &&
+    process.env.MIDEN_E2E_TEST === 'true' && process.env.MIDEN_NETWORK === 'localhost' && network === 'localnet';
+  return { allowLocalHttp: e2eBaseUrl() !== null, allowOneClickLocalE2E: enabled };
+};
 
 const source = versionedDocumentSource<BridgeConfig>({
   label: 'bridge config',
@@ -40,7 +44,7 @@ const source = versionedDocumentSource<BridgeConfig>({
   url: bridgeConfigUrl,
   maxBytes: 32 * 1_024,
   timeoutMs: 10_000,
-  parse: (body, network) => parseBridgeConfig(body, network, parseOptions())
+  parse: (body, network) => parseBridgeConfig(body, network, parseOptions(network))
 });
 
 /** Test-only: swap the storage, fetch and clock; with no argument, restore the defaults. */
