@@ -40,9 +40,9 @@ import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 import { guardianNoteScanText, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 import * as Woozie from 'lib/woozie';
-import { ImportHotKeyScreen } from 'screens/onboarding/import-wallet-flow/ImportHotKey';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+import { ImportHotKeyScreen } from 'screens/onboarding/import-wallet-flow/ImportHotKey';
 
 import {
   RotationFundingPanel,
