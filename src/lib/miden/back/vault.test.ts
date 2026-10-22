@@ -430,7 +430,7 @@ async function seedVault(
   password: string,
   opts: {
     mnemonic?: string;
-    accounts?: Array<{ publicKey: string; name: string; isPublic: boolean; type: WalletType }>;
+    accounts?: Array<{ publicKey: string; name: string; isPublic: boolean; type: WalletType } & Partial<WalletAccount>>;
     currentPk?: string;
     ownMnemonic?: boolean;
   } = {}
