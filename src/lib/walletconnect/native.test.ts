@@ -773,6 +773,47 @@ describe('waiting for the session to approve an added chain', () => {
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
   });
 
+  it('does not wait out the deadline when the session approved the chain before the wait starts', async () => {
+    let releaseSwitch: (value: { result: null }) => void = () => undefined;
+    const switching = new Promise<{ result: null }>(resolve => {
+      releaseSwitch = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockImplementationOnce(() => switching);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(sessionState([SEPOLIA, ARC]));
+    releaseSwitch({ result: null });
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not keep a buffered approval when the session is deleted before that wait settles', async () => {
+    let releaseSwitch: (value: { result: null }) => void = () => undefined;
+    const switching = new Promise<{ result: null }>(resolve => {
+      releaseSwitch = resolve;
+    });
+    jest
+      .mocked(rawNativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockImplementationOnce(() => switching);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(sessionState([SEPOLIA, ARC]));
+    releaseSwitch({ result: null });
+    updateSession({ configured: true, connected: false, accounts: [] });
+    await jest.advanceTimersByTimeAsync(5000);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+  });
+
   it('accepts a state read that starts after a deletion and then approves the chain', async () => {
     jest
       .mocked(rawNativeReown.getState)
