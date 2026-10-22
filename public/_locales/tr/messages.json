@@ -446,6 +446,18 @@
     "message": "Para Çekme",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Para yatırma",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "Miden'e",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Miden'den",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Daha fazla para yatırın",
     "englishSource": "Deposit more"
@@ -5988,8 +6000,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Yalnızca bir test cüzdanını bağlayın",
-    "englishSource": "Connect a test wallet only"
+    "message": "Yalnızca test cüzdanı kullanın",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Yalnızca test fonları",
@@ -6969,24 +6981,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Miden’e aktarmak istediğiniz token’ları barındıran cüzdanı bağlayın.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Miden’e aktarmak istediğiniz token’ları barındıran cüzdan.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Cüzdanı bağla",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Harici cüzdan",
-    "englishSource": "External wallet"
+    "message": "Cüzdanınız",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Henüz bağlanmadı",
-    "englishSource": "Not connected yet"
+    "message": "İlgili değil",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "Bağlandıktan sonra",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow veya herhangi bir WalletConnect cüzdanı.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Transferinizi seçin",
@@ -7001,12 +7017,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Güzergâhı ve ücretleri kontrol edin, ardından cüzdanınızdan transferi onaylayın.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Yolu ve ücretleri kontrol edin, ardından cüzdanınızdan onaylayın.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Yalnızca test token'ları içeren ayrı bir cüzdan kullanın. Asla gerçek fonların bulunduğu bir cüzdanı bağlamayın.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Asla gerçek fonların bulunduğu bir cüzdanı bağlamayın.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Bir yol seçin",
@@ -7153,6 +7169,27 @@
   "earnWithdrawStaysInvested": {
     "message": "Stays invested",
     "englishSource": "Stays invested"
+  },
+  "earnWithdrawArrivesOn": {
+    "message": "Yayınlanma tarihi",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 dk",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gaz",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Sponsorlu",
+    "englishSource": "Sponsored"
   },
   "earnWithdrawAll": {
     "message": "Full balance",

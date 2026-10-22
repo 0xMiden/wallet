@@ -446,6 +446,18 @@
     "message": "Wypłata",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Wpłata",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "Into Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Z Miden",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Wpłać więcej",
     "englishSource": "Deposit more"
@@ -5988,8 +6000,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Podłącz wyłącznie portfel testowy",
-    "englishSource": "Connect a test wallet only"
+    "message": "Należy korzystać wyłącznie z portfela testowego",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Wyłącznie środki testowe",
@@ -6969,24 +6981,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Podłącz portfel zawierający tokeny, które chcesz przenieść do Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Portfel zawierający tokeny, które chcesz przenieść do Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Połącz portfel",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Portfel zewnętrzny",
-    "englishSource": "External wallet"
+    "message": "Twój portfel",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Jeszcze nie połączono",
-    "englishSource": "Not connected yet"
+    "message": "Nie ma związku",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "Po nawiązaniu połączenia",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow lub dowolny portfel obsługujący WalletConnect.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Wybierz rodzaj przelewu",
@@ -7001,12 +7017,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Sprawdź trasę i opłaty, a następnie zatwierdź przelew w swoim portfelu.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Sprawdź trasę i opłaty, a następnie zatwierdź transakcję w swoim portfelu.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Należy używać oddzielnego portfela przeznaczonego wyłącznie na tokeny testowe. Nigdy nie należy podłączać portfela zawierającego prawdziwe środki.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Nigdy nie podłączaj portfela zawierającego prawdziwe środki.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Wybierz trasę",
@@ -7153,6 +7169,27 @@
   "earnWithdrawStaysInvested": {
     "message": "Stays invested",
     "englishSource": "Stays invested"
+  },
+  "earnWithdrawArrivesOn": {
+    "message": "Dostępne od",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 min",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gas",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Sponsorowane",
+    "englishSource": "Sponsored"
   },
   "earnWithdrawAll": {
     "message": "Full balance",

@@ -446,6 +446,18 @@
     "message": "Виведення коштів",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "У Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "З Мідену",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Поповнити рахунок",
     "englishSource": "Deposit more"
@@ -5988,8 +6000,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Підключайте лише тестовий гаманець",
-    "englishSource": "Connect a test wallet only"
+    "message": "Використовуйте лише тестовий гаманець",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Тільки тестові кошти",
@@ -6969,24 +6981,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Підключіть гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Підключити гаманець",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Зовнішній гаманець",
-    "englishSource": "External wallet"
+    "message": "Ваш гаманець",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Ще не підключено",
-    "englishSource": "Not connected yet"
+    "message": "Не пов’язано",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "Після підключення",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow або будь-який гаманець WalletConnect.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Оберіть спосіб переказу",
@@ -7001,12 +7017,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Перевірте маршрут і комісії, а потім підтвердьте переказ у своєму гаманці.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Перевірте маршрут і комісії, а потім підтвердьте операцію у своєму гаманці.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Використовуйте окремий гаманець виключно для тестових токенів. Ніколи не підключайте гаманець, на якому зберігаються реальні кошти.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Ніколи не підключайте гаманець, на якому зберігаються реальні кошти.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Оберіть маршрут",
@@ -7153,6 +7169,27 @@
   "earnWithdrawStaysInvested": {
     "message": "Stays invested",
     "englishSource": "Stays invested"
+  },
+  "earnWithdrawArrivesOn": {
+    "message": "Надходить",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 хв",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Газ",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Спонсорований",
+    "englishSource": "Sponsored"
   },
   "earnWithdrawAll": {
     "message": "Full balance",

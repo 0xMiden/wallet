@@ -1,16 +1,4 @@
 {
-  "homeDeposit": {
-    "message": "Deposit",
-    "englishSource": "Deposit"
-  },
-  "homeDepositHint": {
-    "message": "Into Miden",
-    "englishSource": "Into Miden"
-  },
-  "homeWithdrawHint": {
-    "message": "Out of Miden",
-    "englishSource": "Out of Miden"
-  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -457,6 +445,18 @@
   "withdraw": {
     "message": "Withdraw",
     "englishSource": "Withdraw"
+  },
+  "homeDeposit": {
+    "message": "Deposit",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "Into Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Out of Miden",
+    "englishSource": "Out of Miden"
   },
   "earnDepositMore": {
     "message": "Deposit more",
@@ -7000,13 +7000,13 @@
     "message": "After connecting",
     "englishSource": "After connecting"
   },
-  "bridgeConnectChooseTitle": {
-    "message": "Choose your transfer",
-    "englishSource": "Choose your transfer"
-  },
   "bridgeConnectStepBody": {
     "message": "MetaMask, Rainbow or any WalletConnect wallet.",
     "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
+  },
+  "bridgeConnectChooseTitle": {
+    "message": "Choose your transfer",
+    "englishSource": "Choose your transfer"
   },
   "bridgeConnectChooseBody": {
     "message": "Pick a token, source network and amount.",
