@@ -547,7 +547,7 @@ test('manual main deployment selects only the workflow SHA and rejects untrusted
   }
 });
 
-test('published release deployments retain tag selection and the workflow uses the tested resolver', async () => {
+test('published release tag selection accepts output-safe tags and rejects unsafe output', async () => {
   assert.deepEqual(
     resolveDeploymentSource({
       eventName: 'workflow_call',
@@ -570,6 +570,19 @@ test('published release deployments retain tag selection and the workflow uses t
     new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
     'utf8'
   );
+  assert.match(workflow, /node scripts\/feature-eligibility-deploy-source\.mjs/);
+  assert.match(workflow, /ref: \$\{\{ steps\.source\.outputs\.ref \}\}/);
+  assert.match(workflow, /if: steps\.source\.outputs\.mode == 'published-release'/);
+  assert.match(workflow, /getReleaseByTag/);
+  assert.match(workflow, /release\.draft \|\| !release\.published_at/);
+  assert.match(workflow, /\$GITHUB_EVENT_NAME" == release && "\$revision" != "\$GITHUB_SHA/);
+});
+
+test('reusable deployment inputs omit source while manual deployment retains its choice and release caller', () => {
+  const workflow = readFileSync(
+    new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
+    'utf8'
+  );
   const callInputs = workflow.match(/  workflow_call:\n([\s\S]*?)\n  workflow_dispatch:/)?.[1];
   const dispatchInputs = workflow.match(/  workflow_dispatch:\n([\s\S]*?)\npermissions:/)?.[1];
   assert.ok(callInputs);
@@ -582,7 +595,13 @@ test('published release deployments retain tag selection and the workflow uses t
   const eligibilityCaller = releaseWallet.match(/  eligibility:\n([\s\S]*?)\n\n  chrome:/)?.[1];
   assert.match(eligibilityCaller, /release_tag: \$\{\{ github\.event\.release\.tag_name \}\}/);
   assert.doesNotMatch(eligibilityCaller, /deployment_source:/);
+});
 
+test('deployment resolver step maps each workflow input and context value exactly', () => {
+  const workflow = readFileSync(
+    new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
+    'utf8'
+  );
   const sourceStep = workflow.match(/      - name: Resolve deployment source\n([\s\S]*?)\n      - name: Require a published release/);
   assert.ok(sourceStep);
   for (const mapping of [
@@ -592,12 +611,6 @@ test('published release deployments retain tag selection and the workflow uses t
     /DEPLOY_WORKFLOW_REF: \$\{\{ github\.ref \}\}/,
     /DEPLOY_WORKFLOW_SHA: \$\{\{ github\.sha \}\}/
   ]) assert.match(sourceStep[1], mapping);
-  assert.match(workflow, /node scripts\/feature-eligibility-deploy-source\.mjs/);
-  assert.match(workflow, /ref: \$\{\{ steps\.source\.outputs\.ref \}\}/);
-  assert.match(workflow, /if: steps\.source\.outputs\.mode == 'published-release'/);
-  assert.match(workflow, /getReleaseByTag/);
-  assert.match(workflow, /release\.draft \|\| !release\.published_at/);
-  assert.match(workflow, /\$GITHUB_EVENT_NAME" == release && "\$revision" != "\$GITHUB_SHA/);
 });
 
 test('deployment resolver CLI writes exact outputs and rejects untrusted manual inputs', () => {
