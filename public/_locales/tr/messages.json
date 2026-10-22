@@ -498,6 +498,26 @@
     "message": "Risk",
     "englishSource": "Risk"
   },
+  "earnRiskLow": {
+    "message": "Düşük",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "Yüksek",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "Mevduatlar kapatılmıştır",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "Bu kasa şu anda para yatırma işlemlerini kabul etmemektedir. Daha sonra tekrar deneyin veya başka bir kasa seçin.",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Denetlenmiş",
     "englishSource": "Audited"
@@ -670,6 +690,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ üzerinde $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },
