@@ -3,7 +3,15 @@
  */
 import type { JourneyId } from './dapp-cells';
 import { KNOWN_BUGS } from './dapp-known-bugs';
-import { cellIdsFor, DAPP_JOURNEY_CELLS, JOURNEY_TIMEOUT_MS, JOURNEY_TITLES } from './dapp-matrix';
+import {
+  cellIdsFor,
+  DAPP_JOURNEY_CELLS,
+  JOURNEY_TIMEOUT_MS,
+  JOURNEY_TITLES,
+  journeyTitle,
+  MOBILE_JOURNEY_CELLS,
+  type ExtensionJourneyId
+} from './dapp-matrix';
 
 describe('dApp matrix data', () => {
   it('declares every cell id once across all journeys', () => {
@@ -15,14 +23,19 @@ describe('dApp matrix data', () => {
     expect(new Set(Object.values(JOURNEY_TITLES)).size).toBe(Object.keys(JOURNEY_TITLES).length);
   });
 
-  it('declares every cell a known bug names, on every axis the bug names', () => {
+  it('declares every cell a known bug names, on every surface and axis the bug names', () => {
     const declared = new Set(
-      (Object.keys(DAPP_JOURNEY_CELLS) as (keyof typeof DAPP_JOURNEY_CELLS)[]).flatMap(journey =>
-        (['offchain', 'guardian'] as const).flatMap(axis => cellIdsFor(journey, axis).map(id => `${id}@${axis}`))
-      )
+      (['offchain', 'guardian'] as const).flatMap(axis => [
+        ...EXTENSION_JOURNEYS.flatMap(journey => cellIdsFor(journey, axis).map(id => `${id}@extension/${axis}`)),
+        ...(['ios', 'android'] as const).flatMap(surface =>
+          cellIdsFor('PL', axis).map(id => `${id}@${surface}/${axis}`)
+        )
+      ])
     );
     const missing = KNOWN_BUGS.flatMap(bug =>
-      Object.entries(bug.cells).flatMap(([cell, axes]) => axes.map(axis => `${bug.id}:${cell}@${axis}`))
+      Object.entries(bug.cells).flatMap(([cell, placements]) =>
+        placements.map(at => `${bug.id}:${cell}@${at.surface}/${at.axis}`)
+      )
     ).filter(key => !declared.has(key.slice(key.indexOf(':') + 1)));
     expect(missing).toEqual([]);
   });
@@ -46,12 +59,67 @@ describe('dApp matrix data', () => {
       expect(cellIdsFor('X', axis).slice(-4)).toEqual(['X11', 'X8a', 'X8b', 'X8c']);
     }
   });
+
+  it('runs the slim set of spec 3.6 on both axes of the mobile journey', () => {
+    for (const axis of ['offchain', 'guardian'] as const) {
+      expect(cellIdsFor('PL', axis)).toEqual(MOBILE_JOURNEY_CELLS.map(cell => cell.id));
+    }
+    expect(MOBILE_JOURNEY_CELLS.map(cell => cell.id)).toEqual([
+      'S1',
+      'S2',
+      'S3',
+      'S6',
+      'S10',
+      'S11',
+      'N1',
+      'G1',
+      'G2a',
+      'M1',
+      'N3a',
+      'W1',
+      'W4',
+      'X1',
+      'R5',
+      'R1-send',
+      'R1-custom',
+      'R3-noteType',
+      'R3-customPayload',
+      'R3-customUndecodable',
+      'R7-connect',
+      'R7-send',
+      'R7-consume',
+      'R7-custom'
+    ]);
+  });
+
+  it('titles the mobile journey per surface, apart from every extension title', () => {
+    expect([...EXTENSION_JOURNEYS].sort()).toEqual(Object.keys(DAPP_JOURNEY_CELLS).sort());
+    const axes = ['offchain', 'guardian'] as const;
+    const extension = EXTENSION_JOURNEYS.flatMap(journey => axes.map(axis => journeyTitle(journey, axis)));
+    const mobile = (['ios', 'android'] as const).flatMap(surface =>
+      axes.map(axis => journeyTitle('PL', axis, surface))
+    );
+    expect(mobile).toEqual([
+      'dApp in the in-app browser on iOS - offchain account',
+      'dApp in the in-app browser on iOS - guardian account',
+      'dApp in the in-app browser on Android - offchain account',
+      'dApp in the in-app browser on Android - guardian account'
+    ]);
+    expect(mobile.filter(title => extension.includes(title))).toEqual([]);
+  });
+
+  it("fits the mobile journey in the mobile legs' 95-min run step", () => {
+    expect(JOURNEY_TIMEOUT_MS.PL / 60_000).toBeLessThan(95);
+  });
 });
 
 // Spec section 6: a timeout the spike recomputes replaces one of these only when it is higher.
-const INITIAL_TIMEOUT_MIN: Record<JourneyId, number> = { S: 20, R: 45, W: 60, X: 45, XL: 25, M: 60, RA: 30 };
+const INITIAL_TIMEOUT_MIN: Record<JourneyId, number> = { S: 20, R: 45, W: 60, X: 45, XL: 25, M: 60, RA: 30, PL: 85 };
 
 const PART_JOURNEYS: Record<'core' | 'writes', JourneyId[]> = {
   core: ['S', 'R', 'M', 'RA'],
   writes: ['W', 'X', 'XL']
 };
+
+// The Chrome map's journeys, typed; "titles the mobile journey per surface" checks it lists exactly the map's keys.
+const EXTENSION_JOURNEYS: readonly ExtensionJourneyId[] = ['S', 'W', 'R', 'X', 'XL', 'M', 'RA'];

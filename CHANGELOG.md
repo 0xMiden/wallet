@@ -22,6 +22,7 @@
 - [CHANGE][mobile] A footer that slides with the keyboard starts on the frame the layout moves, instead of painting at its new place for a frame first.
 - [CHANGE][all] Each pull request posts a UI smoothness result: carousel feel against the base, the slowest scripted tap, and how the settings list scrolls, each with a difference in percent. The carousel score is the median of six passes from Overview to Swap, with the main thread slowed 4×. The tap and the list are not slowed, so the tap keeps the 200ms and 500ms bands. The comment is informational and does not block merge.
 - [CHANGE][all] The privacy policy names the publisher and data controller, separates telemetry from the data the Miden network, the Guardian Operator, Transak, swaps, bridges and Earn receive, states the legal basis and retention for each kind of data, the geographic restriction check, where data goes and your rights, and raises the age in the Children section to 18 to match the Terms of Service.
+- [CHANGE][ci] The dApp E2E harness also runs the test dApp in the wallet's iOS and Android in-app browsers, on two simulators and two emulators against the branch's network, on single-sig and Guardian accounts: the page takes its commands over a long poll, its requests are answered on the approval sheet by test id, and a slim set of connect, read, sign, write, refusal and 120 s auto-decline cells is judged by the same records and gate as the Chrome legs, each mobile leg labelled with the presentation path its in-app browser ran.
 
 ### Features
 

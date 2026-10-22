@@ -307,14 +307,15 @@ jobs:
 
       - name: Collect emulator logs on failure
         if: failure()
+        timeout-minutes: 10
         run: |
-          adb devices || true
+          timeout 15s adb devices || true
           for serial in emulator-5554 emulator-5556; do
             echo "::group::$serial — app process"
-            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            timeout 15s adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
             echo "::endgroup::"
             echo "::group::$serial — wallet/webview lines"
-            adb -s "$serial" logcat -d 2>/dev/null \
+            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
               | grep -iE "miden|chromium|console|fatal|ANR" | tail -200 || true
             echo "::endgroup::"
           done
