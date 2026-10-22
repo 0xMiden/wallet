@@ -4,6 +4,7 @@ import {
   bridgeLoops,
   BURN_FEE_MULTIPLE,
   depositGasReserve,
+  landedVaultSample,
   LOOP_USDC,
   midenFeeReserve,
   ROUND_TRIP_TXS,
@@ -103,5 +104,39 @@ describe('mainnet bridge loops', () => {
     expect(agglayerGasReserve(10n)).toBe(2n * 2n * 600_000n * 10n);
     expect(agglayerShortfall({ address: '0xabc', wei: 1n, maxFeePerGas: 10n })).toContain('short of');
     expect(agglayerShortfall({ address: '0xabc', wei: agglayerGasReserve(10n), maxFeePerGas: 10n })).toBeUndefined();
+  });
+
+  it('a funding-gate poll keeps going after a refresh that does not land', async () => {
+    const refresh = jest.fn(async (): Promise<void> => undefined);
+    refresh.mockRejectedValueOnce(new Error('refreshBalances did not land for account-a'));
+    const read = jest.fn(async (): Promise<bigint> => 40n);
+    const trace: string[] = [];
+    let matched = false;
+    // Same shape as expect.poll: the probe is awaited outside the matcher try.
+    try {
+      for (let lap = 0; lap < 4 && !matched; lap += 1) {
+        const value = await landedVaultSample(() => refresh(), read);
+        try {
+          trace.push(value.toString());
+          if (value < 1n) throw new Error('toBeGreaterThanOrEqual');
+          matched = true;
+        } catch {
+          trace.push('retry');
+        }
+      }
+    } catch (error) {
+      trace.push(error instanceof Error ? error.message : String(error));
+    }
+    expect(trace).toEqual(['-1', 'retry', '40']);
+    expect(matched).toBe(true);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refresh error that is not a missed land still rejects the probe', async () => {
+    const read = jest.fn(async (): Promise<bigint> => 40n);
+    await expect(
+      landedVaultSample(() => Promise.reject(new Error('Execution context was destroyed')), read)
+    ).rejects.toThrow('Execution context was destroyed');
+    expect(read).not.toHaveBeenCalled();
   });
 });

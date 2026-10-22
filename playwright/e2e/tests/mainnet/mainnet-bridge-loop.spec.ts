@@ -17,8 +17,10 @@ import { bridgeEthToMiden, claimAgglayerOnEthereum, depositXReserve } from '../.
 import {
   agglayerShortfall,
   bridgeLoops,
+  landedVaultSample,
   LOOP_USDC,
   midenFeeReserve,
+  UNLANDED_VAULT_SAMPLE,
   usdcxShortfall,
   type UsdcxLoop
 } from '../../helpers/mainnet-bridge-plan';
@@ -71,6 +73,7 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
   } else {
     // Four USDCx burns, plus four claims and the AggLayer claim and return.
     // Same in-flight balance read as the round trip: one refresh can still see the pre-claim vault.
+    // A non-land resolves the sentinel so this poll continues.
     const need = midenFeeReserve(BigInt(baseFee), 4n, 6n);
     let held = 0n;
     let funded = false;
@@ -78,9 +81,12 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
       await expect
         .poll(
           async () => {
-            await walletA.refreshBalances();
-            held = await vaultBalanceByFaucetId(walletA.page, nativeId);
-            return held;
+            const sample = await landedVaultSample(
+              () => walletA.refreshBalances(),
+              () => vaultBalanceByFaucetId(walletA.page, nativeId)
+            );
+            if (sample !== UNLANDED_VAULT_SAMPLE) held = sample;
+            return sample;
           },
           { timeout: 60_000 }
         )

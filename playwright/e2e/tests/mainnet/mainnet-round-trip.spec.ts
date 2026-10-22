@@ -18,7 +18,7 @@ import {
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from '../../helpers/balance-truth';
-import { roundTripReserve, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
+import { landedVaultSample, roundTripReserve, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
 
 const SEND_BASE_UNITS = 1n;
 
@@ -179,22 +179,25 @@ test.describe('nightly round trip', () => {
     const faucetId = await walletDiscoveredNativeFaucetId(walletA.page);
     if (!faucetId) throw new Error('the wallet has not discovered the native fee asset');
     // fetchBalances returns immediately when a read for that account is already running, so one
-    // refresh after the claim can still see the pre-claim vault.
+    // refresh after the claim can still see the pre-claim vault. A non-land resolves the sentinel
+    // so this poll continues.
     await expect
       .poll(
-        async () => {
-          await walletA.refreshBalances();
-          return vaultBalanceByFaucetId(walletA.page, faucetId);
-        },
+        () =>
+          landedVaultSample(
+            () => walletA.refreshBalances(),
+            () => vaultBalanceByFaucetId(walletA.page, faucetId)
+          ),
         { timeout: 60_000, message: `plain ${plain.address} native balance stayed short of ${requiredA}` }
       )
       .toBeGreaterThanOrEqual(requiredA);
     await expect
       .poll(
-        async () => {
-          await walletB.refreshBalances();
-          return vaultBalanceByFaucetId(walletB.page, faucetId);
-        },
+        () =>
+          landedVaultSample(
+            () => walletB.refreshBalances(),
+            () => vaultBalanceByFaucetId(walletB.page, faucetId)
+          ),
         { timeout: 60_000, message: `guardian ${guardianAddress} native balance stayed short of ${requiredB}` }
       )
       .toBeGreaterThanOrEqual(requiredB);

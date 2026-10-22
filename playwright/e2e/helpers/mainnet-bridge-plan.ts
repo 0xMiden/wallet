@@ -84,6 +84,33 @@ export function midenFeeReserve(baseFee: bigint, burns: bigint, otherTxs: bigint
   return NIGHTS * (burns * BURN_FEE_MULTIPLE + otherTxs * TX_FEE_MULTIPLE) * baseFee;
 }
 
+/**
+ * A funding-gate sample that did not land. Both gates compare with
+ * `toBeGreaterThanOrEqual` against a positive bigint, so this fails the lap
+ * and the poll continues.
+ */
+export const UNLANDED_VAULT_SAMPLE = -1n;
+
+/**
+ * One sample for a funding-gate poll. `expect.poll` awaits this outside the
+ * matcher try, so a rejection ends the gate. A refresh whose message includes
+ * `refreshBalances did not land`, the same predicate `waitForBalanceAbove` and
+ * `refreshBalancesLanded` use, resolves the sentinel and leaves the vault
+ * unread. Any other throw is rethrown. A resolved refresh returns `read()`.
+ * Callers pass no timeout, so each attempt keeps `refreshBalances`'s default.
+ */
+export async function landedVaultSample(refresh: () => Promise<void>, read: () => Promise<bigint>): Promise<bigint> {
+  try {
+    await refresh();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('refreshBalances did not land')) {
+      throw error;
+    }
+    return UNLANDED_VAULT_SAMPLE;
+  }
+  return read();
+}
+
 export function payoutAllowance(domain: number): bigint {
   return domain === 0 ? ETHEREUM_PAYOUT_ALLOWANCE : DIRECT_PAYOUT_ALLOWANCE;
 }
