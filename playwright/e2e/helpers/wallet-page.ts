@@ -288,7 +288,8 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * Refresh the Zustand `balances` projection from the account vault so a
    * subsequent quickBalanceSnapshot() reflects freshly-consumed notes. See the
    * implementation for why the stress settle loop needs this. Optional
-   * `timeoutMs` bounds an in-flight wait (default 5_000).
+   * `timeoutMs` bounds an in-flight wait and the `fetchBalances` await
+   * (default 5_000).
    */
   refreshBalances(timeoutMs?: number): Promise<void>;
   /**
@@ -2255,8 +2256,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // The evaluate below needs `__TEST_STORE__` with an account on it; wait for
     // that rather than for a second of wall clock (this runs on every poll of
     // waitForBalanceAbove).
-    await this.waitForStoreReady(1_000);
-    await this.refreshBalances(timeoutMs);
+    const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
+    await this.waitForStoreReady(
+      deadline === undefined ? 1_000 : Math.min(1_000, Math.max(0, deadline - Date.now()))
+    );
+    await this.refreshBalances(deadline === undefined ? undefined : Math.max(0, deadline - Date.now()));
     const snapshot = await this.quickBalanceSnapshot(tokenSymbol ? { symbol: tokenSymbol.toLowerCase() } : undefined);
     if (snapshot.error) console.log(`[WalletPage.getBalance] Error: ${snapshot.error}`);
     return snapshot.totalReportable;
@@ -2285,15 +2289,37 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       const account = state?.currentAccount?.publicKey;
       if (!state || !account || !state.fetchBalances) return;
 
+      const deadline = Date.now() + timeoutMs;
+      const fetchWithDeadline = async (run: () => Promise<unknown>): Promise<void> => {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          throw new Error(`refreshBalances did not land for ${account}`);
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            run(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                reject(new Error(`refreshBalances did not land for ${account}`));
+              }, remaining);
+            })
+          ]);
+        } finally {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+        }
+      };
+
       const hook = (window as any).__TEST_BALANCE_READ_STATE__;
       if (typeof hook !== 'function') {
-        await state.fetchBalances(account, state.assetsMetadata || {});
+        await fetchWithDeadline(() => state.fetchBalances(account, state.assetsMetadata || {}));
         return;
       }
 
       const yieldRead = () => new Promise<void>(resolve => setTimeout(resolve, 50));
       const stampOf = () => (store.getState().balancesLastFetched || {})[account] || 0;
-      const deadline = Date.now() + timeoutMs;
 
       while (hook(account)?.inFlight === true) {
         if (Date.now() >= deadline) {
@@ -2303,7 +2329,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       }
       const before = stampOf();
       const now = store.getState();
-      await now.fetchBalances(account, now.assetsMetadata || {});
+      await fetchWithDeadline(() => now.fetchBalances(account, now.assetsMetadata || {}));
       if (stampOf() > before) return;
       throw new Error(`refreshBalances did not land for ${account}`);
     }, timeoutMs);
@@ -3250,7 +3276,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Wait for the wallet's balance to exceed a minimum value.
-   * Repeatedly triggers sync and checks balance.
+   * Repeatedly triggers sync and checks balance. Retry sleeps use remaining
+   * time so a `did not land` catch or a low sample cannot outlive `timeoutMs`.
    */
   async waitForBalanceAbove(
     minBalance: number,
@@ -3259,11 +3286,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     tokenSymbol?: string
   ): Promise<number> {
     const intervalMs = 5_000;
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
     const deadline = Date.now() + timeoutMs;
     let lastBalance = 0;
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) {
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+
+      attempt += 1;
       await this.triggerSync();
       try {
         lastBalance = await this.getBalance(tokenSymbol, Math.max(0, deadline - Date.now()));
@@ -3271,9 +3303,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         if (!(error instanceof Error) || !error.message.includes('refreshBalances did not land')) {
           throw error;
         }
-        if (attempt < maxAttempts) {
-          await this.page.waitForTimeout(intervalMs);
+        const remainingAfter = deadline - Date.now();
+        if (remainingAfter <= 0) {
+          throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
         }
+        await this.page.waitForTimeout(Math.min(intervalMs, remainingAfter));
         continue;
       }
 
@@ -3281,19 +3315,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         timeline.emit({
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
-          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
+          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}`,
+          data: { balance: lastBalance, minBalance, attempt }
         });
       }
 
       if (lastBalance > minBalance) return lastBalance;
 
-      if (attempt < maxAttempts) {
-        await this.page.waitForTimeout(intervalMs);
+      const remainingAfter = deadline - Date.now();
+      if (remainingAfter <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
       }
+      await this.page.waitForTimeout(Math.min(intervalMs, remainingAfter));
     }
-
-    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
   }
 
   // ── Lock/Unlock ───────────────────────────────────────────────────────────

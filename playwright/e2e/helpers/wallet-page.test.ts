@@ -301,6 +301,58 @@ describe('ChromeWalletPage balance scoping', () => {
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
+  it('rejects when an idle-started fetch never settles past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(() => new Promise(() => undefined))
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: false } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const started = Date.now();
+
+    await expect(wallet.refreshBalancesLanded(1_000)).rejects.toThrow('refreshBalances did not land');
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('rejects when a fetch with no idle hook never settles past the timeout', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(() => new Promise(() => undefined))
+    };
+    installBalanceState(state, []);
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const started = Date.now();
+
+    await expect(wallet.refreshBalancesLanded(1_000)).rejects.toThrow('refreshBalances did not land');
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('caps waitForBalanceAbove retry sleep to remaining time', async () => {
+    const page = makePage();
+    (page.waitForTimeout as jest.Mock).mockImplementation(
+      (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+    );
+    const wallet = new ChromeWalletPage(page, 'test');
+    jest.spyOn(wallet, 'triggerSync').mockResolvedValue(undefined);
+    jest.spyOn(wallet, 'getBalance').mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 2_000));
+      throw new Error('refreshBalances did not land for account-a');
+    });
+
+    await expect(wallet.waitForBalanceAbove(0, 6_000)).rejects.toThrow();
+    expect((page.waitForTimeout as jest.Mock).mock.calls[0]?.[0]).toBeLessThan(5_000);
+  }, 15_000);
+
   it('delegates an unscoped getBalance call without inventing a filter', async () => {
     const state = {
       currentAccount: { publicKey: 'account-a' },
