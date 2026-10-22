@@ -201,7 +201,7 @@ describe('ChromeWalletPage balance scoping', () => {
 
     await wallet.refreshBalances();
 
-    expect(state.balances['account-a'][0].balance).toBe(10);
+    expect(state.balances['account-a'][0]?.balance).toBe(10);
   });
 
   it('rejects when an idle-started refresh returns without landing', async () => {
@@ -230,7 +230,7 @@ describe('ChromeWalletPage balance scoping', () => {
       .mockRejectedValueOnce(new Error('refreshBalances did not land for account-a'))
       .mockResolvedValueOnce(5);
 
-    await expect(wallet.waitForBalanceAbove(0, 10_000)).resolves.toBe(5);
+    await expect(wallet.waitForBalanceAbove(1, 10_000)).resolves.toBe(5);
   });
 
   it('retries refreshBalancesLanded when an idle-started refresh does not land', async () => {
@@ -256,7 +256,7 @@ describe('ChromeWalletPage balance scoping', () => {
 
     await wallet.refreshBalancesLanded(10_000);
 
-    expect(state.balances['account-a'][0].balance).toBe(10);
+    expect(state.balances['account-a'][0]?.balance).toBe(10);
   });
 
   it('rejects when a refresh stays in flight past the timeout', async () => {
@@ -297,7 +297,7 @@ describe('ChromeWalletPage balance scoping', () => {
     jest.spyOn(wallet, 'triggerSync').mockResolvedValue(undefined);
     const started = Date.now();
 
-    await expect(wallet.waitForBalanceAbove(0, 1_000)).rejects.toThrow();
+    await expect(wallet.waitForBalanceAbove(1, 1_000)).rejects.toThrow();
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
@@ -349,7 +349,7 @@ describe('ChromeWalletPage balance scoping', () => {
       throw new Error('refreshBalances did not land for account-a');
     });
 
-    await expect(wallet.waitForBalanceAbove(0, 6_000)).rejects.toThrow();
+    await expect(wallet.waitForBalanceAbove(1, 6_000)).rejects.toThrow();
     expect((page.waitForTimeout as jest.Mock).mock.calls[0]?.[0]).toBeLessThan(5_000);
   }, 15_000);
 
