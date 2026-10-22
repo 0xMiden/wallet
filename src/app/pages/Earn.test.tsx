@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { navigate } from 'lib/woozie';
 import { EARN_DATA } from 'screens/earn-flow/data';
 import { buildEarnSummary } from 'screens/earn-flow/earn-mapping';
@@ -53,6 +54,14 @@ jest.mock('app/icons/v2', () => ({
   IconName: { ChevronRightLucide: 'ChevronRightLucide' }
 }));
 
+let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+const mockFeatureAvailability = jest.fn(
+  (_feature: string, _options?: { hold?: boolean }): FeatureAvailability => mockEarnDeposit
+);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useFeatureAvailability: (feature: string, options?: { hold?: boolean }) => mockFeatureAvailability(feature, options)
+}));
+
 jest.mock('screens/earn-flow/useEarnPositions', () => ({
   useEarnPositions: jest.fn()
 }));
@@ -74,6 +83,8 @@ const mockUseEarnPositions = useEarnPositions as jest.Mock;
 const { summary, positions, vaults } = EARN_DATA;
 
 beforeEach(() => {
+  mockEarnDeposit = { state: 'available' };
+  mockFeatureAvailability.mockClear();
   mockHaptic.mockReset();
   mockNavigate.mockReset();
   mockUseEarnPositions.mockReturnValue(EARN_DATA);
@@ -485,4 +496,46 @@ it('lists the Testnet native funding asset while keeping the vault underlying se
   expect(row).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
   expect(row).not.toHaveTextContent(`earnVaultAssetOnNetwork:${vault.asset},${vault.network}`);
   expect(screen.getByTestId(`earn-vault-row-${morpho.id}`)).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
+});
+
+describe('Earn page availability notice', () => {
+  it('opens on the not-available notice, above the summary, where Earn is not offered in the location', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'restricted', detail: 'region' };
+    render(<Earn />);
+
+    const notice = screen.getByTestId('earn-unavailable-notice');
+    expect(notice).toHaveTextContent('geoRestrictedTitle');
+    expect(notice).toHaveTextContent('geoRestrictedBody');
+    // First in the pane, before "Total earned".
+    const panel = screen.getByTestId('earn-summary-panel');
+    expect(notice.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mockFeatureAvailability).toHaveBeenLastCalledWith('earnDeposit', { hold: true });
+  });
+
+  it('shows the service notice while Earn deposits are down', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<Earn />);
+
+    expect(screen.getByTestId('earn-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  it.each<[string, FeatureAvailability]>([
+    ['available', { state: 'available' }],
+    ['still loading', { state: 'loading' }]
+  ])('shows no notice while Earn is %s', (_label, availability) => {
+    mockEarnDeposit = availability;
+    render(<Earn />);
+
+    expect(screen.queryByTestId('earn-unavailable-notice')).toBeNull();
+  });
+
+  it('shows no location notice on a network with no Earn, and holds no fast poll there', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'restricted', detail: 'region' };
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, positions: [], vaults: [], notOnNetwork: true });
+    render(<Earn />);
+
+    expect(screen.getByTestId('earn-unavailable')).toBeInTheDocument();
+    expect(screen.queryByTestId('earn-unavailable-notice')).toBeNull();
+    expect(mockFeatureAvailability).toHaveBeenLastCalledWith('earnDeposit', { hold: false });
+  });
 });
