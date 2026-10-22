@@ -376,7 +376,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
 
     const row = copyControl().querySelector('[aria-live="polite"]')!;
-    expect(row).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0', 'text-label');
+    expect(row).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0', 'text-caption-heading', 'font-bold');
     expect(row.children[0]).toHaveAttribute('data-copy-label');
     expect(screen.getByText(ADDRESS)).toHaveClass('truncate');
     expect(row.children[1]).toHaveAttribute('data-copy-icon');

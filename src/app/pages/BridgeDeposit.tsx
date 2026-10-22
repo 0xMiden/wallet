@@ -74,6 +74,15 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
     navigate('/receive');
   }, [onClose]);
 
+  // The X leaves the flow altogether: back steps to Receive, close returns Home.
+  const handleExit = useCallback(() => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    navigate('/');
+  }, [onClose]);
+
   const handleConnect = useCallback(async () => {
     hapticMedium();
     try {
@@ -126,6 +135,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       <FlowLayout
         title={t('bridgeInTitle')}
         onBack={handleClose}
+        onClose={handleExit}
         footer={
           <Button
             accent="receive"

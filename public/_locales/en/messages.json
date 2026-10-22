@@ -1,4 +1,16 @@
 {
+  "homeDeposit": {
+    "message": "Deposit",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "Into Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Out of Miden",
+    "englishSource": "Out of Miden"
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
