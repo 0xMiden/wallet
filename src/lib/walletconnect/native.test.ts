@@ -704,6 +704,51 @@ describe('waiting for the session to approve an added chain', () => {
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
   });
 
+  it('does not let the initial state read replace a deletion that arrived while it was in flight', async () => {
+    let releaseStale: (state: ReownState) => void = () => undefined;
+    const stale = new Promise<ReownState>(resolve => {
+      releaseStale = resolve;
+    });
+    const deleted: ReownState = { configured: true, connected: false, accounts: [] };
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(deleted)
+      .mockImplementationOnce(() => stale);
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(deleted);
+    releaseStale(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+  });
+
+  it('does not let a reread after a rejected switch replace a deletion that arrived while it was in flight', async () => {
+    let releaseStale: (state: ReownState) => void = () => undefined;
+    const stale = new Promise<ReownState>(resolve => {
+      releaseStale = resolve;
+    });
+    const deleted: ReownState = { configured: true, connected: false, accounts: [] };
+    jest
+      .mocked(rawNativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(deleted)
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockImplementationOnce(() => stale);
+    jest.mocked(rawNativeReown.request).mockRejectedValueOnce(new Error('User rejected'));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    updateSession(deleted);
+    releaseStale(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+  });
+
   it('does not let a state read that started before a deletion replace that deletion', async () => {
     let releaseStale: (state: ReownState) => void = () => undefined;
     const stale = new Promise<ReownState>(resolve => {
@@ -755,7 +800,8 @@ describe('waiting for the session to approve an added chain', () => {
 
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
     expect(rawNativeRequest).toHaveBeenCalledTimes(2);
-    expect(NativeReown.addListener).not.toHaveBeenCalled();
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
   });
 });
 
