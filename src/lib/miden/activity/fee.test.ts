@@ -40,9 +40,9 @@ const asset = (amount: bigint, faucet: string) => ({
   faucetId: () => faucet
 });
 
-const outputNote = (tag: number, assets: ReturnType<typeof asset>[]) => ({
+const outputNote = (tag: number, assets: ReturnType<typeof asset>[], nfts: unknown[] = []) => ({
   metadata: () => ({ tag: () => ({ asU32: () => tag }) }),
-  assets: () => ({ fungibleAssets: () => assets })
+  assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => nfts })
 });
 
 const result = (notes: ReturnType<typeof outputNote>[]) =>
@@ -146,6 +146,15 @@ describe('partitionFeeNote', () => {
   it('rejects a fee-tagged note carrying more than one asset', () => {
     const multi = outputNote(TX_FEE_NOTE_TAG, [asset(1n, 'native'), asset(2n, 'other')]);
     expect(partitionFeeNote([multi] as any, native, CHARGING).feeNote).toBeUndefined();
+  });
+
+  it('rejects a fee-tagged note that also carries an NFT, so the NFT stays on the approval sheet', () => {
+    // The fee note is removed from the sheet's totals and note count. A site could otherwise add a
+    // fee-tagged note holding one native unit plus the user's NFT and have the NFT erased with it.
+    const spoof = outputNote(TX_FEE_NOTE_TAG, [asset(1n, 'native')], [{}]);
+    const { feeNote, userNotes } = partitionFeeNote([spoof] as any, native, CHARGING);
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([spoof]);
   });
 
   it('trusts NEITHER note when two candidates appear', () => {

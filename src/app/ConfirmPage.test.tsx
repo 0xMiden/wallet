@@ -199,6 +199,9 @@ jest.mock('./confirm/decode', () => {
     account,
     outgoing: [{ faucetId: 'fA', amount: 10n }],
     incoming,
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
     inputNotesConsumed: incoming.length,
     outputNotesCreated: 1,
     storageChanged: false
@@ -210,6 +213,9 @@ jest.mock('./confirm/decode', () => {
     declaredRequestToView: jest.fn(() => ({
       outgoing: [{ faucetId: 'fA', amount: 10n }],
       incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 0,
       outputNotesCreated: 1,
       storageChanged: false
@@ -1042,7 +1048,8 @@ describe('sign payload — signingInputs', () => {
     const vault = {
       isEmpty: () => vaultEmpty,
       removedFungibleAssets: () => removed,
-      addedFungibleAssets: () => added
+      addedFungibleAssets: () => added,
+      numAssets: () => removed.length + added.length
     };
     const accountDelta = {
       id: () => 'acc-id',
@@ -1057,9 +1064,18 @@ describe('sign payload — signingInputs', () => {
       outputNotes: () => ({
         numNotes: () => 3,
         notes: () => [
-          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
-          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
-          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) }
+          {
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          },
+          {
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          },
+          {
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          }
         ]
       })
     };
@@ -1125,6 +1141,9 @@ describe('sign payload — signingInputs', () => {
         { faucetId: 'bech32:add1', amount: 300 },
         { faucetId: 'bech32:add-null', amount: 400 }
       ],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
       inputNotesConsumed: 2,
       outputNotesCreated: 3,
       storageChanged: true
