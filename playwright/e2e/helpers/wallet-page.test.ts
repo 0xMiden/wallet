@@ -203,6 +203,24 @@ describe('ChromeWalletPage balance scoping', () => {
     expect(state.balances['account-a'][0].balance).toBe(10);
   });
 
+  it('rejects when an idle-started refresh returns without landing', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balancesLastFetched: { 'account-a': 1 },
+      balances: { 'account-a': [{ tokenId: 'native-faucet', balance: 100 }] },
+      fetchBalances: jest.fn(async () => undefined)
+    };
+    installBalanceState(state, []);
+    Object.defineProperty(window, '__TEST_BALANCE_READ_STATE__', {
+      configurable: true,
+      value: (account: string) => (account === 'account-a' ? { inFlight: false } : { inFlight: false })
+    });
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+
+    await expect(wallet.refreshBalances()).rejects.toThrow();
+  });
+
   it('delegates an unscoped getBalance call without inventing a filter', async () => {
     const state = {
       currentAccount: { publicKey: 'account-a' },

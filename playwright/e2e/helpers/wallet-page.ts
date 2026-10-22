@@ -2285,16 +2285,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       const yieldRead = () => new Promise<void>(resolve => setTimeout(resolve, 50));
       const stampOf = () => (store.getState().balancesLastFetched || {})[account] || 0;
 
-      for (;;) {
-        while (hook(account)?.inFlight === true) {
-          await yieldRead();
-        }
-        const before = stampOf();
-        const now = store.getState();
-        await now.fetchBalances(account, now.assetsMetadata || {});
-        if (stampOf() > before) return;
+      while (hook(account)?.inFlight === true) {
         await yieldRead();
       }
+      const before = stampOf();
+      const now = store.getState();
+      await now.fetchBalances(account, now.assetsMetadata || {});
+      if (stampOf() > before) return;
+      throw new Error(`refreshBalances did not land for ${account}`);
     });
   }
 
