@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when the stored WalletConnect session cannot be restored at startup: the restore is given ten seconds, after which the stored session is forgotten, so the next open starts disconnected, and Connect is freed for a fresh pairing. A restore that leaves `connecting` is left alone, opening the connect modal pauses the bound and shows that connecting state, and closing the modal while the status is still connecting starts the ten seconds again.
+- [FIX][all] Crash reports for a Guardian authentication refusal now say whether the key the wallet signed with is one of the account's signers on chain, which key signed, and whether the account was waiting to replace its everyday key
 - [FIX][all] The Earn tab shows the "Not available where you are" notice at the top, above Total earned, when Earn is not offered in your location, instead of only inside a vault (#1753).
 - [FIX][all] The token page's 24h change pill shows the percentage change, not the dollar change with a percent sign.
 - [FIX][all] The eligibility service enables Swap for Near Intents with an explicit switch and valid 1Click mapping, and supports manual deployment from the wallet main branch independently of wallet releases.
