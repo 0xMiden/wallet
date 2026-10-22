@@ -1,11 +1,7 @@
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
-import {
-  getSwapSettlementNotes,
-  getSwapSettlementNotesForOrders,
-  type SwapSettlementNotes
-} from 'lib/miden/transaction/get';
+import { getSwapSettlementNotesForOrders, type SwapSettlementNotes } from 'lib/miden/transaction/get';
 
 import type { IHistoryEntry } from './IHistoryEntry';
 import { swapFillProgress } from './swapFillProgress';
@@ -25,9 +21,6 @@ const isSwapProgressRow = (tx: ITransaction): boolean => {
   const extra = tx.extraInputs;
   return Boolean(extra) && extra.requestedAmount !== undefined;
 };
-
-const isTransactionList = (value: ITransaction | readonly ITransaction[]): value is readonly ITransaction[] =>
-  Array.isArray(value);
 
 const progressFromSettlement = (tx: ITransaction, settlement: SwapSettlementNotes): HistoryProgress => {
   const extra = tx.extraInputs;
@@ -51,16 +44,6 @@ const progressFromSettlement = (tx: ITransaction, settlement: SwapSettlementNote
   });
   const progress = swapFillProgress(receipt.filledAmount, extra.requestedAmount);
   return progress ? { swapFillProgress: progress.text } : {};
-};
-
-const resolveSwapHistoryProgressForRow = async (tx: ITransaction): Promise<HistoryProgress> => {
-  if (!isSwapProgressRow(tx)) return {};
-  try {
-    return progressFromSettlement(tx, await getSwapSettlementNotes(tx.id));
-  } catch {
-    // Progress is optional. An unavailable local read must not hide the order.
-    return {};
-  }
 };
 
 const resolveSwapHistoryProgressForRows = async (
@@ -102,10 +85,6 @@ const resolveSwapHistoryProgressForRows = async (
  * reads every eligible order in that list once, then derives each row from that result.
  */
 export async function resolveSwapHistoryProgress(txs: readonly ITransaction[]): Promise<Map<string, HistoryProgress>>;
-export async function resolveSwapHistoryProgress(tx: ITransaction): Promise<HistoryProgress>;
-export async function resolveSwapHistoryProgress(
-  txOrTxs: ITransaction | readonly ITransaction[]
-): Promise<HistoryProgress | Map<string, HistoryProgress>> {
-  if (isTransactionList(txOrTxs)) return resolveSwapHistoryProgressForRows(txOrTxs);
-  return resolveSwapHistoryProgressForRow(txOrTxs);
+export async function resolveSwapHistoryProgress(txs: readonly ITransaction[]): Promise<Map<string, HistoryProgress>> {
+  return resolveSwapHistoryProgressForRows(txs);
 }
