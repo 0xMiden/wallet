@@ -4966,6 +4966,30 @@
     "message": "Returning funds",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "Payout stuck",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Retry payout",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "Returned · $time$",
     "englishSource": "Returned · $time$",
