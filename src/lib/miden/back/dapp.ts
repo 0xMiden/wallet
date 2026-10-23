@@ -145,7 +145,7 @@ import {
   onceAfterUnlock,
   waitForUnlock
 } from './dapp-locked';
-import { isFieldWord } from './login-word';
+import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
@@ -984,11 +984,7 @@ const sessionLoginKey = (dApp: MidenDAppSession, domain: string) => () =>
 
 function isLoginWord(payload: unknown): boolean {
   if (typeof payload !== 'string') return false;
-  try {
-    return isFieldWord(b64ToU8(payload));
-  } catch {
-    return false;
-  }
+  return fieldWordFromBase64(payload) !== null;
 }
 
 const hasDAppErrorCode = (message: string): boolean =>

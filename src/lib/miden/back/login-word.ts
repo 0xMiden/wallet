@@ -1,3 +1,5 @@
+import { b64ToU8 } from 'lib/shared/helpers';
+
 /** The Miden field modulus, 2^64 - 2^32 + 1. A word element must be strictly below it. */
 export const FIELD_MODULUS = 0xffffffff00000001n;
 
@@ -12,4 +14,15 @@ export function isFieldWord(bytes: Uint8Array): boolean {
     if (view.getBigUint64(offset, true) >= FIELD_MODULUS) return false;
   }
   return true;
+}
+
+/** Decodes base64 only when its raw representation fits a 32-byte word. */
+export function fieldWordFromBase64(payload: string): Uint8Array | null {
+  if (payload.length > 44) return null;
+  try {
+    const bytes = b64ToU8(payload);
+    return isFieldWord(bytes) ? bytes : null;
+  } catch {
+    return null;
+  }
 }

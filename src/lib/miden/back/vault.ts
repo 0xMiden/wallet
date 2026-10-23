@@ -59,7 +59,7 @@ import {
 } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { isFieldWord } from './login-word';
+import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
 import {
   MNEMONIC_PATTERN,
@@ -2977,13 +2977,8 @@ function decodeLoginKeyRoot(hex: string): Uint8Array {
 
 /** Decode base64 of 32 bytes holding four little-endian u64s strictly below 0xffffffff00000001, before any key read. */
 function loginWordBytes(word: string): Uint8Array {
-  let bytes: Uint8Array;
-  try {
-    bytes = b64ToU8(word);
-  } catch {
-    throw notAWordToSign();
-  }
-  if (!isFieldWord(bytes)) throw notAWordToSign();
+  const bytes = fieldWordFromBase64(word);
+  if (bytes === null) throw notAWordToSign();
   return bytes;
 }
 
