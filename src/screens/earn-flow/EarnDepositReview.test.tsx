@@ -494,7 +494,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('opens nothing for an amount finer than the collateral scale', async () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1.0000001');
+      renderReview(AAVE_VAULT.id, '?amount=1.0000001');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
