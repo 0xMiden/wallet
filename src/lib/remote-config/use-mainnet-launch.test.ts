@@ -258,9 +258,13 @@ describe('useMainnetLaunched', () => {
 });
 
 describe('isInviteOnlyRequired', () => {
-  it('requires invite-only mode after launch or when already on mainnet', () => {
-    expect(isInviteOnlyRequired(false, MIDEN_NETWORK_NAME.TESTNET)).toBe(false);
-    expect(isInviteOnlyRequired(true, MIDEN_NETWORK_NAME.TESTNET)).toBe(true);
-    expect(isInviteOnlyRequired(false, MIDEN_NETWORK_NAME.MAINNET)).toBe(true);
+  it.each([
+    [false, MIDEN_NETWORK_NAME.TESTNET, false, false],
+    [true, MIDEN_NETWORK_NAME.TESTNET, false, true],
+    [true, MIDEN_NETWORK_NAME.TESTNET, true, false],
+    [false, MIDEN_NETWORK_NAME.MAINNET, false, true],
+    [true, MIDEN_NETWORK_NAME.MAINNET, true, true]
+  ])('launched=%s network=%s developerChoice=%s -> %s', (launched, network, developerChoice, expected) => {
+    expect(isInviteOnlyRequired(launched, network, developerChoice)).toBe(expected);
   });
 });
