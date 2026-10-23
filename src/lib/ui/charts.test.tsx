@@ -2,9 +2,18 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
-import type { ChartConfig } from './charts';
-
-import { ChartContainer, ChartLegend, ChartLegendContent, ChartStyle, ChartTooltip, ChartTooltipContent } from './charts';
+import {
+  CHART_DOT_RING,
+  CHART_POSITIVE,
+  CHART_RULE,
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartStyle,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartValueTooltip
+} from './charts';
 
 // Recharts pulls in ResizeObserver-based `ResponsiveContainer` (which renders
 // nothing under jsdom's zero-size layout) plus heavy SVG chart primitives. We
@@ -24,8 +33,8 @@ jest.mock('recharts', () => ({
 
 // Render a tooltip/legend inside a real `ChartContainer` so it receives the
 // `ChartContext` the way the app wires it up.
-const renderInChart = (ui: React.ReactElement, config: ChartConfig = {}) =>
-  render(<ChartContainer config={config}>{ui}</ChartContainer>);
+const renderInChart = (ui: React.ReactElement, config: any = {}) =>
+  render(<ChartContainer config={config}>{ui as any}</ChartContainer>);
 
 describe('recharts re-exports', () => {
   it('re-exports the recharts Tooltip and Legend primitives', () => {
@@ -469,5 +478,24 @@ describe('ChartLegendContent', () => {
 
     expect(screen.getByText('Pcfg')).toBeInTheDocument();
     expect(screen.getByText('Qcfg')).toBeInTheDocument();
+  });
+});
+
+describe('earn chart tokens', () => {
+  it('are the theme custom properties the earn screens paint with', () => {
+    expect(CHART_POSITIVE).toBe('var(--status-positive)');
+    expect(CHART_DOT_RING).toBe('var(--ds-page)');
+    expect(CHART_RULE).toBe('var(--ds-hairline)');
+  });
+});
+
+describe('ChartValueTooltip', () => {
+  it('renders the value and its label on the inverted card', () => {
+    const { container } = render(<ChartValueTooltip value="$12.50" label="Mar 4" />);
+
+    const card = container.firstElementChild as HTMLElement;
+    expect(card).toHaveClass('rounded-xl', 'bg-ink', 'px-2', 'py-1', 'text-pure-white', 'shadow');
+    expect(screen.getByText('$12.50')).toHaveClass('text-badge');
+    expect(screen.getByText('Mar 4')).toHaveClass('text-caption', 'text-pure-white/70');
   });
 });
