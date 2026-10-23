@@ -2087,6 +2087,14 @@
     "message": "Executa a ordem ao preço atual.",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "É improvável que essa troca seja preenchida com a liquidez disponível no momento. Você pode continuar, mas sua ordem pode permanecer não preenchida até que expire.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Apenas parte dessa ordem de swap pode ser preenchida com a liquidez disponível no momento. Você pode continuar, mas o restante pode permanecer não preenchido até que a ordem expire.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "Você recebe cerca de $amount$ em $symbol$.",
     "englishSource": "You receive about $amount$ $symbol$.",
@@ -2554,8 +2562,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "Use uma Seed Phrase existente de 12 palavras. Você também pode importar carteiras de outros fornecedores de carteiras.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "Você pode usar uma frase de recuperação compatível de 12 palavras de outra carteira para criar uma conta Miden. Isso não transfere ativos de outras redes.",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "Importar com arquivo de carteira criptografado",
@@ -2961,10 +2969,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "Digite a frase de recuperação de 12 palavras da sua carteira.",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Apenas frases de recuperação Miden são suportadas.",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Sua Carteira está pronta!",
@@ -3964,22 +3968,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ Não foi possível acessar guardian(s), portanto a detecção pode estar incompleta.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "Digite uma frase de recuperação válida de 12 palavras para recuperar sua conta Miden ou criar uma nova.",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "Apenas frases de recuperação de 12 palavras são suportadas. A frase que você colou é mais longa, por isso nada foi inserido.",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "Não foi encontrado nenhum backup nos Guardians que verificamos",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "Nada foi recuperado. Se um Guardian que não verificamos tiver o backup dessa frase, selecione-o abaixo. Caso contrário, você pode criar uma nova conta com essa frase.",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "Não foi possível verificar todos os Guardian, portanto, não podemos dizer se existe um backup. Tente novamente ou selecione o Guardian que você utilizou.",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "Crie uma nova conta com esta frase",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "Criar uma nova conta com esta frase?",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "Isso cria uma nova conta. Não recupera uma conta já existente.",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "Não podemos garantir como essa frase foi criada nem qual é o seu nível de segurança. Se ela vier a ser exposta, todas as carteiras que a utilizam poderão ser afetadas.",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "Sua frase de recuperação permanece neste dispositivo.",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "Compreendo o risco e desejo usar essa expressão para uma nova conta",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "Se ainda não houver uma conta pública para essa expressão, a importação criará uma nova a partir dela.",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "Tente fazer a detecção novamente",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "Não foi possível localizar sua conta neste endereço guardian. Verifique o URL ou importe-a como uma conta pública.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "Não foi possível encontrar um backup neste Guardian. Verifique a URL ou escolha outro Guardian.",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "Este “guardian” opera em outra rede Miden, portanto não pode recuperar uma conta aqui.",
@@ -4036,6 +4079,18 @@
   "assetChanges": {
     "message": "Alterações nos ativos",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Esta transação também movimenta um ativo que a carteira não pode listar, como um NFT. Só continue se você confiar nela.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "Desconhecido",

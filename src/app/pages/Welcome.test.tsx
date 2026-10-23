@@ -1786,6 +1786,169 @@ describe('Welcome — import-select-recovery-method', () => {
 });
 
 // ===========================================================================
+// A new account from the phrase an import entered, when no backup was found
+// ===========================================================================
+
+describe('Welcome — a new account from an entered phrase', () => {
+  // A seed import up to its recovery-method step, where the lookup found nothing.
+  async function stageNoBackup() {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#import-select-recovery-method');
+  }
+
+  async function stageReusedPhrase() {
+    await stageNoBackup();
+    await dispatch({ id: 'create-with-phrase' });
+    await setHash('#reused-phrase');
+  }
+
+  it('offers the new account only to a seed import on a network that can create one', async () => {
+    await stageNoBackup();
+    expect(mockFlowProps.current.canCreateWithPhrase).toBe(true);
+  });
+
+  it('does not offer it on an invite-only network, which cannot create without a code', async () => {
+    mockInviteOnly = true;
+    await stageNoBackup();
+    expect(mockFlowProps.current.canCreateWithPhrase).toBe(false);
+  });
+
+  it('does not offer it to a hot-key import, which holds no phrase', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-key' });
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#import-select-recovery-method');
+    expect(mockFlowProps.current.canCreateWithPhrase).toBe(false);
+  });
+
+  it('shows the reused-phrase warning before anything is created, as a create flow on the same phrase', async () => {
+    await stageNoBackup();
+    await dispatch({ id: 'create-with-phrase' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#reused-phrase');
+    await setHash('#reused-phrase');
+    expect(currentStep()).toBe(OnboardingStep.ReusedPhrase);
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockFlowProps.current.seedPhrase).toEqual(['aa', 'bb', 'cc', 'dd']);
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('continues to the Guardian intro once the warning is acknowledged', async () => {
+    await stageReusedPhrase();
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
+    await setHash('#guardian-intro');
+    expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+  });
+
+  it('creates a Guardian account from the entered phrase, not a recovery, and skips the backup prompt', async () => {
+    await stageReusedPhrase();
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+    await setHash('#guardian-intro');
+    await dispatch({
+      id: 'choose-guardian-submit',
+      payload: { guardianId: 'open-zeppelin', guardianEndpoint: 'https://g' }
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+
+    await dispatch({ id: 'confirmation' });
+
+    // isImport=false: the Guardian lookup is a creation here, with the password the import already took.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'aa bb cc dd',
+      false,
+      'https://g',
+      undefined
+    );
+    // The phrase is the user's own, so there is no new phrase to back up.
+    expect(mockSeedWalletPrompt).not.toHaveBeenCalled();
+  });
+
+  it('ignores the offer when there is no entered phrase to create from', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'create-with-phrase' });
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#reused-phrase');
+  });
+
+  it('ignores the offer on an invite-only network', async () => {
+    mockInviteOnly = true;
+    await stageNoBackup();
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-with-phrase' });
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#reused-phrase');
+  });
+
+  it('does not move on from the warning that was never offered', async () => {
+    await stageNoBackup();
+    mockNavigate.mockClear();
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('sends a reload or a history jump to the reused-phrase step back to Welcome', async () => {
+    await renderWelcome();
+    await setHash('#reused-phrase');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('goes back from the warning to the lookup, as the import it came from', async () => {
+    await stageReusedPhrase();
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'back' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    await setHash('#import-select-recovery-method');
+    expect(currentStep()).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+  });
+
+  it('goes back from the Guardian intro to the warning rather than a protection step', async () => {
+    await stageReusedPhrase();
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+    await setHash('#guardian-intro');
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'back' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#reused-phrase');
+  });
+
+  it('turns back into an import when history returns to the lookup', async () => {
+    await stageReusedPhrase();
+
+    await setHash('#import-select-recovery-method');
+
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    // A recovery from here is a recovery: the registration is an import again.
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'aa bb cc dd',
+      true,
+      'https://g',
+      undefined
+    );
+  });
+});
+
+// ===========================================================================
 // register() via the confirmation action
 // ===========================================================================
 
