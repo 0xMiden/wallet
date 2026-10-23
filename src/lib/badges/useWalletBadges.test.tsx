@@ -9,6 +9,7 @@ import { useHasUnreadBadges, useMarkWalletBadgesViewed, useWalletBadges } from '
 const mockValues = new Map<string, unknown>();
 const mockListeners = new Set<() => void>();
 const mockVaultListeners = new Set<(value: unknown) => void>();
+const mockTurnKeys: string[] = [];
 let mockTurn = Promise.resolve();
 jest.mock('lib/miden/front/storage', () => ({
   useStorage: (key: string, fallback: unknown) => {
@@ -32,7 +33,8 @@ jest.mock('lib/miden/front/storage', () => ({
     mockValues.set(key, value);
     mockListeners.forEach(cb => cb());
   },
-  inStorageTurn: (_key: string, operation: () => Promise<void>) => {
+  inStorageTurn: (key: string, operation: () => Promise<void>) => {
+    mockTurnKeys.push(key);
     mockTurn = mockTurn.then(operation);
     return mockTurn;
   }
@@ -48,6 +50,7 @@ function Collection() {
 }
 beforeEach(() => {
   mockValues.clear();
+  mockTurnKeys.length = 0;
   mockTurn = Promise.resolve();
 });
 
@@ -107,11 +110,35 @@ test('extension vault removal cancels an acknowledgement queued before reset', a
   mockValues.set(BADGE_STORAGE_KEY, ['first-send']);
   mockValues.set(BADGE_SEEN_STORAGE_KEY, []);
   render(<Collection />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const acknowledgementQueuedBeforeReset = mockTurnKeys.includes(BADGE_STORAGE_KEY);
   mockValues.clear();
   mockVaultListeners.forEach(cb => cb(undefined));
   await act(async () => {
     release();
     await mockTurn;
   });
+  expect(acknowledgementQueuedBeforeReset).toBe(true);
   expect(mockValues.has(BADGE_SEEN_STORAGE_KEY)).toBe(false);
+});
+
+test('collection writes a queued acknowledgement when no reset intervenes', async () => {
+  let release: () => void = () => {};
+  mockTurn = new Promise(resolve => {
+    release = resolve;
+  });
+  mockValues.set(BADGE_STORAGE_KEY, ['first-send']);
+  mockValues.set(BADGE_SEEN_STORAGE_KEY, []);
+  render(<Collection />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await act(async () => {
+    release();
+    await mockTurn;
+  });
+  expect(mockValues.get(BADGE_SEEN_STORAGE_KEY)).toEqual(['first-send']);
+  expect(mockTurnKeys).toContain(BADGE_STORAGE_KEY);
 });
