@@ -30,7 +30,7 @@ First, check your internet connection and reopen the app to let it re-sync. If a
 Yes. Your recovery phrase, private keys, account names, balances, and transaction history are generated and held only on your device. We operate no accounts, analytics, or servers that receive your data. See the [Privacy Policy](https://0xmiden.github.io/wallet/privacy/).
 
 ### How do I back up or move my wallet to a new device?
-Keep your recovery phrase safe and import it on the new device: it restores a wallet of Guardian accounts. If the wallet also holds a fully private or imported account, **Settings → Security → Encrypted Wallet File** exports a file that restores those too. Never store your recovery phrase in plain text where others could access it.
+Keep your recovery phrase safe and import it on the new device: it restores a wallet of Guardian accounts while your Guardian Operator is available, because the Operator holds the account state. For a copy that does not depend on the Operator, **Settings → Security → Encrypted Wallet File** exports a file holding your recovery phrase and your account state. Restoring from it also brings back fully private and imported accounts. A Guardian account restored from the file asks you to replace its everyday key, which needs your Guardian Operator, or to use your saved everyday key pair (**Settings → Keys → Reveal Private Key**). The file is a snapshot of the moment you saved it, so save a new one after you send or receive. Never store your recovery phrase in plain text where others could access it.
 
 ### Can I remove the recovery phrase from this device?
 

@@ -3559,6 +3559,27 @@
     "message": "Я не буду никому предоставлять доступ к своему зашифрованному файлу кошелька, в том числе и компании Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "Состояние счета $accountNames$ находится в этом файле",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Файл содержит вашу фразу восстановления и состояние счёта, которое в ином случае хранит для вас оператор Guardian, поэтому любой, у кого есть этот файл и его пароль, может прочитать и то, и другое. Он не содержит повседневного ключа: после восстановления кошелек заменяет его через вашего оператора Guardian, либо вы можете использовать сохраненную пару повседневных ключей (Настройки → Ключи → Показать закрытый ключ). Файл представляет собой моментальный снимок: после отправки или получения средств сохраните новый файл, поскольку старый файл не сможет восстановить данные, появившиеся после его создания.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "В настоящее время происходит ротация. Дождитесь её завершения, а затем попробуйте ещё раз.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Использовать мою сохраненную пару повседневных ключей",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Не восстановлено из этого файла: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -4981,6 +5002,30 @@
   "swapReclaiming": {
     "message": "Возврат средств",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "Застрявшая выплата",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Выплата по этому свопу постоянно завершается неудачей, поскольку данный аккаунт не может оплатить сетевую комиссию для её получения. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку прямо сейчас.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Выплата по этому свопу постоянно завершается сбоем на вашем Guardian. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку сейчас.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Выплата по этому свопу постоянно завершается сбоем, поскольку не удалось установить соединение с сетью. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку прямо сейчас.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Выплата по этому свопу постоянно завершается неудачей. Кошелек повторяет попытку один раз в день, либо вы можете повторить попытку сейчас.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Повторная попытка выплаты",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "Вернуто · $time$",

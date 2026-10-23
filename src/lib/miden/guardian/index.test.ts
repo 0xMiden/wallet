@@ -228,6 +228,7 @@ const mockGetSignerDetailsFromAccount = jest.fn();
 // routes its write THROUGH it rather than calling accounts.insert directly.
 const mockInsertGuardianAccountMonotonically = jest.fn();
 jest.mock('./account', () => ({
+  getSignerCommitmentsFromAccount: () => [],
   // Kept REAL: it is pure string validation, and it is the guard that keeps a
   // guardian's wire response out of the transaction script source.
   assertGuardianKeyCommitment: jest.requireActual('./account').assertGuardianKeyCommitment,
@@ -595,7 +596,7 @@ describe('MultisigService', () => {
         expect(createCustomFn).not.toHaveBeenCalled();
       });
 
-      it('names a rejected rebased proposal creation but not a failed rebuild', async () => {
+      it('names a rejected rebased proposal creation apart from a failed rebuild', async () => {
         const { service, createCustomFn } = arrange();
         const error = new Error('proposal refused');
         createCustomFn.mockRejectedValueOnce(error);
@@ -605,7 +606,7 @@ describe('MultisigService', () => {
         const buildError = new Error('rebuild failed');
         mockFeeAwareRequestBuilder.mockRejectedValueOnce(buildError);
         await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toBe(buildError);
-        expect(snapshotCrashDiagnostics(buildError)).toEqual({});
+        expect(snapshotCrashDiagnostics(buildError)).toEqual({ proposalStep: 'rebase_build' });
       });
 
       // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
@@ -2596,6 +2597,26 @@ describe('MultisigService', () => {
       expect(multisigClientConfig.load).toHaveBeenCalledWith('acc-id', expect.anything());
       // Endpoint is resolved per-account (here falling back to the stored value).
       expect(svc.guardianEndpoint).toBe('https://stored.guardian.test');
+    });
+
+    it('records the cold signer facts on the service, and on a Guardian authentication refusal while loading', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub', requiresHotKeyRotation: true } as never;
+      const facts = { guardianSignerInSet: 'unknown', guardianSigningKey: 'cold', hotKeyRotationPending: 'yes' };
+      mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'cold-commit-no-prefix' });
+      multisigClientConfig.load.mockResolvedValueOnce(makeMultisig());
+      const svc = await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig');
+      expect(svc.authFacts).toEqual(facts);
+      const refusal = Object.assign(new Error('authentication failed for acc-id'), {
+        name: 'GuardianHttpError',
+        status: 401,
+        code: 'authentication_failed'
+      });
+      multisigClientConfig.load.mockRejectedValueOnce(refusal);
+      await expect(MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig')).rejects.toBe(
+        refusal
+      );
+      expect(snapshotCrashDiagnostics(refusal)).toEqual(facts);
     });
 
     it('throws when the WalletAccount has no coldPublicKey', async () => {
