@@ -2075,6 +2075,14 @@
     "message": "現在の価格で約定する。",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "現在の流動性では、このスワップ注文が約定する可能性は低いと思われます。手続きを続行することは可能ですが、注文は有効期限が切れるまで未約定のままとなる可能性があります。",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "このスワップ注文のうち、現在利用可能な流動性で約定できるのは一部のみです。取引を続行することは可能ですが、残りの部分は注文の有効期限が切れるまで未約定のままとなる可能性があります。",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "$amount$相当の$symbol$を受け取ります。",
     "englishSource": "You receive about $amount$ $symbol$.",
