@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read.
+- [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read. While launch is pending, the wallet checks the clock each second so a system clock change cannot leave the launch state out of date.
 
 - [FIX][all] Crash reports for a failed inbound bridge now name which wallet or network error it was (a chain, provider or RPC class, or a receipt wait that ran out of time), whether its balance was too low or could not be read, and, for a deposit the App closed before recording, how the App knew no screen still owned it and which USDCx route it recorded (BREAD-WALLET-2V, -2W, -2Y, -3S)
 - [FIX][e2e] The mainnet nightly consumes outstanding notes on the plain account and the Guardian account before it reads either vault, subtracts that consume from the two-night reserve only when the drain submitted one so a skip cannot pass one transaction budget below that figure, waits out an in-flight balance read before judging the vault, and opens Guardian recovery from the invite-only Welcome so that claim can run.

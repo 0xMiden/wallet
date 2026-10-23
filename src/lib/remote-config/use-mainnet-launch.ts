@@ -3,9 +3,8 @@ import { useEffect, useState } from 'react';
 import { useBridgeConfigSnapshot } from './use-feature-availability';
 import { selectMainnetLaunchAt } from './values';
 
-// The longest wait one timer takes: a browser clamps a longer `setTimeout` delay to a value that fires at
-// once, so a far-off moment is reached through a chain of waits.
-const MAX_TIMER_MS = 0x7fffffff;
+// Check the clock each second while launch is pending. A clock change does not reset a running timer.
+const MAX_TIMER_MS = 1_000;
 
 /**
  * Whether mainnet has launched for the effective network: the document's countdown is on and its moment
@@ -21,7 +20,7 @@ export function useMainnetLaunched(): boolean {
     if (launchAt === null) return;
     const remaining = launchAt - Date.now();
     if (remaining <= 0) {
-      // The moment passed while this render's `now` was still ahead of it: read the clock again.
+      // Launch has passed, but the saved time can still be before launch. Read the clock again.
       if (now < launchAt) setNow(Date.now());
       return;
     }
