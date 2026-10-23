@@ -206,6 +206,8 @@ export interface WalletActions {
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
+  /** Installs the everyday key from a saved key pair on a recovered account that has none. */
+  importHotKeyPair: (accountPublicKey: string, keyPairPayload: string) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
   /**
    * Conditional rollback after the node discards a rotation. Refused unless the

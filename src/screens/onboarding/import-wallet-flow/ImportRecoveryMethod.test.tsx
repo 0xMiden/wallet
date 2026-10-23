@@ -51,6 +51,21 @@ jest.mock('components/ui/TextField', () => ({
   )
 }));
 
+jest.mock('components/ui/Checkbox', () => ({
+  ...jest.requireActual('components/ui/Checkbox'),
+  CheckboxConsent: ({ checked, onCheckedChange, children, 'data-testid': testId }: any) => (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      data-testid={testId}
+      onClick={() => onCheckedChange(!checked)}
+    >
+      {children}
+    </button>
+  )
+}));
+
 jest.mock('app/icons/v2', () => ({
   IconName: { ChevronUp: 'ChevronUp', ChevronDown: 'ChevronDown', Checkmark: 'Checkmark' },
   Icon: ({ name, size }: any) => (
@@ -78,6 +93,7 @@ const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecov
 };
 
 const continueButton = () => screen.getByTestId('continue-button') as HTMLButtonElement;
+const acknowledgeReusedPhrase = () => fireEvent.click(screen.getByTestId('reused-phrase-acknowledge'));
 const guardianInput = () => screen.getByTestId('guardian-input') as HTMLInputElement;
 const ozPreset = () => screen.getByRole('radio', { name: /OpenZeppelin/ });
 const gatewayPreset = () => screen.getByRole('radio', { name: /Gateway Operator/ });
@@ -298,7 +314,8 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
 
-    // On-chain never needs an endpoint, so Continue is enabled.
+    // On-chain never needs an endpoint; it needs the reused-phrase acknowledgement instead.
+    acknowledgeReusedPhrase();
     expect(continueButton()).toBeEnabled();
     fireEvent.click(continueButton());
 
@@ -526,19 +543,132 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(guardianInput()).toHaveValue('https://mine.example.com');
   });
 
-  it('falls back to the manual picker with a retry link when nothing was detected', () => {
-    const onRetryProbe = jest.fn();
-    renderScreen({ probe: done(), onRetryProbe });
+  it('says no backup was found, and offers a new account, when every Guardian answered with none', () => {
+    const onCreateNew = jest.fn();
+    renderScreen({ probe: done(), onCreateNew });
 
-    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
-    expect(screen.getByText('guardianNotDetected')).toBeInTheDocument();
-    // Exactly today's screen underneath.
+    expect(screen.getByTestId('guardian-no-backup')).toBeInTheDocument();
+    expect(screen.getByText('guardianNoBackupFoundTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-lookup-uncertain')).not.toBeInTheDocument();
+    // Exactly today's screen underneath: a Guardian the probe cannot list is still reachable.
     expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
-    expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId('create-account-with-phrase'));
+    expect(onCreateNew).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer a new account when the host cannot create one', () => {
+    renderScreen({ probe: done() });
+
+    expect(screen.getByTestId('guardian-no-backup')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('does not offer a new account for a hot-key import, which holds no phrase', () => {
+    renderScreen({ probe: done(), onCreateNew: jest.fn(), guardianOnly: true });
+
+    expect(screen.getByTestId('guardian-no-backup')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('never presents the new-account offer as a recovery', () => {
+    renderScreen({ probe: done(), onCreateNew: jest.fn() });
+
+    expect(screen.getByTestId('create-account-with-phrase')).toHaveTextContent('createAccountWithPhrase');
+    // The Continue button is the recovery; the offer is a separate, differently named action.
+    expect(continueButton()).toHaveTextContent('continue');
+  });
+
+  it('treats a lookup that failed as uncertain: a retry, and no offer to create an account', () => {
+    const onRetryProbe = jest.fn();
+    renderScreen({
+      probe: done({ failures: [{ endpoint: OZ_ENDPOINT, reason: 'timeout', message: 'timed out' }] }),
+      onRetryProbe,
+      onCreateNew: jest.fn()
+    });
+
+    expect(screen.getByTestId('guardian-lookup-uncertain')).toBeInTheDocument();
+    expect(screen.getByText('guardianLookupUncertain')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-no-backup')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(continueButton()).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: /retryGuardianDetection/ }));
     expect(onRetryProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a probe that errored as uncertain, never as not found', () => {
+    renderScreen({ probe: { status: 'error', message: 'network down' }, onCreateNew: jest.fn() });
+
+    expect(screen.getByTestId('guardian-lookup-uncertain')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-no-backup')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+  });
+
+  it('keeps the plain picker when Guardians answered but none is clearly the current one', () => {
+    renderScreen({
+      probe: done({ matches: [match(), match({ endpoint: GATEWAY_ENDPOINT, nonce: undefined })] }),
+      onCreateNew: jest.fn()
+    });
+
+    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
+    expect(screen.getByText('guardianNotDetected')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('offers a new account after a chosen Guardian answered "not found" at registration', () => {
+    const onCreateNew = jest.fn();
+    renderScreen({
+      probe: detected(),
+      error: 'guardianAccountNotFound',
+      errorId: 'guardianAccountNotFound',
+      onCreateNew
+    });
+
+    fireEvent.click(screen.getByTestId('create-account-with-phrase'));
+    expect(onCreateNew).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer a new account after any other lookup failure', () => {
+    renderScreen({
+      probe: detected(),
+      error: 'guardianUrlUnreachable',
+      errorId: 'guardianUrlUnreachable',
+      onCreateNew: jest.fn()
+    });
+
+    expect(screen.getByText('guardianUrlUnreachable')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('asks for the reused-phrase acknowledgement before a public import, which may create an account', () => {
+    const { onSubmit } = renderScreen({ onCreateNew: jest.fn() });
+
+    selectOnChain();
+
+    expect(screen.getByText('publicImportMayCreate')).toBeInTheDocument();
+    expect(screen.getByText('reusedPhraseWarning')).toBeInTheDocument();
+    expect(continueButton()).toBeDisabled();
+
+    acknowledgeReusedPhrase();
+    expect(continueButton()).toBeEnabled();
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
+
+    // Taking the tick back holds Continue again.
+    acknowledgeReusedPhrase();
+    expect(continueButton()).toBeDisabled();
+  });
+
+  it('does not ask for the acknowledgement on a Guardian import', () => {
+    renderScreen();
+
+    expect(screen.queryByTestId('reused-phrase-acknowledge')).not.toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
   });
 
   // #1648: the only listed operator that knows the account serves a state the chain has moved past,
@@ -588,32 +718,13 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(screen.queryByTestId('guardian-state-behind-chain')).not.toBeInTheDocument();
   });
 
-  it('warns that detection may be incomplete when some operators were unreachable', () => {
+  it('omits the retry link when the host cannot re-run the probe', () => {
     renderScreen({
       probe: done({ failures: [{ endpoint: OZ_ENDPOINT, reason: 'timeout', message: 'timed out' }] })
     });
 
-    expect(screen.getByText('guardianProbePartialFailure')).toBeInTheDocument();
-  });
-
-  it('omits the partial-failure warning when every operator answered', () => {
-    renderScreen({ probe: done() });
-
-    expect(screen.queryByText('guardianProbePartialFailure')).not.toBeInTheDocument();
-  });
-
-  it('omits the retry link when the host cannot re-run the probe', () => {
-    renderScreen({ probe: done() });
-
+    expect(screen.getByTestId('guardian-lookup-uncertain')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /retryGuardianDetection/ })).not.toBeInTheDocument();
-  });
-
-  it('falls back to the manual picker when the probe itself errored', () => {
-    renderScreen({ probe: { status: 'error', message: 'network down' } });
-
-    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
-    expect(continueButton()).toBeEnabled();
   });
 
   it('still surfaces the post-register not-found error alongside a detected guardian', () => {
@@ -628,6 +739,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     selectOnChain();
 
     expect(screen.queryByTestId('guardian-probe-spinner')).not.toBeInTheDocument();
+    acknowledgeReusedPhrase();
     expect(continueButton()).toBeEnabled();
     fireEvent.click(continueButton());
     expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
@@ -698,6 +810,7 @@ describe('on a network that lists no Guardian operator', () => {
     expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
 
+    acknowledgeReusedPhrase();
     fireEvent.click(continueButton());
     expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
   });
@@ -743,6 +856,7 @@ describe('on a network that lists no Guardian operator', () => {
     expect(screen.getByRole('radio', { name: 'importPublicAccount' })).toHaveAttribute('aria-checked', 'true');
     expect(document.body.textContent).not.toContain('https://custom.guardian.example');
 
+    acknowledgeReusedPhrase();
     fireEvent.click(continueButton());
     expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
   });
@@ -776,8 +890,7 @@ describe('user-visible error reporting', () => {
         }
       }
     });
-    expect(screen.getByText('guardianNotDetected')).toBeVisible();
-    expect(screen.getByText('guardianProbePartialFailure')).toBeVisible();
+    expect(screen.getByText('guardianLookupUncertain')).toBeVisible();
     dwellForError();
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });

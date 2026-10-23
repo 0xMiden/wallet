@@ -2550,8 +2550,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "Mevcut 12 kelimelik bir kurtarma ifadesini kullanın. Ayrıca diğer cüzdan sağlayıcılarından da cüzdanları içe aktarabilirsiniz.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "Başka bir cüzdandan uyumlu 12 kelimelik bir kurtarma ifadesi kullanarak bir Miden hesabı oluşturabilirsiniz. Bu işlem, diğer ağlardaki varlıkları aktarmaz.",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "Şifreli Cüzdan Dosyasıyla İçe Aktarma",
@@ -2957,10 +2957,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "Cüzdanınızın 12 kelimelik kurtarma ifadesini girin.",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Yalnızca Miden kurtarma ifadeleri desteklenmektedir.",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Cüzdanınız hazır!",
@@ -3567,6 +3563,27 @@
     "message": "Şifrelenmiş Cüzdan Dosyamı, Bread dahil olmak üzere kimseyle paylaşmayacağım.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "$accountNames$ hesabının durumu bu dosyada yer almaktadır",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Dosya, kurtarma ifadenizi ve Guardian operatörünüzün sizin için sakladığı hesap durumunu içerir; bu nedenle dosyaya ve şifresine sahip olan herkes her ikisini de okuyabilir. Dosyada günlük anahtar bulunmaz: geri yüklemeden sonra cüzdan, Guardian operatörünüz aracılığıyla anahtarı yeniler veya siz kaydedilmiş bir günlük anahtar çifti kullanabilirsiniz (Ayarlar → Anahtarlar → Özel Anahtarı Göster). Bu dosya bir anlık görüntüdür: para gönderdikten veya aldıktan sonra yeni bir dosya kaydedin; çünkü eski bir dosya, o andan sonra gerçekleşen işlemleri geri yükleyemez.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Bir rotasyon hâlâ devam ediyor. Bitmesini bekleyin, ardından tekrar deneyin.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Kaydedilmiş günlük anahtar çiftimi kullan",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Bu dosyadan geri yüklenmedi: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -3939,22 +3956,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ guardian(s) adreslerine ulaşılamadı, bu nedenle tespit işlemi eksik olabilir.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "Miden hesabınızı kurtarmak veya yeni bir hesap oluşturmak için geçerli 12 kelimelik bir kurtarma ifadesi girin.",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "Yalnızca 12 kelimelik kurtarma ifadeleri desteklenmektedir. Yapıştırdığınız ifade daha uzun olduğundan, hiçbir şey girilmemiştir.",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "Kontrol ettiğimiz Guardians'larda yedek bulunamadı",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "Hiçbir şey kurtarılamadı. Kontrol etmediğimiz bir Guardian'da bu ifadenin yedeği varsa, aşağıdan seçin. Aksi takdirde, bu ifadeyle yeni bir hesap oluşturabilirsiniz.",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "Her Guardian'ı kontrol edemedik, bu nedenle bir yedeğin olup olmadığını bilemiyoruz. Lütfen tekrar deneyin veya kullandığınız Guardian'ı seçin.",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "Bu ifadeyle yeni bir hesap oluşturun",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "Bu ifadeyle yeni bir hesap mı oluşturmak istiyorsunuz?",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "Bu işlem yeni bir hesap oluşturur. Mevcut bir hesabı geri getirmez.",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "Bu ifadenin nasıl ortaya çıktığı veya ne kadar güçlü olduğu konusunda bir garanti veremeyiz. Eğer bu ifade ortaya çıkarsa, onu kullanan her cüzdan bundan etkilenebilir.",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "Kurtarma ifadeniz bu cihazda kalır.",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "Riski anlıyorum ve bu ifadeyi yeni bir hesap için kullanmak istiyorum",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "Bu ifade için henüz halka açık bir hesap yoksa, içe aktarma işlemi bu ifadeden yeni bir hesap oluşturur.",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "Tekrar algılamayı deneyin",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "guardian adresinde hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine genel hesap olarak içe aktarın.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "Bu Guardian'da bir yedek bulamadık. URL'yi kontrol edin veya başka bir Guardian seçin.",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "Bu guardian, başka bir Miden ağında çalışır; bu nedenle buradaki bir hesabı kurtaramaz.",
@@ -4011,6 +4067,18 @@
   "assetChanges": {
     "message": "Varlık değişiklikleri",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Bu işlem ayrıca, NFT gibi cüzdanın listeleyemediği bir varlığı da aktarır. Yalnızca güvendiğiniz takdirde devam edin.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "Bilinmiyor",
@@ -4989,6 +5057,30 @@
   "swapReclaiming": {
     "message": "Fonların iadesi",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "Ödeme takıldı",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Bu takas işleminden elde edilecek ödeme, bu hesabın ödemeyi almak için gerekli ağ ücretini ödeyememesi nedeniyle sürekli başarısız oluyor. Cüzdan günde bir kez yeniden dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Bu takas işleminden elde edilen ödeme, Guardian'ınızda sürekli başarısız oluyor. Cüzdan günde bir kez tekrar dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Ağa ulaşılamadığı için bu takas işleminden elde edilecek ödeme başarısız olmaya devam ediyor. Cüzdan günde bir kez tekrar dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Bu takas işleminden elde edilecek ödeme sürekli başarısız oluyor. Cüzdan günde bir kez tekrar dener; dilerseniz şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Ödemeyi yeniden dene",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "Geri döndü · $time$",
