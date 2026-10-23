@@ -713,7 +713,7 @@ async function acceptsRawTransactions(client: PublicClient): Promise<boolean> {
   } catch (error) {
     const code = rpcCode(error);
     const text = errorText(error);
-    if (code === -32602 || /decode|rlp|typed transaction/i.test(text)) return true;
+    if (code === -32602 || /decode|rlp|typed transaction|reading transaction object failed/i.test(text)) return true;
     if (code === -32601 || /not (supported|available|allowed)|method not found/i.test(text)) return false;
     throw error;
   }
