@@ -453,6 +453,28 @@ describe('History initial-load signal', () => {
     await renderHistory({ onInitialLoad: onInitialLoadWhileExternal, externalLoading: true });
     expect(onInitialLoadWhileExternal).toHaveBeenCalledTimes(1);
   });
+
+  it('does not report the initial load when the hold clears while the page is off screen', async () => {
+    const onInitialLoad = jest.fn();
+    const view = (onScreen: boolean, deferInitialLoad: boolean) => (
+      <PageActiveContext.Provider value={onScreen}>
+        <History address="0xme" onInitialLoad={onInitialLoad} deferInitialLoad={deferInitialLoad} />
+      </PageActiveContext.Provider>
+    );
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(view(true, true));
+    });
+    await waitFor(() => expect(mockGetUncompletedTransactions).toHaveBeenCalled());
+    await act(async () => undefined);
+    await act(async () => {
+      utils?.rerender(view(false, true));
+    });
+    await act(async () => {
+      utils?.rerender(view(false, false));
+    });
+    expect(onInitialLoad).not.toHaveBeenCalled();
+  });
 });
 
 describe('History', () => {

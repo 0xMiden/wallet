@@ -286,9 +286,9 @@ const History = memo<HistoryProps>(
     }, [historyLoading, onLoadingChange]);
     useEffect(() => () => onLoadingChange?.(false), [onLoadingChange]);
     useEffect(() => {
-      if (initialLoading || deferInitialLoad) return;
+      if (!onScreen || initialLoading || deferInitialLoad) return;
       onInitialLoad?.();
-    }, [initialLoading, deferInitialLoad, onInitialLoad]);
+    }, [onScreen, initialLoading, deferInitialLoad, onInitialLoad]);
 
     const pendingTransactions = useMemo(
       () =>
