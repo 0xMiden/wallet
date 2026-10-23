@@ -3,7 +3,7 @@ import React, { useEffect } from 'react';
 import { type AppKitNetwork, defineChain } from '@reown/appkit/networks';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { RouterController } from '@reown/appkit-controllers';
+import { RouterController, StorageUtil } from '@reown/appkit-controllers';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 
@@ -15,6 +15,7 @@ import { followRelay, noteConnectModalOpen } from 'lib/telemetry/relay-diagnosti
 
 import { getWalletConnectChains, prepareWalletConnectChains } from './chains';
 import { APP_METADATA, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain, WC_PROJECT_ID } from './config';
+import { boundStartupReconnect } from './startup-reconnect';
 
 export type AppKitInstance = ReturnType<typeof createAppKit>;
 type AppKitThemeMode = 'light' | 'dark';
@@ -117,6 +118,18 @@ try {
     .catch(() => {});
 } catch {
   // Crash diagnostics cannot keep AppKit from starting.
+}
+
+// AppKit restores a stored session at startup and reports `connecting` until that settles. The bound frees Connect
+// after ten seconds and leaves the stored session in place (see `startup-reconnect.ts`).
+try {
+  boundStartupReconnect({
+    storedStatus: () => StorageUtil.getConnectionStatus(),
+    subscribeStatus: listener => modal.subscribeAccount(account => listener(account.status), 'eip155'),
+    subscribeModalOpen: listener => modal.subscribeState(state => listener(state.open))
+  });
+} catch {
+  // The bound cannot keep AppKit from starting.
 }
 
 let recoveryChainId: number | undefined;

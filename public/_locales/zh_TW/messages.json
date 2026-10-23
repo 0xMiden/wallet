@@ -965,6 +965,10 @@
     "message": "您的「Guardian」拒絕了此提交。請重新嘗試。",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "此代幣的發行者已封鎖您的帳戶，因此無法進行轉帳。",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "系統拒絕了此提交。請重新嘗試。",
     "englishSource": "The network refused this submission. Try again."
@@ -2075,6 +2079,14 @@
     "message": "以當前價格成交。",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "以目前可用的流動性來看，這筆交換交易不太可能成交。您可以繼續進行，但您的訂單可能會在到期前始終處於未成交狀態。",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "此筆交換交易僅能利用當前可用的流動性部分成交。您可以繼續進行，但剩餘部分可能在訂單到期前仍無法成交。",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "您將收到約 $amount$ 的 $symbol$。",
     "englishSource": "You receive about $amount$ $symbol$.",
@@ -2542,8 +2554,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "請使用現有的 12 字復原短語。您也可以從其他錢包供應商匯入錢包。",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "您可以使用來自其他錢包的相容 12 字復原短語來建立 Miden 帳戶。此操作不會將資產從其他網路轉移過來。",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "透過加密錢包檔案匯入",
@@ -2949,10 +2961,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "請輸入您的錢包的 12 字復原短語。",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "僅支援 Miden 復原短語。",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "您的 錢包 已準備就緒！",
@@ -3559,6 +3567,27 @@
     "message": "我不會將我的加密錢包檔案分享給任何人，包括 Bread 在內。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "$accountNames$ 的帳戶狀態載於此檔案中",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "該檔案包含您的恢復短語以及您的Guardian營運商通常為您保存的帳戶狀態，因此任何持有該檔案及其密碼的人都能讀取這兩項資訊。該檔案不包含日常金鑰：還原後，錢包會透過您的Guardian營運商重新生成金鑰，或者您可以使用已儲存的日常金鑰對（設定 → 金鑰 → 顯示私鑰）。 該檔案為快照：進行收發交易後，請儲存新檔案，因為舊檔案無法還原其儲存時間之後發生的交易紀錄。",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "輪替程序仍在進行中。請等待其完成，然後再試一次。",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "使用我儲存的日常金鑰對",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "未從此檔案還原：$accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -3931,22 +3960,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ 無法連線至 guardian(s)，因此偵測結果可能不完整。",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "請輸入有效的 12 字復原短語，以恢復您的 Miden 帳戶或建立新帳戶。",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "僅支援 12 字的恢復短語。您貼上的短語較長，因此系統並未輸入任何內容。",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "我們檢查過的Guardians上未發現任何備份",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "未成功恢復任何資料。若某個我們未核實的Guardian持有此短語的備份，請在下方的選項中選擇它。否則，您可以使用此短語建立一個新帳戶。",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "我們無法檢查每個Guardian，因此無法確定是否存在備份。請重新嘗試，或選擇您先前使用的Guardian。",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "使用此短語建立新帳戶",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "要用這句話建立新帳戶嗎？",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "此操作將建立一個新帳戶，並非恢復現有帳戶。",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "我們無法保證此短語的起源或其安全性。若其內容遭洩露，所有使用該短語的錢包都可能受到影響。",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "您的恢復短語將保留在此裝置上。",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "我已了解相關風險，並希望在開設新帳戶時使用此短語",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "若該短語尚無公開帳戶，導入時將據此建立一個新帳戶。",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "請嘗試再次偵測",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "我們無法在 guardian 上找到您的帳戶。請檢查網址，或改為以公開帳戶形式匯入。",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "我們無法在此位Guardian上找到備份。請檢查網址或選擇另一位Guardian。",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "此位「guardian」運行於另一個 Miden 網路，因此無法在此處恢復該帳戶。",
@@ -4003,6 +4071,18 @@
   "assetChanges": {
     "message": "資產變動",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "此筆交易亦涉及轉移錢包無法列出的資產，例如 NFT。請僅在您信任此交易的情況下繼續進行。",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "未知",
@@ -4981,6 +5061,30 @@
   "swapReclaiming": {
     "message": "退還資金",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "提領受阻",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "此筆掉期交易的款項發放持續失敗，是因為該帳戶無法支付網路手續費以領取款項。錢包每天會嘗試一次，或者您現在可以重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "此筆掉期交易的款項發放持續在您的 Guardian 處失敗。錢包每天會嘗試一次，您也可以現在重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "此筆掉期交易的款項發放持續失敗，原因是無法連線至網路。錢包每天會嘗試一次，您也可以現在重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "此筆掉期交易的款項撥付屢次失敗。錢包每天會嘗試一次，您也可以現在重新嘗試。",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "重新嘗試支付",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "已退回 · $time$",

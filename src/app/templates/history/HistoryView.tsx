@@ -427,6 +427,9 @@ function buildRowProps(
     // AFTER cancelled/failed/pending so a Miden-side
     // failure always wins over the lending leg's state.
     status = earnDepositSettlementOf(entry);
+  } else if (isSwap && entry.paybackClaimStuck) {
+    // The payout claim keeps failing while the order reads unsettled: its claims are hidden, so the swap says so.
+    status = 'paybackStuck';
   } else if (isSwap && entry.swapSettlement === 'pending') {
     // A completed swap row is the single trace of the whole order (its
     // settlement consumes are suppressed) — the chip reflects settlement.

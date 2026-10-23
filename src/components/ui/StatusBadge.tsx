@@ -37,6 +37,8 @@ export type Status =
   // Its own word, not `reclaimed`: several locales translate the order's state differently
   | 'orderReclaimed'
   | 'reclaiming'
+  // A swap whose payout claim keeps failing
+  | 'paybackStuck'
   | 'loading'
   | 'unavailable'
   // A guardian switch whose commit was submitted but never confirmed
@@ -93,6 +95,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   partiallyFilledReclaimed: { labelKey: 'orderStatusPartiallyFilledReclaimed', tone: 'neutral' },
   orderReclaimed: { labelKey: 'orderStatusReclaimed', tone: 'neutral' },
   reclaiming: { labelKey: 'swapReclaiming', tone: 'pending' },
+  paybackStuck: { labelKey: 'swapPaybackStuck', tone: 'negative' },
   loading: { labelKey: 'loading', tone: 'neutral' },
   unavailable: { labelKey: 'trackingUnavailable', tone: 'neutral' },
   guardianSwitchSubmitted: { labelKey: 'guardianSwitchSubmittedChip', tone: 'pending' },

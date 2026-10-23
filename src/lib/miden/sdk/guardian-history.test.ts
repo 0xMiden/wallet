@@ -16,7 +16,10 @@ let mockFeeKnownAbsent = false;
 let mockB64Error: unknown;
 let mockDeserializeError: unknown;
 let mockInputNotesError: unknown;
-const mockAssets = () => ({ fungibleAssets: () => [{ faucetId: () => mockAssetId, amount: () => 17n }] });
+const mockAssets = () => ({
+  fungibleAssets: () => [{ faucetId: () => mockAssetId, amount: () => 17n }],
+  nonFungibleAssets: () => []
+});
 const mockMetadata = () => ({ sender: () => 'sender', noteType: () => 1 });
 let mockStorage: bigint[];
 let mockRoot: string;
@@ -57,7 +60,10 @@ const mockSummary = {
   outputNotes: () => ({
     notes: () => [
       {
-        assets: () => ({ fungibleAssets: () => [{ faucetId: () => 'fee', amount: () => 3n }] }),
+        assets: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'fee', amount: () => 3n }],
+          nonFungibleAssets: () => []
+        }),
         metadata: () => ({ tag: () => ({ asU32: () => 0xfee }) })
       },
       {
@@ -147,7 +153,7 @@ beforeEach(() => {
   mockPartial = false;
   mockAttachment = [];
   mockRoot = 'p2id';
-  mockStorage = [11n, 22n];
+  mockStorage = [11n, 22n, 33n, 44n];
 });
 
 it('decodes P2ID recipients, input assets and the separate fee', async () => {

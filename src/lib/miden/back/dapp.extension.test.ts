@@ -321,7 +321,8 @@ beforeEach(() => {
       senderAccountId: 's1',
       nullifier: 'nf1',
       state: 0,
-      assets: [{ faucetId: 'faucet-1', amount: '50' }]
+      assets: [{ faucetId: 'faucet-1', amount: '50' }],
+      nonFungibleAssets: []
     }
   ]);
   // No record has a consume request's id as its details commitment unless a test says so (#1389).
@@ -1165,7 +1166,7 @@ describe('Full confirmation cycles in extension mode', () => {
       sdkNote.deserialize = (bytes: Uint8Array) => ({
         id: () => ({ toString: () => Array.from(bytes, byte => String.fromCharCode(byte)).join('') }),
         metadata: () => undefined,
-        assets: () => ({ fungibleAssets: () => [] })
+        assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
       });
     });
     afterEach(() => {
@@ -1306,6 +1307,7 @@ describe('Full confirmation cycles in extension mode', () => {
       senderAccountId: undefined,
       state: 0,
       assets: [],
+      nonFungibleAssets: [],
       swapAttachment: null
     };
     const fullNote = {
@@ -1916,7 +1918,7 @@ describe('Full confirmation cycles in extension mode', () => {
       deserialize: () => ({
         id: () => ({ toString: () => 'note-1' }),
         metadata: () => undefined,
-        assets: () => ({ fungibleAssets: () => [] })
+        assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
       })
     };
     const order: string[] = [];
@@ -1960,7 +1962,7 @@ describe('Full confirmation cycles in extension mode', () => {
     const sdkNote = (id: string) => ({
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
-      assets: () => ({ fungibleAssets: () => [] })
+      assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
     });
     const unparsable = (what: string) => () => {
       throw new Error(`not a ${what}`);
@@ -2921,7 +2923,8 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
     senderAccountId: 's1',
     nullifier: 'nf-real',
     state: 2,
-    assets: [{ faucetId: 'faucet-1', amount: '45' }]
+    assets: [{ faucetId: 'faucet-1', amount: '45' }],
+    nonFungibleAssets: []
   };
 
   beforeEach(() => {
@@ -2947,7 +2950,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
         id: () => ({ toString: () => importedNote.noteId }),
         metadata: () => undefined,
         recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
-        assets: () => ({ assets: () => [], fungibleAssets: () => [] })
+        assets: () => ({ assets: () => [], fungibleAssets: () => [], nonFungibleAssets: () => [] })
       };
       const deserialize = jest.fn(() => note);
       if (decodeAfterUnlock)

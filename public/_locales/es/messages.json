@@ -965,6 +965,10 @@
     "message": "Tu «Guardian» ha rechazado esta solicitud. Inténtalo de nuevo.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "El emisor de este token ha bloqueado tu cuenta, por lo que no se puede enviar.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "La red ha rechazado esta propuesta. Inténtalo de nuevo.",
     "englishSource": "The network refused this submission. Try again."
@@ -2075,6 +2079,14 @@
     "message": "Se ejecuta al precio actual.",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "Es poco probable que esta operación de intercambio se ejecute con la liquidez disponible actualmente. Puedes continuar, pero es posible que tu orden permanezca sin ejecutar hasta que caduque.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Solo una parte de esta operación de swap puede ejecutarse con la liquidez disponible en este momento. Puedes continuar, pero el resto puede quedar sin ejecutar hasta que caduque la orden.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "Recibes aproximadamente $amount$ en $symbol$.",
     "englishSource": "You receive about $amount$ $symbol$.",
@@ -2542,8 +2554,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "Utilice una frase de recuperación existente de 12 palabras. También puede importar billeteras de otros proveedores de billeteras.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "Puedes utilizar una frase de recuperación compatible de 12 palabras de otra cartera para crear una cuenta de Miden. Esto no transfiere activos de otras redes.",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "Importar con archivo de billetera cifrado",
@@ -2949,10 +2961,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "Introduce la frase de recuperación de 12 palabras de tu monedero.",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Solo se admiten frases de recuperación de Miden.",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "¡Tu monedero ya está listo!",
@@ -3559,6 +3567,27 @@
     "message": "No compartiré mi archivo de monedero cifrado con nadie, ni siquiera con Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "El estado de la cuenta $accountNames$ se encuentra en este archivo",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "El archivo contiene tu frase de recuperación y el estado de la cuenta que, de otro modo, tu operador de Guardian mantendría por ti, de modo que cualquiera que tenga el archivo y su contraseña pueda leer ambos. No contiene ninguna clave de uso diario: tras la restauración, la cartera la sustituye a través de tu operador de Guardian, o bien puedes utilizar un par de claves de uso diario guardado (Ajustes → Claves → Revelar clave privada). El archivo es una instantánea: después de enviar o recibir, guarda uno nuevo, ya que un archivo más antiguo no puede restaurar lo que haya ocurrido después de su creación.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Todavía se está llevando a cabo una rotación. Espera a que termine y vuelve a intentarlo.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Utilizar mi par de claves de uso diario guardado",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "No se ha restaurado desde este archivo: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -3931,22 +3960,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ No se ha podido acceder a guardian(s), por lo que la detección puede estar incompleta.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "Introduce una frase de recuperación válida de 12 palabras para recuperar tu cuenta de Miden o crear una nueva.",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "Solo se admiten frases de recuperación de 12 palabras. La frase que has pegado es más larga, por lo que no se ha introducido nada.",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "No se ha encontrado ninguna copia de seguridad en los Guardians que hemos comprobado.",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "No se ha recuperado nada. Si un Guardian que no hemos comprobado tiene una copia de seguridad de esta frase, selecciónala a continuación. De lo contrario, puedes crear una nueva cuenta con esta frase.",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "No hemos podido comprobar todos los Guardian, por lo que no sabemos si existe una copia de seguridad. Inténtalo de nuevo o selecciona el Guardian que utilizaste.",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "Crea una nueva cuenta con esta frase",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "¿Crear una nueva cuenta con esta frase?",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "Esto crea una nueva cuenta. No recupera una ya existente.",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "No podemos dar garantías sobre cómo se creó esta frase ni sobre su solidez. Si alguna vez se filtra, todas las carteras que la utilicen podrían verse afectadas.",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "Tu frase de recuperación permanece en este dispositivo.",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "Entiendo el riesgo y quiero utilizar esta frase para una nueva cuenta",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "Si aún no existe ninguna cuenta pública para esta frase, al importarla se creará una nueva a partir de ella.",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "Intenta volver a realizar la detección",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "No hemos podido encontrar tu cuenta en este enlace: guardian. Comprueba la URL o, en su lugar, impórtala como cuenta pública.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "No hemos podido encontrar una copia de seguridad en este Guardian. Comprueba la URL o elige otro Guardian.",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "Este «guardian» funciona en otra red de Miden, por lo que no puede recuperar una cuenta aquí.",
@@ -4003,6 +4071,18 @@
   "assetChanges": {
     "message": "Variaciones en los activos",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Esta transacción también transfiere un activo que la cartera no puede mostrar, como un NFT. Continúa solo si confías en ella.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "Desconocido",
@@ -4981,6 +5061,30 @@
   "swapReclaiming": {
     "message": "Devolución de fondos",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "Pago bloqueado",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "El pago de este swap sigue fallando porque esta cuenta no puede pagar la comisión de red necesaria para reclamarlo. El monedero lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "El pago de este swap sigue fallando en tu Guardian. La cartera lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "El pago de este swap sigue fallando porque no se ha podido conectar a la red. El monedero lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "El pago de este swap sigue fallando. El monedero lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Reintentar el pago",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "Devuelto · $time$",
