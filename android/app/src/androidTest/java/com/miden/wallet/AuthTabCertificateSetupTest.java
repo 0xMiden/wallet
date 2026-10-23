@@ -12,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.By;
 import androidx.test.uiautomator.BySelector;
+import androidx.test.uiautomator.StaleObjectException;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import androidx.test.uiautomator.Until;
@@ -127,11 +128,21 @@ public class AuthTabCertificateSetupTest {
         }
     }
 
+    // Settings redraws its lists after navigating, so a found row can go stale before the click lands.
     private static void clickText(UiDevice device, String text) {
-        UiObject2 element = findText(device, text, UI_TIMEOUT_MS);
-        assertNotNull("Settings text not found: " + text + "; on screen: " + visibleLabels(device), element);
-        element.click();
-        device.waitForIdle();
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
+        while (true) {
+            UiObject2 element = findText(device, text, UI_TIMEOUT_MS);
+            assertNotNull("Settings text not found: " + text + "; on screen: " + visibleLabels(device), element);
+            try {
+                element.click();
+                device.waitForIdle();
+                return;
+            } catch (StaleObjectException stale) {
+                if (System.nanoTime() >= deadline) throw stale;
+                device.waitForIdle();
+            }
+        }
     }
 
     // The CA warning is a setup-wizard page: its primary button reads "More" until the text is scrolled to the end.
