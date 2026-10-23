@@ -965,6 +965,10 @@
     "message": "Votre « Guardian » a refusé cette soumission. Réessayez.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "L’émetteur de ce jeton a bloqué votre compte ; il est donc impossible de l’envoyer.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "Le réseau a rejeté cette soumission. Veuillez réessayer.",
     "englishSource": "The network refused this submission. Try again."

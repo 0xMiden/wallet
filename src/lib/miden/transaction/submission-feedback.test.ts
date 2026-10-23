@@ -30,6 +30,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
 const MESSAGE_KEYS = [
   'submissionRejectedByNetwork',
   'submissionRejectedByGuardian',
+  'submissionBlockedByIssuer',
   'submissionInterrupted',
   'submissionUnanswered'
 ] as const;
@@ -71,6 +72,26 @@ describe('submissionFeedback (#1689)', () => {
       messageKey: 'submissionRejectedByGuardian',
       details: GUARDIAN_REFUSAL
     });
+  });
+
+  it('names the token issuer when its blocklist refused the account, ahead of the generic network refusal', () => {
+    const KERNEL = 'transaction execution failed: assertion failed with error code: 17080150814197948856';
+    const NAMED = 'note script failed: ERR_ACCOUNT_IS_BLOCKED';
+    const WRAPPED = `${NETWORK_REFUSAL}: ${KERNEL}`;
+    for (const error of [KERNEL, NAMED, WRAPPED]) {
+      expect(submissionFeedback(row({ type: 'send' as const, error, mayHaveSubmitted: true }))).toMatchObject({
+        kind: 'rejected',
+        messageKey: 'submissionBlockedByIssuer',
+        details: error
+      });
+    }
+    expect(submissionFeedback(row({ error: 'prose', rawError: KERNEL }))).toMatchObject({
+      messageKey: 'submissionBlockedByIssuer'
+    });
+    // A different code that merely contains the digits must not match.
+    expect(
+      submissionFeedback(row({ error: 'assertion failed with error code: 117080150814197948856' }))
+    ).toBeUndefined();
   });
 
   it('explains a dropped connection as unconfirmed, not as a failed transaction', () => {
