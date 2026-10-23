@@ -442,9 +442,84 @@ describe('History initial-load signal', () => {
 
     expect(onInitialLoad).not.toHaveBeenCalled();
   });
+
+  it('does not report the initial load while the host still defers it', async () => {
+    const onInitialLoad = jest.fn();
+    const view = await renderHistory({ onInitialLoad, deferInitialLoad: true });
+    expect(onInitialLoad).not.toHaveBeenCalled();
+
+    await act(async () => {
+      view.rerender(<History address="0xme" onInitialLoad={onInitialLoad} deferInitialLoad={false} />);
+    });
+    expect(onInitialLoad).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    const onInitialLoadWhileExternal = jest.fn();
+    await renderHistory({ onInitialLoad: onInitialLoadWhileExternal, externalLoading: true });
+    expect(onInitialLoadWhileExternal).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report the initial load when the hold clears while the page is off screen', async () => {
+    const onInitialLoad = jest.fn();
+    const view = (onScreen: boolean, deferInitialLoad: boolean) => (
+      <PageActiveContext.Provider value={onScreen}>
+        <History address="0xme" onInitialLoad={onInitialLoad} deferInitialLoad={deferInitialLoad} />
+      </PageActiveContext.Provider>
+    );
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(view(true, true));
+    });
+    await waitFor(() => expect(mockGetUncompletedTransactions).toHaveBeenCalled());
+    await act(async () => undefined);
+    await act(async () => {
+      utils?.rerender(view(false, true));
+    });
+    await act(async () => {
+      utils?.rerender(view(false, false));
+    });
+    expect(onInitialLoad).not.toHaveBeenCalled();
+  });
 });
 
 describe('History', () => {
+  it('filters Arcade by recorded dApp origins on both completed and pending entries, never by token name', async () => {
+    const base = { accountId: '0xme', displayMessage: 'GC transfer', displayIcon: 'DEFAULT', type: 'send' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      {
+        ...base,
+        id: 'game-complete',
+        status: STATUS.Completed,
+        completedAt: 200,
+        dappOrigins: ['https://game.example']
+      },
+      { ...base, id: 'unrelated', status: STATUS.Completed, completedAt: 100 }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([
+      { ...base, id: 'game-pending', status: STATUS.Queued, initiatedAt: 300, dappOrigins: ['https://game.example'] }
+    ]);
+    await renderHistory({
+      filter: 'arcade',
+      predicate: (entry: { dappOrigins?: string[] }) =>
+        entry.dappOrigins?.some(origin => origin === 'https://game.example') ?? false
+    });
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries.map((entry: { key: string }) => entry.key)).toEqual([
+      'pending-game-pending',
+      'completed-game-complete'
+    ]);
+    expect(
+      mockHistoryViewProps.entries.every((entry: { dappOrigins?: string[] }) =>
+        entry.dappOrigins?.some(origin => origin === 'https://game.example')
+      )
+    ).toBe(true);
+  });
+
+  it('fails closed when Arcade is requested without its origin predicate', async () => {
+    await renderHistory({ filter: 'arcade' });
+    await waitFor(() => expect(mockGetCompletedTransactions).toHaveBeenCalled());
+    expect(mockHistoryViewProps.entries).toEqual([]);
+  });
   it('threads Guardian transition metadata through completed and pending entries', async () => {
     mockGetCompletedTransactions.mockResolvedValueOnce([
       {

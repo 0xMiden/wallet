@@ -27,13 +27,20 @@ import { openUrlInNewTab } from 'app/env';
 import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { createDappSession } from 'lib/dapp-browser';
+import type { ExploreFilter } from 'lib/dapp-browser/explore-catalog';
 import { isDesktop, isExtension } from 'lib/platform';
 
 import { DappActive } from './DappActive';
 import { DappLauncher } from './DappLauncher';
 import { recordOpenedDapp } from './record-opened-dapp';
 
-const EmbeddedBrowserScreen: FC = () => {
+export interface BrowserScreenProps {
+  requestedFilter?: ExploreFilter;
+  entryIntent?: number;
+  onChooseFilter?: (filter: ExploreFilter) => void;
+}
+
+const EmbeddedBrowserScreen: FC<BrowserScreenProps> = props => {
   const { mode, open, reportLauncherCommit, policyPending, presentation } = useDappBrowser();
   // A tab pane or page layer stays mounted off screen, but the dApp surface must not: its unmount clears the slot
   // rect, which is what parks the foreground dApp and hides its native window.
@@ -83,7 +90,7 @@ const EmbeddedBrowserScreen: FC = () => {
         className={launcherVisible ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
       >
         <PageActiveContext.Provider value={launcherVisible && onScreen}>
-          <DappLauncher onOpen={handleOpen} />
+          <DappLauncher {...props} onOpen={handleOpen} />
         </PageActiveContext.Provider>
       </div>
       {mode === 'active' && onScreen && <DappActive />}
@@ -91,7 +98,7 @@ const EmbeddedBrowserScreen: FC = () => {
   );
 };
 
-const ExtensionBrowserScreen: FC = () => {
+const ExtensionBrowserScreen: FC<BrowserScreenProps> = props => {
   const handleOpen = useCallback(async (url: string) => {
     // Recorded before the tab opens: the new tab takes focus, which closes the popup and ends this script.
     await recordOpenedDapp(url);
@@ -102,7 +109,8 @@ const ExtensionBrowserScreen: FC = () => {
     }
   }, []);
 
-  return <DappLauncher onOpen={handleOpen} />;
+  return <DappLauncher {...props} onOpen={handleOpen} />;
 };
 
-export const BrowserScreen: FC = () => (isExtension() ? <ExtensionBrowserScreen /> : <EmbeddedBrowserScreen />);
+export const BrowserScreen: FC<BrowserScreenProps> = props =>
+  isExtension() ? <ExtensionBrowserScreen {...props} /> : <EmbeddedBrowserScreen {...props} />;

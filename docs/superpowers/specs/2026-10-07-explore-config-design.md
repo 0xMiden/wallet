@@ -1,5 +1,11 @@
 # Explore catalog from a config repo (#1361)
 
+Reader grouping update (2026-10-22): wallet #1512 retains the published
+`0xMiden/wallet-explore` documents, schema, icons, cache identity and version floors.
+The wallet groups `tools` + `defi` under Finance, `games` under Arcade, and
+`nft` + `learn` under Others. This requires no config migration or publication;
+wallet-config #10 is not a dependency.
+
 Approved by the issue body and its comments (author and org member WiktorStarczewski), and by the user's answers on 2026-10-07: a new repo `0xMiden/wallet-explore` (kept over folding into wallet-config), no review on merge, created from this session with wallet-config's settings.
 
 ## Goal
