@@ -813,7 +813,7 @@
   "hotKeyRotationImportBusy": "로테이션이 아직 진행 중입니다. 완료될 때까지 기다린 후 다시 시도해 주십시오.",
   "hotKeyRotationUseKeyPair": "저장해 둔 일상용 키 쌍을 사용하세요",
   "encryptedWalletFileExcludedTitle": "이 파일에서 복원되지 않음: $accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian 개인 키로 가져온 계정은 지갑 파일에서 복원할 수 없으며, 이 파일로 복원한 지갑에는 해당 계정을 추가할 수 없습니다. 이러한 계정은 “개인 키 가져오기”를 통해 설정된 별도의 지갑으로 복원되며, 해당 계정의 Miden everyday 및 EVM 개인 키가 함께 포함됩니다. 해당 키를 안전하게 보관하십시오: 해당 계정을 선택한 상태에서 설정 → 키 → 개인 키 표시를 통해 키를 확인할 수 있습니다.",
+  "encryptedWalletFileExcludedDesc": "개인 키와 함께 가져온 Guardian 계정은 지갑 파일에서 복원할 수 없습니다. 새 기기에서 계정을 복원하려면 저장된 Miden everyday 및 EVM 개인 키를 가져온 다음, Guardian 운영자로부터 현재 계정 상태를 복구해야 합니다. Guardian 운영자가 상태 사본을 분실했고 다른 최신 사본이 존재하지 않는 경우, 해당 키로는 계정을 복구할 수 없습니다. 두 키를 모두 안전하게 보관하십시오: 해당 계정을 선택한 상태에서 설정 → 키 → 개인 키 표시를 통해 키를 확인하십시오.",
   "enterPasswordToEncrypt": "지갑 파일을 암호화하려면 비밀번호를 입력하세요.",
   "encryptedWalletFileJsonOnly": ".JSON 지갑 파일을 선택하세요.",
   "encryptedWalletFileReadFailed": "지갑 파일을 읽을 수 없습니다. 다시 선택하세요.",

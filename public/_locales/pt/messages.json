@@ -3645,8 +3645,8 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian Contas importadas com chaves privadas não podem ser restauradas a partir de um arquivo de carteira, e uma carteira restaurada a partir desse arquivo não pode adicioná-las. Elas são restauradas como uma carteira separada, configurada com a importação das chaves privadas e suas chaves privadas Miden para uso diário e EVM. Mantenha essas chaves em segurança: revele-as em Configurações → Chaves → Revelar Chave Privada com essa conta selecionada.",
-    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+    "message": "Contas Guardian importadas com chaves privadas não podem ser restauradas a partir de um arquivo de carteira. Para restaurar uma conta em um novo dispositivo, importe suas chaves privadas Miden everyday e EVM salvas e, em seguida, recupere o estado atual da conta junto ao seu Guardian Operator. Se o Guardian Operator tiver perdido sua cópia do estado e não houver nenhuma outra cópia atual, a conta não poderá ser recuperada a partir dessas chaves. Mantenha ambas as chaves em segurança: revele-as em Configurações → Chaves → Revelar Chave Privada com essa conta selecionada.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file. To restore one on a new device, import its saved Miden everyday and EVM private keys, then recover its current account state from its Guardian Operator. If the Guardian Operator has lost its state copy and no other current copy exists, the account cannot be recovered from those keys. Keep both keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Digite uma senha para criptografar o arquivo da sua carteira.",

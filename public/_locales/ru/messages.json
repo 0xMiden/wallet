@@ -3645,8 +3645,8 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian Учётные записи, импортированные с помощью закрытых ключей, не могут быть восстановлены из файла кошелька, а кошелек, восстановленный из этого файла, не может их добавить. Они восстанавливаются как отдельный кошелек, настроенный с помощью функции «Импорт закрытых ключей» и их ключей Miden everyday и EVM. Храните эти ключи в безопасности: отобразите их в «Настройки» → «Ключи» → «Показать закрытый ключ», выбрав соответствующую учётную запись.",
-    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+    "message": "Учетные записи Guardian, импортированные с помощью закрытых ключей, нельзя восстановить из файла кошелька. Чтобы восстановить такую учетную запись на новом устройстве, импортируйте сохраненные закрытые ключи Miden everyday и EVM, а затем восстановите текущее состояние учетной записи у оператора Guardian. Если оператор Guardian утратил копию состояния и других актуальных копий не существует, учетную запись невозможно восстановить с помощью этих ключей. Храните оба ключа в безопасности: раскрывайте их в «Настройки» → «Ключи» → «Раскрыть закрытый ключ» при выбранном соответствующем счете.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file. To restore one on a new device, import its saved Miden everyday and EVM private keys, then recover its current account state from its Guardian Operator. If the Guardian Operator has lost its state copy and no other current copy exists, the account cannot be recovered from those keys. Keep both keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Введите пароль для шифрования файла кошелька.",

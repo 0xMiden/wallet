@@ -3645,8 +3645,8 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian Las cuentas importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Configuración» → «Claves» → «Revelar clave privada» con esa cuenta seleccionada.",
-    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+    "message": "Las cuentas Guardian importadas con claves privadas no se pueden restaurar a partir de un archivo de monedero. Para restaurar una en un nuevo dispositivo, importa sus claves privadas Miden everyday y EVM guardadas y, a continuación, recupera el estado actual de la cuenta a través de su Guardian Operator. Si el Guardian Operator ha perdido su copia del estado y no existe ninguna otra copia actual, la cuenta no se podrá recuperar a partir de esas claves. Mantén ambas claves a buen recaudo: muéstralas en Ajustes → Claves → Mostrar clave privada con esa cuenta seleccionada.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file. To restore one on a new device, import its saved Miden everyday and EVM private keys, then recover its current account state from its Guardian Operator. If the Guardian Operator has lost its state copy and no other current copy exists, the account cannot be recovered from those keys. Keep both keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Introduce una contraseña para cifrar el archivo de tu monedero.",

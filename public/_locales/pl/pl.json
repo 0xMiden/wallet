@@ -813,7 +813,7 @@
   "hotKeyRotationImportBusy": "Trwa rotacja. Poczekaj, aż się zakończy, a następnie spróbuj ponownie.",
   "hotKeyRotationUseKeyPair": "Użyj mojej zapisanej pary kluczy do codziennego użytku",
   "encryptedWalletFileExcludedTitle": "Nie przywrócono z tego pliku: $accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian Konta zaimportowane wraz z kluczami prywatnymi nie mogą zostać przywrócone z pliku portfela, a portfel przywrócony z tego pliku nie może ich dodać. Są one przywracane jako oddzielny portfel, skonfigurowany przy użyciu opcji „Importuj klucze prywatne” oraz ich codziennych kluczy Miden i kluczy prywatnych EVM. Należy bezpiecznie przechowywać te klucze: można je wyświetlić w sekcji Ustawienia → Klucze → Wyświetl klucz prywatny po zaznaczeniu danego konta.",
+  "encryptedWalletFileExcludedDesc": "Konta Guardiana zaimportowane wraz z kluczami prywatnymi nie mogą zostać przywrócone z pliku portfela. Aby przywrócić konto na nowym urządzeniu, należy zaimportować zapisane klucze prywatne Miden everyday i EVM, a następnie odzyskać aktualny stan konta od operatora Guardiana. Jeśli operator Guardiana utracił kopię stanu konta i nie istnieje żadna inna aktualna kopia, konta nie da się odzyskać na podstawie tych kluczy. Przechowuj oba klucze w bezpiecznym miejscu: ujawnij je w Ustawieniach → Klucze → Ujawnij klucz prywatny po wybraniu danego konta.",
   "enterPasswordToEncrypt": "Wprowadź hasło, aby zaszyfrować plik portfela.",
   "encryptedWalletFileJsonOnly": "Wybierz plik portfela .JSON.",
   "encryptedWalletFileReadFailed": "Nie udało się odczytać pliku portfela. Wybierz go ponownie.",

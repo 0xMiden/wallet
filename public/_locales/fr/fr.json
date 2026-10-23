@@ -813,7 +813,7 @@
   "hotKeyRotationImportBusy": "Une rotation est toujours en cours. Attendez qu’elle se termine, puis réessayez.",
   "hotKeyRotationUseKeyPair": "Utiliser ma paire de clés quotidienne enregistrée",
   "encryptedWalletFileExcludedTitle": "Non restauré à partir de ce fichier : $accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian Les comptes importés avec des clés privées ne peuvent pas être restaurés à partir d’un fichier de portefeuille, et un portefeuille restauré à partir de ce fichier ne peut pas les ajouter. Ils sont restaurés sous la forme d’un portefeuille distinct, configuré avec l’importation des clés privées ainsi que leurs clés quotidiennes Miden et leurs clés privées EVM. Conservez ces clés en lieu sûr : affichez-les dans Paramètres → Clés → Afficher la clé privée après avoir sélectionné ce compte.",
+  "encryptedWalletFileExcludedDesc": "Les comptes Guardian importés avec des clés privées ne peuvent pas être restaurés à partir d’un fichier de portefeuille. Pour en restaurer un sur un nouvel appareil, importez ses clés privées Miden everyday et EVM enregistrées, puis récupérez l’état actuel du compte auprès de son opérateur Guardian. Si l’opérateur Guardian a perdu sa copie de l’état et qu’aucune autre copie à jour n’existe, le compte ne peut pas être récupéré à partir de ces clés. Conservez ces deux clés en lieu sûr : affichez-les dans Paramètres → Clés → Afficher la clé privée après avoir sélectionné ce compte.",
   "enterPasswordToEncrypt": "Saisissez un mot de passe pour crypter le fichier de votre portefeuille.",
   "encryptedWalletFileJsonOnly": "Sélectionnez un fichier de portefeuille .JSON.",
   "encryptedWalletFileReadFailed": "Impossible de lire le fichier de portefeuille. Sélectionnez-le à nouveau.",

@@ -813,7 +813,7 @@
   "hotKeyRotationImportBusy": "Todavía se está llevando a cabo una rotación. Espera a que termine y vuelve a intentarlo.",
   "hotKeyRotationUseKeyPair": "Utilizar mi par de claves de uso diario guardado",
   "encryptedWalletFileExcludedTitle": "No se ha restaurado desde este archivo: $accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian Las cuentas importadas con claves privadas no se pueden restaurar desde un archivo de monedero, y un monedero restaurado desde este archivo no puede añadirlas. Se restauran como un monedero independiente, configurado con la opción «Importar claves privadas» y sus claves privadas Miden para uso diario y EVM. Mantén esas claves a buen recaudo: revélalas en «Configuración» → «Claves» → «Revelar clave privada» con esa cuenta seleccionada.",
+  "encryptedWalletFileExcludedDesc": "Las cuentas Guardian importadas con claves privadas no se pueden restaurar a partir de un archivo de monedero. Para restaurar una en un nuevo dispositivo, importa sus claves privadas Miden everyday y EVM guardadas y, a continuación, recupera el estado actual de la cuenta a través de su Guardian Operator. Si el Guardian Operator ha perdido su copia del estado y no existe ninguna otra copia actual, la cuenta no se podrá recuperar a partir de esas claves. Mantén ambas claves a buen recaudo: muéstralas en Ajustes → Claves → Mostrar clave privada con esa cuenta seleccionada.",
   "enterPasswordToEncrypt": "Introduce una contraseña para cifrar el archivo de tu monedero.",
   "encryptedWalletFileJsonOnly": "Elige un archivo de cartera .JSON.",
   "encryptedWalletFileReadFailed": "No se pudo leer el archivo de cartera. Vuelve a elegirlo.",

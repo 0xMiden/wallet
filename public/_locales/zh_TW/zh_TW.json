@@ -813,7 +813,7 @@
   "hotKeyRotationImportBusy": "輪替程序仍在進行中。請等待其完成，然後再試一次。",
   "hotKeyRotationUseKeyPair": "使用我儲存的日常金鑰對",
   "encryptedWalletFileExcludedTitle": "未從此檔案還原：$accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian 透過私鑰匯入的帳戶無法從錢包檔案中還原，且從該檔案還原的錢包亦無法新增這些帳戶。這些帳戶將以獨立錢包的形式還原，並透過「匯入私鑰」功能，搭配其 Miden 日常私鑰與 EVM 私鑰進行設定。請妥善保管這些私鑰：在選取該帳戶後，前往「設定」→「金鑰」→「顯示私鑰」方可查看。",
+  "encryptedWalletFileExcludedDesc": "透過私鑰匯入的 Guardian 帳戶無法從錢包檔案中還原。若要在新裝置上還原該帳戶，請先匯入其已儲存的 Miden everyday 及 EVM 私鑰，然後透過 Guardian 操作者恢復其當前帳戶狀態。若 Guardian 操作者已遺失其狀態副本，且不存在其他有效副本，則無法透過這些私鑰恢復該帳戶。 請妥善保管這兩把金鑰：在選取該帳戶後，前往「設定」→「金鑰」→「顯示私鑰」以揭露它們。",
   "enterPasswordToEncrypt": "請輸入密碼以加密您的錢包檔案。",
   "encryptedWalletFileJsonOnly": "請選擇 .JSON 錢包檔案。",
   "encryptedWalletFileReadFailed": "無法讀取錢包檔案。請重新選擇。",

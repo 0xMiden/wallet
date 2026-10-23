@@ -813,7 +813,7 @@
   "hotKeyRotationImportBusy": "轮转仍在进行中。请等待其完成，然后重试。",
   "hotKeyRotationUseKeyPair": "使用我保存的日常密钥对",
   "encryptedWalletFileExcludedTitle": "未从该文件恢复：$accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian 使用私钥导入的账户无法从钱包文件中恢复，且从该文件恢复的钱包也无法添加这些账户。这些账户将作为独立的钱包恢复，通过“导入私钥”功能并配置其 Miden 日常私钥和 EVM 私钥进行设置。请妥善保管这些私钥：在“设置”→“密钥”→“显示私钥”中选中相应账户后，方可查看这些私钥。",
+  "encryptedWalletFileExcludedDesc": "使用私钥导入的 Guardian 账户无法通过钱包文件恢复。若要在新设备上恢复该账户，请导入其已保存的 Miden everyday 和 EVM 私钥，然后通过其 Guardian 操作员恢复当前账户状态。如果 Guardian 操作员已丢失其状态副本且不存在其他有效副本，则无法通过这些密钥恢复该账户。 请妥善保管这两把密钥：在“设置”→“密钥”中，选中该账户后点击“显示私钥”即可查看。",
   "enterPasswordToEncrypt": "请输入密码以对您的钱包文件进行加密。",
   "encryptedWalletFileJsonOnly": "请选择 .JSON 钱包文件。",
   "encryptedWalletFileReadFailed": "无法读取钱包文件。请重新选择。",

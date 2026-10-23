@@ -3645,8 +3645,8 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian 透過私鑰匯入的帳戶無法從錢包檔案中還原，且從該檔案還原的錢包亦無法新增這些帳戶。這些帳戶將以獨立錢包的形式還原，並透過「匯入私鑰」功能，搭配其 Miden 日常私鑰與 EVM 私鑰進行設定。請妥善保管這些私鑰：在選取該帳戶後，前往「設定」→「金鑰」→「顯示私鑰」方可查看。",
-    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+    "message": "透過私鑰匯入的 Guardian 帳戶無法從錢包檔案中還原。若要在新裝置上還原該帳戶，請先匯入其已儲存的 Miden everyday 及 EVM 私鑰，然後透過 Guardian 操作者恢復其當前帳戶狀態。若 Guardian 操作者已遺失其狀態副本，且不存在其他有效副本，則無法透過這些私鑰恢復該帳戶。 請妥善保管這兩把金鑰：在選取該帳戶後，前往「設定」→「金鑰」→「顯示私鑰」以揭露它們。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file. To restore one on a new device, import its saved Miden everyday and EVM private keys, then recover its current account state from its Guardian Operator. If the Guardian Operator has lost its state copy and no other current copy exists, the account cannot be recovered from those keys. Keep both keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "請輸入密碼以加密您的錢包檔案。",

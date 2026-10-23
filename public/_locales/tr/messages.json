@@ -3645,8 +3645,8 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian Özel anahtarlarla içe aktarılan hesaplar bir cüzdan dosyasından geri yüklenemez ve bu dosyadan geri yüklenen bir cüzdan da bunları ekleyemez. Bu hesaplar, \"Özel anahtarları içe aktar\" seçeneği ile her gün Miden ve EVM özel anahtarları kullanılarak kurulan ayrı bir cüzdan olarak geri yüklenir. Bu anahtarları güvenli bir yerde saklayın: Ayarlar → Anahtarlar → Özel Anahtarı Göster seçeneğinden o hesabı seçerek anahtarları görüntüleyin.",
-    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+    "message": "Özel anahtarlarla içe aktarılan Guardian hesapları, bir cüzdan dosyasından geri yüklenemez. Yeni bir cihazda bir hesabı geri yüklemek için, kaydedilmiş Miden everyday ve EVM özel anahtarlarını içe aktarın, ardından Guardian Operatöründen hesabın mevcut durumunu kurtarın. Guardian Operatörü durum kopyasını kaybetmişse ve başka hiçbir güncel kopya yoksa, hesap bu anahtarlardan kurtarılamaz. Her iki anahtarı da güvenli bir yerde saklayın: Ayarlar → Anahtarlar → Özel Anahtarı Göster seçeneğinden, ilgili hesabı seçerek anahtarları görüntüleyin.",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file. To restore one on a new device, import its saved Miden everyday and EVM private keys, then recover its current account state from its Guardian Operator. If the Guardian Operator has lost its state copy and no other current copy exists, the account cannot be recovered from those keys. Keep both keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "Cüzdan dosyanızı şifrelemek için bir şifre girin.",

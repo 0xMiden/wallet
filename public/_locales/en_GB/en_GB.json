@@ -813,7 +813,7 @@
   "hotKeyRotationImportBusy": "A rotation is still running. Wait for it to finish, then try again.",
   "hotKeyRotationUseKeyPair": "Use my saved everyday key pair",
   "encryptedWalletFileExcludedTitle": "Not restored from this file: $accountNames$",
-  "encryptedWalletFileExcludedDesc": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected.",
+  "encryptedWalletFileExcludedDesc": "Guardian accounts imported with private keys cannot be restored from a wallet file. To restore one on a new device, import its saved Miden everyday and EVM private keys, then recover its current account state from its Guardian Operator. If the Guardian Operator has lost its state copy and no other current copy exists, the account cannot be recovered from those keys. Keep both keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected.",
   "enterPasswordToEncrypt": "Enter a password to encrypt your wallet file.",
   "encryptedWalletFileJsonOnly": "Choose a .JSON wallet file.",
   "encryptedWalletFileReadFailed": "The wallet file could not be read. Choose it again.",

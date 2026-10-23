@@ -3645,8 +3645,8 @@
     }
   },
   "encryptedWalletFileExcludedDesc": {
-    "message": "Guardian 秘密鍵でインポートされたアカウントは、ウォレットファイルから復元することはできません。また、このファイルから復元されたウォレットには、それらを追加することもできません。これらは独立したウォレットとして復元され、「秘密鍵のインポート」機能を使用して、Midenの日常用秘密鍵およびEVM秘密鍵が設定されます。これらの鍵は安全に保管してください。表示するには、そのアカウントを選択した状態で、「設定」→「鍵」→「秘密鍵を表示」を選択してください。",
-    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file, and a wallet restored from this file cannot add them. They are restored as a separate wallet, set up with Import private keys and their Miden everyday and EVM private keys. Keep those keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
+    "message": "秘密鍵を使用してインポートされたGuardianアカウントは、ウォレットファイルから復元することはできません。新しいデバイスで復元するには、保存されているMiden everydayおよびEVMの秘密鍵をインポートし、Guardianオペレーターから現在のアカウントの状態を復元してください。Guardianオペレーターが状態のコピーを紛失しており、他に有効なコピーが存在しない場合、それらの鍵からアカウントを復元することはできません。 両方の鍵を安全に保管してください。復元するには、そのアカウントを選択した状態で、[設定] → [鍵] → [秘密鍵を表示] から鍵を表示してください。",
+    "englishSource": "Guardian accounts imported with private keys cannot be restored from a wallet file. To restore one on a new device, import its saved Miden everyday and EVM private keys, then recover its current account state from its Guardian Operator. If the Guardian Operator has lost its state copy and no other current copy exists, the account cannot be recovered from those keys. Keep both keys safe: reveal them in Settings → Keys → Reveal Private Key with that account selected."
   },
   "enterPasswordToEncrypt": {
     "message": "ウォレットファイルを暗号化するには、パスワードを入力してください。",
