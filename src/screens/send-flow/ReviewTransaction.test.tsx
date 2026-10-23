@@ -341,7 +341,11 @@ jest.mock('lib/epoch', () => ({
 jest.mock('lib/i18n/numbers', () => ({
   formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
   toAdaptiveFixed: (v: number) => v.toFixed(2),
-  stringToBigInt: jest.fn()
+  stringToBigInt: jest.fn(),
+  // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
+  // return, so the guard has to call the real helper.
+  typedAmountExceedsBalance: (...a: [string, number, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -757,6 +761,14 @@ describe('ReviewTransaction — redirect guards', () => {
   it('redirects when the amount exceeds the token balance', async () => {
     mockSearch = 'amount=500&to=0xrecipient&tokenId=tok1';
     mockBalanceData = [VALID_TOKEN]; // balance 100 < 500
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
+  it('redirects when a typed base unit exceeds an 18-decimal token balance', async () => {
+    mockSearch = 'amount=1.000000000000000001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 1, metadata: { ...VALID_TOKEN.metadata, decimals: 18 } }];
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');

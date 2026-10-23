@@ -11,7 +11,7 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { Notice } from 'components/ui/Notice';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
+import { formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -208,7 +208,6 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [currentStep, onSwapRoute]);
 
   const sameToken = offerToken.faucetId === requestToken.faucetId;
-
   // One quote for the whole pair through the Swap Quote API v2: the fill price builds the
   // receive amount at the chosen slippage, and the solver's verdict drives the review screen.
   // Refreshed every 30 s while this page is on screen, so the price a review shows is one the
@@ -309,7 +308,6 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         : offerBalance,
     [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
   );
-  const offerAmountValue = Number(offerAmount);
   const requestAmountBaseUnits = useMemo(() => {
     try {
       return stringToBigInt(requestAmount, requestToken.decimals);
@@ -319,7 +317,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [requestAmount, requestToken.decimals]);
   const hasOfferAmount = offerAmountBaseUnits !== undefined && offerAmountBaseUnits > 0n;
   const hasRequestAmount = requestAmountBaseUnits !== undefined && requestAmountBaseUnits > 0n;
-  const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
+  const offerAmountExceedsBalance = typedAmountExceedsBalance(offerAmount, offerSpendable, offerToken.decimals);
   // A landed wallet-built ask of zero (a price too small for the receive token's precision) gives
   // the field nothing to show: it reads as unavailable, so the field leaves its skeleton for entry.
   const quoteAskIsZero =

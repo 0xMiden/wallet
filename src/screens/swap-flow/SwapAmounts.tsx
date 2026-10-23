@@ -9,6 +9,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
+import { typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { SwapToken, tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
@@ -101,7 +102,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
   const awaitingAmount = !(offerAmountValue > 0);
-  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
+  const offerAmountExceedsBalance = typedAmountExceedsBalance(offerAmount, offerBalance, offerToken.decimals);
   // Missing the fee asset outranks an over-balance amount: no amount at all is
   // sendable, so telling the user to lower it would send them in a loop.
   const offerAmountError = feeAssetMissing

@@ -282,6 +282,17 @@ describe('SwapAmounts', () => {
       expect(pay).toHaveAttribute('data-error', 'amountMustBeLessThanBalance');
     });
 
+    it('rejects a typed base unit above an 18-decimal offer balance', () => {
+      renderComponent({
+        offerToken: { ...offerToken, decimals: 18 },
+        offerAmount: '1.000000000000000001',
+        offerBalance: 1
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      expect(pay).toHaveAttribute('data-valid', 'false');
+      expect(pay).toHaveAttribute('data-error', 'amountMustBeLessThanBalance');
+    });
+
     it('is invalid with no error when the amount is zero (fails the > 0 check first)', () => {
       renderComponent({ offerAmount: '0', offerBalance: 100 });
       const pay = screen.getByTestId('select-amount-youPay');

@@ -414,7 +414,13 @@ jest.mock('utils/miden', () => {
     detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
   };
 });
-jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
+jest.mock('lib/i18n/numbers', () => ({
+  stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a),
+  // The balance check has to see the real digit shift. The stand-in above floors through parseFloat,
+  // which is the comparison this suite is pinning.
+  typedAmountExceedsBalance: (...a: [string, number, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+}));
 // The real `./send-telemetry` is kept so the cross-route handoff it exists for is
 // exercised for real; only the reporting primitive underneath it is mocked.
 jest.mock('lib/telemetry', () => ({
@@ -1282,6 +1288,18 @@ describe('amount entry', () => {
     expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
   });
 
+  it('rejects a typed base unit above an 18-decimal token balance', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 18, balance: 1, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    selectToken();
+    typeAmount('1.000000000000000001');
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+    expect(navigateToMock).not.toHaveBeenCalled();
+  });
+
   it('accepts a valid amount within balance', () => {
     renderAmountStep();
     selectToken();
@@ -1313,6 +1331,18 @@ describe('revalidation when the token changes', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     return renderFlow();
   };
+
+  it('re-flags a restored over-balance amount after its token is selected', () => {
+    setSendDraft({ amount: '1.000000000000000001', recipientAddress: '0xrecip', tokenId: 'T1' });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 18 }, balance: 1, fiatPrice: 1 }]
+    });
+    renderAmountStep();
+
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('1.000000000000000001');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+  });
 
   it('does nothing when there is no amount yet', () => {
     renderAmountStep();
@@ -2384,6 +2414,22 @@ describe('USDCx burn fee reserve', () => {
     expect(navigateMock).not.toHaveBeenCalled();
 
     await act(async () => land(measured(315n)));
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(consumeSendDraft()).toBeNull();
+  });
+
+  it('compares a typed base unit before handing a native burn from Route to review', async () => {
+    const amount = '1.000000000000000001';
+    mockBaseFee = 0;
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: NATIVE, metadata: { symbol: 'MIDEN', decimals: 18 }, balance: 1, fiatPrice: 0 }]
+    });
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(0n));
+    openBurn(SendFlowStep.Route, amount);
+    await act(async () => {});
+
     fireEvent.click(screen.getByTestId('route-confirm'));
 
     expect(navigateMock).not.toHaveBeenCalled();

@@ -7,6 +7,7 @@ import {
   getPluralKey,
   formatBigInt,
   stringToBigInt,
+  typedAmountExceedsBalance,
   toLocalFixed,
   toShortened,
   toFixedRoundedDown,
@@ -304,6 +305,33 @@ describe('stringToBigInt', () => {
     ['a currency symbol', '$5']
   ])('throws on %s, which callers rely on to mean "not a valid amount yet"', (_label, input) => {
     expect(() => stringToBigInt(input as string, 2)).toThrow();
+  });
+});
+
+describe('typedAmountExceedsBalance', () => {
+  it('treats one extra 18-decimal base unit as over a whole balance, and the exact string as equal', () => {
+    expect(typedAmountExceedsBalance('1.000000000000000001', 1, 18)).toBe(true);
+    expect(typedAmountExceedsBalance('1', 1, 18)).toBe(false);
+  });
+
+  it('drops digits past the token scale before comparing', () => {
+    // The seventh digit is truncated, so this is the same base-unit value as 1.
+    expect(typedAmountExceedsBalance('1.0000001', 1, 6)).toBe(false);
+  });
+
+  it('compares the balance through its decimal string, not a binary product', () => {
+    // parseFloat('1.000001') * 1e18 is 128 base units short, so scaling the float
+    // says this amount exceeds a balance equal to itself.
+    expect(typedAmountExceedsBalance('1.000001', 1.000001, 18)).toBe(false);
+    // 0.29 * 100 is 28.999999999999996; flooring that product says 0.29 exceeds itself.
+    expect(Math.floor(0.29 * 100)).toBe(28);
+    expect(typedAmountExceedsBalance('0.29', 0.29, 2)).toBe(false);
+    expect(typedAmountExceedsBalance('0.30', 0.29, 2)).toBe(true);
+  });
+
+  it('does not treat an unparsable amount as over the cap', () => {
+    expect(typedAmountExceedsBalance('', 1, 6)).toBe(false);
+    expect(typedAmountExceedsBalance('abc', 1, 6)).toBe(false);
   });
 });
 

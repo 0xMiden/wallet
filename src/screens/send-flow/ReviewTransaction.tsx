@@ -26,7 +26,7 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { usePreset } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -665,7 +665,7 @@ export const ReviewTransaction: React.FC = () => {
       (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
   const tokenInvalid =
     isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
-    (!!balanceData && (!token || parseFloat(amount) > token.balance));
+    (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
   const reviewError = scaleIsUnknown ? t('unknownTokenScale') : (submitError ?? burnValidationError);
   const reviewErrorId = scaleIsUnknown
     ? 'unknownTokenScale'

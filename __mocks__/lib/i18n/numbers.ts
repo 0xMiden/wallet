@@ -27,6 +27,12 @@ export const formatUsd = (v: number) => usdFormatterFor(v)(v);
 // Mirrors the real stringToBigInt: scale by the decimals and round.
 export const stringToBigInt = (str: string, decimals: number): bigint =>
   BigInt(Math.round(parseFloat(str) * Math.pow(10, decimals)));
+// The balance check has to use the real digit shift. This stand-in still scales through parseFloat,
+// which is the comparison the helper exists to replace.
+export const typedAmountExceedsBalance = (amount: string, balance: number, decimals: number): boolean =>
+  jest
+    .requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers')
+    .typedAmountExceedsBalance(amount, balance, decimals);
 // Mirrors the real formatBigInt: the decimal point shifted into the digit string, trailing zeros dropped.
 export const formatBigInt = (amount: bigint, decimals: number): string => {
   const negative = amount < 0n;

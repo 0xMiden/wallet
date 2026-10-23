@@ -162,6 +162,27 @@ export function stringToBigInt(str: string, decimals: number): bigint {
   return match[1] === '-' ? -magnitude : magnitude;
 }
 
+/**
+ * True only when `amount`'s base units are strictly greater than `balance`'s.
+ *
+ * The typed string is scaled by `stringToBigInt`, so digits past `decimals` are
+ * dropped and a value past 2^53 stays exact. `balance` is already a JavaScript
+ * number; multiplying it by `10 ** decimals` repeats the float error this module
+ * left behind, so it is read back through its own decimal string first. An
+ * unparsable amount is not over the cap; callers reject it on their own path.
+ * Equal base units stay allowed.
+ */
+export function typedAmountExceedsBalance(amount: string, balance: number, decimals: number): boolean {
+  let typed: bigint;
+  try {
+    typed = stringToBigInt(amount, decimals);
+  } catch {
+    return false;
+  }
+  if (!Number.isFinite(balance)) return false;
+  return typed > stringToBigInt(balance.toString(), decimals);
+}
+
 export function toLocalFixed(value: BigNumber.Value, decimalPlaces?: number, roundingMode?: BigNumber.RoundingMode) {
   const bn = new BigNumber(value);
   const numberSymbols = getNumberSymbols();

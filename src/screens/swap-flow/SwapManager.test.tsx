@@ -772,6 +772,26 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
     });
 
+    it('blocks an 18-decimal offer one base unit above its spendable balance', async () => {
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 18 }, mockTokenB, mockTokenC]);
+      mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 1 }];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      quoteFollowsOffer();
+      renderFlow();
+      setOffer('1.000000000000000001');
+
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offerAmount: '1.000000000000000001' })
+      );
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
     it('flags an offer above the holding of a registry token whose stored override carries decimals', () => {
       // 100 AAA in base units at the registry's 8 decimals. The row's scale comes from the faucet
       // record with the stored override applied, as the store builds every balance row.

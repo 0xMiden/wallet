@@ -11,7 +11,7 @@ import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -684,7 +684,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
-    } else if (token && parseFloat(amount) > spendableBalance) {
+    } else if (token && typedAmountExceedsBalance(amount, spendableBalance, token.decimals)) {
       // Between one base fee and the 30x reserve the whole native balance is held back,
       // so `Available` reads 0 and "amount must be less than balance" is true but useless:
       // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
@@ -762,7 +762,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       return;
     // The one way into review, so the burn's cap is checked here too: an amount accepted on the Amount step
     // before the measured reserve landed, or under a smaller one, goes back there with the reason shown.
-    if (burnFeeTarget && (burnFeeUnmeasured || parseFloat(amount) > spendableBalance)) {
+    if (burnFeeTarget && (burnFeeUnmeasured || typedAmountExceedsBalance(amount, spendableBalance, token.decimals))) {
       const reserveHoldsWholeBalance = spendableBalance <= 0 && token.balance > 0;
       const overCapMessage = reserveHoldsWholeBalance ? 'feeReserveBlocksSend' : 'amountMustBeLessThanBalance';
       setError('amount', { type: 'manual', message: burnFeeUnmeasured ? burnFeeMessage : overCapMessage });
@@ -994,7 +994,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
         payload: { amount: amountString }
       });
 
-      const amount = parseFloat(amountString || '0');
       if (!validations.amount.isValidSync(amountString)) {
         setError('amount', { type: 'manual', message: 'invalidAmount' });
       } else if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
@@ -1004,12 +1003,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
       } else if (burnFeeUnmeasured) {
         // A burn has no cap until its reserve is measured, so no keystroke may clear this.
         setError('amount', { type: 'manual', message: burnFeeMessage });
-      } else if (token && amount > spendableBalance) {
+      } else if (token && typedAmountExceedsBalance(amountString, spendableBalance, token.decimals)) {
         // Between one base fee and the 30x reserve the whole native balance is held back,
         // so `Available` reads 0 and "amount must be less than balance" is true but useless:
         // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
-        // refuses only BELOW one base fee, and that asymmetry is deliberate — so name the
-        // reserve here rather than widen the refusal.
+        // refuses only BELOW one base fee. Name the reserve
+        // here rather than widen the refusal.
         const reserveHoldsWholeBalance = spendableBalance <= 0 && (token?.balance ?? 0) > 0;
         setError('amount', {
           type: 'manual',
