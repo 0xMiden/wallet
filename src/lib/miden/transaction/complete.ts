@@ -1689,7 +1689,7 @@ export const updateBridgedReceivePhase = async (
       diagnostics: failed.failureDiagnostics,
       lastDeferral: failed.lastDeferral,
       error: extra?.error ?? failed.rawError ?? failed.error,
-      bridgeReceive: { route: inputs?.provider, step: source?.step, cause: source?.cause }
+      bridgeReceive: { ...source, route: inputs?.provider }
     });
   }
 

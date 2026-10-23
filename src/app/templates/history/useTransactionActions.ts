@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { cancelSwapOrder } from 'lib/miden/swap/cancel-order';
+import { getPaybackClaimState } from 'lib/miden/swap/payback-claim';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
@@ -58,6 +59,12 @@ export interface TransactionActions {
   cancelOrderError: string | null;
   cancelOrderErrorId: UserErrorId | null;
   onCancelOrder: () => void;
+
+  /** Re-run a swap's stuck payout claim (`entry.paybackClaimStuck`) now, ahead of its daily retry. */
+  isRetryingPayback: boolean;
+  paybackRetryError: string | null;
+  paybackRetryErrorId: UserErrorId | null;
+  onRetryPayback: () => void;
 }
 
 export const useTransactionActions = (
@@ -77,6 +84,11 @@ export const useTransactionActions = (
   const [isCancellingOrder, setIsCancellingOrder] = useState(false);
   const [cancelOrderError, setCancelOrderError] = useState<string | null>(null);
   const [cancelOrderErrorId, setCancelOrderErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
+  const [isRetryingPayback, setIsRetryingPayback] = useState(false);
+  const [paybackRetryError, setPaybackRetryError] = useState<string | null>(null);
+  const [paybackRetryErrorId, setPaybackRetryErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(
+    null
+  );
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
@@ -126,6 +138,43 @@ export const useTransactionActions = (
     },
     [entry, t, transactionId]
   );
+
+  const failedPaybackClaimId = entry?.paybackClaimStuck?.failedClaimId;
+  const handleRetryPayback = useCallback(async () => {
+    if (!failedPaybackClaimId) return;
+    setIsRetryingPayback(true);
+    setPaybackRetryError(null);
+    setPaybackRetryErrorId(null);
+    try {
+      // Re-read first: the page's state can trail a claim the daily retry already queued, and requeueing the failed
+      // row beside it would race two claims for the same notes. A fresh stuck state names the claim to retry, which
+      // can be a newer failed row than the one on screen; the live read clears the notice when it is not stuck.
+      let claimId = failedPaybackClaimId;
+      if (transaction) {
+        const fresh = await getPaybackClaimState(transaction);
+        if (!fresh.stuck) return;
+        claimId = fresh.failedClaimId;
+      }
+      // A manual retry, like the row's own Retry: it skips the daily backoff (#313) for this one claim.
+      await requeueFailedTransaction(claimId, {});
+      requestSWTransactionProcessing();
+      navigate(`/generating-transaction/${encodeURIComponent(claimId)}`);
+    } catch (error) {
+      if (error instanceof ClaimFeeRefusedError) {
+        setPaybackRetryError(t('insufficientFeeAsset'));
+        setPaybackRetryErrorId({ id: 'insufficientFeeAsset', transactionId });
+      } else {
+        console.error('[HistoryDetails] Failed to retry the payout claim:', error);
+        setPaybackRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        setPaybackRetryErrorId({
+          id: error instanceof Error ? 'raw_history_retry_failed' : 'smthWentWrong',
+          transactionId
+        });
+      }
+    } finally {
+      setIsRetryingPayback(false);
+    }
+  }, [failedPaybackClaimId, t, transaction, transactionId]);
 
   /**
    * Cancelling a live order gives up a place in the order book that cannot be
@@ -196,6 +245,10 @@ export const useTransactionActions = (
     isCancellingOrder,
     cancelOrderError,
     cancelOrderErrorId: cancelOrderErrorId?.transactionId === transactionId ? cancelOrderErrorId.id : null,
-    onCancelOrder: () => void handleCancelOrder()
+    onCancelOrder: () => void handleCancelOrder(),
+    isRetryingPayback,
+    paybackRetryError,
+    paybackRetryErrorId: paybackRetryErrorId?.transactionId === transactionId ? paybackRetryErrorId.id : null,
+    onRetryPayback: () => void handleRetryPayback()
   };
 };
