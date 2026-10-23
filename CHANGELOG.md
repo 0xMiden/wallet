@@ -5,6 +5,7 @@
 ### Fixes
 
 - [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
+- [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
 
 ## 1.17.6 (2026-10-23)
 
@@ -95,7 +96,6 @@
 
 ### Fixes
 
-- [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
 - [FIX][all] yarn dev allows wallet, Earn and Swap without calling the eligibility service, so a local session opens when the eligibility URL is unset. The open flag is ignored unless that build is an explicit development build and not an end-to-end build, so a production build cannot inherit it.
 - [FIX][all] Profile and My Badges show the network the wallet runs on: after Mainnet invitation onboarding on a Testnet build they read Mainnet, and a dApp that names no network is given the wallet's effective node instead of the build default (#1655).
 - [FIX][all] The USDC bridge-in route and review show an estimated arrival of about 2 minutes instead of 20 (#1647).
