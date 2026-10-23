@@ -178,7 +178,7 @@ test.describe('Stress - random send/claim', () => {
     // loop below exits on strict equality, so a target below the real total is unreachable
     // and the run burns its whole settle budget before reporting value GAINED -- the mirror
     // image of the phantom loss this baseline was scoped to fix.
-    await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
+    await Promise.all([walletA.refreshBalancesLanded(guardianSyncMs), walletB.refreshBalancesLanded(guardianSyncMs)]);
     const initialA = (await walletA.quickBalanceSnapshot({ faucetId })).totalReportable;
     const initialB = (await walletB.quickBalanceSnapshot({ faucetId })).totalReportable;
     // Asserted here rather than behind a helper, so the message can name what actually went wrong:

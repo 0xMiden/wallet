@@ -4982,6 +4982,30 @@
     "message": "Devolución de fondos",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "Pago bloqueado",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "El pago de este swap sigue fallando porque esta cuenta no puede pagar la comisión de red necesaria para reclamarlo. El monedero lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "El pago de este swap sigue fallando en tu Guardian. La cartera lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "El pago de este swap sigue fallando porque no se ha podido conectar a la red. El monedero lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "El pago de este swap sigue fallando. El monedero lo intentará de nuevo una vez al día, o puedes volver a intentarlo ahora.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Reintentar el pago",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "Devuelto · $time$",
     "englishSource": "Returned · $time$",

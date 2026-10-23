@@ -188,7 +188,9 @@ it('drops only the row whose fill derivation fails', async () => {
   const first = order();
   const second = order();
   const bad = filledNotes();
-  Object.assign(bad.settledTransactions[0], { amount: 1 });
+  const settlement = bad.settledTransactions[0];
+  if (!settlement) throw new Error('Expected the malformed settlement fixture');
+  Object.assign(settlement, { amount: 1 });
   readOrders.mockResolvedValue(
     new Map([
       [first.id, bad],
