@@ -6,8 +6,8 @@ import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
-import { OnboardingNetwork } from 'app/templates/OnboardingNetwork';
 import { setOnboardingRegistrationActive } from 'app/templates/onboarding-registration';
+import { OnboardingNetwork } from 'app/templates/OnboardingNetwork';
 import { forgetCarriedMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
@@ -245,7 +245,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   const [accessCode, setAccessCode] = useState<string | undefined>();
   // The node refused the held code at registration, which undid the setup: the code step says so.
   const [accessCodeRejected, setAccessCodeRejected] = useState(false);
-  const resumeCreateHashRef = useRef<string | null>(null);
+  const resumeCreateRouteRef = useRef<string | null>(null);
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
   // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
@@ -292,7 +292,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
   // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
   const resetFlowState = useCallback(() => {
-    resumeCreateHashRef.current = null;
+    resumeCreateRouteRef.current = null;
     setAccessCode(undefined);
     setAccessCodeRejected(false);
     setSeedPhrase(null);
@@ -754,10 +754,10 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // Keep the code for registration after account setup.
         setAccessCode(action.payload);
         setAccessCodeRejected(false);
-        if (resumeCreateHashRef.current) {
-          const resumeHash = resumeCreateHashRef.current;
-          resumeCreateHashRef.current = null;
-          navigate(`/${resumeHash}`);
+        if (resumeCreateRouteRef.current) {
+          const resumeRoute = resumeCreateRouteRef.current;
+          resumeCreateRouteRef.current = null;
+          navigate(resumeRoute);
         } else {
           startCreateFlow();
         }
@@ -1142,8 +1142,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       return;
     }
     if (inviteOnly && !accessCode && requiresCreateCode(hash, onboardingType)) {
-      if (onboardingType === OnboardingType.Create && flowRef.current) {
-        resumeCreateHashRef.current = hash === '#network-notice' ? protectionStepRoute() : hash;
+      // A draft holding a password or seed keeps them through code entry; before that nothing is lost.
+      if (onboardingType === OnboardingType.Create && (password || seedPhrase)) {
+        resumeCreateRouteRef.current = `/${hash}`;
         navigate('/#mainnet-access');
       } else {
         setStep(OnboardingStep.Welcome);
@@ -1269,6 +1270,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   }, [
     hash,
     password,
+    seedPhrase,
     onboardingType,
     isHardwareSecurityAvailable,
     biometricProtectionSupported,

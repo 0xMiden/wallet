@@ -54,7 +54,7 @@ function arm(): void {
   clearWake();
   const remaining = soonestRemaining();
   if (remaining === null) return;
-  // Hidden keeps the long chain, so a far moment still arrives and a one-second poll is not armed.
+  // Hidden waits the bounded step, so a clock change still lands without a visibility event.
   const delay = pageVisible() ? Math.min(remaining, VISIBLE_WAKE_MS) : Math.min(remaining, MAX_TIMER_MS);
   wake = setTimeout(onWake, delay);
 }
