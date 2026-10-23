@@ -1,11 +1,19 @@
 import { getAddress } from 'viem';
 
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import type { AgglayerDepositToken, BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
+import {
+  type AgglayerRecoveryConfig,
+  EARN_VAULT_LOGO,
+  type EarnVaultConfig,
+  epochCollateralFaucetId,
+  type SupportedEvmChainConfig
+} from './schema';
+import { bridgeConfigBaseUrl } from './source';
 import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
@@ -78,6 +86,23 @@ export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
 }
 
 /** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
+/** One Epoch route the document names: a chain and its USDC contract, checksummed, as the positions service keys markets. */
+export interface EpochRoute {
+  chainId: number;
+  usdc: `0x${string}`;
+}
+
+/**
+ * Every Epoch route the document names (`supportedEvmChains.<chain>.bridges.epoch` with a USDC token), in document
+ * order. Positions live on any of them, whatever the default market, so a positions read asks for all of them.
+ */
+export function selectEpochRoutes(s: BridgeConfigSnapshot): EpochRoute[] {
+  return Object.values(s.config?.supportedEvmChains ?? {}).flatMap(chain => {
+    const address = chain.bridges.epoch?.tokens.USDC?.contractAddress;
+    return address ? [{ chainId: chain.chainId, usdc: getAddress(address) }] : [];
+  });
+}
+
 export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
   return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
 }
@@ -95,12 +120,58 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
 }
 
 /**
- * The Welcome variant the document sets: true for the invite-only way in, false for the create and
- * recover flows. Null when the document has no `onboarding.inviteOnly`, or no document is accepted
- * yet. Welcome reads false and null alike: the general variant, with the logo taps as the unlock.
+ * The Earn vault catalogue the derivation read (`derived.epoch.vaults`): the listed vaults the service serves, in the
+ * document's order. Null while no derivation holds one, or while its read failed or was skipped.
  */
-export function selectInviteOnlyOnboarding(s: BridgeConfigSnapshot): boolean | null {
-  return s.config?.onboarding?.inviteOnly ?? null;
+export function selectEarnVaultCatalog(s: BridgeConfigSnapshot): EarnVaultInfo[] | null {
+  return okValue(s.derived?.epoch.vaults);
+}
+
+const NO_EARN_VAULTS: readonly EarnVaultConfig[] = [];
+
+/**
+ * The Earn vaults the document lists (`earn.vaults`), in picker order: the only markets the wallet offers, and the
+ * names it shows for them. Empty while no document is accepted, or when Earn is off.
+ */
+export function selectEarnVaults(s: BridgeConfigSnapshot): readonly EarnVaultConfig[] {
+  return s.config?.earn?.vaults ?? NO_EARN_VAULTS;
+}
+
+/**
+ * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
+ * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
+ * never runs.
+ */
+export function selectEarnVaultLogoUrl(s: BridgeConfigSnapshot, listing: EarnVaultConfig): string | null {
+  const { logo } = listing;
+  return logo !== undefined && EARN_VAULT_LOGO.test(logo) ? `${bridgeConfigBaseUrl(s.network)}/${logo}` : null;
+}
+
+/** The listed Earn vault of `marketUid` (in any case), or null when the document lists none for it. */
+export function selectEarnVault(s: BridgeConfigSnapshot, marketUid: string): EarnVaultConfig | null {
+  const key = marketUid.toLowerCase();
+  return selectEarnVaults(s).find(vault => vault.marketUid === key) ?? null;
+}
+
+/**
+ * The mainnet launch moment the document sets (`mainnetCountdown.launchAt`, epoch milliseconds, UTC). Null
+ * while the countdown is off, names no moment, or no document is accepted yet. Before the moment the
+ * wallet counts down to it; from the moment on, mainnet has launched (`hasMainnetLaunched`).
+ */
+export function selectMainnetLaunchAt(s: BridgeConfigSnapshot): number | null {
+  const countdown = s.config?.mainnetCountdown;
+  if (!countdown?.enabled || countdown.launchAt === undefined) return null;
+  return countdown.launchAt;
+}
+
+/**
+ * Whether mainnet has launched for this network at `now`: the countdown is on and its moment has passed.
+ * This is the one switch behind the invite-only Welcome, the recover-only reset and the switch-to-mainnet
+ * banner, so the document's moment is what moves every wallet, not a flag of its own.
+ */
+export function hasMainnetLaunched(s: BridgeConfigSnapshot, now: number): boolean {
+  const launchAt = selectMainnetLaunchAt(s);
+  return launchAt !== null && now >= launchAt;
 }
 
 /**
@@ -229,6 +300,11 @@ export function findEvmUsdc(chainId?: number): EvmUsdc | null {
   return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
 }
 
+/** Every Epoch route the accepted document names (`selectEpochRoutes`); empty with no document. Never throws. */
+export function getEpochRoutes(): EpochRoute[] {
+  return selectEpochRoutes(getBridgeConfigSnapshot());
+}
+
 /** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */
 export function findEpochUsdcAddress(chainId: number): string | null {
   return selectEpochChain(getBridgeConfigSnapshot(), chainId)?.bridges.epoch?.tokens.USDC?.contractAddress ?? null;
@@ -236,6 +312,11 @@ export function findEpochUsdcAddress(chainId: number): string | null {
 
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
+}
+
+/** This realm's `selectEarnVaults`: an empty list, never a throw, when the document lists none. */
+export function getEarnVaults(): readonly EarnVaultConfig[] {
+  return selectEarnVaults(getBridgeConfigSnapshot());
 }
 
 export function getAgglayerMidenBridge(chainId?: number): string {

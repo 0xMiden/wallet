@@ -26,7 +26,7 @@ export function useEarnCollateralState(): EarnCollateralState {
   const scope = `${rpc} ${nativeId}`;
   const [failedScope, setFailedScope] = useState<string | null>(null);
   useEffect(() => {
-    if (!active || snapshot.network !== 'testnet' || !nativeId || overrides.earnCollateralFaucet || metadata) return;
+    if (!active || !nativeId || overrides.earnCollateralFaucet || metadata) return;
     let live = true;
     const failed = () => {
       if (live) setFailedScope(scope);
@@ -45,10 +45,6 @@ export function useEarnCollateralState(): EarnCollateralState {
   }, [active, snapshot.network, nativeId, rpc, overrides.earnCollateralFaucet, metadata, scope]);
   const collateral = selectEarnCollateral(snapshot);
   if (collateral) return { state: 'resolved', collateral };
-  if (snapshot.network !== 'testnet') {
-    const deriving = snapshot.status === 'loading' || (!!snapshot.config && !snapshot.derived);
-    return { state: deriving ? 'loading' : 'unavailable', collateral: null };
-  }
   // Metadata that is not USDCx at a known scale will not become it on a retry; a retry after a failure keeps saying so.
   const settled = !!nativeId && (!!metadata || failedScope === scope);
   return { state: settled ? 'unavailable' : 'loading', collateral: null };

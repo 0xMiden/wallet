@@ -129,7 +129,10 @@ export async function quoteEarnWithdrawal(
   };
 }
 
-/** Synchronous guard used immediately before every vault signing request. */
+/**
+ * Synchronous guard used immediately before every vault signing request. The position can be in any catalogue vault,
+ * so the guard checks only that its market uid names the Earn route's chain (the default market's chain).
+ */
 export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void {
   const currentNative = captureNativeAssetSnapshot();
   if (
@@ -137,7 +140,7 @@ export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void 
     quote.scope !== currentNative.scope ||
     quote.nativeRevision !== currentNative.revision ||
     quote.allocatorUrl !== getEpochAllocatorUrl() ||
-    quote.position.marketUid.toLowerCase() !== getEarnMarket().marketUid.toLowerCase()
+    quote.position.marketUid.split(':')[1] !== String(getEarnMarket().chainId)
   )
     throw new Error('earnWithdrawRefresh');
 }

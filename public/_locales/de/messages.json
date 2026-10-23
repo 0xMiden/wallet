@@ -498,6 +498,30 @@
     "message": "Risiko",
     "englishSource": "Risk"
   },
+  "earnRiskLow": {
+    "message": "Niedrig",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "Hoch",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "Einzahlungen sind geschlossen",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "Dieser Tresor nimmt derzeit keine Einzahlungen entgegen. Versuchen Sie es später erneut oder wählen Sie einen anderen Tresor.",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet hat Einzahlungen in diesen Tresor vorübergehend ausgesetzt. Ihre bestehenden Einzahlungen sind davon nicht betroffen. Wählen Sie einen anderen Tresor.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Geprüft",
     "englishSource": "Audited"
@@ -670,6 +694,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ auf $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },

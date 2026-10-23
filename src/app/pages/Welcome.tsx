@@ -6,6 +6,7 @@ import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
+import { setOnboardingRegistrationActive } from 'app/templates/onboarding-registration';
 import { OnboardingNetwork } from 'app/templates/OnboardingNetwork';
 import { forgetCarriedMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
@@ -14,10 +15,13 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { prepareMainnet, waitForMainnetPreparation } from 'lib/miden/prepare-mainnet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { hasMainnetLaunched } from 'lib/remote-config/values';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -152,6 +156,17 @@ const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
   importedAccounts: payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest)
 });
 
+/**
+ * A create reached registration without an access code. Distinct from a code the mainnet node refused,
+ * which clears the code and marks it rejected.
+ */
+class MainnetAccessCodeRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MainnetAccessCodeRequiredError';
+  }
+}
+
 function requiresCreateCode(hash: string, type: OnboardingType | null): boolean {
   switch (hash) {
     case '#select-wallet-type':
@@ -230,6 +245,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   const [accessCode, setAccessCode] = useState<string | undefined>();
   // The node refused the held code at registration, which undid the setup: the code step says so.
   const [accessCodeRejected, setAccessCodeRejected] = useState(false);
+  const resumeCreateRouteRef = useRef<string | null>(null);
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
   // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
@@ -276,6 +292,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
   // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
   const resetFlowState = useCallback(() => {
+    resumeCreateRouteRef.current = null;
     setAccessCode(undefined);
     setAccessCodeRejected(false);
     setSeedPhrase(null);
@@ -491,8 +508,22 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   );
 
   const register = useCallback(async () => {
-    if (inviteOnly && onboardingType !== OnboardingType.Import && !accessCode) {
-      throw new Error(t('mainnetAccessOnboardingBody'));
+    // Imports keep their network route but join a switch already started by the wrapper.
+    if (onboardingType === OnboardingType.Import) {
+      await waitForMainnetPreparation();
+    } else {
+      // The rendered inviteOnly flag follows a shared sample a wake may not have published. A create
+      // re-reads the document's moment here and ignores that sample.
+      if (hasMainnetLaunched(getBridgeConfigSnapshot(), Date.now())) {
+        onUnlockInviteOnly();
+        await prepareMainnet();
+        if (!accessCode) {
+          throw new MainnetAccessCodeRequiredError(t('mainnetAccessOnboardingBody'));
+        }
+      } else if (inviteOnly && !accessCode) {
+        // Seven taps before the moment still stop a code-less create, without a network change.
+        throw new MainnetAccessCodeRequiredError(t('mainnetAccessOnboardingBody'));
+      }
     }
     if (password && keyPairPayload) {
       // The pair stays in this onboarding component, never in wallet state.
@@ -553,6 +584,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     }
   }, [
     inviteOnly,
+    onUnlockInviteOnly,
     t,
     accessCode,
     password,
@@ -580,6 +612,11 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       const failure = ownMessage ?? t('smthWentWrong');
       setRegistrationError(failure);
       setRegistrationErrorId(ownMessage ? 'raw_onboarding_recovery_failed' : 'smthWentWrong');
+      if (error instanceof MainnetAccessCodeRequiredError) {
+        // No code was refused. Leave a held code in place and do not mark one rejected.
+        navigate('/#mainnet-access');
+        return true;
+      }
       if (isMainnetAccessCodeRejected(error)) {
         // The backend undid the setup; only another code can start it again.
         setAccessCode(undefined);
@@ -642,6 +679,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
 
     setConfirmPhase('creating');
     attemptInFlightRef.current = true;
+    setOnboardingRegistrationActive(true);
     setIsLoading(true);
     // A Ready broadcast can land while register() finishes; the mark keeps Home off screen until the handoff.
     const finishMark = markOnboardingFinishing();
@@ -661,11 +699,15 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // next tap retries in the tab. The spinner stops either way, so the failure is said: a quiet screen gives no
         // reason to believe a second tap would help.
         console.error('[Welcome] Side panel handoff auto-register failed:', error);
+        // The access step stays on this page. Release the in-flight guard before that navigation,
+        // or the hash effect sends it back to Confirmation.
+        if (error instanceof MainnetAccessCodeRequiredError) attemptInFlightRef.current = false;
         routeRegistrationFailure(error);
         setConfirmPhase('failed');
       } finally {
         finishMark.release();
         attemptInFlightRef.current = false;
+        setOnboardingRegistrationActive(false);
         setIsLoading(false);
       }
     })();
@@ -712,7 +754,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // Keep the code for registration after account setup.
         setAccessCode(action.payload);
         setAccessCodeRejected(false);
-        startCreateFlow();
+        if (resumeCreateRouteRef.current) {
+          const resumeRoute = resumeCreateRouteRef.current;
+          resumeCreateRouteRef.current = null;
+          navigate(resumeRoute);
+        } else {
+          startCreateFlow();
+        }
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
@@ -935,6 +983,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // auto-register. It registers the wallet, then waits for Ready before
         // moving on.
         attemptInFlightRef.current = true;
+        setOnboardingRegistrationActive(true);
         setIsLoading(true);
         // Held until this handler has navigated on: the Ready push below would otherwise show Home first. It lives
         // outside this component because the app subtree remounts when the wallet turns Ready.
@@ -965,6 +1014,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
+          // The access step stays on this page. Release the in-flight guard before that navigation,
+          // or the hash effect sends it back to Confirmation.
+          if (error instanceof MainnetAccessCodeRequiredError) attemptInFlightRef.current = false;
           // A failure the routine leaves on this screen: the hardware-only path adds its attempt count.
           if (!routeRegistrationFailure(error) && password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode
@@ -975,6 +1027,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         } finally {
           finishMark.release();
           attemptInFlightRef.current = false;
+          setOnboardingRegistrationActive(false);
           setIsLoading(false);
         }
         break;
@@ -1089,8 +1142,14 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       return;
     }
     if (inviteOnly && !accessCode && requiresCreateCode(hash, onboardingType)) {
-      setStep(OnboardingStep.Welcome);
-      navigate('/');
+      // A draft holding a password or seed keeps them through code entry; before that nothing is lost.
+      if (onboardingType === OnboardingType.Create && (password || seedPhrase)) {
+        resumeCreateRouteRef.current = `/${hash}`;
+        navigate('/#mainnet-access');
+      } else {
+        setStep(OnboardingStep.Welcome);
+        navigate('/');
+      }
       return;
     }
     switch (hash) {
@@ -1211,6 +1270,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   }, [
     hash,
     password,
+    seedPhrase,
     onboardingType,
     isHardwareSecurityAvailable,
     biometricProtectionSupported,

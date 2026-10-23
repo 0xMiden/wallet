@@ -498,6 +498,30 @@
     "message": "风险",
     "englishSource": "Risk"
   },
+  "earnRiskLow": {
+    "message": "低",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "High",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "存款已关闭",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "该金库目前不接受存款。请稍后再试，或选择其他金库。",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet 已暂停向该金库充值。您现有的存款不受影响。请选择另一个金库。",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "经审计的",
     "englishSource": "Audited"
@@ -670,6 +694,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ 在 $network$ 上",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },

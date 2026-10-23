@@ -60,7 +60,7 @@ const configFor = ({
       }
     },
     agglayer: { indexer: SKIPPED },
-    epoch: { allocator: { state: 'ok', value: true }, market: SKIPPED, midenUsdcFaucet: SKIPPED }
+    epoch: { allocator: { state: 'ok', value: true }, market: SKIPPED, midenUsdcFaucet: SKIPPED, vaults: SKIPPED }
   },
   lastFetch: null
 });
