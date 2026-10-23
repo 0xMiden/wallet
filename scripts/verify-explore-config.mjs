@@ -17,6 +17,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { expect } from '@playwright/test';
 
+import { closeExploreHarness } from './explore-harness-cleanup.mjs';
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = process.argv.indexOf('--config-repo');
 assert.ok(arg !== -1 && process.argv[arg + 1], 'Provide --config-repo pointing at the wallet-explore checkout');
@@ -136,6 +138,7 @@ const build = () =>
   });
 
 let context;
+let profile;
 let page;
 const errors = [];
 const consoleErrors = [];
@@ -148,7 +151,7 @@ const check = label => {
 try {
   await build();
   check('Dedicated E2E/mock build, real configured HTTP catalog source');
-  const profile = mkdtempSync(path.join(tmpdir(), 'bread-explore-audit-'));
+  profile = mkdtempSync(path.join(tmpdir(), 'bread-explore-audit-'));
   const extension = path.join(root, 'dist/chrome_unpacked');
   context = await chromium.launchPersistentContext(profile, {
     headless: true,
@@ -440,6 +443,9 @@ try {
   );
   throw error;
 } finally {
-  await context?.close();
-  await new Promise(resolve => server.close(resolve));
+  try {
+    await closeExploreHarness(context, profile);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
 }
