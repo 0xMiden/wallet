@@ -125,11 +125,10 @@ describe('Next E2E (devnet)', () => {
 });
 
 describe('E2E workflows', () => {
-  it('only the Guardian lifecycle runs on a push: the release suites run from Release E2E, the rest by pull request, dispatch or cron', () => {
+  it('only the Guardian lifecycle suite runs on a push, and only on main: the release suites run from Release E2E, the rest by pull request, dispatch or cron', () => {
     const pushed = readdirSync(DIR)
       .filter(file => /^(pr-)?e2e-.*\.yml$/.test(file))
       .filter(file => onBlock(read(file)).some(line => /^ {2}push:/.test(line)));
-    // The Guardian lifecycle suite is the one exception: it runs on every push to main (#1773).
     expect(pushed).toEqual(['pr-e2e-guardian-lifecycle.yml']);
   });
 });
