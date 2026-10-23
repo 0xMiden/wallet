@@ -37,6 +37,7 @@
 
 ### Changes
 
+- [CHANGE][test] The mainnet nightly workflow test expects the job to check out the dispatched ref, matching the workflow, so a dispatch on a branch tests that branch.
 - [CHANGE][ci] The mainnet nightly skips its 1Click preflight and funded swap stages unless the `MAINNET_ONE_CLICK_ENABLED` repository variable is `true`, since the route is not enabled on NEAR yet.
 - [CHANGE][all] Earn shows each vault's logo from the wallet-config document (`earn.vaults[].logo`, served from the config repo), falling back to the bundled mark or the protocol's initial when it does not load; the vault, deposit and review pages wait for the vault catalogue instead of showing "not found" when positions load first.
 - [CHANGE][all] Earn opens at once: the positions read keys on the wallet-config document only, no longer waiting on the derived market, and the last read is stored so a cold open (every extension popup) shows it, marked stale, while the live read runs.
