@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][test] The dApp refusals suite expects a dApp consume of a note addressed to another account to be refused before any approval sheet, matching the wallet (#1764).
 - [FIX][all] The mainnet countdown and a new wallet's invite-only onboarding share one clock. Setup already underway stays on its step, with the seed, password, key and access code already entered, while mainnet is prepared when that moment arrives.
 - [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read. While launch is pending, the wallet checks the clock each second so a system clock change cannot leave the launch state out of date.
 - [FIX][test] The USDCx burn suites read the faucet's burn fee from an account proof for that one entry instead of downloading the whole faucet account, which the node refuses to build now that the nonce registry has grown past its inline limit.
