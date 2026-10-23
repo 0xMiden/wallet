@@ -965,6 +965,10 @@
     "message": "Ihr „Guardian“ hat diesen Eintrag abgelehnt. Versuchen Sie es erneut.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "Der Emittent dieses Tokens hat Ihr Konto gesperrt, sodass keine Übertragungen möglich sind.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "Das Netzwerk hat diesen Beitrag abgelehnt. Versuchen Sie es erneut.",
     "englishSource": "The network refused this submission. Try again."
@@ -2074,6 +2078,14 @@
   "swapVerdictFull": {
     "message": "Ausführung zum aktuellen Kurs.",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "Es ist unwahrscheinlich, dass dieser Swap mit der derzeit verfügbaren Liquidität ausgeführt wird. Sie können fortfahren, aber Ihre Order bleibt möglicherweise bis zu ihrem Ablauf unausgeführt.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Nur ein Teil dieses Swaps kann mit der derzeit verfügbaren Liquidität ausgeführt werden. Sie können fortfahren, aber der Rest bleibt möglicherweise bis zum Ablauf der Order unausgeführt.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "Sie erhalten etwa $amount$ $symbol$.",

@@ -965,6 +965,10 @@
     "message": "您的Guardian拒绝了此提交。请重试。",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "该代币的发行方已冻结您的账户，因此无法发送该代币。",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "该网络拒绝了此提交。请重试。",
     "englishSource": "The network refused this submission. Try again."
@@ -2074,6 +2078,14 @@
   "swapVerdictFull": {
     "message": "按当前价格成交。",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "以当前的流动性来看，该掉期订单不太可能成交。您可以继续操作，但您的订单可能在到期前始终处于未成交状态。",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "当前可用的流动性仅能满足该掉期订单的一部分。您可以继续操作，但剩余部分可能在订单到期前仍无法成交。",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "您将收到约 $amount$ 的 $symbol$。",
