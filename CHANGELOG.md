@@ -7,6 +7,7 @@
 - [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
 ### Fixes
 
+- [FIX][mobile] Swiping between the Home panes is smooth and always lands on the pane in the direction you swiped: the carousel is now a native scroll-snap pager (#1811).
 - [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
 - [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
 
