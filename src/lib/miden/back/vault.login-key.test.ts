@@ -8,7 +8,7 @@
  * Guardian wallet spawned from the Hardhat/Anvil test mnemonic, whose account 0 EVM key is m/44'/60'/2'/0/0.
  */
 
-import { AuthSecretKey, PublicKey } from '@miden-sdk/miden-sdk/lazy';
+import { AuthSecretKey, PublicKey, Word } from '@miden-sdk/miden-sdk/lazy';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { sha256 } from '@noble/hashes/sha2';
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -32,14 +32,15 @@ jest.setTimeout(60_000);
 const memoryStore: Record<string, any> = {};
 // The storage keys every read asked for, wrapped as safe-storage stores them.
 const mockStorageReads: string[] = [];
+const mockStorageRead = jest.fn(async (keys: string[]) => {
+  mockStorageReads.push(...keys);
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (k in memoryStore) out[k] = memoryStore[k];
+  return out;
+});
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
-    get: async (keys: string[]) => {
-      mockStorageReads.push(...keys);
-      const out: Record<string, any> = {};
-      for (const k of keys) if (k in memoryStore) out[k] = memoryStore[k];
-      return out;
-    },
+    get: mockStorageRead,
     set: async (items: Record<string, any>) => {
       Object.assign(memoryStore, items);
     },
@@ -413,6 +414,7 @@ beforeEach(async () => {
   account = (await vault.fetchAccounts())[0]!;
   connected = publicKeyCommitment(account.hotPublicKey!);
   mockStorageReads.length = 0;
+  mockStorageRead.mockClear();
 });
 
 describe('Vault login keys', () => {
@@ -626,13 +628,49 @@ describe('Vault login keys', () => {
     expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
   });
 
-  it('refuses a word the SDK cannot read, still freeing the key and zeroing its buffers', async () => {
-    forgetKeyMaterial();
+  it('rejects an oversized login word before decoding or reading a key', async () => {
+    const atobSpy = jest.spyOn(globalThis, 'atob');
+    try {
+      for (const word of ['A'.repeat(48), 'A'.repeat(45)]) {
+        await expect(vault.signWithLoginKey(account.publicKey, DOMAIN, word)).rejects.toThrow(NOT_A_WORD);
+        expect(atobSpy).not.toHaveBeenCalled();
+        expect(mockStorageReads).toEqual([]);
+        expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
+      }
+    } finally {
+      atobSpy.mockRestore();
+    }
+  });
 
-    // 32 bytes, but every limb is above the field modulus.
+  it('still signs a valid 43-character unpadded login word', async () => {
+    const payload = u8ToB64(new Uint8Array(32).fill(7)).slice(0, -1);
+    expect(payload).toHaveLength(43);
+
+    await expect(vault.signWithLoginKey(account.publicKey, DOMAIN, payload)).resolves.toEqual(expect.any(String));
+  });
+
+  it('refuses non-field elements before reading or decrypting a root key', async () => {
     await expect(
       vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(new Uint8Array(32).fill(0xff)))
     ).rejects.toThrow(NOT_A_WORD);
+    expect(mockStorageRead).not.toHaveBeenCalled();
+    expect(mockStorageReads).toEqual([]);
+    expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
+  });
+
+  it('refuses a word the SDK cannot read, still freeing the key and zeroing its buffers', async () => {
+    forgetKeyMaterial();
+    const deserialize = jest.spyOn(Word, 'deserialize').mockImplementationOnce(() => {
+      throw new Error('not a word');
+    });
+
+    try {
+      await expect(
+        vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(new Uint8Array(32).fill(7)))
+      ).rejects.toThrow(NOT_A_WORD);
+    } finally {
+      deserialize.mockRestore();
+    }
     expectCleanedUp();
   });
 });

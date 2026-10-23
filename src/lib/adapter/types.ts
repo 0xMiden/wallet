@@ -198,7 +198,8 @@ export interface MidenDAppLoginKeyResponse extends MidenDAppMessageBase {
 export interface MidenDAppLoginSignRequest extends MidenDAppMessageBase {
   type: MidenDAppMessageType.LoginSignRequest;
   sourceAccountId: string;
-  // Base64 of the page's 32-byte word. The login key signs the login message hashed from it, never the word.
+  // Base64 of 32 bytes holding four little-endian u64 field elements, each strictly below 0xffffffff00000001.
+  // The login key signs the login message hashed from the word, never the word.
   payload: string;
   kind: 'word';
 }

@@ -145,6 +145,7 @@ import {
   onceAfterUnlock,
   waitForUnlock
 } from './dapp-locked';
+import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
@@ -864,8 +865,9 @@ const generatePromisifySign = async (
 
 /**
  * A login signature: once the user approves, the account's login key for the page's domain signs the login message,
- * Poseidon2 of the login tag and the page's 32-byte word, never the word itself. The page chooses the word but not the
- * message the key signs, so it cannot make a login signature authorize a transaction.
+ * Poseidon2 of the login tag and the page's word, never the word itself. A word holds four little-endian u64 field
+ * elements, each strictly below 0xffffffff00000001, in 32 bytes. The page chooses the word but not the message the key
+ * signs, so it cannot make a login signature authorize a transaction.
  */
 export async function requestLoginSign(
   origin: string,
@@ -875,7 +877,9 @@ export async function requestLoginSign(
 ): Promise<MidenDAppLoginSignResponse> {
   const { dApp, domain } = await loginKeySession(origin, req?.sourceAccountId);
   if (req.kind !== 'word' || !isLoginWord(req.payload)) {
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: a login signature signs only a 32-byte word`);
+    throw new Error(
+      `${MidenDAppErrorType.InvalidParams}: a login signature signs only a word: 32 bytes holding four little-endian field elements`
+    );
   }
 
   // Caught, as requestSign's is, or a throw of its own would leave the dApp's promise unsettled. Mapped as
@@ -980,11 +984,7 @@ const sessionLoginKey = (dApp: MidenDAppSession, domain: string) => () =>
 
 function isLoginWord(payload: unknown): boolean {
   if (typeof payload !== 'string') return false;
-  try {
-    return b64ToU8(payload).length === 32;
-  } catch {
-    return false;
-  }
+  return fieldWordFromBase64(payload) !== null;
 }
 
 const hasDAppErrorCode = (message: string): boolean =>
