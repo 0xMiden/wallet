@@ -41,6 +41,7 @@ const DenominatedAmountInput: React.FC<TokenAmountInputProps> = ({
   quote: suppliedQuote,
   externalAsset = false,
   tokenIntentKey,
+  unfocusedDisplayValue,
   helper,
   disabled,
   loading,
@@ -143,6 +144,7 @@ const DenominatedAmountInput: React.FC<TokenAmountInputProps> = ({
       {...props}
       errorId={props.errorId}
       preservePrecision
+      unfocusedDisplayValue={usdMode ? undefined : unfocusedDisplayValue}
       value={usdMode ? usdText : value}
       prefix={usdMode ? '$' : undefined}
       decimalsLimit={usdMode ? 36 : (props.decimalsLimit ?? decimals)}

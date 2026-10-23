@@ -84,6 +84,25 @@ describe('TokenAmountInput', () => {
     expect(changed).not.toHaveBeenCalled();
   });
 
+  it('keeps a receive-driven compact token estimate separate from exact editing and USD mode', () => {
+    const exact = '1.123456789123456789';
+    render(<Owner initial={exact} unfocusedDisplayValue="≈ 1.12" />);
+    expect(screen.getByText('≈ 1.12')).toBeInTheDocument();
+    expect(field()).toHaveValue(exact);
+    fireEvent.focus(field());
+    expect(screen.queryByText('≈ 1.12')).not.toBeInTheDocument();
+    expect(field()).toHaveValue(exact);
+    fireEvent.blur(field());
+    expect(screen.getByText('≈ 1.12')).toBeInTheDocument();
+    fireEvent.click(toggle());
+    expect(screen.queryByText('≈ 1.12')).not.toBeInTheDocument();
+    expect(field()).toHaveValue('3.370370367370370367');
+    fireEvent.click(toggle());
+    expect(field()).toHaveValue(exact);
+    expect(screen.getByText('≈ 1.12')).toBeInTheDocument();
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it('updates provenance for equivalent USD edits and same-value MAX without changing tokens', () => {
     const view = render(<Owner initial="1" tokenIntentKey={0} />);
     fireEvent.click(toggle());

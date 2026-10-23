@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input-field';
@@ -69,6 +69,8 @@ export interface AmountInputProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
   value?: string;
+  /** Display-only estimate while unfocused; callbacks always retain the exact value. */
+  unfocusedDisplayValue?: string;
   /** Exact decimal text for token flows; avoids the currency library's Number coercion. */
   preservePrecision?: boolean;
   /** Exact-token flows can opt into their own precision validation instead of the send default. */
@@ -124,6 +126,7 @@ export interface AmountInputProps {
  */
 export const AmountInput: React.FC<AmountInputProps> = ({
   value,
+  unfocusedDisplayValue,
   preservePrecision = false,
   decimalsLimit = 6,
   maxLength = 16,
@@ -152,16 +155,19 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   useUserVisibleError(error ? errorId : null, 'field');
   const inputRef = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  const showEstimate = unfocusedDisplayValue !== undefined && unfocusedDisplayValue !== '' && !focused;
+  const figureValue = showEstimate ? unfocusedDisplayValue : value;
   const centered = align === 'center';
   const showClear = Boolean(value) && !disabled && !loading;
   // Reserve the unit choice and clear target on narrow screens before the figure grows.
   const figureSize = unitControl
-    ? (value?.length ?? 0) >= 6
+    ? (figureValue?.length ?? 0) >= 6
       ? 'text-3xl'
-      : (value?.length ?? 0) >= 4
+      : (figureValue?.length ?? 0) >= 4
         ? 'text-4xl'
         : 'text-5xl'
-    : amountTextSize(value);
+    : amountTextSize(figureValue);
   const amountClasses = classNames(
     'font-heading font-extrabold leading-none',
     figureSize,
@@ -169,13 +175,20 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   );
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
-  const input = (layoutClassName: string) =>
-    preservePrecision ? (
+  const input = (layoutClassName: string) => {
+    const controlLayout = unfocusedDisplayValue === undefined ? layoutClassName : 'w-full min-w-0 [grid-area:1/1]';
+    const control = preservePrecision ? (
       <input
         ref={inputRef}
         type="text"
         inputMode="decimal"
-        className={classNames(amountClasses, 'bg-transparent p-0 outline-none', layoutClassName, stateClasses)}
+        className={classNames(
+          amountClasses,
+          'bg-transparent p-0 outline-none',
+          controlLayout,
+          stateClasses,
+          showEstimate && 'opacity-0'
+        )}
         value={value ?? ''}
         onChange={event => {
           const normalized = normalizeDecimalInput(event.target.value);
@@ -183,6 +196,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           if (!pattern.test(normalized) || (normalized.split('.')[1]?.length ?? 0) > decimalsLimit) return;
           onValueChange?.(normalized || undefined);
         }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         maxLength={maxLength}
         enterKeyHint="done"
@@ -195,9 +210,17 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     ) : (
       <CurrencyInput
         ref={inputRef}
-        className={classNames(amountClasses, 'bg-transparent p-0 outline-none', layoutClassName, stateClasses)}
+        className={classNames(
+          amountClasses,
+          'bg-transparent p-0 outline-none',
+          controlLayout,
+          stateClasses,
+          showEstimate && 'opacity-0'
+        )}
         value={value}
         onValueChange={onValueChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         transformRawValue={normalizeDecimalInput}
         disableGroupSeparators
@@ -223,6 +246,21 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         data-testid={dataTestId}
       />
     );
+    if (unfocusedDisplayValue === undefined) return control;
+    return (
+      <span className={classNames('grid min-w-0', layoutClassName)}>
+        {control}
+        {showEstimate && (
+          <span
+            aria-hidden="true"
+            className={classNames(amountClasses, stateClasses, 'pointer-events-none whitespace-nowrap [grid-area:1/1]')}
+          >
+            {unfocusedDisplayValue}
+          </span>
+        )}
+      </span>
+    );
+  };
 
   return (
     <div className={classNames('flex flex-col', className)}>
@@ -232,7 +270,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
           'flex cursor-text mt-3',
-          centered ? classNames('items-start justify-center', amountTextSize(value)) : 'items-baseline'
+          centered ? classNames('items-start justify-center', amountTextSize(figureValue)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -255,7 +293,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           // what it holds and the prefix + number centre as one.
           <span className="inline-grid min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden">
             <span aria-hidden="true" className={classNames(amountClasses, 'invisible whitespace-pre [grid-area:1/1]')}>
-              {value || placeholder}
+              {figureValue || placeholder}
             </span>
             {input(CENTERED_INPUT_LAYOUT)}
           </span>
