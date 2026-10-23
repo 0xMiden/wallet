@@ -525,18 +525,20 @@ async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise
   );
   if (!positionsUrl || listedRoutes.length === 0) return { state: 'skipped' };
   return attempt(async () => {
-    const reads = await Promise.allSettled(
-      listedRoutes.map(route =>
-        readEarnVaults(
-          io.fetch,
-          { positionsUrl, chainId: route.chainId, underlying: route.usdc, listed },
-          HEALTH_TIMEOUT_MS
-        )
+    const reads = listedRoutes.map(route =>
+      readEarnVaults(
+        io.fetch,
+        { positionsUrl, chainId: route.chainId, underlying: route.usdc, listed },
+        HEALTH_TIMEOUT_MS
+      ).then(
+        value => ({ status: 'fulfilled' as const, value }),
+        reason => ({ status: 'rejected' as const, reason })
       )
     );
     for (const read of reads) {
-      if (read.status === 'rejected') throw read.reason;
-      const { vaults } = read.value;
+      const result = await read;
+      if (result.status === 'rejected') throw result.reason;
+      const { vaults } = result.value;
       const best = vaults.find(earnVaultTakesDeposits) ?? vaults[0];
       if (best) return earnMarketForVault(best);
     }

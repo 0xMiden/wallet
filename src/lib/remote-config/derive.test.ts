@@ -144,9 +144,11 @@ const HEALTH: Record<string, unknown> = {
 };
 
 const answer = (body: unknown, ok = true): JsonResponse => ({ ok, status: ok ? 200 : 503, json: async () => body });
+const notServed: JsonResponse = { ok: false, status: 404, json: async () => null };
+const isPoolsUrl = (url: string): boolean => url.startsWith('https://positions-testnet-dev.epochprotocol.xyz/pools?');
 const healthFetch = (bodies: Record<string, unknown> = HEALTH) =>
   jest.fn<ReturnType<JsonFetch>, Parameters<JsonFetch>>(async url =>
-    url in bodies ? answer(bodies[url]) : answer(null, false)
+    url in bodies ? answer(bodies[url]) : isPoolsUrl(url) ? notServed : answer(null, false)
   );
 
 // Sepolia as it answered on 2026-10-03: both contracts have code, networkID() = 0, USDC/18.
@@ -608,6 +610,7 @@ describe('the Earn market', () => {
       if (url.startsWith('https://positions-testnet-dev.epochprotocol.xyz/positions?')) {
         return answer({ success: true, data: { items } });
       }
+      if (isPoolsUrl(url)) return notServed;
       return url in HEALTH ? answer(HEALTH[url]) : answer(null, false);
     });
 
@@ -740,6 +743,55 @@ describe('the Earn market from /pools', () => {
       start: '0'
     });
     expect(fetch.mock.calls.some(([requested]) => requested.includes('/positions?'))).toBe(false);
+  });
+
+  it('returns the first usable route without waiting for a later route', async () => {
+    const sepoliaAndBase: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: { ...TESTNET.supportedEvmChains, base: onBase.supportedEvmChains.base! },
+      earn: { vaults: [DUMMY_VAULT, ...BASE_EARN_VAULTS] }
+    };
+    let baseStarted!: () => void;
+    let fallbackStarted!: () => void;
+    let finishBase!: (response: JsonResponse) => void;
+    const baseRequestStarted = new Promise<void>(resolve => (baseStarted = resolve));
+    const fallbackRequestStarted = new Promise<void>(resolve => (fallbackStarted = resolve));
+    const baseResponse = new Promise<JsonResponse>(resolve => (finishBase = resolve));
+    const notServed: JsonResponse = { ok: false, status: 404, json: async () => null };
+    const fetch = jest.fn<ReturnType<JsonFetch>, Parameters<JsonFetch>>(async url => {
+      if (url.startsWith(BASE_POOLS_PREFIX)) {
+        const chainId = new URL(url).searchParams.get('chainId');
+        if (chainId === '11155111') return notServed;
+        if (chainId === '8453') {
+          baseStarted();
+          return baseResponse;
+        }
+      }
+      if (url.startsWith('https://positions-testnet-dev.epochprotocol.xyz/positions?')) {
+        fallbackStarted();
+        return answer(EPOCH_CATALOG);
+      }
+      return url in HEALTH ? answer(HEALTH[url]) : answer(null, false);
+    });
+    const derived = deriveBridgeConfig(sepoliaAndBase, deps({ fetch }));
+
+    await Promise.all([baseRequestStarted, fallbackRequestStarted]);
+    const early = await Promise.race([
+      derived.then(result => ({ state: 'resolved' as const, result })),
+      new Promise<{ state: 'waiting' }>(resolve => setTimeout(() => resolve({ state: 'waiting' }), 100))
+    ]);
+    finishBase(answer(poolsPage([AAVE_V3_USDC])));
+
+    expect(early.state).toBe('resolved');
+    if (early.state !== 'resolved') throw new Error('The first usable route did not resolve promptly.');
+    expect(early.result.epoch.market).toMatchObject({
+      state: 'ok',
+      value: {
+        marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+        protocolHash: keccak256(toBytes('dummy-lending')),
+        chainId: 11155111
+      }
+    });
   });
 
   it('passes over a vault the catalogue does not open', async () => {
