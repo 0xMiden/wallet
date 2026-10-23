@@ -835,6 +835,7 @@
   "insufficientFeeAsset": "You need USDCX to pay the network fee. Receive some USDCX to continue.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Amount must be less than balance",
+  "amountExceedsTokenDecimals": "This amount has more decimal places than this token allows.",
   "autoConsumeSettings": "Auto-accept USDCX transfers",
   "autoConsumeSettingsDescription": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself.",
   "encryptedWalletFileExporting": "Creating your wallet file…",
@@ -1627,5 +1628,12 @@
   "walletAccessUnavailableTitle": "Could not check availability",
   "walletAccessUnavailableBody": "Check your connection and try again.",
   "runtimeUnsupportedTitle": "This browser or device can't run the wallet",
-  "runtimeUnsupportedBody": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  "runtimeUnsupportedBody": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser.",
+  "amountUsdUnavailable": "USD estimate unavailable",
+  "amountUsdStale": "USD quote expired. Refreshing price…",
+  "amountInputUnit": "Amount in $unit$",
+  "amountSwitchUnit": "Enter $unit$",
+  "amountUsdLoading": "Loading USD price…",
+  "amountUsdError": "USD price could not be refreshed",
+  "amountUsdEstimate": "USD estimate"
 }

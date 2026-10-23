@@ -3726,6 +3726,10 @@
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "Dieser Betrag hat mehr Dezimalstellen, als dieses Token zulässt.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "USDCX-Überweisungen automatisch akzeptieren",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7362,5 +7366,43 @@
   "runtimeUnsupportedBody": {
     "message": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "USD-Schätzung nicht verfügbar",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "USD-Kurs abgelaufen. Preis wird aktualisiert…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "Betrag in $unit$",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "$unit$ eingeben",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "USD-Preis wird geladen…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "Der USD-Kurs konnte nicht aktualisiert werden",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "USD-Schätzung",
+    "englishSource": "USD estimate"
   }
 }

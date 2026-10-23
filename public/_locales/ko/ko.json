@@ -835,6 +835,7 @@
   "insufficientFeeAsset": "네트워크 수수료를 지불하려면 USDCX이 필요합니다. 계속 진행하려면 USDCX을 일부 받으세요.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "금액은 잔액보다 적어야 합니다.",
+  "amountExceedsTokenDecimals": "이 금액은 해당 토큰이 허용하는 소수점 자리 수보다 더 많은 소수점 자릿수를 가지고 있습니다.",
   "autoConsumeSettings": "USDCX 이체 자동 수락",
   "autoConsumeSettingsDescription": "수신된 USDCX 이체를 자동으로 잔액에 반영합니다. 직접 수락을 누르는 것과 동일하며, 더 자주 수락하거나 수수료가 더 들지 않습니다.",
   "encryptedWalletFileExporting": "지갑 파일 생성 중…",
@@ -1627,5 +1628,12 @@
   "walletAccessUnavailableTitle": "이용 가능 여부를 확인하지 못했습니다",
   "walletAccessUnavailableBody": "연결을 확인하고 다시 시도해 주세요.",
   "runtimeUnsupportedTitle": "이 브라우저나 기기에서는 지갑을 실행할 수 없습니다.",
-  "runtimeUnsupportedBody": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오."
+  "runtimeUnsupportedBody": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
+  "amountUsdUnavailable": "USD 추정치 없음",
+  "amountUsdStale": "USD 호가가 만료되었습니다. 가격을 새로 고침 중…",
+  "amountInputUnit": "$unit$ 단위의 금액",
+  "amountSwitchUnit": "$unit$ 입력",
+  "amountUsdLoading": "USD 가격 불러오는 중…",
+  "amountUsdError": "USD 가격이 갱신되지 않았습니다",
+  "amountUsdEstimate": "USD 추정치"
 }

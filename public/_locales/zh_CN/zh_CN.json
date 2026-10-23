@@ -835,6 +835,7 @@
   "insufficientFeeAsset": "您需要 USDCX 来支付网络费用。请获取一定数量的 USDCX 以继续操作。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "金额必须小于余额",
+  "amountExceedsTokenDecimals": "该金额的小数位数超过了该代币允许的范围。",
   "autoConsumeSettings": "自动接受 USDCX 转账",
   "autoConsumeSettingsDescription": "自动将收到的 USDCX 转账接受到您的余额中，与点击「接受」相同。它不会更频繁地接受，也不会比您自己点击「接受」产生更多手续费。",
   "encryptedWalletFileExporting": "正在创建您的钱包文件……",
@@ -1627,5 +1628,12 @@
   "walletAccessUnavailableTitle": "无法检查可用性",
   "walletAccessUnavailableBody": "请检查网络连接后重试。",
   "runtimeUnsupportedTitle": "此浏览器或设备无法运行该钱包",
-  "runtimeUnsupportedBody": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。"
+  "runtimeUnsupportedBody": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
+  "amountUsdUnavailable": "无法提供美元估算值",
+  "amountUsdStale": "美元报价已过期。正在刷新价格……",
+  "amountInputUnit": "金额以$unit$为单位",
+  "amountSwitchUnit": "输入$unit$",
+  "amountUsdLoading": "正在加载美元价格……",
+  "amountUsdError": "无法刷新美元价格",
+  "amountUsdEstimate": "美元估算"
 }

@@ -33,12 +33,14 @@ jest.mock('react-i18next', () => ({
 // The fee estimate needs a discovered base fee and a balance; pin it so the Max-network-fee
 // row (and its hint) actually render here.
 jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
-  useNetworkFeeEstimate: () => '0.02 MIDEN'
+  formatNetworkFeeEstimate: () => '0.02 MIDEN',
+  useNetworkFeeEstimateDetails: () => undefined
 }));
 
 // The `SwapToken` type import in the source is erased at compile time; the labels read the
 // registry's id normalizer only.
 jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote,
   normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
 }));
 
