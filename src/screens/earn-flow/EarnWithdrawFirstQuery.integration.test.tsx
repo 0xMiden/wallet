@@ -47,6 +47,10 @@ jest.mock('lib/epoch', () => ({
         .gaslessEarnWithdrawalToMiden(...args)
   )
 }));
+jest.mock('lib/miden/swap/tokens', () => ({
+  ...jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens'),
+  tokenQuote: () => undefined
+}));
 jest.mock('lib/epoch/sdk', () => ({ ensureEpochSmartAccount: jest.fn(), getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/epoch/bridge', () => ({ normalizeMidenIdToHex: (value: string) => value }));
 jest.mock('lib/epoch/evm-account', () => ({
@@ -96,6 +100,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => '0xabcdef1234567890abcdef12345678',
   getNativeAssetIdSync: () => '0xabcdef1234567890abcdef12345678',
   getNativeAssetMetadataSync: () => null,
+  getSdkSyncedNativeAssetIdSync: () => null,
   captureNativeAssetSnapshot: () => ({ scope: 'testnet', revision: 1 })
 }));
 jest.mock('lib/miden/front', () => ({

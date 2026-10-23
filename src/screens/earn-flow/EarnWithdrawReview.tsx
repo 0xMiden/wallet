@@ -6,6 +6,7 @@ import { formatUnits } from 'viem';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
@@ -15,6 +16,7 @@ import { withdrawalAmount, withdrawalAmountError } from 'lib/epoch/withdraw-amou
 import { useAccount } from 'lib/miden/front';
 import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { goBack, navigate, Redirect, useLocation } from 'lib/woozie';
+import { EvmUsdValue } from 'screens/generating-transaction/EvmUsdValue';
 import { truncateAddress } from 'utils/string';
 
 import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
@@ -237,6 +239,17 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
               unit={quote && <EarnAmountUnit symbol={quote.destinationSymbol} />}
               label={t('youReceive')}
               layout="label-first"
+              meta={
+                quote &&
+                expectedReceipt && (
+                  <TokenUsdValue
+                    amount={expectedReceipt}
+                    decimals={quote.destinationDecimals}
+                    faucetId={quote.destinationFaucetId}
+                    symbol={quote.destinationSymbol}
+                  />
+                )
+              }
             >
               <p className="mt-2 text-caption text-muted face-heading">{t('earnWithdrawDeliverySummary')}</p>
             </EarnHero>
@@ -266,16 +279,55 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             <DetailCard face="heading">
               <DetailRow
                 label={t('earnWithdrawYouWithdraw')}
-                sub={amount === position.withdrawable ? t('earnWithdrawAll') : undefined}
+                sub={
+                  <>
+                    {amount === position.withdrawable ? t('earnWithdrawAll') : undefined}
+                    <EvmUsdValue
+                      amount={amount}
+                      decimals={position.decimals}
+                      chainId={Number(position.marketUid.split(':')[1])}
+                      address={position.underlyingAddress}
+                      className="block"
+                    />
+                  </>
+                }
               >
                 <span>
                   {compact(amount, withdrawSymbol)} {withdrawSymbol}
                 </span>
               </DetailRow>
-              <DetailRow label={t('earnWithdrawStaysInvested')} data-testid="earn-withdraw-remaining">
+              <DetailRow
+                label={t('earnWithdrawStaysInvested')}
+                data-testid="earn-withdraw-remaining"
+                sub={
+                  remaining !== undefined && (
+                    <EvmUsdValue
+                      amount={remaining}
+                      decimals={position.decimals}
+                      chainId={Number(position.marketUid.split(':')[1])}
+                      address={position.underlyingAddress}
+                    />
+                  )
+                }
+              >
                 {remainingLabel}
               </DetailRow>
-              <DetailRow label={t('earnWithdrawMinimumReceipt')}>{minimumLabel}</DetailRow>
+              <DetailRow
+                label={t('earnWithdrawMinimumReceipt')}
+                sub={
+                  quote &&
+                  minimumReceipt && (
+                    <TokenUsdValue
+                      amount={minimumReceipt}
+                      decimals={quote.destinationDecimals}
+                      faucetId={quote.destinationFaucetId}
+                      symbol={quote.destinationSymbol}
+                    />
+                  )
+                }
+              >
+                {minimumLabel}
+              </DetailRow>
               <DetailDisclosure
                 title={t('details')}
                 summary={`${position.network} → Miden`}
@@ -285,15 +337,48 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
               >
                 <DetailRow label={t('route')}>{`${position.protocol} (${position.network}) -> Miden`}</DetailRow>
                 <DetailRow label={t('positionOwnerLabel')}>{truncateAddress(position.owner, false, 8, 8)}</DetailRow>
-                <DetailRow label={t('earnWithdrawExactAmount')} stacked>
+                <DetailRow
+                  label={t('earnWithdrawExactAmount')}
+                  stacked
+                  sub={
+                    <EvmUsdValue
+                      amount={amount}
+                      decimals={position.decimals}
+                      chainId={Number(position.marketUid.split(':')[1])}
+                      address={position.underlyingAddress}
+                    />
+                  }
+                >
                   {amount} {withdrawSymbol}
                 </DetailRow>
                 {quote && expectedReceipt && minimumReceipt && (
                   <>
-                    <DetailRow label={t('earnWithdrawExpectedReceipt')} stacked>
+                    <DetailRow
+                      label={t('earnWithdrawExpectedReceipt')}
+                      stacked
+                      sub={
+                        <TokenUsdValue
+                          amount={expectedReceipt}
+                          decimals={quote.destinationDecimals}
+                          faucetId={quote.destinationFaucetId}
+                          symbol={quote.destinationSymbol}
+                        />
+                      }
+                    >
                       {expectedReceipt} {quote.destinationSymbol}
                     </DetailRow>
-                    <DetailRow label={t('earnWithdrawMinimumReceipt')} stacked>
+                    <DetailRow
+                      label={t('earnWithdrawMinimumReceipt')}
+                      stacked
+                      sub={
+                        <TokenUsdValue
+                          amount={minimumReceipt}
+                          decimals={quote.destinationDecimals}
+                          faucetId={quote.destinationFaucetId}
+                          symbol={quote.destinationSymbol}
+                        />
+                      }
+                    >
                       {minimumReceipt} {quote.destinationSymbol}
                     </DetailRow>
                   </>

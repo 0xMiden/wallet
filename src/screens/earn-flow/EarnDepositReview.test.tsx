@@ -493,6 +493,15 @@ describe('EarnDepositReview', () => {
       expect(mockOpenEarnPosition.mock.calls[0]![0]).toMatchObject({ amount: 100_000n, collateral: mockCollateral });
     });
 
+    it('opens nothing for an amount finer than the collateral scale', async () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=1.0000001');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() => expect(screen.getByTestId('earn-deposit-review-error')).toBeInTheDocument());
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
     it('deposits nothing while the config names no collateral', async () => {
       mockCollateral = null;
       renderReview(AAVE_VAULT.id, `?amount=1,000&collateral=${USDC.faucetId}`);

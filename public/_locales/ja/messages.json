@@ -3736,6 +3736,10 @@
     "message": "金額は残高より少なければなりません",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "USDCX の送金を自動で受け取る",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7372,5 +7376,43 @@
   "runtimeUnsupportedBody": {
     "message": "このウォレットには WebAssembly SIMD が必要ですが、このブラウザまたはデバイスでは提供されていません。別のデバイスまたは最新のブラウザでウォレットを開いてください。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "USDの見積もりは利用不可",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "USDの相場が期限切れとなりました。価格を更新中…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "$unit$単位の金額",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "$unit$を入力してください",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "USD価格を読み込み中…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "USDの価格が更新できませんでした",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "米ドルの推定額",
+    "englishSource": "USD estimate"
   }
 }

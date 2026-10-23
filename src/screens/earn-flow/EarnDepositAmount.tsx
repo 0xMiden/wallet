@@ -6,6 +6,7 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
 import { normalizeMidenIdToHex } from 'lib/epoch';
+import { typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -106,7 +107,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
     collateral !== null &&
     token.scaleIsKnown &&
     hasAmount &&
-    amountValue <= token.balance &&
+    !typedAmountExceedsBalance(amount.replace(/,/g, ''), token.balance, token.decimals) &&
     !feeAssetMissing &&
     Boolean(vault.id);
 

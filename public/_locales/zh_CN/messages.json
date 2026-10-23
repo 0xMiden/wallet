@@ -3736,6 +3736,10 @@
     "message": "金额必须小于余额",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "该金额的小数位数超过了该代币允许的范围。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "自动接受 USDCX 转账",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7372,5 +7376,43 @@
   "runtimeUnsupportedBody": {
     "message": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "无法提供美元估算值",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "美元报价已过期。正在刷新价格……",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "金额以$unit$为单位",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "输入$unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "正在加载美元价格……",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "无法刷新美元价格",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "美元估算",
+    "englishSource": "USD estimate"
   }
 }

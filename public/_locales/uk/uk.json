@@ -836,6 +836,7 @@
   "insufficientFeeAsset": "Для сплати комісії мережі вам потрібен USDCX. Отримайте трохи USDCX, щоб продовжити.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Сума повинна бути меншою за залишок на рахунку",
+  "amountExceedsTokenDecimals": "Ця сума має більше знаків після коми, ніж дозволяє цей токен.",
   "autoConsumeSettings": "Автоматично приймати перекази USDCX",
   "autoConsumeSettingsDescription": "Автоматично приймає вхідні перекази USDCX на ваш баланс - так само, як натискання «Прийняти». Це не відбувається частіше й не коштує більше комісій, ніж прийняття вручну.",
   "encryptedWalletFileExporting": "Створення файлу вашого гаманця…",
@@ -1628,5 +1629,12 @@
   "walletAccessUnavailableTitle": "Не вдалося перевірити доступність",
   "walletAccessUnavailableBody": "Перевірте з’єднання та спробуйте ще раз.",
   "runtimeUnsupportedTitle": "Цей браузер або пристрій не підтримує роботу гаманця",
-  "runtimeUnsupportedBody": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері."
+  "runtimeUnsupportedBody": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
+  "amountUsdUnavailable": "Оцінка в доларах США недоступна",
+  "amountUsdStale": "Термін дії котирування в USD закінчився. Оновлення ціни…",
+  "amountInputUnit": "Сума в $unit$",
+  "amountSwitchUnit": "Введіть $unit$",
+  "amountUsdLoading": "Завантаження ціни в доларах США…",
+  "amountUsdError": "Ціна в доларах США не може бути оновлена",
+  "amountUsdEstimate": "Оцінка в доларах США"
 }
