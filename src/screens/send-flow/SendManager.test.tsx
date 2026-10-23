@@ -8,6 +8,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
@@ -414,7 +415,15 @@ jest.mock('utils/miden', () => {
     detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
   };
 });
-jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
+jest.mock('lib/i18n/numbers', () => ({
+  stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a),
+  // The balance check has to see the real digit shift. The stand-in above floors through parseFloat,
+  // which is the comparison this suite is pinning.
+  typedAmountExceedsBalance: (...a: [string, number, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+  amountExceedsTokenDecimals: (...a: [string, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
+}));
 // The real `./send-telemetry` is kept so the cross-route handoff it exists for is
 // exercised for real; only the reporting primitive underneath it is mocked.
 jest.mock('lib/telemetry', () => ({
@@ -1282,6 +1291,18 @@ describe('amount entry', () => {
     expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
   });
 
+  it('rejects a typed base unit above an 18-decimal token balance', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 18, balance: 1, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    selectToken();
+    typeAmount('1.000000000000000001');
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+    expect(navigateToMock).not.toHaveBeenCalled();
+  });
+
   it('accepts a valid amount within balance', () => {
     renderAmountStep();
     selectToken();
@@ -1313,6 +1334,18 @@ describe('revalidation when the token changes', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     return renderFlow();
   };
+
+  it('re-flags a restored over-balance amount after its token is selected', () => {
+    setSendDraft({ amount: '1.000000000000000001', recipientAddress: '0xrecip', tokenId: 'T1' });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 18 }, balance: 1, fiatPrice: 1 }]
+    });
+    renderAmountStep();
+
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('1.000000000000000001');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+  });
 
   it('does nothing when there is no amount yet', () => {
     renderAmountStep();
@@ -1355,6 +1388,49 @@ describe('revalidation when the token changes', () => {
       fireEvent.click(screen.getByTestId('td-select'));
     });
     expect(screen.getByTestId('sa-error')).toHaveTextContent('');
+  });
+
+  it('keeps an amount intact and blocks review when the selected token cannot represent it', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    act(() => fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.123456' } }));
+    act(() => fireEvent.click(screen.getByTestId('td-select')));
+
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('1.123456');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ amount: undefined }));
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+    expect(navigateToMock).not.toHaveBeenCalled();
+  });
+
+  it('shows the precision error when a finer amount is typed after token selection', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    act(() => fireEvent.click(screen.getByTestId('td-select')));
+    act(() => fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.123456' } }));
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+  });
+
+  it('refuses a restored amount the selected token cannot represent before review', () => {
+    const amount = '1.123456';
+    setSendDraft({
+      amount,
+      recipientAddress: 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph',
+      tokenId: 'T1'
+    });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 100, fiatPrice: 1 }]
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
 
@@ -2088,6 +2164,26 @@ describe('fast-route fee', () => {
     }
   });
 
+  it('stops using the sent token quote once it expires, without any other update', () => {
+    jest.useFakeTimers();
+    try {
+      walletStoreState.tokenPrices = {
+        USDC: { price: 3, observedAt: Date.now() }
+      } as typeof walletStoreState.tokenPrices;
+      const fee = renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET);
+      expect(fee).toHaveTextContent(/^11$/);
+
+      act(() => {
+        jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS + 1);
+      });
+
+      expect(screen.getByTestId('route-fee')).toHaveTextContent(/^undefined$/);
+    } finally {
+      jest.useRealTimers();
+      walletStoreState.tokenPrices = { USDC: { price: 3 } };
+    }
+  });
+
   it('keeps the fee of a token the feed prices while the nominal rate is on', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
     try {
@@ -2384,6 +2480,22 @@ describe('USDCx burn fee reserve', () => {
     expect(navigateMock).not.toHaveBeenCalled();
 
     await act(async () => land(measured(315n)));
+    fireEvent.click(screen.getByTestId('route-confirm'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(consumeSendDraft()).toBeNull();
+  });
+
+  it('compares a typed base unit before handing a native burn from Route to review', async () => {
+    const amount = '1.000000000000000001';
+    mockBaseFee = 0;
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: NATIVE, metadata: { symbol: 'MIDEN', decimals: 18 }, balance: 1, fiatPrice: 0 }]
+    });
+    mockEstimateUsdcxBurnFee.mockResolvedValue(measured(0n));
+    openBurn(SendFlowStep.Route, amount);
+    await act(async () => {});
+
     fireEvent.click(screen.getByTestId('route-confirm'));
 
     expect(navigateMock).not.toHaveBeenCalled();

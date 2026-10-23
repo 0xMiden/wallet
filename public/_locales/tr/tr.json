@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Tutar, bakiyeden az olmalıdır",
+  "amountExceedsTokenDecimals": "Bu tutarın ondalık basamak sayısı, bu tokenin izin verdiği sayıdan fazladır.",
   "autoConsumeSettings": "USDCX transferlerini otomatik kabul et",
   "autoConsumeSettingsDescription": "Gelen USDCX transferlerini bakiyenize otomatik olarak kabul eder - Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
   "encryptedWalletFileExporting": "Cüzdan dosyanız oluşturuluyor…",
@@ -1621,5 +1622,12 @@
   "walletAccessUnavailableTitle": "Kullanılabilirlik kontrol edilemedi",
   "walletAccessUnavailableBody": "Bağlantınızı kontrol edip tekrar deneyin.",
   "runtimeUnsupportedTitle": "Bu tarayıcı veya cihaz cüzdanı çalıştıramıyor",
-  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın."
+  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
+  "amountUsdUnavailable": "USD tahmini mevcut değil",
+  "amountUsdStale": "USD fiyat teklifi süresi doldu. Fiyat yenileniyor…",
+  "amountInputUnit": "$unit$ cinsinden tutar",
+  "amountSwitchUnit": "$unit$ girin",
+  "amountUsdLoading": "USD fiyatı yükleniyor…",
+  "amountUsdError": "USD fiyatı yenilenemedi",
+  "amountUsdEstimate": "USD tahmini"
 }

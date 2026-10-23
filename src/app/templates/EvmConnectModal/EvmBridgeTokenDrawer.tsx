@@ -3,9 +3,12 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
+import { UsdValue } from 'components/TokenUsdValue';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
+import { evmQuote } from 'lib/prices/evm';
+import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 import { type DepositToken, depositTokenKey, type OfferedErc20, sameDepositToken } from './deposit-token';
@@ -33,6 +36,8 @@ interface TokenRow {
 }
 
 export interface EvmBridgeTokenDrawerProps {
+  chainId?: number;
+  circleUsdcAddress?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selected: DepositToken;
@@ -63,6 +68,8 @@ export interface EvmBridgeTokenDrawerProps {
  * and every registered ERC-20 use AggLayer where configured.
  */
 export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
+  chainId,
+  circleUsdcAddress,
   open,
   onOpenChange,
   selected,
@@ -76,6 +83,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   onSelect
 }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
 
   const rows: TokenRow[] = [];
   if (ethBalance !== undefined) {
@@ -115,7 +123,29 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
               accent="receive"
               key={depositTokenKey(token)}
               title={name}
-              subtitle={loading ? t('loading') : `${balance} ${name}`}
+              subtitle={
+                loading ? (
+                  t('loading')
+                ) : (
+                  <div>
+                    {`${balance} ${name}`}
+                    <div>
+                      <UsdValue
+                        amount={balance}
+                        quote={evmQuote(
+                          prices,
+                          chainId,
+                          typeof token !== 'string'
+                            ? token.contractAddress
+                            : token === 'ETH'
+                              ? '0x0000000000000000000000000000000000000000'
+                              : circleUsdcAddress
+                        )}
+                      />
+                    </div>
+                  </div>
+                )
+              }
               avatar={<TokenLogo symbol={logoSymbol} size="lg" />}
               checked={sameDepositToken(token, selected)}
               onClick={() => onSelect(token)}

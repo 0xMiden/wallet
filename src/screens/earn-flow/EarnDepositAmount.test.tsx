@@ -336,6 +336,23 @@ describe('EarnDepositAmount', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('rejects an 18-decimal amount one base unit above the balance', () => {
+    mockCollateral = { ...TEST_MIDEN_USDC, decimals: 18 };
+    mockBalanceRows = [
+      {
+        ...USDC_ROW,
+        balance: 1,
+        metadata: { ...USDC_ROW.metadata, decimals: 18 }
+      }
+    ];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('1.000000000000000001');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+    fireEvent.click(screen.getByTestId('confirm'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
   it('blocks Continue under the notice while Earn deposits are unavailable', () => {
     mockEarnDeposit = { state: 'unavailable', reason: 'not-deployed', detail: 'evmUsdc has no code' };
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);

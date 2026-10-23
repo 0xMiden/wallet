@@ -36,8 +36,9 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection
 // The USDCx card names the native fee asset as the wallet resolves it; on testnet that is USDCx.
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'mtst1usdcxnative' }));
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (state: { assetsMetadata: Record<string, never> }) => unknown) =>
-    selector({ assetsMetadata: {} })
+  useWalletStore: (
+    selector: (state: { assetsMetadata: Record<string, never>; tokenPrices: Record<string, never> }) => unknown
+  ) => selector({ assetsMetadata: {}, tokenPrices: {} })
 }));
 jest.mock('lib/miden/metadata/resolve', () => ({
   resolveDisplayMetadata: jest.fn(() => ({ symbol: 'USDCx', name: 'USDCx', decimals: 6 }))

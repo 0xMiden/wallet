@@ -45,6 +45,11 @@ export function usdMarketPending(symbol: string | undefined): boolean {
 }
 
 /** Fetch Binance prices first, then direct USD prices for assets it does not list. */
+function timestampPrices(prices: TokenPrices): TokenPrices {
+  const observedAt = Date.now();
+  return Object.fromEntries(Object.entries(prices).map(([symbol, quote]) => [symbol, { ...quote, observedAt }]));
+}
+
 export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
   const prices = await fetchBinancePrices(symbols);
   // PYUSD has a Kraken USD market but no Binance USDT or USDC market.
@@ -62,11 +67,11 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, resolveNext));
-  if (resolved.size === 0) return prices;
+  if (resolved.size === 0) return timestampPrices(prices);
   try {
-    return { ...prices, ...(await fetchKrakenPrices(resolved)) };
+    return timestampPrices({ ...prices, ...(await fetchKrakenPrices(resolved)) });
   } catch {
-    return prices;
+    return timestampPrices(prices);
   }
 }
 
