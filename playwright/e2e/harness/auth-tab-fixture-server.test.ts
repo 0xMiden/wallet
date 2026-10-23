@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpsRequest } from 'node:https';
+import type { RequestOptions } from 'node:https';
 import type { IncomingMessage } from 'node:http';
 
 import { startAuthTabFixtureServer } from './auth-tab-fixture-server';
@@ -20,6 +21,10 @@ interface QueuedAttempt {
   url: string;
 }
 
+type FixtureTlsOptions = Pick<RequestOptions, 'ca' | 'servername'>;
+
+let fixtureCertificate: Buffer;
+
 function isQueuedAttempt(value: unknown): value is QueuedAttempt {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   return 'id' in value && typeof value.id === 'string' && 'url' in value && typeof value.url === 'string';
@@ -31,14 +36,16 @@ async function readAttempt(response: ResponseValue): Promise<QueuedAttempt> {
   return value;
 }
 
-function request(url: string, method = 'GET', body?: unknown): Promise<ResponseValue> {
+function request(url: string, method = 'GET', body?: unknown, tlsOptions?: FixtureTlsOptions): Promise<ResponseValue> {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
+    const verification = tlsOptions ?? { ca: fixtureCertificate, servername: 'fixture.local' };
     const req = httpsRequest(
       url,
       {
         method,
         rejectUnauthorized: false,
+        ...verification,
         headers: payload
           ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
           : undefined
@@ -86,16 +93,32 @@ describe('Auth Tab fixture server', () => {
       ],
       { stdio: 'ignore' }
     );
+    fixtureCertificate = readFileSync(certPath);
     fixture = await startAuthTabFixtureServer({
       deviceHost: '127.0.0.1',
       key: readFileSync(keyPath),
-      cert: readFileSync(certPath)
+      cert: fixtureCertificate
     });
   });
 
   afterAll(async () => {
     await fixture?.stop();
     if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('rejects a trusted certificate for the wrong host', async () => {
+    await expect(
+      request(`https://127.0.0.1:${fixture.port}/`, 'GET', undefined, {
+        ca: fixtureCertificate,
+        servername: 'wrong.example'
+      })
+    ).rejects.toMatchObject({ code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
+  });
+
+  test('rejects the self-signed certificate without its trusted CA', async () => {
+    await expect(
+      request(`https://127.0.0.1:${fixture.port}/`, 'GET', undefined, { servername: 'fixture.local' })
+    ).rejects.toMatchObject({ code: 'DEPTH_ZERO_SELF_SIGNED_CERT' });
   });
 
   test('serves the auth page and accepts one semantic result per queued attempt', async () => {

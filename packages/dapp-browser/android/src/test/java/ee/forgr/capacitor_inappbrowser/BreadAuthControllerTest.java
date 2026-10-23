@@ -770,6 +770,10 @@ public class BreadAuthControllerTest {
         Intent data = new Intent().setData(Uri.parse(CALLBACK));
         oldRegistry.dispatchResult(oldLaunch.requestCode, AuthTabIntent.RESULT_OK, data);
         newRegistry.dispatchResult(oldLaunch.requestCode, AuthTabIntent.RESULT_OK, data);
+        Bundle restoredState = new Bundle();
+        newRegistry.onSaveInstanceState(restoredState);
+        assertTrue("No abandoned auth result remains pending",
+            restoredState.getBundle("KEY_COMPONENT_ACTIVITY_PENDING_RESULT").isEmpty());
         oldCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_OK, CALLBACK));
         verifyNoInteractions(oldProxy, nextProxy);
         assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
