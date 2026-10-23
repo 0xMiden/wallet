@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "Для оплаты сетевой комиссии вам понадобится USDCX. Получите некоторое количество USDCX, чтобы продолжить.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Сумма должна быть меньше остатка",
+  "amountExceedsTokenDecimals": "В этой сумме больше десятичных знаков, чем допускает данный токен.",
   "autoConsumeSettings": "Автоматически принимать переводы USDCX",
   "autoConsumeSettingsDescription": "Автоматически принимает входящие переводы USDCX на ваш баланс - так же, как нажатие «Принять». Это не происходит чаще и не стоит больше комиссий, чем принятие вручную.",
   "encryptedWalletFileExporting": "Создание файла кошелька…",

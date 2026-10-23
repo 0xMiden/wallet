@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "ネットワーク手数料の支払いにUSDCXが必要です。続行するには、USDCXを受け取ってください。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "金額は残高より少なければなりません",
+  "amountExceedsTokenDecimals": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
   "autoConsumeSettings": "USDCX の送金を自動で受け取る",
   "autoConsumeSettingsDescription": "受信した USDCX の送金を自動で残高に受け取ります。「受け取る」をタップした場合と同じで、受け取る頻度が増えることも、手数料が高くなることもありません。",
   "encryptedWalletFileExporting": "ウォレットファイルの作成中…",

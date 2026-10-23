@@ -3697,6 +3697,10 @@
     "message": "金額必須小於餘額",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "此金額的小數位數超過該代幣所允許的範圍。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "自動接受 USDCX 轉帳",
     "englishSource": "Auto-accept USDCX transfers"

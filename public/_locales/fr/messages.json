@@ -3697,6 +3697,10 @@
     "message": "Le montant doit être inférieur au solde",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "Ce montant comporte plus de décimales que ne le permet ce jeton.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "Accepter automatiquement les transferts USDCX",
     "englishSource": "Auto-accept USDCX transfers"

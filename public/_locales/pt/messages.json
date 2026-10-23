@@ -3697,6 +3697,10 @@
     "message": "O valor deve ser inferior ao saldo",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "Este valor tem mais casas decimais do que este token permite.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "Aceitar automaticamente transferências USDCX",
     "englishSource": "Auto-accept USDCX transfers"

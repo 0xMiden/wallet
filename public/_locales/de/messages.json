@@ -3697,6 +3697,10 @@
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "Dieser Betrag hat mehr Dezimalstellen, als dieses Token zulässt.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "USDCX-Überweisungen automatisch akzeptieren",
     "englishSource": "Auto-accept USDCX transfers"

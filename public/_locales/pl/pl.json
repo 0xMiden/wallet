@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "Aby uiścić opłatę sieciową, potrzebujesz USDCX. Odbierz trochę USDCX, aby kontynuować.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Kwota musi być mniejsza niż saldo",
+  "amountExceedsTokenDecimals": "Ta kwota ma więcej miejsc po przecinku, niż pozwala na to ten token.",
   "autoConsumeSettings": "Automatycznie akceptuj transfery USDCX",
   "autoConsumeSettingsDescription": "Automatycznie akceptuje przychodzące transfery USDCX do Twojego salda - tak samo jak dotknięcie Akceptuj. Nie akceptuje częściej ani nie kosztuje więcej opłat niż samodzielne dotknięcie Akceptuj.",
   "encryptedWalletFileExporting": "Tworzenie pliku portfela…",

@@ -3697,6 +3697,10 @@
     "message": "Сумма должна быть меньше остатка",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "В этой сумме больше десятичных знаков, чем допускает данный токен.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "Автоматически принимать переводы USDCX",
     "englishSource": "Auto-accept USDCX transfers"
