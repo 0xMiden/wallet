@@ -98,7 +98,6 @@ jest.mock('lib/platform', () => ({ isExtension: () => false, isMobile: () => fal
 jest.mock('lib/miden/activity', () => ({ requestSWTransactionProcessing: jest.fn() }));
 jest.mock('lib/one-click/client', () => ({
   ...jest.requireActual('lib/one-click/client'),
-  ONE_CLICK_EVM_CHAIN_IDS: { eth: 1 },
   isSameOneClickUnderlyingAsset: (left: OneClickAsset, right: OneClickAsset) =>
     left.assetId === right.assetId || (!!left.coingeckoId && left.coingeckoId === right.coingeckoId),
   requestOneClickQuote: jest.fn()
@@ -1065,6 +1064,44 @@ describe('OneClickFlow', () => {
 
     expect(await screen.findByTestId('one-click-deposit-instructions')).toBeInTheDocument();
     expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
+  });
+
+  it('keeps unsupported chain recipients on the manual address path', async () => {
+    const unsupportedAsset: OneClickAsset = {
+      assetId: 'constructor:token',
+      blockchain: 'constructor',
+      symbol: 'TOKEN',
+      decimals: 6
+    };
+    const unsupportedNetwork: OneClickNetworkOption = {
+      id: 'constructor',
+      name: 'Constructor',
+      kind: 'ethereum'
+    };
+    mockBalanceRows = [
+      {
+        tokenId: midenAsset.faucetId!,
+        balance: 100,
+        balanceBaseUnits: '100000000',
+        metadata: { decimals: 6 }
+      }
+    ];
+    render(
+      <OneClickFlow
+        config={config}
+        assets={[midenAsset, unsupportedAsset]}
+        networks={[networkFor('miden'), unsupportedNetwork]}
+        offerNetwork={networkFor('miden')}
+        requestNetwork={unsupportedNetwork}
+        midenAddress={mockMidenAddress}
+        onBackToSwap={jest.fn()}
+      />
+    );
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: 'destination-key' } });
+    await settlePreviewDebounce();
+
+    expect(screen.getByRole('button', { name: 'Review route' })).toBeEnabled();
   });
 
   it('keeps identical provider assets out of 1Click so the existing bridge route handles them', async () => {

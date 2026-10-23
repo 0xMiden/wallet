@@ -228,6 +228,28 @@ describe('1Click client', () => {
     ]);
   });
 
+  it('does not assign an inherited chain ID to a catalog token', async () => {
+    fetchMock.mockResolvedValue(
+      Response.json([
+        { assetId: 'constructor:token', blockchain: 'constructor', symbol: 'TOKEN', decimals: 6 },
+        { assetId: 'nep141:eth.omft.near', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
+      ])
+    );
+
+    const assets = await fetchOneClickAssets(config, jest.fn());
+    const constructorAsset = assets.find(asset => asset.assetId === 'constructor:token');
+    const ethereumAsset = assets.find(asset => asset.assetId === 'nep141:eth.omft.near');
+
+    expect(constructorAsset).toBeDefined();
+    expect(constructorAsset?.chainId).toBeUndefined();
+    expect(ethereumAsset).toMatchObject({
+      assetId: 'nep141:eth.omft.near',
+      blockchain: 'eth',
+      contractAddress: 'native',
+      chainId: 1
+    });
+  });
+
   it('omits unconfigured EVM ERC-20 metadata while retaining pinned native assets', async () => {
     fetchMock.mockResolvedValue(
       Response.json([
