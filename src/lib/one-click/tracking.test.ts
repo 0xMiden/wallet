@@ -1,10 +1,13 @@
+import { HistoryEntryType } from 'app/templates/history/IHistoryEntry';
+import { bridgeStatusOf } from 'app/templates/history/transactionUtils';
 import { ITransactionStatus } from 'lib/miden/db/types';
 
 import {
   initiateOneClickMidenDeposit,
   persistOneClickTrackingRow,
   phaseForProviderStatus,
-  reconcileOneClickSwaps
+  reconcileOneClickSwaps,
+  updateOneClickTrackingPhase
 } from './tracking';
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
@@ -119,6 +122,19 @@ const inboundInput = {
   },
   originAsset: destinationAsset,
   destinationAsset: originAsset
+};
+
+const activityBridgeStatus = (phase: string | undefined) => {
+  const bridgeInPhase = phase === 'delivering' || phase === 'failed' ? phase : undefined;
+  return bridgeStatusOf({
+    key: 'refunded-inbound-row',
+    address: 'miden-account-id',
+    timestamp: Date.now(),
+    message: '1Click deposit',
+    type: HistoryEntryType.CompletedTransaction,
+    txType: 'bridged-receive',
+    bridgeInPhase
+  });
 };
 
 beforeEach(() => {
@@ -239,6 +255,98 @@ describe('1Click durable tracking', () => {
 
     expect(fetchStatus).toHaveBeenCalledTimes(1);
     expect(fetchStatus).toHaveBeenCalledWith(config, 'miden-deposit-address', undefined, inboundInput.quote);
+  });
+
+  it('terminalizes refunded inbound rows in Activity and stops polling', async () => {
+    const originTransactionHash = `0x${'a'.repeat(64)}`;
+    const inboundRow = {
+      id: 'refunded-inbound-row',
+      type: 'bridged-receive',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      extraInputs: {
+        phase: 'delivering',
+        evmTxHash: originTransactionHash,
+        oneClick: {
+          direction: 'evm-to-miden',
+          request: inboundInput.request,
+          quote: inboundInput.quote,
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset: destinationAsset,
+          destinationAsset: originAsset,
+          faucetId: 'miden-faucet',
+          amount: inboundInput.request.amount,
+          phase: 'known-deposit-tx',
+          depositAddress: 'miden-deposit-address',
+          originTransactionHash,
+          evmSubmission: 'known',
+          providerSubmitted: true
+        }
+      }
+    };
+    storedRows.push(inboundRow);
+    fetchStatus.mockResolvedValue({ status: 'REFUNDED', swapDetails: { refundReason: 'Refunded by provider' } });
+
+    await reconcileOneClickSwaps();
+
+    expect(inboundRow.extraInputs.oneClick.phase).toBe('refunded');
+    expect(inboundRow.extraInputs.phase).toBe('failed');
+    expect(activityBridgeStatus(inboundRow.extraInputs.phase)).toBe('failed');
+    expect(inboundRow.extraInputs.evmTxHash).toBe(originTransactionHash);
+    expect(inboundRow.extraInputs.oneClick).toMatchObject({ evmSubmission: 'known', originTransactionHash });
+
+    await reconcileOneClickSwaps();
+
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
+    expect(submitDeposit).not.toHaveBeenCalled();
+  });
+
+  it('maps explicit refunded phases to a terminal Activity state', async () => {
+    const originTransactionHash = `0x${'b'.repeat(64)}`;
+    const inboundRow = {
+      id: 'explicit-refunded-inbound-row',
+      type: 'bridged-receive',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      extraInputs: {
+        phase: 'delivering',
+        evmTxHash: originTransactionHash,
+        oneClick: {
+          direction: 'evm-to-miden',
+          request: inboundInput.request,
+          quote: inboundInput.quote,
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset: destinationAsset,
+          destinationAsset: originAsset,
+          faucetId: 'miden-faucet',
+          amount: inboundInput.request.amount,
+          phase: 'known-deposit-tx',
+          depositAddress: 'miden-deposit-address',
+          originTransactionHash,
+          evmSubmission: 'known',
+          providerSubmitted: true
+        }
+      }
+    };
+    storedRows.push(inboundRow);
+
+    await updateOneClickTrackingPhase(inboundRow.id, 'refunded');
+
+    expect(inboundRow.extraInputs.oneClick).toMatchObject({
+      phase: 'refunded',
+      evmSubmission: 'known',
+      originTransactionHash
+    });
+    expect(inboundRow.extraInputs.phase).toBe('failed');
+    expect(activityBridgeStatus(inboundRow.extraInputs.phase)).toBe('failed');
   });
 
   it('stops polling an outbound swap after the provider reports success', async () => {
