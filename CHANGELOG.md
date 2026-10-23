@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][test] The Earn deposit review test for an amount finer than the token's scale names the reviewed collateral, so it again proves such an amount opens no deposit.
 - [FIX][all] Earn withdrawals work on mainnet: they are accepted on every chain the wallet-config document names an Epoch route on, not only Sepolia or the default market's chain; a 1delta withdraw leg that needs no allocation (the batch holds the delivery alone) is no longer refused as a changed quote; and the withdrawal receipt names the market's own chain in its route.
 - [FIX][all] The mainnet countdown and a new wallet's invite-only onboarding share one clock. Setup already underway stays on its step, with the seed, password, key and access code already entered, while mainnet is prepared when that moment arrives.
 - [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read. While launch is pending, the wallet checks the clock each second so a system clock change cannot leave the launch state out of date.
