@@ -13,7 +13,9 @@ import EarnDepositAmount from './EarnDepositAmount';
 // `lib/woozie` reaches for browser history state on import; stub `navigate`
 // so we can assert the deposit-review push without running the real router.
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; vaultsPending?: boolean; error?: string; loadError?: string } = {
+  isLoading: false
+};
 const mockRefetch = jest.fn();
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
@@ -48,7 +50,10 @@ jest.mock('./components', () => ({
       data-asset={subject?.asset ?? 'none'}
       data-network={subject?.network ?? 'none'}
     />
-  )
+  ),
+  // A probe that shows only for a vault that accepts no deposits, as the real notice does.
+  EarnVaultClosedNotice: ({ canOpen }: { canOpen?: boolean }) =>
+    canOpen === false ? <div data-testid="earn-vault-closed-notice" /> : null
 }));
 
 // `screens/send-flow/SelectAmount` renders the full amount-input chrome (haptics,
@@ -170,7 +175,8 @@ jest.mock('lib/remote-config/values', () => ({
 
 const mockNavigate = navigate as jest.Mock;
 
-const FOUND_VAULT = EARN_DATA.vaults[1]!; // 'aave-usdc-ethereum-2'
+const FOUND_VAULT = EARN_DATA.vaults[2]!; // The Aave V3 USDC market on Base, which accepts deposits.
+const CLOSED_VAULT = EARN_DATA.vaults[1]!; // A Morpho market that accepts no deposits now.
 
 const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount-input'), { target: { value } });
 
@@ -364,6 +370,41 @@ describe('EarnDepositAmount', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('resolves a Morpho market by its own id, not by its lender', () => {
+    const other = EARN_DATA.vaults[0]!;
+    expect(other.protocol).toBe(CLOSED_VAULT.protocol);
+    render(<EarnDepositAmount vaultId={other.id} />);
+
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', other.id);
+  });
+
+  it('blocks Continue, and says why, for a vault that accepts no deposits now', () => {
+    expect(CLOSED_VAULT.canOpen).toBe(false);
+    render(<EarnDepositAmount vaultId={CLOSED_VAULT.id} />);
+    setAmount('1');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+    expect(screen.getByTestId('earn-vault-closed-notice')).toBeInTheDocument();
+    // One reason at a time: the collateral says nothing over a closed vault.
+    expect(screen.queryByTestId('earn-collateral-notice')).toBeNull();
+    fireEvent.click(screen.getByTestId('confirm'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves a closed vault to the unavailable notice while Earn deposits are down', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'Epoch allocator: down' };
+    render(<EarnDepositAmount vaultId={CLOSED_VAULT.id} />);
+
+    expect(screen.getByTestId('feature-unavailable-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+  });
+
+  it('draws no closed-vault notice for an open vault', () => {
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+  });
+
   it('wires onSelectToken as a no-op that does not throw or navigate', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
@@ -402,6 +443,22 @@ describe('EarnDepositAmount after a failed load', () => {
 
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByTestId('select-amount')).toBeNull();
+  });
+
+  it('waits for a vault catalogue still pending after the positions read landed', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('select-amount')).toBeNull();
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
+  });
+
+  it('draws a vault it has while the catalogue is pending', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByTestId('select-amount')).toBeInTheDocument();
   });
 
   it("shows no notice over a found vault when only one owner's positions failed", () => {
