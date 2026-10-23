@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [FIX][all] Clarify that Arcade stakes, payouts and refunds follow each game’s rules, without promising a universal leaderboard fee (#1452).
+
 - [FIX][all] Finish GC history scans and keep checking pending request budgets after the weekly allocation arrives, so recovery becomes available without reopening Coins; retain those checks across temporary read failures (#1452).
 
 - [FIX][all] Finish Testnet GC receipt collection with proof-backed note imports and Guardian authentication, continue weekly status checks automatically, and simplify claim review with expandable fee details (#1452).

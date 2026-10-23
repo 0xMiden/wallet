@@ -1694,5 +1694,5 @@
   "arcadeAwaitingReceipt": "Awaiting receipt",
   "arcadeRetryClaim": "Retry claim",
   "arcadeCheckStatus": "Check status",
-  "arcadePostingPolicy": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
+  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
 }

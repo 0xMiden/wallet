@@ -7643,7 +7643,7 @@
     "englishSource": "Check status"
   },
   "arcadePostingPolicy": {
-    "message": "プレイ、リプレイ、ソーシャルシェアは、GC残高に関わらず無料です。このゲームのリーダーボードへの登録には、1 GCとネットワーク手数料（ご自身で負担）が必要です。",
-    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
+    "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

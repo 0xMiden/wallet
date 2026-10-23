@@ -7643,7 +7643,7 @@
     "englishSource": "Check status"
   },
   "arcadePostingPolicy": {
-    "message": "Jugar, volver a jugar y compartir en redes sociales es gratuito, sea cual sea tu saldo de GC. Envía tus resultados a la tabla de clasificación de este juego por 1 GC más las comisiones de red, que correrán a tu cargo.",
-    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
+    "message": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

@@ -1694,5 +1694,5 @@
   "arcadeAwaitingReceipt": "Alınmayı bekliyor",
   "arcadeRetryClaim": "Talebi yeniden dene",
   "arcadeCheckStatus": "Durumu kontrol edin",
-  "arcadePostingPolicy": "Oynama, tekrar oynama ve sosyal paylaşım, GC bakiyeniz ne olursa olsun ücretsizdir. Bu oyunun liderlik tablosuna katılmak için 1 GC artı ağ ücretlerini ödemeniz gerekir; bu ücretler tarafınızdan karşılanır."
+  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin."
 }

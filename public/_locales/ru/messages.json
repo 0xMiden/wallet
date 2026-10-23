@@ -7643,7 +7643,7 @@
     "englishSource": "Check status"
   },
   "arcadePostingPolicy": {
-    "message": "Игра, повтор игры и публикация в социальных сетях бесплатны, независимо от вашего баланса GC. Подача заявки на включение в таблицу лидеров этой игры стоит 1 GC плюс сетевые комиссии, которые оплачиваете вы.",
-    "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
+    "message": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

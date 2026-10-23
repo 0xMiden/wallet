@@ -1694,5 +1694,5 @@
   "arcadeAwaitingReceipt": "A la espera de recepción",
   "arcadeRetryClaim": "Reintentar la reclamación",
   "arcadeCheckStatus": "Comprobar el estado",
-  "arcadePostingPolicy": "Jugar, volver a jugar y compartir en redes sociales es gratuito, sea cual sea tu saldo de GC. Envía tus resultados a la tabla de clasificación de este juego por 1 GC más las comisiones de red, que correrán a tu cargo."
+  "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción."
 }

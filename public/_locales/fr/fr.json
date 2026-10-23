@@ -1694,5 +1694,5 @@
   "arcadeAwaitingReceipt": "En attente de réception",
   "arcadeRetryClaim": "Réessayer la réclamation",
   "arcadeCheckStatus": "Vérifier le statut",
-  "arcadePostingPolicy": "Jouer, rejouer et partager sur les réseaux sociaux sont gratuits, quel que soit votre solde en GC. Inscrivez-vous au classement de ce jeu pour 1 GC plus les frais de réseau, à votre charge."
+  "arcadePostingPolicy": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction."
 }

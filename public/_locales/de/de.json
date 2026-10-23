@@ -1694,5 +1694,5 @@
   "arcadeAwaitingReceipt": "Warten auf den Eingang",
   "arcadeRetryClaim": "Anspruch erneut geltend machen",
   "arcadeCheckStatus": "Status prüfen",
-  "arcadePostingPolicy": "Das Spielen, Wiederholen und Teilen in sozialen Netzwerken ist kostenlos, unabhängig von Ihrem GC-Guthaben. Die Teilnahme an der Rangliste dieses Spiels kostet 1 GC zuzüglich Netzwerkgebühren, die von Ihnen zu tragen sind."
+  "arcadePostingPolicy": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst."
 }

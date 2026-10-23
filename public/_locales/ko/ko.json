@@ -1694,5 +1694,5 @@
   "arcadeAwaitingReceipt": "수령 대기 중",
   "arcadeRetryClaim": "재시도 청구",
   "arcadeCheckStatus": "상태 확인",
-  "arcadePostingPolicy": "플레이, 리플레이 및 소셜 공유는 GC 잔액과 상관없이 무료입니다. 이 게임의 리더보드에 등록하려면 1 GC와 네트워크 수수료를 지불해야 하며, 이 비용은 귀하가 부담합니다."
+  "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요."
 }
