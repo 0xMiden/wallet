@@ -1,8 +1,47 @@
-import { hasGeoBlocks, parseGeoPhrase, placeBlocked, readGeoBlocks } from './geo';
+import { geoFeatureEnabled, hasGeoBlocks, parseGeoPhrase, placeBlocked, readGeoBlocks } from './geo';
 
 const invalid = (): never => {
   throw new Error('invalid');
 };
+
+const oneClick = {
+  serviceUrl: 'https://intents.example/api',
+  midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }]
+};
+
+describe('geoFeatureEnabled', () => {
+  it('keeps DEX swap eligibility when its solver is configured', () => {
+    expect(geoFeatureEnabled('swap', { features: { earn: false }, swap: { etaUrl: 'https://solver.example' } })).toBe(
+      true
+    );
+  });
+
+  it('enables OneClick swap capability only with the explicit switch and a usable mapping', () => {
+    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: true }, swap: { oneClick } })).toBe(true);
+    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: false }, swap: { oneClick } })).toBe(
+      false
+    );
+    expect(geoFeatureEnabled('swap', { features: { earn: false }, swap: { oneClick } })).toBe(false);
+    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: 'true' }, swap: { oneClick } })).toBe(
+      false
+    );
+    expect(geoFeatureEnabled('swap', { features: { earn: false, nearIntents: true } })).toBe(false);
+  });
+
+  it('does not enable a OneClick configuration without any parsed Miden mappings', () => {
+    expect(
+      geoFeatureEnabled('swap', {
+        features: { earn: false, nearIntents: true },
+        swap: { oneClick: { ...oneClick, midenAssets: [] } }
+      })
+    ).toBe(false);
+  });
+
+  it('enables Earn only from its existing switch', () => {
+    expect(geoFeatureEnabled('earn', { features: { earn: true } })).toBe(true);
+    expect(geoFeatureEnabled('earn', { features: { earn: false, nearIntents: true }, swap: { oneClick } })).toBe(false);
+  });
+});
 
 describe('parseGeoPhrase', () => {
   it.each([

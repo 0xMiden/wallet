@@ -181,6 +181,66 @@ jobs:
         # --retries=1: a small margin for a loaded-runner sync hiccup, not a
         # flake-masker (a genuine P2ID regression fails all attempts on the assertion).
         run: xvfb-run -a yarn playwright test --config playwright.bridge-guardian.config.ts --retries=1
+
+      - name: Explain OneClick E2E secret scope
+        if: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]') }}
+        run: echo 'Secret-dependent OneClick E2E steps are omitted for fork and Dependabot pull requests. Guardian bridge-out coverage still runs; trusted same-repository pull requests and manual dispatch require the OneClick secret and checks.'
+
+      - name: Validate dedicated OneClick Reown project
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+        run: |
+          node <<'NODE'
+          const id = (process.env.WALLETCONNECT_PROJECT_ID ?? '').trim();
+          if (!/^[a-f0-9]{32}$/i.test(id) || id.toLowerCase() === 'd18d112eb50cbe764f03e51a90210611') {
+            console.error('WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID must contain the dedicated 32-character Reown project id');
+            process.exit(1);
+          }
+          NODE
+
+      - name: Build extension for hermetic 1Click E2E
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+        run: yarn test:e2e:one-click-local:build
+
+      - name: Verify extension manifest for hermetic 1Click E2E
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        run: |
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('dist/chrome_unpacked/manifest.json', 'utf8'));
+          if (typeof manifest.key !== 'string') throw new Error('OneClick E2E manifest key is missing');
+          const extensionId = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64'))
+            .digest('hex').slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(parseInt(value, 16) + 97));
+          if (extensionId !== 'dfkbipcpggpmndndboecmjgjdgcncbhl') {
+            throw new Error(`Unexpected OneClick E2E extension id: ${extensionId}`);
+          }
+          NODE
+
+      - name: Run hermetic 1Click E2E
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        timeout-minutes: 20
+        env:
+          WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+        run: xvfb-run -a yarn test:e2e:one-click-local:run
+
+      - name: Require executed 1Click test cases
+        if: ${{ success() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')) }}
+        run: |
+          node -e 'const fs = require("node:fs"); const path = "test-results/one-click-local/results.json"; if (!fs.existsSync(path)) { console.error("1Click Playwright report is missing"); process.exit(1); } const report = JSON.parse(fs.readFileSync(path, "utf8")); const expected = report.stats?.expected; const skipped = report.stats?.skipped; console.log("1Click expected: " + expected + "; skipped: " + skipped); if (!Number.isSafeInteger(expected) || expected < 1 || skipped !== 0) process.exit(1);'
+
+      - name: Upload hermetic 1Click results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-click-local-e2e-report
+          path: test-results/one-click-local/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Report flaky (retried-then-passed) specs
         # A spec that failed once and passed on the retry above is reported as a
         # plain green run, so the flake it represents is invisible. Print one

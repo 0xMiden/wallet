@@ -18,7 +18,7 @@ const doc = (version: number, overrides: Record<string, unknown> = {}) => ({
   version,
   'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
   // Earn off: Earn on needs an `earn.vaults` list on an Epoch route, which this document has none of.
-  features: { earn: false },
+  features: { earn: false, nearIntents: false },
   ...overrides
 });
 const parsed = (version: number) => ({
@@ -26,13 +26,23 @@ const parsed = (version: number) => ({
   version,
   supportedEvmChains: {},
   'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
-  features: { earn: false },
+  features: { earn: false, nearIntents: false },
   mainnetCountdown: { enabled: false },
   swap: {}
 });
 // A document an E2E harness serves, pointing at its local fakes.
 const localDoc = (version: number) =>
   doc(version, { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } });
+const oneClickDoc = (version: number) =>
+  doc(version, {
+    network: 'localnet',
+    swap: {
+      oneClick: {
+        serviceUrl: 'http://127.0.0.1:8550',
+        midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+      }
+    }
+  });
 
 const memoryStorage = (initial: Record<string, unknown> = {}) => {
   const data: Record<string, unknown> = { ...initial };
@@ -65,18 +75,32 @@ const setup = (initial: Record<string, unknown> = {}) => {
   _setBridgeConfigSourceDepsForTest({ storage, fetch: fetchMock, now: () => NOW });
 };
 
-const setEnv = (e2e: string | undefined, url: string | undefined) => {
+const setEnv = (
+  e2e: string | undefined,
+  url: string | undefined,
+  oneClickE2e: string | undefined = undefined,
+  network: string | undefined = undefined
+) => {
   if (e2e === undefined) delete process.env.MIDEN_E2E_TEST;
   else process.env.MIDEN_E2E_TEST = e2e;
   if (url === undefined) delete process.env.MIDEN_REMOTE_CONFIG_URL;
   else process.env.MIDEN_REMOTE_CONFIG_URL = url;
+  if (oneClickE2e === undefined) delete process.env.MIDEN_E2E_ONE_CLICK_TESTNET;
+  else process.env.MIDEN_E2E_ONE_CLICK_TESTNET = oneClickE2e;
+  if (network === undefined) delete process.env.MIDEN_NETWORK;
+  else process.env.MIDEN_NETWORK = network;
 };
-const savedEnv = { e2e: process.env.MIDEN_E2E_TEST, url: process.env.MIDEN_REMOTE_CONFIG_URL };
+const savedEnv = {
+  e2e: process.env.MIDEN_E2E_TEST,
+  url: process.env.MIDEN_REMOTE_CONFIG_URL,
+  oneClickE2e: process.env.MIDEN_E2E_ONE_CLICK_TESTNET,
+  network: process.env.MIDEN_NETWORK
+};
 
 beforeEach(() => setEnv(undefined, undefined));
 
 afterAll(() => {
-  setEnv(savedEnv.e2e, savedEnv.url);
+  setEnv(savedEnv.e2e, savedEnv.url, savedEnv.oneClickE2e, savedEnv.network);
   _setBridgeConfigSourceDepsForTest();
 });
 
@@ -107,6 +131,29 @@ describe('bridgeConfigUrl', () => {
 });
 
 describe('fetchAndStoreBridgeConfig', () => {
+  it('keeps localnet 1Click hidden without the dedicated E2E compile flags', async () => {
+    setEnv('true', `${SERVED_BASE}/`, undefined, 'localhost');
+    setup();
+    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
+    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({ config: { swap: {} } });
+  });
+
+  it('allows localnet 1Click only when both E2E gates and the localhost build target are explicit', async () => {
+    setEnv('true', `${SERVED_BASE}/`, 'true', 'localhost');
+    setup();
+    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
+    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({
+      config: { swap: { oneClick: { serviceUrl: 'http://127.0.0.1:8550' } } }
+    });
+  });
+
+  it('keeps localnet 1Click hidden when the build network is not localhost', async () => {
+    setEnv('true', `${SERVED_BASE}/`, 'true', 'testnet');
+    setup();
+    fetchMock.mockResolvedValue(response(oneClickDoc(1)));
+    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({ config: { swap: {} } });
+  });
+
   it('fetches past the browser cache, then stores the body as fetched and raises the floor', async () => {
     setup();
     fetchMock.mockResolvedValue(response(doc(3)));

@@ -5,6 +5,8 @@ import base from './playwright.e2e.config';
 // The mainnet nightly only. The base config ignores this directory so a testnet or localhost run cannot spend these accounts.
 export default defineConfig({
   ...base,
+  outputDir: process.env.E2E_PLAYWRIGHT_OUTPUT_DIR ?? 'test-results',
+  reporter: [['list'], ['json', { outputFile: `${process.env.E2E_PLAYWRIGHT_OUTPUT_DIR ?? 'test-results'}/results.json` }]],
   testDir: './playwright/e2e/tests/mainnet',
   testIgnore: undefined,
   timeout: 1_200_000,
