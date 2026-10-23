@@ -32,6 +32,7 @@ final class BreadAuthTabLauncher implements ActivityResultCaller {
     private ActivityResultLauncher<Intent> launcher;
     private ActivityResultCallback<AuthTabIntent.AuthResult> callback;
     private boolean awaitingResult;
+    private boolean registering = true;
 
     BreadAuthTabLauncher(ActivityResultRegistry registry, ActivityResultCallback<AuthTabIntent.AuthResult> callback) {
         this(registry, callback, "bread_auth_" + UUID.randomUUID(), false);
@@ -46,6 +47,7 @@ final class BreadAuthTabLauncher implements ActivityResultCaller {
         this.awaitingResult = awaitingResult;
         ledger.keys.add(key);
         launcher = AuthTabIntent.registerActivityResultLauncher(this, this::onResult);
+        registering = false;
     }
 
     static void hostLoaded(ComponentActivity host) {
@@ -89,13 +91,18 @@ final class BreadAuthTabLauncher implements ActivityResultCaller {
     private void onResult(AuthTabIntent.AuthResult result) {
         ActivityResultCallback<AuthTabIntent.AuthResult> pending = callback;
         callback = null;
+        if (registering) {
+            // Registration drains pending data without clearing AndroidX's launched key. Keep its
+            // discard callback and metadata until normal dispatch can clear that launch identity.
+            awaitingResult = true;
+            return;
+        }
         try {
             if (pending != null) pending.onActivityResult(result);
         } finally {
             awaitingResult = false;
             ledger.keys.remove(key);
-            // Dispatch removes its launched key after returning. Registration can deliver synchronously,
-            // before the constructor assigns launcher, so defer reading it as well as unregistering it.
+            // Dispatch removes its launched key only after this callback returns.
             new Handler(Looper.getMainLooper()).post(this::unregister);
         }
     }

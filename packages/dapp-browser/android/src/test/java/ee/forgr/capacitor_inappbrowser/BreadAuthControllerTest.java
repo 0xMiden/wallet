@@ -813,18 +813,44 @@ public class BreadAuthControllerTest {
         shadowOf(Looper.getMainLooper()).idle();
         Bundle afterCleanup = new Bundle();
         registry.onSaveInstanceState(afterCleanup);
-        assertTrue("Synchronous restored delivery must also unregister its key",
-            afterCleanup.getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS").isEmpty());
+        List<String> registered = afterCleanup.getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS");
+        assertEquals("Registration-time delivery must retain its discard callback", 1, registered.size());
+        String oldKey = registered.get(0);
+        assertEquals(Collections.singletonList(oldKey),
+            afterCleanup.getStringArrayList("KEY_COMPONENT_ACTIVITY_LAUNCHED_KEYS"));
         verifyNoInteractions(oldProxy);
         assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+
+        destroyPluginAndRecreateHost();
+        registry = ((ComponentActivity) activity).getActivityResultRegistry();
+        Bundle afterRecreation = new Bundle();
+        registry.onSaveInstanceState(afterRecreation);
+        assertEquals(Collections.singletonList(oldKey),
+            afterRecreation.getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS"));
+        assertEquals(Collections.singletonList(oldKey),
+            afterRecreation.getStringArrayList("KEY_COMPONENT_ACTIVITY_LAUNCHED_KEYS"));
         registerChrome(); enableAuthTabs();
         WebViewDialog next = open();
         JavaScriptReplyProxy nextProxy = post(next, PAGE, true, request("b", SIGN_IN));
         ShadowActivity.IntentForResult nextLaunch = takeAuthLaunch();
         assertNotEquals(oldLaunch.requestCode, nextLaunch.requestCode);
+        deliver(oldLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        shadowOf(Looper.getMainLooper()).idle();
+        Bundle afterLateResult = new Bundle();
+        registry.onSaveInstanceState(afterLateResult);
+        assertTrue(afterLateResult.getBundle("KEY_COMPONENT_ACTIVITY_PENDING_RESULT").isEmpty());
+        assertFalse(afterLateResult.getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS").contains(oldKey));
+        assertFalse(afterLateResult.getStringArrayList("KEY_COMPONENT_ACTIVITY_LAUNCHED_KEYS").contains(oldKey));
+        verifyNoInteractions(oldProxy, nextProxy);
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
         deliver(nextLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
         assertReply(nextProxy, "b", "url", CALLBACK);
         verifyNoInteractions(oldProxy);
+        shadowOf(Looper.getMainLooper()).idle();
+        Bundle completed = new Bundle();
+        registry.onSaveInstanceState(completed);
+        assertTrue(completed.getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS").isEmpty());
+        assertTrue(completed.getStringArrayList("KEY_COMPONENT_ACTIVITY_LAUNCHED_KEYS").isEmpty());
     }
 
     @Test public void abandonedAuthTabKeySurvivesAnotherRecreationUntilItsResultArrives() throws Exception {
