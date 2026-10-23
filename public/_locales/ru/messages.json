@@ -2075,6 +2075,14 @@
     "message": "Исполнение по текущей цене.",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "Этот своп вряд ли будет исполнен с учетом доступной в данный момент ликвидности. Вы можете продолжить, но ваш ордер может остаться неисполненным до истечения срока его действия.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Только часть этого свопа может быть исполнена с использованием доступной в данный момент ликвидности. Вы можете продолжить, но остальная часть может остаться неисполненной до истечения срока действия ордера.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "Вы получаете примерно $amount$ $symbol$.",
     "englishSource": "You receive about $amount$ $symbol$.",
