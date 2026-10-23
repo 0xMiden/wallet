@@ -7,6 +7,7 @@ import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 import type { WalletAccount } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
+import en from '../../../public/_locales/en/en.json';
 
 import EncryptedWalletFileWalletPassword, {
   EncryptedWalletFileWalletPasswordProps
@@ -592,6 +593,15 @@ describe('EncryptedWalletFileWalletPassword', () => {
       type,
       hdIndex,
       authScheme: 'ecdsa'
+    });
+
+    it('explains the key and state needed to restore an imported Guardian', () => {
+      const description = en.encryptedWalletFileExcludedDesc;
+
+      expect(description).toContain('current account state from its Guardian Operator');
+      expect(description).toContain('saved Miden everyday and EVM private keys');
+      expect(description).toContain('If the Guardian Operator has lost its state copy and no other current copy exists');
+      expect(description).toContain('the account cannot be recovered');
     });
 
     it('names every hot-key Guardian account the file does not restore, before the consent (#1114)', async () => {
