@@ -1,6 +1,12 @@
 # Changelog
 
-## 1.17.6 (TBD)
+## 1.17.7 (TBD)
+
+### Fixes
+
+- [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
+
+## 1.17.6 (2026-10-23)
 
 ### Fixes
 
@@ -36,8 +42,6 @@
 - [FIX][all] Name Fast/Epoch and Slow/Agglayer bridge routes, place availability explanations and route help inside their cards, and name the selected provider on bridge-in Continue so an unavailable route is not mistaken for a failed transaction.
 
 ### Changes
-
-- [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
 
 - [CHANGE][test] The mainnet nightly workflow test expects the job to check out the dispatched ref, matching the workflow, so a dispatch on a branch tests that branch.
 - [CHANGE][ci] The mainnet nightly skips its 1Click preflight and funded swap stages unless the `MAINNET_ONE_CLICK_ENABLED` repository variable is `true`, since the route is not enabled on NEAR yet.
