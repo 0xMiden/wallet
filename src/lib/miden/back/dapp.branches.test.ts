@@ -205,7 +205,8 @@ const storedNote = {
   senderAccountId: 's1',
   nullifier: 'nf1',
   state: 0,
-  assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
+  assets: [{ faucetId: 'faucet-1', amount: '1000000' }],
+  nonFungibleAssets: []
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
 const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
@@ -811,7 +812,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     const sdkNote = (id: string) => ({
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
-      assets: () => ({ fungibleAssets: () => [] })
+      assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
     });
     const unparsable = (what: string) => () => {
       throw new Error(`not a ${what}`);
@@ -889,8 +890,9 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       }
     });
 
-    // A non-target enters P2IDE only through its reclaim branch, which a reclaim height of 0 closes at every block, and
-    // a sponsorship consumed without its feature note, as a consume request's single note is, takes the same branch.
+    // P2ID asserts its target as the consuming account. A non-target enters P2IDE only through its reclaim branch, which
+    // a reclaim height of 0 closes at every block, and a sponsorship consumed without its feature note, as a consume
+    // request's single note is, takes the same branch.
     describe('a note the requesting account can never consume', () => {
       const felts = (values: bigint[]) => values.map(value => ({ asInt: () => value }));
       const REQUESTER = { prefix: 0x00000000abcdef01n, suffix: 0x2f1a3b4c5d6e0000n };
@@ -902,6 +904,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
           storage: () => ({ items: () => felts(items) })
         })
       });
+      const p2id = (target: typeof OTHER) => withRecipient('0xp2id', [target.suffix, target.prefix, 5n, 6n]);
       const p2ide = (target: typeof OTHER, reclaimHeight: bigint) =>
         withRecipient('0xp2ide', [REQUESTER.suffix, REQUESTER.prefix, target.suffix, target.prefix, reclaimHeight, 0n]);
       const sponsorship = (reclaimHeight: bigint) =>
@@ -915,6 +918,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
 
       beforeEach(() => {
         sdk.NoteScript = {
+          p2id: () => ({ root: () => ({ toHex: () => '0xp2id' }) }),
           p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) }),
           feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
         };
@@ -927,6 +931,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       });
 
       it.each([
+        ['a carried P2ID for another account', () => p2id(OTHER)],
         ['a carried P2IDE for another account with reclaim disabled', () => p2ide(OTHER, 0n)],
         ['a carried fee sponsorship with reclaim disabled', () => sponsorship(0n)]
       ])('refuses %s before the sheet, and imports and queues nothing', async (_name, note) => {
@@ -938,8 +943,11 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
       });
 
-      it('consumes a carried reclaim-disabled P2IDE whose target is the requesting account', async () => {
-        carryRawNote(() => p2ide(REQUESTER, 0n));
+      it.each([
+        ['P2ID', () => p2id(REQUESTER)],
+        ['reclaim-disabled P2IDE', () => p2ide(REQUESTER, 0n)]
+      ])('consumes a carried %s whose target is the requesting account', async (_name, note) => {
+        carryRawNote(note);
         mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
 
         await expect(consumeWithBytes()).resolves.toEqual(consumed);
@@ -1210,7 +1218,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
         id: () => ({ toString: () => importedNote.noteId }),
         metadata: () => undefined,
         recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
-        assets: () => ({ assets: () => [], fungibleAssets: () => [] })
+        assets: () => ({ assets: () => [], fungibleAssets: () => [], nonFungibleAssets: () => [] })
       };
       const deserialize = jest.fn(() => note);
       if (decodeAfterUnlock)
@@ -1322,6 +1330,43 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     } finally {
       check.mockRestore();
     }
+  });
+
+  describe('a note that carries only an NFT (#1600)', () => {
+    const sheetMessages = () =>
+      (mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] }).transactionMessages;
+    const nftOnlyNote = {
+      ...importedNote,
+      assets: [],
+      nonFungibleAssets: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaa', assetId: '0xaa11bb22\u2026cc33dd' }]
+    };
+
+    it('names the NFT and its faucet, and never says the note carries no assets', async () => {
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [nftOnlyNote], uncommitted: 0 }]);
+      mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note'));
+
+      await consumeByCommitment();
+
+      const messages = sheetMessages();
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^Consuming note from faucet: /),
+          expect.stringMatching(/^Receiving, NFT 0xaa11bb22\u2026cc33dd from faucet /)
+        ])
+      );
+      expect(messages).not.toContain('Consuming a note that carries no assets');
+    });
+
+    it('still says a note with neither tokens nor NFTs carries no assets', async () => {
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+        { notes: [{ ...nftOnlyNote, nonFungibleAssets: [] }], uncommitted: 0 }
+      ]);
+      mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note'));
+
+      await consumeByCommitment();
+
+      expect(sheetMessages()).toContain('Consuming a note that carries no assets');
+    });
   });
 
   it('shows the note the commitment names and consumes it by its own note id', async () => {
@@ -1955,7 +2000,9 @@ describe('requestSign — input validation', () => {
 // ── requestPrivateNotes — input validation branches ──────────────
 
 describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () => {
-  const importedNote = { ...storedNote, noteId: 'n9', noteType: NoteType.Private };
+  // What a dApp is answered with: the wallet's own `nonFungibleAssets` field is stripped from the record.
+  const { nonFungibleAssets: _held, ...answeredNote } = storedNote;
+  const importedNote = { ...answeredNote, noteId: 'n9', noteType: NoteType.Private };
   const firstNote = { ...importedNote, noteId: 'n1' };
   const requestList = (notefilterType: NoteFilterTypes, noteIds?: string[]) =>
     dapp.requestPrivateNotes('https://miden.xyz', {
@@ -2012,6 +2059,17 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
       cause: expect.objectContaining({ message: 'operation abandoned after the consumable-notes read' })
     });
     expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+  });
+
+  it('does not send the wallet-only NFT list of a note to the dApp', async () => {
+    mockGetInputNoteDetails.mockResolvedValue([
+      { ...importedNote, noteId: 'n1', nonFungibleAssets: [{ faucetId: 'f', assetId: '0xaa' }] }
+    ]);
+
+    const answer = await requestList(NoteFilterTypes.All);
+
+    expect(answer.privateNotes).toHaveLength(1);
+    expect(answer.privateNotes[0]).not.toHaveProperty('nonFungibleAssets');
   });
 
   it('looks up every id in one batch when note ids and commitments are mixed', async () => {
@@ -2310,6 +2368,9 @@ describe('requestTransaction - custom spending-limit gate', () => {
     account: 'miden-account-1',
     outgoing: assets,
     incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: assets.length,
     fee: undefined,

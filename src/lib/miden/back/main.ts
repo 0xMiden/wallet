@@ -744,6 +744,11 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };
+    case WalletMessageType.ImportHotKeyPairRequest:
+      await Actions.importHotKeyPair(req.accountPublicKey, req.keyPairPayload);
+      return {
+        type: WalletMessageType.ImportHotKeyPairResponse
+      };
     case WalletMessageType.SetGuardianEndpointRequest:
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {

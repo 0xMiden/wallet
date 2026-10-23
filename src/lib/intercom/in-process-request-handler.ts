@@ -225,6 +225,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.ImportHotKeyPairRequest: {
+      await Actions.importHotKeyPair(req.accountPublicKey, req.keyPairPayload);
+      return {
+        type: WalletMessageType.ImportHotKeyPairResponse
+      };
+    }
+
     case WalletMessageType.SetGuardianEndpointRequest: {
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {

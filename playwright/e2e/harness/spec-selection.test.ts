@@ -1964,15 +1964,12 @@ describe('guardian-lifecycle-e2e-gate keeps its selector and run logic', () => {
 });
 
 describe('PR workflows run the heavy E2E jobs only on a pull request based on main or next', () => {
-  it("select-guardian-e2e's job-level if: pins FULL, so a stacked pull request skips its full-history checkout and pull request read along with it", () => {
+  it("select-guardian-e2e's job-level if: pins FULL, so a stacked pull request skips its pull request read along with it", () => {
     expect(jobIf(GUARDIAN, 'select-guardian-e2e')).toBe(`\${{ ${FULL} }}`);
   });
 
-  it('the Guardian selector runs on a linked-PR marker, skips a pull request with no marker and no changed path, and runs on push and dispatch', () => {
-    const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Check changed paths');
-    // HEAD...HEAD is an empty diff, so a pull request with no marker has no path to select it.
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).stdout.trim();
-    expect(head).toMatch(/^[0-9a-f]{40,64}$/);
+  it('the Guardian selector runs on a linked-PR marker, skips a pull request with no marker, and runs on push and dispatch', () => {
+    const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Decide whether to run');
     const arms = [
       { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
       { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: '', expected: 'run=false' },
@@ -1989,8 +1986,6 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
             ...process.env,
             GITHUB_EVENT_NAME,
             PR_BODY,
-            BASE_SHA: head,
-            HEAD_SHA: head,
             GITHUB_OUTPUT: outputFile
           }
         });
@@ -2016,7 +2011,9 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
 
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {
     expect(onBlock('.github/workflows/pr-e2e-local.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
-    expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
+    expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe(
+      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
+    );
     expect(onBlock('.github/workflows/pr-e2e-bridge-guardian.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
   });
 
