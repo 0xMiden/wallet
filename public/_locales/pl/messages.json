@@ -7464,6 +7464,18 @@
     "message": "Przeglądaj cotygodniowe roszczenia",
     "englishSource": "Review weekly claim"
   },
+  "arcadeEstimatedFees": {
+    "message": "Szacunkowa łączna wysokość opłat",
+    "englishSource": "Estimated total fees"
+  },
+  "arcadeClaimSummary": {
+    "message": "Niewykorzystane opłaty zostaną zwrócone wraz z Twoim GC. Potwierdzisz to jeszcze raz po jego otrzymaniu.",
+    "englishSource": "Unused fees are returned with your GC. You'll confirm once more when it arrives."
+  },
+  "arcadeReclaimSummary": {
+    "message": "Zwróć niewykorzystane opłaty do swojego portfela. Nie spowoduje to pobrania GC.",
+    "englishSource": "Return your unused fees to your wallet. This won't claim GC."
+  },
   "arcadeReviewReclaim": {
     "message": "Przegląd odzyskiwania środków z budżetu",
     "englishSource": "Review budget recovery"
@@ -7540,6 +7552,47 @@
     "message": "Sprawdzanie tygodniowego limitu…",
     "englishSource": "Checking weekly allowance…"
   },
+  "arcadeClaimState_receivable": {
+    "message": "Twój paragon na 10 GC jest gotowy. Zaakceptuj go, aby dodać GC oraz niewykorzystany budżet natywny do swojego salda.",
+    "englishSource": "Your 10 GC receipt is ready. Accept it to add GC and the unused native budget to your balance."
+  },
+  "arcadeAcceptGc": {
+    "message": "Zaakceptuj GC",
+    "englishSource": "Accept GC"
+  },
+  "arcadePreviousReceiptWeek": {
+    "message": "Potwierdzenie GC za tydzień rozpoczynający się o godz. $date$ UTC",
+    "englishSource": "GC receipt for the week of $date$ UTC",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeReviewReceive": {
+    "message": "Zaakceptuj potwierdzenie GC",
+    "englishSource": "Accept GC receipt"
+  },
+  "arcadeReceiveExplanation": {
+    "message": "Otrzymaj swój kod GC oraz zwrot opłat. Opłata sieciowa jest podana poniżej.",
+    "englishSource": "Receive your GC and returned fees. The network fee is shown below."
+  },
+  "arcadeReceiveFee": {
+    "message": "Opłata sieciowa za akceptację",
+    "englishSource": "Network fee to accept"
+  },
+  "arcadeReceiveRefund": {
+    "message": "Zwrot budżetu natywnego",
+    "englishSource": "Native budget returned"
+  },
+  "arcadeConfirmReceive": {
+    "message": "Zaakceptuj GC i uiść opłatę",
+    "englishSource": "Accept GC and pay fee"
+  },
+  "arcadeClaimState_checking": {
+    "message": "Sprawdzanie tygodniowego limitu…",
+    "englishSource": "Checking weekly allowance…"
+  },
   "arcadeNextClaim": {
     "message": "Wypłata zrealizowana w tym tygodniu. Następna wypłata: $date$ UTC.",
     "englishSource": "Claimed this week. Next claim: $date$ UTC.",
@@ -7592,58 +7645,5 @@
   "arcadePostingPolicy": {
     "message": "Odtwarzanie, ponowne odtwarzanie i udostępnianie w mediach społecznościowych są bezpłatne, niezależnie od salda GC. Zgłoś się do tabeli wyników tej gry za 1 GC plus opłaty sieciowe, które pokrywasz samodzielnie.",
     "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
-  },
-  "arcadeEstimatedFees": {
-    "message": "Estimated total fees",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeClaimSummary": {
-    "message": "Unused fees are returned with your GC. You'll confirm once more when it arrives.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReclaimSummary": {
-    "message": "Return your unused fees to your wallet. This won't claim GC.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeClaimState_receivable": {
-    "message": "Your 10 GC receipt is ready. Accept it to add GC and the unused native budget to your balance.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeAcceptGc": {
-    "message": "Accept GC",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadePreviousReceiptWeek": {
-    "message": "GC receipt for the week of $date$ UTC",
-    "englishSource": "PENDING_TRANSLATION",
-    "placeholders": {
-      "date": {
-        "content": "$1"
-      }
-    }
-  },
-  "arcadeReviewReceive": {
-    "message": "Accept GC receipt",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReceiveExplanation": {
-    "message": "Receive your GC and returned fees. The network fee is shown below.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReceiveFee": {
-    "message": "Network fee to accept",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReceiveRefund": {
-    "message": "Native budget returned",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeConfirmReceive": {
-    "message": "Accept GC and pay fee",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeClaimState_checking": {
-    "message": "Checking weekly allowance…",
-    "englishSource": "PENDING_TRANSLATION"
   }
 }

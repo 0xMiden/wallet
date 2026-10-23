@@ -7464,6 +7464,18 @@
     "message": "每周申领审核",
     "englishSource": "Review weekly claim"
   },
+  "arcadeEstimatedFees": {
+    "message": "预计总费用",
+    "englishSource": "Estimated total fees"
+  },
+  "arcadeClaimSummary": {
+    "message": "未使用的手续费将随您的 GC 一并退还。收到后您将再次确认。",
+    "englishSource": "Unused fees are returned with your GC. You'll confirm once more when it arrives."
+  },
+  "arcadeReclaimSummary": {
+    "message": "将未使用的手续费退回您的钱包。此操作不会消耗 GC。",
+    "englishSource": "Return your unused fees to your wallet. This won't claim GC."
+  },
   "arcadeReviewReclaim": {
     "message": "审查预算恢复",
     "englishSource": "Review budget recovery"
@@ -7540,6 +7552,47 @@
     "message": "正在核对每周津贴……",
     "englishSource": "Checking weekly allowance…"
   },
+  "arcadeClaimState_receivable": {
+    "message": "您的 10 GC 收据已准备就绪。接受该收据即可将 GC 及未使用的原生预算添加至您的余额中。",
+    "englishSource": "Your 10 GC receipt is ready. Accept it to add GC and the unused native budget to your balance."
+  },
+  "arcadeAcceptGc": {
+    "message": "接受 GC",
+    "englishSource": "Accept GC"
+  },
+  "arcadePreviousReceiptWeek": {
+    "message": "$date$ UTC当周的GC收据",
+    "englishSource": "GC receipt for the week of $date$ UTC",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeReviewReceive": {
+    "message": "接受 GC 收据",
+    "englishSource": "Accept GC receipt"
+  },
+  "arcadeReceiveExplanation": {
+    "message": "领取您的 GC 及退回的手续费。网络手续费如下所示。",
+    "englishSource": "Receive your GC and returned fees. The network fee is shown below."
+  },
+  "arcadeReceiveFee": {
+    "message": "接受网络手续费",
+    "englishSource": "Network fee to accept"
+  },
+  "arcadeReceiveRefund": {
+    "message": "原生预算已恢复",
+    "englishSource": "Native budget returned"
+  },
+  "arcadeConfirmReceive": {
+    "message": "接受 GC 并支付手续费",
+    "englishSource": "Accept GC and pay fee"
+  },
+  "arcadeClaimState_checking": {
+    "message": "正在核对每周津贴……",
+    "englishSource": "Checking weekly allowance…"
+  },
   "arcadeNextClaim": {
     "message": "本周已申领。下次申领时间：$date$（UTC）。",
     "englishSource": "Claimed this week. Next claim: $date$ UTC.",
@@ -7592,58 +7645,5 @@
   "arcadePostingPolicy": {
     "message": "游戏、重播和社交分享均免费，无论您的 GC 余额多少。若要提交至本游戏的排行榜，需支付 1 GC 及网络手续费，费用由您承担。",
     "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
-  },
-  "arcadeEstimatedFees": {
-    "message": "Estimated total fees",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeClaimSummary": {
-    "message": "Unused fees are returned with your GC. You'll confirm once more when it arrives.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReclaimSummary": {
-    "message": "Return your unused fees to your wallet. This won't claim GC.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeClaimState_receivable": {
-    "message": "Your 10 GC receipt is ready. Accept it to add GC and the unused native budget to your balance.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeAcceptGc": {
-    "message": "Accept GC",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadePreviousReceiptWeek": {
-    "message": "GC receipt for the week of $date$ UTC",
-    "englishSource": "PENDING_TRANSLATION",
-    "placeholders": {
-      "date": {
-        "content": "$1"
-      }
-    }
-  },
-  "arcadeReviewReceive": {
-    "message": "Accept GC receipt",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReceiveExplanation": {
-    "message": "Receive your GC and returned fees. The network fee is shown below.",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReceiveFee": {
-    "message": "Network fee to accept",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeReceiveRefund": {
-    "message": "Native budget returned",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeConfirmReceive": {
-    "message": "Accept GC and pay fee",
-    "englishSource": "PENDING_TRANSLATION"
-  },
-  "arcadeClaimState_checking": {
-    "message": "Checking weekly allowance…",
-    "englishSource": "PENDING_TRANSLATION"
   }
 }
