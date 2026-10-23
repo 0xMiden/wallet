@@ -449,11 +449,11 @@ describe('ReviewSwap', () => {
       expect(screen.getByTestId('swap-submit')).toBeDisabled();
     });
 
-    it('is read-only, with its own note, once the user set the receive amount themselves', () => {
+    it('keeps slippage editable to adjust pay while the receive target stays fixed', () => {
       renderComponent({ requestEdited: true });
-      expect(slippageInput()).toBeDisabled();
+      expect(slippageInput()).not.toBeDisabled();
       fireEvent.click(screen.getByTestId('swap-slippage-info'));
-      expect(screen.getByText('swapSlippageEditedNote')).toBeInTheDocument();
+      expect(screen.getByText('swapReceiveSlippageNote')).toBeInTheDocument();
     });
   });
 

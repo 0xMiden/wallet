@@ -16,6 +16,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
+import { swapPayEstimate } from './amount-display';
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
 
@@ -24,6 +25,8 @@ export interface SwapAmountsProps {
   feeAssetMissing?: boolean;
   offerToken: SwapToken;
   offerBalance: number;
+  /** Base-unit comparison from the manager, including amounts beyond JS float precision. */
+  offerExceedsBalance?: boolean;
   offerAmount: string;
   onOfferAmountChange: (amount: string) => void;
   onSelectOfferToken: () => void;
@@ -33,6 +36,9 @@ export interface SwapAmountsProps {
   onSelectRequestToken: () => void;
   /** Show a skeleton on the receive field while its quote is being computed. */
   requestLoading?: boolean;
+  offerLoading?: boolean;
+  quoteLoading?: boolean;
+  requestEdited?: boolean;
   onSwapDirection: () => void;
   onConfirm: () => void;
   canProceed: boolean;
@@ -62,6 +68,7 @@ const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
 export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   offerToken,
   offerBalance,
+  offerExceedsBalance,
   offerAmount,
   onOfferAmountChange,
   onSelectOfferToken,
@@ -70,6 +77,9 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   onRequestAmountChange,
   onSelectRequestToken,
   requestLoading,
+  offerLoading,
+  quoteLoading,
+  requestEdited,
   onSwapDirection,
   onConfirm,
   canProceed,
@@ -98,8 +108,8 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   });
   // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
-  const awaitingAmount = !(offerAmountValue > 0);
-  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
+  const awaitingAmount = !(Number(requestEdited ? requestAmount : offerAmount) > 0);
+  const offerAmountExceedsBalance = offerExceedsBalance ?? offerAmountValue > offerBalance;
   // Missing the fee asset outranks an over-balance amount: no amount at all is
   // sendable, so telling the user to lower it would send them in a loop.
   const offerAmountError = feeAssetMissing
@@ -126,7 +136,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           data-testid="swap-review-submit"
           className="w-full max-w-none"
         >
-          {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
+          {(quoteLoading ?? requestLoading) ? <WaveDots label={t('calculatingQuote')} /> : undefined}
         </Button>
       }
     >
@@ -143,11 +153,19 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
             logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
+            amountDisplayValue={
+              requestEdited && offerAmount
+                ? t('swapApproxAmount', { amount: swapPayEstimate(offerAmount) })
+                : offerAmount
+            }
             isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
             error={offerAmountError}
             errorId={feeAssetMissing ? null : offerAmountError}
             // The fee shortfall keeps the amount red but says so under the token.
             hideErrorText={feeAssetMissing}
+            loading={offerLoading}
+            amountDecimalsLimit={offerToken.decimals}
+            amountMaxLength={80}
             onAmountChange={onOfferAmountChange}
             onSelectToken={onSelectOfferToken}
           />
@@ -201,10 +219,18 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             amount={requestAmount}
             isValidAmount={Number(requestAmount) > 0}
             loading={requestLoading}
+            amountDecimalsLimit={requestToken.decimals}
+            amountMaxLength={80}
             onAmountChange={onRequestAmountChange}
             onSelectToken={onSelectRequestToken}
           />
         </motion.div>
+
+        {requestEdited && (
+          <span className="text-body-sm text-muted" data-testid="swap-receive-target-note">
+            {t('swapReceiveTargetNote')}
+          </span>
+        )}
 
         {statusMessage && (
           <span

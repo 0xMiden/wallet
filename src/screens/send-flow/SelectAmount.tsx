@@ -79,6 +79,9 @@ export interface SelectAmountProps {
   title?: React.ReactNode;
   /** Show a skeleton in place of the amount while it is being computed (e.g. the swap receive quote). */
   loading?: boolean;
+  amountDisplayValue?: string;
+  amountDecimalsLimit?: number;
+  amountMaxLength?: number;
   /**
    * Inset the page variant at the 16px page margin instead of the send flow's own, and start it at
    * the height the earn pages start under their header. For a page whose header sits on that margin
@@ -125,6 +128,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   outputSymbol,
   title,
   loading,
+  amountDisplayValue,
+  amountDecimalsLimit,
+  amountMaxLength,
   pageInset = false,
   showAmountDivider = true,
   onSelectNetwork
@@ -276,6 +282,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     <AmountInput
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
+      unfocusedDisplayValue={amountDisplayValue}
       invalid={!!error}
       errorId={hideErrorText ? null : amountErrorId}
       error={amountError}
@@ -289,6 +296,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       showDivider={showAmountDivider && !!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
+      aria-label={typeof label === 'string' ? label : undefined}
+      decimalsLimit={amountDecimalsLimit}
+      maxLength={amountMaxLength}
       onValueChange={value => onAmountChange(value || '')}
     />
   );

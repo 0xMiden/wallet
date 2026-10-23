@@ -35,6 +35,50 @@ const TESTID = 'amount';
 const getInput = () => screen.getByTestId(TESTID) as HTMLInputElement;
 
 describe('AmountInput', () => {
+  it('shows a compact estimate while preserving exact input and callback precision through focus and blur', () => {
+    const onValueChange = jest.fn();
+    const exact = '0.040060070075077579';
+    render(
+      <AmountInput
+        value={exact}
+        unfocusedDisplayValue="≈ 0.04006007"
+        decimalsLimit={18}
+        maxLength={80}
+        data-testid={TESTID}
+        onValueChange={onValueChange}
+      />
+    );
+    expect(getInput()).toHaveValue(exact);
+    expect(screen.getByText('≈ 0.04006007')).toBeInTheDocument();
+    fireEvent.focus(getInput());
+    expect(screen.queryByText('≈ 0.04006007')).not.toBeInTheDocument();
+    expect(getInput()).toHaveValue(exact);
+    fireEvent.blur(getInput());
+    expect(screen.getByText('≈ 0.04006007')).toBeInTheDocument();
+    expect(getInput()).toHaveValue(exact);
+    for (const [value] of onValueChange.mock.calls) expect(value).toBe(exact);
+  });
+
+  it('keeps the same focused control when a computed amount becomes user-edited', () => {
+    const { rerender } = render(
+      <AmountInput
+        value="0.040060070075077579"
+        unfocusedDisplayValue="≈ 0.04006007"
+        decimalsLimit={18}
+        maxLength={80}
+        data-testid={TESTID}
+      />
+    );
+    const input = getInput();
+    act(() => input.focus());
+    rerender(
+      <AmountInput value="0.05" unfocusedDisplayValue="0.05" decimalsLimit={18} maxLength={80} data-testid={TESTID} />
+    );
+    expect(getInput()).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(getInput()).toHaveValue('0.05');
+  });
+
   describe('amountTextSize scaling (via input className)', () => {
     it('uses text-[4rem] for a short value (< 7 chars)', () => {
       render(<AmountInput value="123" data-testid={TESTID} />);

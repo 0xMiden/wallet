@@ -36,6 +36,7 @@ let mockWalletState: {
   readSpendingLimit: jest.Mock;
 };
 /** The hook's state, with the quote's fields loosened to what the manager and the stubs read. */
+let mockReceiveQuoteCache = new Map<string, NonNullable<typeof mockSwapQuoteResult.quote>>();
 let mockSwapQuoteResult: {
   loading: boolean;
   quote?: {
@@ -86,6 +87,7 @@ const mockFakeBech32 = (id: { toString(): string }) => {
 };
 const mockGetBech32 = jest.fn(mockFakeBech32);
 const mockConfirmSensitive = jest.fn().mockResolvedValue(true);
+const mockFormatBigInt = jest.fn((amount: bigint, _decimals: number) => amount.toString());
 const mockStringToBigInt = jest.fn((str: string, _decimals: number) => BigInt(Math.trunc(Number(str) || 0)));
 const mockInitiateSwap = jest.fn().mockResolvedValue('tx-1');
 const mockRequestSWProcessing = jest.fn();
@@ -321,7 +323,7 @@ jest.mock('lib/i18n/numbers', () => ({
   ...jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers'),
   stringToBigInt: (str: string, decimals: number) => mockStringToBigInt(str, decimals),
   // The inverse of the stand-in above: base units read as whole display units.
-  formatBigInt: (amount: bigint) => amount.toString()
+  formatBigInt: (amount: bigint, decimals: number) => mockFormatBigInt(amount, decimals)
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -441,6 +443,7 @@ beforeEach(() => {
       updatedAt: 2
     })
   };
+  mockFormatBigInt.mockImplementation(amount => amount.toString());
   mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 5n) };
   mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 100 }];
   mockAllBalancesReturn = { data: mockBalanceData };
@@ -456,7 +459,8 @@ beforeEach(() => {
   mockInitiateSwap.mockResolvedValue('tx-1');
   mockIsExtension.mockReturnValue(true);
   mockIsDelegateProof.mockReturnValue(false);
-  mockUseSwapQuote.mockImplementation(() => ({ ...mockSwapQuoteResult, quoteNow: mockQuoteNow }));
+  mockReceiveQuoteCache = new Map();
+  mockUseSwapQuote.mockImplementation(mockQuoteForInputs);
   mockQuoteNow.mockReset();
   mockQuoteNow.mockImplementation(async () => {
     const quote = mockSwapQuoteResult.quote;
@@ -473,26 +477,47 @@ afterEach(() => {
  * The mocked hook answers for whatever pay amount is typed, as the real one does once its quote
  * lands. One object per amount, so a re-render sees the same quote, as with the real hook's state.
  */
+const mockQuoteForInputs = (opts: import('./useSwapQuote').UseSwapQuoteOpts) => {
+  const quote = mockSwapQuoteResult.quote;
+  if (!opts.requestEdited || quote === undefined) return { ...mockSwapQuoteResult, quoteNow: mockQuoteNow };
+  let requestedAmount: bigint;
+  try {
+    requestedAmount = mockStringToBigInt(opts.requestAmount, opts.requestToken.decimals);
+  } catch {
+    return { loading: false, quoteNow: mockQuoteNow };
+  }
+  if (requestedAmount <= 0n) return { loading: false, quoteNow: mockQuoteNow };
+  const key = `${opts.requestAmount}|${opts.slippageBps}|${quote.price.fillPrice}|${quote.requestedAmount}`;
+  const receive = mockReceiveQuoteCache.get(key) ?? {
+    ...quote,
+    requestedAmount,
+    builtAsk: false,
+    slippageBps: opts.slippageBps
+  };
+  mockReceiveQuoteCache.set(key, receive);
+  return { ...mockSwapQuoteResult, quote: receive, quoteNow: mockQuoteNow };
+};
+
 const quoteFollowsOffer = () => {
   const byOffer = new Map<string, NonNullable<typeof mockSwapQuoteResult.quote>>();
-  mockUseSwapQuote.mockImplementation(
-    ({ offerAmount, offerToken }: { offerAmount: string; offerToken: typeof mockTokenA }) => {
-      const quote = mockSwapQuoteResult.quote;
-      let offeredAmount: bigint | undefined;
-      try {
-        offeredAmount = mockStringToBigInt(offerAmount, offerToken.decimals);
-      } catch {
-        offeredAmount = undefined;
-      }
-      if (quote === undefined || offeredAmount === undefined) {
-        return { ...mockSwapQuoteResult, quoteNow: mockQuoteNow };
-      }
-      const key = offeredAmount.toString();
-      const followed = byOffer.get(key) ?? { ...quote, offeredAmount };
-      byOffer.set(key, followed);
-      return { ...mockSwapQuoteResult, quote: followed, quoteNow: mockQuoteNow };
+  mockUseSwapQuote.mockImplementation((opts: import('./useSwapQuote').UseSwapQuoteOpts) => {
+    if (opts.requestEdited) return mockQuoteForInputs(opts);
+    const { offerAmount, offerToken } = opts;
+    const quote = mockSwapQuoteResult.quote;
+    let offeredAmount: bigint | undefined;
+    try {
+      offeredAmount = mockStringToBigInt(offerAmount, offerToken.decimals);
+    } catch {
+      offeredAmount = undefined;
     }
-  );
+    if (quote === undefined || offeredAmount === undefined) {
+      return { ...mockSwapQuoteResult, quoteNow: mockQuoteNow };
+    }
+    const key = offeredAmount.toString();
+    const followed = byOffer.get(key) ?? { ...quote, offeredAmount };
+    byOffer.set(key, followed);
+    return { ...mockSwapQuoteResult, quote: followed, quoteNow: mockQuoteNow };
+  });
 };
 
 // A new market quote: a new rate, a new receive amount and a new fill time together.
@@ -721,6 +746,25 @@ describe('SwapFlow / SwapManager', () => {
     });
   });
 
+  it('blocks a receive-derived pay amount one base unit above balance even when Number rounds it to the balance', () => {
+    const { stringToBigInt, formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockStringToBigInt.mockImplementation(stringToBigInt);
+    mockFormatBigInt.mockImplementation(formatBigInt);
+    mockGetSwapTokens.mockReturnValue([
+      { ...mockTokenA, decimals: 18 },
+      { ...mockTokenB, decimals: 6 }
+    ]);
+    mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-A', balance: 1 }] };
+    mockSwapQuoteResult = {
+      loading: false,
+      quote: quoteAt('2', 2000000n, {}, { offeredAmount: 1000000000000000001n, builtAsk: false })
+    };
+    renderFlow();
+    setRequest('2');
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.000000000000000001');
+    expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+  });
+
   describe('amount editing + quote mirroring', () => {
     it('mirrors the derived quote into the receive field and enables the CTA', () => {
       renderFlow();
@@ -752,13 +796,13 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-market-price')).toHaveTextContent('undefined');
     });
 
-    it('pauses the auto-quote once the receive field is edited manually', () => {
+    it('keeps the receive target while the quote derives pay', () => {
       renderFlow();
       setRequest('9');
 
       expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9');
-      // requestEdited is now true, so the quote no longer drives the field.
-      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      // Receive is now the fixed side; the matched quote supplies pay.
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
     });
 
     it('disables the CTA when the pay amount exceeds the balance', () => {
@@ -1014,7 +1058,7 @@ describe('SwapFlow / SwapManager', () => {
       act(() => mockDrawerProps.onSelect(mockTokenC));
       setOffer('10');
       expect(screen.getByTestId('sa-request-token')).toHaveTextContent('CCC');
-      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
     });
 
     describe('a pair the solver stops listing after review opens', () => {
@@ -1260,6 +1304,7 @@ describe('SwapFlow / SwapManager', () => {
 
   describe('positive protocol amounts', () => {
     beforeEach(() => {
+      mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 2n, {}, { offeredAmount: 1n }) };
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 0 }, { ...mockTokenB, decimals: 0 }, mockTokenC]);
       mockStringToBigInt.mockImplementation((str, decimals) => BigInt(Math.trunc(Number(str) * 10 ** decimals)));
       quoteFollowsOffer();
@@ -1267,8 +1312,13 @@ describe('SwapFlow / SwapManager', () => {
 
     it.each(['offer', 'request'])('refuses a positive display %s amount that becomes zero raw units', async side => {
       renderFlow();
-      setOffer(side === 'offer' ? '0.5' : '1');
-      setRequest(side === 'request' ? '0.5' : '2');
+      if (side === 'offer') {
+        setRequest('2');
+        setOffer('0.5');
+      } else {
+        setOffer('1');
+        setRequest('0.5');
+      }
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
@@ -1282,8 +1332,13 @@ describe('SwapFlow / SwapManager', () => {
         return BigInt(Math.trunc(Number(str) * 10 ** decimals));
       });
       renderFlow();
-      setOffer(side === 'offer' ? '0.5' : '1');
-      setRequest(side === 'request' ? '0.5' : '2');
+      if (side === 'offer') {
+        setRequest('2');
+        setOffer('0.5');
+      } else {
+        setOffer('1');
+        setRequest('0.5');
+      }
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
@@ -1307,6 +1362,7 @@ describe('SwapFlow / SwapManager', () => {
     it('submits positive integer amounts with their exact zero-decimal raw values', async () => {
       renderFlow();
       setOffer('1');
+      setRequest('3');
       setRequest('2');
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
@@ -1324,9 +1380,12 @@ describe('SwapFlow / SwapManager', () => {
     });
 
     it('accepts a fractional display amount when the token precision gives it positive raw units', async () => {
+      mockFormatBigInt.mockImplementation((amount, decimals) => String(Number(amount) / 10 ** decimals));
+      mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 20n, {}, { offeredAmount: 5n }) };
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 1 }, { ...mockTokenB, decimals: 1 }, mockTokenC]);
       renderFlow();
       setOffer('0.5');
+      setRequest('3');
       setRequest('2');
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
@@ -1459,7 +1518,7 @@ describe('SwapFlow / SwapManager', () => {
 
   describe('receive-field skeleton', () => {
     it.each(['0', '0.0000000001'])(
-      'allows manual receive entry after a completed quote whose ask rounds to zero at fill price %s',
+      'keeps receive input editable when the previous pay quote rounds to zero at fill price %s',
       fillPrice => {
         mockSwapQuoteResult = { loading: false, quote: quoteAt(fillPrice, 0n) };
         renderFlow();
@@ -1467,9 +1526,10 @@ describe('SwapFlow / SwapManager', () => {
 
         expect(screen.getByTestId('sa-request-input')).toBeEnabled();
         expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+        mockUseSwapQuote.mockReturnValue({ loading: true, quoteNow: mockQuoteNow });
         setRequest('9');
         expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9');
-        expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+        expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
       }
     );
 

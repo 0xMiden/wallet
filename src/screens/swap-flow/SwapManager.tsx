@@ -84,8 +84,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const [requestToken, setRequestToken] = useState<SwapToken>(defaultPair.request);
   const [offerAmount, setOfferAmount] = useState('');
   const [requestAmount, setRequestAmount] = useState('');
-  // True once the user manually edits the receive amount, which pauses the
-  // auto-quote until they change the pay amount or a token again.
+  // The last edited side anchors the quote; its opposite side is derived.
   const [requestEdited, setRequestEdited] = useState(false);
   const [expirySeconds, setExpirySeconds] = useState(String(DEFAULT_EXPIRY_SECONDS));
   const [slippageBps, setSlippageBps] = useState(DEFAULT_SWAP_SLIPPAGE_BPS);
@@ -208,6 +207,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [currentStep, onSwapRoute]);
 
   const sameToken = offerToken.faucetId === requestToken.faucetId;
+  const pairListed = isSwapPair(offerToken.faucetId, requestToken.faucetId);
 
   // One quote for the whole pair through the Swap Quote API v2: the fill price builds the
   // receive amount at the chosen slippage, and the solver's verdict drives the review screen.
@@ -221,19 +221,28 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     requestAmount,
     requestEdited,
     slippageBps,
-    enabled: !sameToken,
+    enabled: !sameToken && pairListed,
     active: pageActive && onSwapRoute
   });
   const { quoteNow } = swapQuote;
 
   const offerAmountBaseUnits = useMemo(() => {
     try {
+      if ((offerAmount.split('.')[1]?.length ?? 0) > offerToken.decimals) return undefined;
       return stringToBigInt(offerAmount, offerToken.decimals);
     } catch {
       return undefined;
     }
   }, [offerAmount, offerToken.decimals]);
 
+  const requestAmountBaseUnits = useMemo(() => {
+    try {
+      if ((requestAmount.split('.')[1]?.length ?? 0) > requestToken.decimals) return undefined;
+      return stringToBigInt(requestAmount, requestToken.decimals);
+    } catch {
+      return undefined;
+    }
+  }, [requestAmount, requestToken.decimals]);
   // The wallet-built receive amount: the ask the quote checked, in display units. The field is
   // auto-filled from this but stays editable, so it and `requestAmount` can diverge once the user
   // overrides it; the quote then checks their ask instead of building one.
@@ -272,6 +281,27 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     }
   }, [builtRequestAmount, submitting, spendingLimitChallenge]);
 
+  // Receive entry leaves its target untouched and writes back only the quoted pay amount.
+  // The hook excludes this derived amount from its key, so this cannot trigger another quote.
+  useEffect(() => {
+    if (!requestEdited || submitting || spendingLimitChallenge !== undefined) return;
+    const quote = swapQuote.quote;
+    const matches =
+      quote !== undefined &&
+      !quote.builtAsk &&
+      quote.requestedAmount === requestAmountBaseUnits &&
+      quote.slippageBps === slippageBps;
+    setOfferAmount(matches ? formatBigInt(quote.offeredAmount, offerToken.decimals) : '');
+  }, [
+    requestEdited,
+    swapQuote.quote,
+    requestAmountBaseUnits,
+    slippageBps,
+    offerToken.decimals,
+    submitting,
+    spendingLimitChallenge
+  ]);
+
   // The review's Rate, verdict and fill-time lines come from the same quote as its amount, so they
   // hold with it: a held amount beside a live rate would show a price the swap does not use.
   const [reviewQuote, setReviewQuote] = useState<SwapQuote | undefined>(swapQuote.quote);
@@ -309,17 +339,16 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         : offerBalance,
     [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
   );
-  const offerAmountValue = Number(offerAmount);
-  const requestAmountBaseUnits = useMemo(() => {
-    try {
-      return stringToBigInt(requestAmount, requestToken.decimals);
-    } catch {
-      return undefined;
-    }
-  }, [requestAmount, requestToken.decimals]);
   const hasOfferAmount = offerAmountBaseUnits !== undefined && offerAmountBaseUnits > 0n;
   const hasRequestAmount = requestAmountBaseUnits !== undefined && requestAmountBaseUnits > 0n;
-  const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
+  const offerAmountExceedsBalance = useMemo(() => {
+    if (offerAmountBaseUnits === undefined) return false;
+    try {
+      return offerAmountBaseUnits > stringToBigInt(String(offerSpendable), offerToken.decimals);
+    } catch {
+      return true;
+    }
+  }, [offerAmountBaseUnits, offerSpendable, offerToken.decimals]);
   // A landed wallet-built ask of zero (a price too small for the receive token's precision) gives
   // the field nothing to show: it reads as unavailable, so the field leaves its skeleton for entry.
   const quoteAskIsZero =
@@ -337,6 +366,13 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   // amount is entered until the first quote lands (or errors). Subsequent edits
   // recompute in place from the cached rate, so no skeleton flash there.
   const requestCalculating = !sameToken && hasOfferAmount && !requestEdited && !requestAmount && !quoteUnavailable;
+  const offerCalculating = !sameToken && hasRequestAmount && requestEdited && !offerAmount && !quoteUnavailable;
+  const quoteMatches =
+    swapQuote.quote !== undefined &&
+    !swapQuote.loading &&
+    !quoteUnavailable &&
+    swapQuote.quote.offeredAmount === offerAmountBaseUnits &&
+    swapQuote.quote.requestedAmount === requestAmountBaseUnits;
   const canProceed =
     !submitting &&
     spendingLimitChallenge === undefined &&
@@ -354,16 +390,23 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     // to prevent. `hasNoFeeAsset` fails open, so a zero-fee chain is unaffected.
     !feeAssetMissing &&
     hasRequestAmount &&
+    quoteMatches &&
+    swapQuote.quote !== undefined &&
+    !swapEtaBlocksSubmit(swapQuote.quote.eta) &&
     validExpiry;
 
   const onOfferAmountChange = useCallback((amount: string) => {
     setOfferAmount(amount);
+    setRequestAmount('');
     setRequestEdited(false);
+    setSubmitError(null);
   }, []);
 
   const onRequestAmountChange = useCallback((amount: string) => {
     setRequestAmount(amount);
+    setOfferAmount('');
     setRequestEdited(true);
+    setSubmitError(null);
   }, []);
 
   const onSwapDirection = useCallback(() => {
@@ -372,6 +415,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     // The receive field is re-derived by the quote effect (requestEdited=false),
     // so only the pay side needs seeding here.
     setOfferAmount(requestAmount);
+    setRequestAmount('');
     setRequestEdited(false);
     setSubmitError(null);
   }, [offerToken, requestToken, requestAmount]);
@@ -402,7 +446,10 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         if (token.faucetId === offerToken.faucetId) setOfferToken(requestToken);
         setRequestToken(token);
       }
+      setOfferAmount('');
+      setRequestAmount('');
       setRequestEdited(false);
+      setSubmitError(null);
     },
     [selectingSide, offerToken, requestToken]
   );
@@ -670,7 +717,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const quoteErrorCode = swapQuote.errorCode;
   const statusMessage = useMemo<{ text: string; isError: boolean; errorId: UserErrorId } | undefined>(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true, errorId: 'swapSameToken' };
-    if (hasOfferAmount && quoteUnavailable) {
+    if (!pairListed) return { text: t('swapPairNotListed'), isError: true, errorId: 'swapPairNotListed' };
+    if ((hasOfferAmount || (requestEdited && hasRequestAmount)) && quoteUnavailable) {
       return {
         text: t(quoteErrorMessageKey(quoteErrorCode)),
         isError: true,
@@ -680,7 +728,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     // The skeleton on the receive field conveys the "computing quote" state, so
     // there's no separate fetching-price line.
     return undefined;
-  }, [sameToken, hasOfferAmount, quoteUnavailable, quoteErrorCode, t]);
+  }, [sameToken, pairListed, hasOfferAmount, requestEdited, hasRequestAmount, quoteUnavailable, quoteErrorCode, t]);
 
   const renderStep = useCallback(
     (route: Route) => {
@@ -693,6 +741,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               // The SPENDABLE balance, so the quoted "Available" is the number the
               // validation actually enforces and Max cannot overshoot it.
               offerBalance={offerSpendable}
+              offerExceedsBalance={offerAmountExceedsBalance}
               offerAmount={offerAmount}
               onOfferAmountChange={onOfferAmountChange}
               onSelectOfferToken={onSelectOfferToken}
@@ -701,6 +750,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               onRequestAmountChange={onRequestAmountChange}
               onSelectRequestToken={onSelectRequestToken}
               requestLoading={requestCalculating}
+              offerLoading={offerCalculating}
+              quoteLoading={swapQuote.loading || requestCalculating || offerCalculating}
+              requestEdited={requestEdited}
               onSwapDirection={onSwapDirection}
               onConfirm={() => navigateTo(SwapFlowStep.ReviewSwap)}
               canProceed={canProceed}
@@ -738,6 +790,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     [
       offerToken,
       offerSpendable,
+      offerAmountExceedsBalance,
       offerAmount,
       requestToken,
       requestAmount,
@@ -751,6 +804,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       submitErrorId,
       canProceed,
       requestCalculating,
+      offerCalculating,
+      swapQuote.loading,
       statusMessage,
       onOfferAmountChange,
       onRequestAmountChange,

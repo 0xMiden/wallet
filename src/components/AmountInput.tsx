@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input-field';
@@ -15,11 +15,13 @@ import { clearFieldValue } from 'lib/ui/clear-field';
 /**
  * Scale the amount text down as the entered value grows, to avoid overflow
  * on narrow mobile screens: a short value renders at 4rem and a long one
- * (16 chars max) settles at text-3xl. The only size an amount takes: a fixed
+ * (including a computed token amount with 18 decimals) settles at a smaller size. The only size an amount takes: a fixed
  * size beside it would win, since Tailwind emits an arbitrary size after text-3xl.
  */
 export function amountTextSize(value?: string): string {
   const len = value?.length || 4;
+  if (len >= 25) return 'text-xl';
+  if (len >= 19) return 'text-2xl';
   if (len >= 13) return 'text-3xl';
   if (len >= 10) return 'text-4xl';
   if (len >= 7) return 'text-5xl';
@@ -69,6 +71,8 @@ export interface AmountInputProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
   value?: string;
+  /** Display-only estimate while unfocused. The input and all callbacks retain the exact value. */
+  unfocusedDisplayValue?: string;
   /** Exact-token flows can opt into their own precision validation instead of the send default. */
   decimalsLimit?: number;
   maxLength?: number;
@@ -118,6 +122,7 @@ export interface AmountInputProps {
  */
 export const AmountInput: React.FC<AmountInputProps> = ({
   value,
+  unfocusedDisplayValue,
   decimalsLimit = 6,
   maxLength = 16,
   allowNegativeValue = false,
@@ -143,42 +148,71 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   useUserVisibleError(error ? errorId : null, 'field');
   const inputRef = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  const showEstimate = unfocusedDisplayValue !== undefined && unfocusedDisplayValue !== '' && !focused;
   const centered = align === 'center';
   const showClear = Boolean(value) && !disabled && !loading;
-  const amountClasses = classNames(amountFigureClassName(value), centered ? 'text-center' : 'text-left');
+  const amountClasses = classNames(
+    amountFigureClassName(showEstimate ? unfocusedDisplayValue : value),
+    centered ? 'text-center' : 'text-left'
+  );
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
-  const input = (layoutClassName: string) => (
-    <CurrencyInput
-      ref={inputRef}
-      className={classNames(amountClasses, 'bg-transparent p-0 outline-none', layoutClassName, stateClasses)}
-      value={value}
-      onValueChange={onValueChange}
-      placeholder={placeholder}
-      transformRawValue={normalizeDecimalInput}
-      disableGroupSeparators
-      intlConfig={{ locale: getCurrentLocale().replace('_', '-'), numberingSystem: 'latn' }}
-      // `disableGroupSeparators` only stops grouping in the *display*; the
-      // library still derives a group separator from the ambient locale and
-      // strips it from the raw input on every keystroke. On a `.`-group
-      // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
-      // produced, undoing the fix. Passing "" doesn't help — the library
-      // coalesces a falsy group separator back to the locale default — so
-      // pin it to a space, which never collides with our "." decimal (#433).
-      groupSeparator=" "
-      decimalSeparator="."
-      decimalsLimit={decimalsLimit}
-      allowNegativeValue={allowNegativeValue}
-      formatValueOnBlur={formatValueOnBlur}
-      maxLength={maxLength}
-      enterKeyHint="done"
-      autoFocus={autoFocus}
-      disabled={disabled}
-      aria-invalid={invalid || !!error}
-      aria-label={ariaLabel}
-      data-testid={dataTestId}
-    />
-  );
+  const input = (layoutClassName: string) => {
+    const control = (
+      <CurrencyInput
+        ref={inputRef}
+        className={classNames(
+          amountClasses,
+          'bg-transparent p-0 outline-none',
+          unfocusedDisplayValue === undefined ? layoutClassName : 'w-full min-w-0 [grid-area:1/1]',
+          stateClasses,
+          showEstimate && 'opacity-0'
+        )}
+        value={value}
+        onValueChange={onValueChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        transformRawValue={normalizeDecimalInput}
+        disableGroupSeparators
+        intlConfig={{ locale: getCurrentLocale().replace('_', '-'), numberingSystem: 'latn' }}
+        // `disableGroupSeparators` only stops grouping in the *display*; the
+        // library still derives a group separator from the ambient locale and
+        // strips it from the raw input on every keystroke. On a `.`-group
+        // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
+        // produced, undoing the fix. Passing "" doesn't help — the library
+        // coalesces a falsy group separator back to the locale default — so
+        // pin it to a space, which never collides with our "." decimal (#433).
+        groupSeparator=" "
+        decimalSeparator="."
+        decimalsLimit={decimalsLimit}
+        allowNegativeValue={allowNegativeValue}
+        formatValueOnBlur={formatValueOnBlur}
+        maxLength={maxLength}
+        enterKeyHint="done"
+        autoFocus={autoFocus}
+        disabled={disabled}
+        aria-invalid={invalid || !!error}
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
+      />
+    );
+    if (unfocusedDisplayValue === undefined) return control;
+    return (
+      <span className={classNames('grid min-w-0', layoutClassName)}>
+        {control}
+        {showEstimate && (
+          <span
+            aria-hidden="true"
+            className={classNames(amountClasses, stateClasses, 'pointer-events-none whitespace-nowrap [grid-area:1/1]')}
+          >
+            {unfocusedDisplayValue}
+          </span>
+        )}
+      </span>
+    );
+  };
 
   return (
     <div className={classNames('flex flex-col', className)}>
