@@ -33,6 +33,10 @@ export const typedAmountExceedsBalance = (amount: string, balance: number, decim
   jest
     .requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers')
     .typedAmountExceedsBalance(amount, balance, decimals);
+export const balanceLowerBound = (balance: number, decimals: number): number =>
+  jest
+    .requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers')
+    .balanceLowerBound(balance, decimals);
 export const amountExceedsTokenDecimals = (amount: string, decimals: number): boolean =>
   jest
     .requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers')

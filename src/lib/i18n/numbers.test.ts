@@ -9,6 +9,7 @@ import {
   amountExceedsTokenDecimals,
   stringToBigInt,
   typedAmountExceedsBalance,
+  balanceLowerBound,
   toLocalFixed,
   toShortened,
   toFixedRoundedDown,
@@ -310,9 +311,9 @@ describe('stringToBigInt', () => {
 });
 
 describe('typedAmountExceedsBalance', () => {
-  it('treats one extra 18-decimal base unit as over a whole balance, and the exact string as equal', () => {
-    expect(typedAmountExceedsBalance('1.000000000000000001', 1, 18)).toBe(true);
-    expect(typedAmountExceedsBalance('1', 1, 18)).toBe(false);
+  it('treats one extra 12-decimal base unit as over a whole balance, and the exact string as equal', () => {
+    expect(typedAmountExceedsBalance('1.000000000001', 1, 12)).toBe(true);
+    expect(typedAmountExceedsBalance('1', 1, 12)).toBe(false);
   });
 
   it('drops digits past the token scale before comparing', () => {
@@ -321,18 +322,44 @@ describe('typedAmountExceedsBalance', () => {
   });
 
   it('compares the balance through its decimal string, not a binary product', () => {
-    // parseFloat('1.000001') * 1e18 is 128 base units short, so scaling the float
-    // says this amount exceeds a balance equal to itself.
-    expect(typedAmountExceedsBalance('1.000001', 1.000001, 18)).toBe(false);
+    // parseFloat('1.000001') * 1e12 is not the integer 1000001000000, so scaling the float
+    // can say this amount exceeds a balance equal to itself.
+    expect(typedAmountExceedsBalance('1.000001', 1.000001, 12)).toBe(false);
     // 0.29 * 100 is 28.999999999999996; flooring that product says 0.29 exceeds itself.
     expect(Math.floor(0.29 * 100)).toBe(28);
     expect(typedAmountExceedsBalance('0.29', 0.29, 2)).toBe(false);
     expect(typedAmountExceedsBalance('0.30', 0.29, 2)).toBe(true);
   });
 
+  it('refuses a balance past 2^53 base units by the amount the double may have rounded up', () => {
+    // At 12 decimals this balance is about 1.2e19 base units, past what a double keeps exactly.
+    const stored = 12345678.901234568;
+    expect(typedAmountExceedsBalance(stored.toString(), stored, 12)).toBe(true);
+    expect(typedAmountExceedsBalance('12345678.9', stored, 12)).toBe(false);
+  });
+
   it('does not treat an unparsable amount as over the cap', () => {
     expect(typedAmountExceedsBalance('', 1, 6)).toBe(false);
     expect(typedAmountExceedsBalance('abc', 1, 6)).toBe(false);
+  });
+});
+
+describe('balanceLowerBound', () => {
+  it('returns a balance whose base units fit 2^53 unchanged', () => {
+    expect(balanceLowerBound(0.29, 2)).toBe(0.29);
+    expect(balanceLowerBound(9000.5, 12)).toBe(9000.5);
+    expect(balanceLowerBound(0, 6)).toBe(0);
+  });
+
+  it('shaves a balance past 2^53 base units below the stored figure', () => {
+    const stored = 10000.299999999999;
+    expect(balanceLowerBound(stored, 12)).toBeLessThan(stored);
+    expect(balanceLowerBound(stored, 12)).toBeGreaterThan(stored * (1 - 2 ** -48));
+  });
+
+  it('leaves a non-finite balance as given', () => {
+    expect(balanceLowerBound(Infinity, 6)).toBe(Infinity);
+    expect(Number.isNaN(balanceLowerBound(NaN, 6))).toBe(true);
   });
 });
 

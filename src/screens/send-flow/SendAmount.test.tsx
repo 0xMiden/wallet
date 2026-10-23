@@ -190,6 +190,13 @@ describe('SendAmount', () => {
     expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
   });
 
+  it('fills Max below a stored balance that may have been rounded up past 2^53 base units', () => {
+    const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
+
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('10000.2999');
+  });
+
   it('keeps Max visible but inert while the caller disables it', () => {
     const props = renderAmount({ maxDisabled: true });
 

@@ -168,7 +168,8 @@ export function stringToBigInt(str: string, decimals: number): bigint {
  * The typed string is scaled by `stringToBigInt`, so digits past `decimals` are
  * dropped and a value past 2^53 stays exact. `balance` is already a JavaScript
  * number; multiplying it by `10 ** decimals` repeats the float error this module
- * left behind, so it is read back through its own decimal string first. An
+ * left behind, so it is read back through its own decimal string first, shaved
+ * by `balanceLowerBound` once it is too large to keep every base unit. An
  * unparsable amount is not over the cap; callers reject it on their own path.
  * Equal base units stay allowed.
  */
@@ -180,7 +181,24 @@ export function typedAmountExceedsBalance(amount: string, balance: number, decim
     return false;
   }
   if (!Number.isFinite(balance)) return false;
-  return typed > stringToBigInt(balance.toString(), decimals);
+  return typed > stringToBigInt(balanceLowerBound(balance, decimals).toString(), decimals);
+}
+
+// Relative margin of four double ulps: wider than the rounding between a stored balance and the chain's.
+const BALANCE_MARGIN = 2 ** -50;
+
+/**
+ * The most of `balance` that can be relied on, as a number.
+ *
+ * Balances are stored as doubles, which keep every base unit only while they fit 2^53. Past that the
+ * stored figure can sit a few units above the real balance, so Max or a cap check built from it could
+ * accept an amount the account does not hold. Those balances are shaved by a few ulps; the rest are
+ * returned unchanged.
+ */
+export function balanceLowerBound(balance: number, decimals: number): number {
+  if (!(balance > 0) || !Number.isFinite(balance)) return balance;
+  if (stringToBigInt(balance.toString(), decimals) <= BigInt(Number.MAX_SAFE_INTEGER)) return balance;
+  return balance * (1 - BALANCE_MARGIN);
 }
 
 /**

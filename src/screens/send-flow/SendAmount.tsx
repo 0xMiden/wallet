@@ -15,6 +15,7 @@ import { Notice } from 'components/ui/Notice';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
+import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -198,7 +199,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 <Pill
                   onClick={() => {
                     setMaxSelection(selection => selection + 1);
-                    onAmountChange(formatBalance(token.balance));
+                    onAmountChange(formatBalance(balanceLowerBound(token.balance, token.decimals)));
                   }}
                   disabled={maxDisabled}
                   className="text-accent-send-ink"
