@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Pill } from 'components/ui';
 import { useExploreMotion } from 'lib/animation';
-import { EXPLORE_FILTERS, type ExploreItem } from 'lib/dapp-browser';
+import { EXPLORE_FILTERS, getExploreCategoryGroup, type ExploreItem } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
@@ -25,7 +25,7 @@ export interface FeaturedCardProps {
 export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, className }) => {
   const { t } = useTranslation();
   const { press } = useExploreMotion();
-  const category = EXPLORE_FILTERS.find(filter => filter.id === item.category);
+  const category = EXPLORE_FILTERS.find(filter => filter.id === getExploreCategoryGroup(item.category));
 
   return (
     <motion.button

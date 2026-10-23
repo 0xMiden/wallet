@@ -7,6 +7,7 @@
 - [FIX][all] Backup guidance distinguishes an unavailable Guardian state copy from a lost one and explains when an Encrypted Wallet File contains a Recovery Phrase or imported signing secret (#1790).
 
 ---
+- [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
 
 ## 1.17.6 (2026-10-23)
 

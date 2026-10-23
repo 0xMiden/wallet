@@ -1,10 +1,17 @@
-import { beginBalanceSnapshot, isBalanceReflected, tagBalanceSnapshot, type BalanceSnapshot } from './balance-snapshot';
+import {
+  beginBalanceSnapshot,
+  hasBalanceSnapshotForNetwork,
+  isBalanceReflected,
+  tagBalanceSnapshot,
+  type BalanceSnapshot
+} from './balance-snapshot';
 import type { TokenBalanceData } from './front/balance';
 
 let mockOverride: { rpcUrl: string } | null = null;
 let mockRpc = 'https://rpc.mainnet.example';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getActiveOverride: () => mockOverride,
+  isNetworkChoiceOverride: (override: { rpcUrl: string }) => !override.rpcUrl,
   getEffectiveNetworkName: () => 'mainnet',
   getEffectiveRpcUrl: () => mockRpc
 }));
@@ -96,4 +103,15 @@ describe('beginBalanceSnapshot', () => {
     mockOverride = { rpcUrl: mockRpc };
     expect(overridden(account)).toEqual({ network: 'changed', accountNonce: '7' });
   });
+});
+
+it('accepts known-network vault provenance without inventing proof for cached or switched rows', () => {
+  const displayed = rows();
+  expect(hasBalanceSnapshotForNetwork(displayed, 'testnet')).toBe(false);
+  tagBalanceSnapshot(displayed, { network: 'testnet', accountNonce: '0' });
+  expect(hasBalanceSnapshotForNetwork(displayed, 'testnet')).toBe(true);
+  expect(hasBalanceSnapshotForNetwork(displayed, 'mainnet')).toBe(false);
+  expect(hasBalanceSnapshotForNetwork([...displayed], 'testnet')).toBe(false);
+  tagBalanceSnapshot(displayed, { network: 'testnet' });
+  expect(hasBalanceSnapshotForNetwork(displayed, 'testnet')).toBe(false);
 });

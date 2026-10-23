@@ -147,6 +147,12 @@ jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
   )
 }));
 
+jest.mock('app/templates/history/ArcadeActivityHistory', () => ({
+  ArcadeActivityHistory: ({ search }: { search: string }) => (
+    <div data-testid="arcade-history" data-search-query={search} />
+  )
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
 }));
@@ -202,6 +208,15 @@ const bubbleIn = (item: HTMLElement) => item.querySelector('[data-slot="motion-h
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 describe('AllHistory', () => {
+  it('opens the existing Activity tab with Arcade selected, overriding Groups for this visit only', () => {
+    localStorage.setItem('activity_view_setting', 'groups');
+    mockLocationSearch.value = '?filter=arcade&view=list';
+    render(<AllHistory />);
+    expect(screen.getByTestId('arcade-history')).toBeInTheDocument();
+    expect(screen.queryByTestId('grouped-history')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'categoryArcade' })).toHaveAttribute('aria-checked', 'true');
+    expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
@@ -241,11 +256,20 @@ describe('AllHistory', () => {
     for (const label of ['sent', 'received', 'faucet']) {
       expect(screen.queryByRole('radio', { name: label })).toBeNull();
     }
+    expect(screen.queryByRole('radio', { name: 'faucet' })).toBeNull();
 
     // The search field is closed until the header's search button opens it.
     expect(screen.queryByPlaceholderText('searchByNameOrSymbol')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
     expect(screen.getByPlaceholderText('searchByNameOrSymbol')).toBeTruthy();
+  });
+
+  it('falls back to All for a removed Faucet deep link rather than keeping an invisible filter', () => {
+    mockLocationSearch.value = '?filter=faucet&view=list';
+    render(<AllHistory />);
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
+    expect(getHistory()).toHaveAttribute('data-filter', 'all');
+    expect(screen.queryByRole('radio', { name: 'faucet' })).toBeNull();
   });
 
   it('forwards programId and filters to the activity content', () => {

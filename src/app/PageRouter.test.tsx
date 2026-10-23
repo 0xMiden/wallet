@@ -223,6 +223,9 @@ jest.mock('./pages/AllHistory', () => ({
   )
 }));
 jest.mock('./pages/Browser', () => ({ __esModule: true, default: () => <div data-testid="browser" /> }));
+jest.mock('./pages/ArcadePage', () => ({
+  ArcadePage: () => <div data-testid="arcade-coins" />
+}));
 jest.mock('./pages/ForgotPassword/ForgotPassword', () => ({
   __esModule: true,
   default: () => <div data-testid="forgot-password" />
@@ -550,6 +553,20 @@ describe('app/PageRouter — the `/` root route', () => {
 });
 
 describe('app/PageRouter — ready tab & full-screen routes', () => {
+  it('does not expose the removed global ranking route', () => {
+    renderAt('/arcade/rankings', ready);
+    expect(screen.queryByTestId('arcade-rankings')).toBeNull();
+    expect(screen.queryByTestId('arcade-coins')).toBeNull();
+  });
+  it.each(['coins'])('/arcade/%s is a wallet-ready full-screen subpage', page => {
+    renderAt(`/arcade/${page}`, ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId(`arcade-${page}`));
+  });
+
+  it.each(['coins'])('/arcade/%s stays behind the wallet lock', page => {
+    renderAt(`/arcade/${page}`, { ...ready, locked: true });
+    expect(screen.queryByTestId(`arcade-${page}`)).toBeNull();
+  });
   it('/history/:programId passes the program id into AllHistory', () => {
     renderAt('/history/prog-1', ready);
     const el = screen.getByTestId('all-history');
