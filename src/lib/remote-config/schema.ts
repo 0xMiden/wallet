@@ -225,7 +225,7 @@ export interface BridgeConfig {
   guardians?: GuardianConfig[];
   /**
    * The Earn vaults the wallet offers, in picker order. Present, and never empty, exactly when `features.earn` is
-   * true.
+   * true; a document that switches Earn on without this section parses with Earn off.
    */
   earn?: { vaults: EarnVaultConfig[] };
 }
@@ -652,10 +652,11 @@ function readEarnVault(value: unknown, routes: Map<number, string | undefined>):
   };
 }
 
-// The section exists exactly when Earn is on: Earn on with no vault would offer nothing, and vaults with Earn off
-// would be a list nothing reads. Two entries for one id or one market are ambiguous.
+// A present section exists exactly when Earn is on: an empty list would offer nothing, and vaults with Earn off
+// would be a list nothing reads. Two entries for one id or one market are ambiguous. A missing section is not an
+// error (a published document can switch Earn on before it lists vaults); Earn stays off for it, see `readConfig`.
 function readEarn(value: unknown, earnEnabled: boolean, chains: unknown): { vaults: EarnVaultConfig[] } | undefined {
-  if (value === undefined) return earnEnabled ? invalid() : undefined;
+  if (value === undefined) return undefined;
   if (!earnEnabled || !isRecord(value) || !Array.isArray(value.vaults) || value.vaults.length === 0) return invalid();
   const routes = epochUsdcByChain(chains);
   const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, routes));
@@ -732,7 +733,8 @@ function readConfig(
     },
     supportedEvmChains,
     features: {
-      earn: earnEnabled,
+      // Earn with no vault list would be a screen with nothing to pick, so it is off until the document lists vaults.
+      earn: earn !== undefined,
       nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
         ['fastBridge', 'bridgeIn', 'bridgeOut']

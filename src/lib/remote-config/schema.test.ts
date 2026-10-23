@@ -797,7 +797,6 @@ describe('the Earn vaults', () => {
   });
 
   it.each([
-    ['Earn on with no earn section', doc({ earn: undefined })],
     ['Earn on with an empty vault list', withVaults([])],
     ['Earn on with no vault list', doc({ earn: {} })],
     ['an earn section with Earn off', doc({ features: { earn: false } })],
@@ -877,6 +876,13 @@ describe('the Earn vaults', () => {
     const parsed = parseBridgeConfig(published, 'testnet');
     expect(parsed).not.toBeNull();
     expect(parsed?.version).toBe(14);
+    expect(parsed?.earn).toBeUndefined();
+    expect(parsed?.features.earn).toBe(false);
+  });
+
+  it('turns Earn off when the document switches it on but has no earn section', () => {
+    const parsed = parseBridgeConfig(doc({ earn: undefined }), 'testnet');
+    expect(parsed?.features.earn).toBe(false);
     expect(parsed?.earn).toBeUndefined();
   });
 
