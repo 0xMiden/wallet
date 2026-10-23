@@ -227,6 +227,7 @@ async function runAgglayer(
   wallet: GuardianAwareWalletPage
 ): Promise<void> {
   const chain = mainnetChain(1);
+  const ethBefore = await vaultBalance(wallet.page, 'ETH');
   await bridgeEthToMiden({
     key: signer,
     chain,
@@ -236,8 +237,18 @@ async function runAgglayer(
     midenAddress,
     wei: AGGLAYER_LOOP_WEI
   });
-  await wallet.triggerSync(true);
-  await wallet.claimAllNotes();
+  // The deposit lands on Miden after the L1 bridge's finality, minutes after the L1 receipt, so sync and claim until
+  // the balance rises above what the account held before this night's deposit.
+  await expect
+    .poll(
+      async () => {
+        await wallet.triggerSync(true);
+        await wallet.claimAllNotes();
+        return vaultBalance(wallet.page, 'ETH');
+      },
+      { timeout: 1_500_000, intervals: [30_000] }
+    )
+    .toBeGreaterThan(ethBefore);
   await bridgeOutSlow(wallet, {
     destAddress: evmAddress,
     tokenSymbol: 'ETH',
