@@ -1,6 +1,7 @@
 # Canonical GC wallet binding
 
-The backend supports two independently scoped claim protocols. The pinned Testnet deployment
+The backend supports two independently scoped claim protocols. The approved Testnet asset is our existing
+GC issuer `0x97924b9a77ed54917ff6d6364ae661`; Mainnet targets the existing GQ GC, with activation gated. The pinned Testnet deployment
 continues to use the experimental v1 protocol; its assets, roots, request rows and budget recovery
 remain unchanged. No canonical v2 deployment is activated by this change. Mainnet remains disabled.
 
@@ -19,8 +20,10 @@ ABI version 2 at offset 29, distributor suffix/prefix at offsets 30/31, and rece
 quotes, persisted scope, recovery and receipt admission. A v1 quote cannot be reused with v2.
 
 Canonical scopes have separate queue identities and retain their full distribution binding across
-restart. Legacy scope keys are unchanged. There is no migration that relabels legacy assets or
-turns existing experimental balances into canonical GC. Authenticated NoteFiles, Guardian fee-aware
+restart. Legacy scope keys are unchanged. An explicit deployment selects its GC faucet; this never relabels balances from a different issuer.
+The chosen Testnet faucet is the same asset used in the existing trial; its v1 operations retain their
+original protocol scope. A newly deployed distributor starts a new ledger, so acceptance uses an account
+without a prior allocation and cannot establish migration of another deployment's weekly map. Authenticated NoteFiles, Guardian fee-aware
 builders, WASM locks, outgoing queue holds, duplicate prevention and uncertain-submit reconciliation
 continue to use the ordinary wallet pipeline.
 
