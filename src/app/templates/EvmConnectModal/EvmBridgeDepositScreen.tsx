@@ -19,6 +19,7 @@ import {
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { ReportDeposit } from 'app/hooks/useFundTelemetry';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
@@ -33,10 +34,12 @@ import { IBridgeProvider } from 'lib/miden/db/types';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { evmQuote } from 'lib/prices/evm';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { evmUsdcLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
+import { selectNativeEthFaucet } from 'lib/remote-config/values';
 import {
   type EvmUsdc,
   selectAgglayerChain,
@@ -468,6 +471,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const allocatorUrl = bridgeConfig.config?.['bridge-providers'].epoch.allocatorUrl;
   // The selectors build new objects on every snapshot publish. Rebuilt from their fields, these keep their identity
   // until a value moves, so the balance read and the quote keyed on them run again only then.
+  const usdPrices = useWalletStore(state => state.tokenPrices);
+  const nativeUsdFaucetId = useMidenFaucetId();
   const agglayerChain = selectAgglayerChain(bridgeConfig, pickedChainId) ?? selectAgglayerChain(bridgeConfig);
   const selectedEvmUsdc =
     route === 'agglayer'
@@ -1949,7 +1954,29 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               amount={reviewAmount}
               symbol={tokenSymbol}
               label={tokenLabel}
-              fiat={setupToken.fiatPrice === 0 ? undefined : Number(reviewAmount)}
+              sourceQuote={evmQuote(
+                usdPrices,
+                sourceChainId,
+                typeof token !== 'string'
+                  ? token.contractAddress
+                  : token === 'ETH'
+                    ? '0x0000000000000000000000000000000000000000'
+                    : token === 'CIRCLE_USDC'
+                      ? usdcxSource?.usdc
+                      : evmUsdc?.address,
+                bridgeConfig
+              )}
+              outputFaucetId={
+                route === 'usdcx'
+                  ? (nativeUsdFaucetId ?? undefined)
+                  : typeof token !== 'string'
+                    ? erc20?.delivery?.midenFaucetId
+                    : route === 'epoch'
+                      ? (midenUsdcFaucetId ?? undefined)
+                      : token === 'ETH'
+                        ? (selectNativeEthFaucet(bridgeConfig, sourceChainId) ?? undefined)
+                        : undefined
+              }
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
@@ -2043,6 +2070,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [
       amount,
       amountExceedsBalance,
+      usdPrices,
+      nativeUsdFaucetId,
+      midenUsdcFaucetId,
+      erc20,
+      evmUsdc,
+      token,
+      bridgeConfig,
       awaitingNextConfirmation,
       balanceHoldNotice,
       capHoldNotice,
@@ -2113,6 +2147,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         open={tokenDrawerOpen}
         onOpenChange={setTokenDrawerOpen}
         selected={token}
+        chainId={sourceChainId}
+        circleUsdcAddress={usdcxSource?.usdc}
         // New deposits offer Circle USDC and configured native ETH, never the retired Epoch test token.
         ethBalance={agglayerChain ? ethBalance.formatted : undefined}
         ethLoading={ethBalance.loading}

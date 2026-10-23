@@ -1608,5 +1608,12 @@
   "walletAccessUnavailableTitle": "Could not check availability",
   "walletAccessUnavailableBody": "Check your connection and try again.",
   "runtimeUnsupportedTitle": "This browser or device can't run the wallet",
-  "runtimeUnsupportedBody": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  "runtimeUnsupportedBody": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser.",
+  "amountUsdUnavailable": "USD estimate unavailable",
+  "amountUsdStale": "USD quote expired. Refreshing price…",
+  "amountInputUnit": "Amount in $unit$",
+  "amountSwitchUnit": "Enter $unit$",
+  "amountUsdLoading": "Loading USD price…",
+  "amountUsdError": "USD price could not be refreshed",
+  "amountUsdEstimate": "USD estimate"
 }

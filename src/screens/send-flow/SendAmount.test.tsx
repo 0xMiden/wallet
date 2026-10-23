@@ -11,6 +11,9 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { SendAmount, SendAmountProps } from './SendAmount';
+jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: () => ({ price: 2, observedAt: Date.now(), change24h: 0, percentageChange24h: 0 })
+}));
 
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
@@ -79,6 +82,7 @@ jest.mock('components/AmountInput', () => ({
         />
         <button data-testid="clear-amount" onClick={() => props.onValueChange(undefined)} />
         {props.error && <span data-testid="amount-error">{props.error}</span>}
+        {props.secondary}
         {props.helper}
       </div>
     )
@@ -291,7 +295,8 @@ describe('SendAmount', () => {
       Reflect.deleteProperty(window, 'matchMedia');
     });
 
-    const available = () => screen.getByTestId('send-amount-available').textContent ?? '';
+    const available = () =>
+      screen.getByTestId('send-amount-available').querySelector('.tabular-nums')?.textContent ?? '';
     const amountOf = (text: string) => Number(text.replace(/[^\d.]/g, ''));
 
     /** The line right after the change, and every text it shows until the count is done. */

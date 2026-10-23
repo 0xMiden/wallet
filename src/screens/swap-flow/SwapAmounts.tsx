@@ -9,10 +9,11 @@ import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
-import { SwapToken } from 'lib/miden/swap/tokens';
+import { SwapToken, tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
@@ -79,6 +80,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
   useUserVisibleError(statusMessage && statusIsError ? (statusErrorId ?? null) : null, 'inline');
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const reduceMotion = useReducedMotion();
@@ -139,7 +141,10 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             label={t('youPay')}
             showAmountDivider={false}
             accent="swap"
-            token={swapTokenToUIToken(offerToken, offerBalance)}
+            token={{
+              ...swapTokenToUIToken(offerToken, offerBalance),
+              fiatPrice: tokenQuote(prices, offerToken.faucetId, offerToken.symbol)?.price ?? 0
+            }}
             tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
             logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
@@ -195,7 +200,10 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             label={t('youReceive')}
             showAmountDivider={false}
             accent="swap"
-            token={swapTokenToUIToken(requestToken)}
+            token={{
+              ...swapTokenToUIToken(requestToken),
+              fiatPrice: tokenQuote(prices, requestToken.faucetId, requestToken.symbol)?.price ?? 0
+            }}
             tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
             logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}

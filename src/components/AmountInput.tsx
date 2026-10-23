@@ -69,6 +69,8 @@ export interface AmountInputProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
   value?: string;
+  /** Exact decimal text for token flows; avoids the currency library's Number coercion. */
+  preservePrecision?: boolean;
   /** Exact-token flows can opt into their own precision validation instead of the send default. */
   decimalsLimit?: number;
   maxLength?: number;
@@ -85,6 +87,10 @@ export interface AmountInputProps {
   invalid?: boolean;
   /** Secondary lines under the amount, e.g. "Available 200 USDC" / "≈ $200 USD". */
   helper?: React.ReactNode;
+  /** Denomination controls remain reachable even when the amount is invalid. */
+  secondary?: React.ReactNode;
+  /** Inline denomination choice beside the figure, separate from the asset picker. */
+  unitControl?: React.ReactNode;
   /** Token chip rendered under the accent divider (e.g. "Select a token" / "USDC ▾"). */
   tokenSelector?: React.ReactNode;
   /**
@@ -118,6 +124,7 @@ export interface AmountInputProps {
  */
 export const AmountInput: React.FC<AmountInputProps> = ({
   value,
+  preservePrecision = false,
   decimalsLimit = 6,
   maxLength = 16,
   allowNegativeValue = false,
@@ -129,6 +136,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   errorId,
   invalid = false,
   helper,
+  secondary,
+  unitControl,
   tokenSelector,
   accent = 'brand',
   showDivider = true,
@@ -145,40 +154,75 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
   const showClear = Boolean(value) && !disabled && !loading;
-  const amountClasses = classNames(amountFigureClassName(value), centered ? 'text-center' : 'text-left');
+  // Reserve the unit choice and clear target on narrow screens before the figure grows.
+  const figureSize = unitControl
+    ? (value?.length ?? 0) >= 6
+      ? 'text-3xl'
+      : (value?.length ?? 0) >= 4
+        ? 'text-4xl'
+        : 'text-5xl'
+    : amountTextSize(value);
+  const amountClasses = classNames(
+    'font-heading font-extrabold leading-none',
+    figureSize,
+    centered ? 'text-center' : 'text-left'
+  );
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
-  const input = (layoutClassName: string) => (
-    <CurrencyInput
-      ref={inputRef}
-      className={classNames(amountClasses, 'bg-transparent p-0 outline-none', layoutClassName, stateClasses)}
-      value={value}
-      onValueChange={onValueChange}
-      placeholder={placeholder}
-      transformRawValue={normalizeDecimalInput}
-      disableGroupSeparators
-      intlConfig={{ locale: getCurrentLocale().replace('_', '-'), numberingSystem: 'latn' }}
-      // `disableGroupSeparators` only stops grouping in the *display*; the
-      // library still derives a group separator from the ambient locale and
-      // strips it from the raw input on every keystroke. On a `.`-group
-      // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
-      // produced, undoing the fix. Passing "" doesn't help — the library
-      // coalesces a falsy group separator back to the locale default — so
-      // pin it to a space, which never collides with our "." decimal (#433).
-      groupSeparator=" "
-      decimalSeparator="."
-      decimalsLimit={decimalsLimit}
-      allowNegativeValue={allowNegativeValue}
-      formatValueOnBlur={formatValueOnBlur}
-      maxLength={maxLength}
-      enterKeyHint="done"
-      autoFocus={autoFocus}
-      disabled={disabled}
-      aria-invalid={invalid || !!error}
-      aria-label={ariaLabel}
-      data-testid={dataTestId}
-    />
-  );
+  const input = (layoutClassName: string) =>
+    preservePrecision ? (
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="decimal"
+        className={classNames(amountClasses, 'bg-transparent p-0 outline-none', layoutClassName, stateClasses)}
+        value={value ?? ''}
+        onChange={event => {
+          const normalized = normalizeDecimalInput(event.target.value);
+          const pattern = allowNegativeValue ? /^-?\d*(?:\.\d*)?$/ : /^\d*(?:\.\d*)?$/;
+          if (!pattern.test(normalized) || (normalized.split('.')[1]?.length ?? 0) > decimalsLimit) return;
+          onValueChange?.(normalized || undefined);
+        }}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        enterKeyHint="done"
+        autoFocus={autoFocus}
+        disabled={disabled}
+        aria-invalid={invalid || !!error}
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
+      />
+    ) : (
+      <CurrencyInput
+        ref={inputRef}
+        className={classNames(amountClasses, 'bg-transparent p-0 outline-none', layoutClassName, stateClasses)}
+        value={value}
+        onValueChange={onValueChange}
+        placeholder={placeholder}
+        transformRawValue={normalizeDecimalInput}
+        disableGroupSeparators
+        intlConfig={{ locale: getCurrentLocale().replace('_', '-'), numberingSystem: 'latn' }}
+        // `disableGroupSeparators` only stops grouping in the *display*; the
+        // library still derives a group separator from the ambient locale and
+        // strips it from the raw input on every keystroke. On a `.`-group
+        // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
+        // produced, undoing the fix. Passing "" doesn't help — the library
+        // coalesces a falsy group separator back to the locale default — so
+        // pin it to a space, which never collides with our "." decimal (#433).
+        groupSeparator=" "
+        decimalSeparator="."
+        decimalsLimit={decimalsLimit}
+        allowNegativeValue={allowNegativeValue}
+        formatValueOnBlur={formatValueOnBlur}
+        maxLength={maxLength}
+        enterKeyHint="done"
+        autoFocus={autoFocus}
+        disabled={disabled}
+        aria-invalid={invalid || !!error}
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
+      />
+    );
 
   return (
     <div className={classNames('flex flex-col', className)}>
@@ -198,7 +242,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             className={classNames(
               'font-heading font-bold leading-none text-muted',
               centered ? 'mr-0.5 mt-[0.1em] text-[0.6em]' : 'mr-1',
-              !centered && amountTextSize(value)
+              !centered && figureSize
             )}
           >
             {prefix}
@@ -229,7 +273,14 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           // Holds the button's slot while the field is disabled, so the centred amount does not move.
           <span aria-hidden="true" className="pointer-events-none h-11 w-11 shrink-0 self-center" />
         ) : null}
+        {unitControl && (
+          <div className="ml-2 shrink-0 self-center" onClick={event => event.stopPropagation()}>
+            {unitControl}
+          </div>
+        )}
       </div>
+
+      {secondary && <div className="pt-2">{secondary}</div>}
 
       {error ? (
         <div className="flex items-center gap-2 pt-2">

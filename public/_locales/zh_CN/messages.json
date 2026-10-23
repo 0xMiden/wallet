@@ -7286,5 +7286,43 @@
   "runtimeUnsupportedBody": {
     "message": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "USD estimate unavailable",
+    "englishSource": "(untranslated)"
+  },
+  "amountUsdStale": {
+    "message": "USD quote expired. Refreshing price…",
+    "englishSource": "(untranslated)"
+  },
+  "amountInputUnit": {
+    "message": "Amount in $unit$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "Enter $unit$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "Loading USD price…",
+    "englishSource": "(untranslated)"
+  },
+  "amountUsdError": {
+    "message": "USD price could not be refreshed",
+    "englishSource": "(untranslated)"
+  },
+  "amountUsdEstimate": {
+    "message": "USD estimate",
+    "englishSource": "(untranslated)"
   }
 }

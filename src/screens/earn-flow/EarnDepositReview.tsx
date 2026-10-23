@@ -4,12 +4,13 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { useNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { amountCaptionClassName, amountFigureClassName } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
@@ -314,6 +315,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               value={formatMoneyAmount(amount, 'typed')}
               unit={<EarnAmountUnit symbol={depositSymbol} compact />}
               label={t('earnDepositAmountTitle')}
+              meta={
+                collateral && (
+                  <TokenUsdValue
+                    amount={amount.replace(/,/g, '')}
+                    decimals={collateral.decimals}
+                    faucetId={collateral.faucetId}
+                    symbol={collateral.symbol}
+                  />
+                )
+              }
             />
 
             <DepositProjection vault={vault} amount={amountValue} />
@@ -339,6 +350,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, amount }) => {
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
+  const networkFeeDetails = useNetworkFeeEstimateDetails();
   // `aprPercent` is the number `apy` is formatted from; reading it directly (rather than parsing
   // the display string back out) keeps this in step with a target `apy` can drift from, such as a
   // number still travelling in an AnimatedNumber elsewhere on the page.
@@ -440,7 +452,18 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
         <DetailRow label={t('earnEstimatedTime')}>{t('earnEstimatedTimeValue')}</DetailRow>
         {/* The deposit is a fee-paying Miden transaction: `completeEarnDepositTransaction`
             records the charge and EarnSuccess renders it on the very next screen. */}
-        {networkFee && <DetailRow label={t('networkFeeMax')}>{networkFee}</DetailRow>}
+        {networkFee && (
+          <DetailRow
+            label={t('networkFeeMax')}
+            sub={
+              networkFeeDetails && (
+                <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+              )
+            }
+          >
+            {networkFee}
+          </DetailRow>
+        )}
       </DetailCard>
     </div>
   );

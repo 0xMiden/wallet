@@ -7,7 +7,7 @@ import { formatUnits, parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { useNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
@@ -16,6 +16,7 @@ import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
@@ -56,9 +57,9 @@ import { USDCX_DECIMALS } from 'lib/usdcx/constant';
 import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
+import { EvmUsdValue } from 'screens/generating-transaction/EvmUsdValue';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
-import { approxFiatAmount } from './amount-format';
 import {
   getBridgeNetwork,
   BridgeNetworkId,
@@ -98,6 +99,7 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
+  const networkFeeDetails = useNetworkFeeEstimateDetails();
   const { search } = useLocation();
   const { fullPage } = useAppEnv();
   const { publicKey } = useAccount();
@@ -701,12 +703,13 @@ export const ReviewTransaction: React.FC = () => {
       : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
   // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
   const youReceiveSymbol = route === 'agglayer' ? (token?.name ?? '') : evmUsdcLabel(bridgeConfig, epochQuote.symbol);
+  const destinationUsdc = Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).find(
+    chain => chain.chainId === bridgeNetworkObj?.chainId
+  )?.bridges.epoch?.tokens.USDC?.contractAddress;
   const youReceiveLabel =
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  const fiatValue =
-    token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg">
@@ -763,7 +766,11 @@ export const ReviewTransaction: React.FC = () => {
           className="mt-3"
           visual={<TokenLogo symbol={token?.name ?? ''} faucetId={token?.id} size="2xl" />}
           value={`${amount} ${tokenLabel}`}
-          subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
+          subtitle={
+            token?.scaleIsKnown && (
+              <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
+            )
+          }
         />
 
         <DetailCard surface="outline" face="heading" className="mt-6">
@@ -786,7 +793,16 @@ export const ReviewTransaction: React.FC = () => {
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
           {networkFee && !isUsdcxBurn && (
             // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
-            <DetailRow label={t('networkFeeMax')}>{networkFee}</DetailRow>
+            <DetailRow
+              label={t('networkFeeMax')}
+              sub={
+                networkFeeDetails && (
+                  <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+                )
+              }
+            >
+              {networkFee}
+            </DetailRow>
           )}
 
           {isBridge ? (
@@ -794,7 +810,19 @@ export const ReviewTransaction: React.FC = () => {
               <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
               {isUsdcxBurn ? (
                 <>
-                  <DetailRow label={t('usdcxMinimumBurn')}>
+                  <DetailRow
+                    label={t('usdcxMinimumBurn')}
+                    sub={
+                      token?.scaleIsKnown && (
+                        <TokenUsdValue
+                          amount={burnMinimum}
+                          decimals={USDCX_DECIMALS}
+                          faucetId={token.id}
+                          symbol={token.name}
+                        />
+                      )
+                    }
+                  >
                     {`${formatUnits(burnMinimum, USDCX_DECIMALS)} USDCx`}
                   </DetailRow>
                   <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
@@ -803,7 +831,26 @@ export const ReviewTransaction: React.FC = () => {
                   )}
                 </>
               ) : (
-                <DetailRow label={t('youReceive')}>
+                <DetailRow
+                  label={t('youReceive')}
+                  sub={
+                    !youReceiveLoading && route === 'agglayer' && token?.scaleIsKnown ? (
+                      <TokenUsdValue
+                        amount={amount}
+                        decimals={token.decimals}
+                        faucetId={token.id}
+                        symbol={token.name}
+                      />
+                    ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
+                      <EvmUsdValue
+                        amount={epochQuote.amount}
+                        decimals={USDCX_DECIMALS}
+                        chainId={bridgeNetworkObj?.chainId}
+                        address={destinationUsdc}
+                      />
+                    ) : undefined
+                  }
+                >
                   {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
                 </DetailRow>
               )}

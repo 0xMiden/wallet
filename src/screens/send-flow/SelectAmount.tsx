@@ -4,16 +4,19 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Avatar } from 'components/ui/Avatar';
 import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { usdQuoteStatus } from 'lib/prices/amount';
+import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { PRIMARY_HEX } from 'utils/brand-colors';
@@ -132,7 +135,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const { t } = useTranslation();
   const accentClasses = ACCENT_CLASSES[accent];
 
-  const availableFiat = token && token.balance !== null ? token.balance * token.fiatPrice : null;
+  const prices = useWalletStore(state => state.tokenPrices);
+  const quote = token && tokenQuote(prices, token.id, token.name);
+  const price = usdQuoteStatus(quote) === 'ready' ? quote?.price : undefined;
+  const availableFiat = token && token.balance !== null && price ? token.balance * price : null;
   const formatAvailableFiat = adaptiveFormatterFor(availableFiat ?? 0);
   // An amount typed here is converted to base units with `token.decimals`. When
   // those decimals are the unknown-token placeholder's guess, that conversion
@@ -260,7 +266,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         </span>
         {/* Only show the fiat approximation when we actually have a price — swap
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
-        {scaleIsKnown && token.fiatPrice > 0 && (
+        {scaleIsKnown && price !== undefined && (
           <AnimatedNumber
             key={token.id}
             className="font-heading text-gray text-base font-bold"
@@ -273,7 +279,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   }
 
   const amountField = (
-    <AmountInput
+    <TokenAmountInput
+      assetId={token?.id ?? ''}
+      symbol={token?.name ?? ''}
+      decimals={token?.decimals ?? 0}
+      scaleIsKnown={!!token?.scaleIsKnown}
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       invalid={!!error}

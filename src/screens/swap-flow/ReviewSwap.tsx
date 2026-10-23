@@ -3,11 +3,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { useNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
@@ -157,6 +158,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
 }) => {
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
+  const networkFeeDetails = useNetworkFeeEstimateDetails();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const offerLabel = midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol);
   const requestLabel = midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol);
@@ -219,6 +221,14 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
+        subtitle={
+          <TokenUsdValue
+            amount={offerAmount}
+            decimals={offerToken.decimals}
+            faucetId={offerToken.faucetId}
+            symbol={offerToken.symbol}
+          />
+        }
         value={
           <span className="inline-flex items-center gap-1">
             {`${offerAmount} ${offerLabel}`}
@@ -242,6 +252,14 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             faucetId={requestToken.faucetId}
             fallbackSymbol={requestToken.logoSymbol}
             size="md"
+          />
+        }
+        subtitle={
+          <TokenUsdValue
+            amount={requestAmount}
+            decimals={requestToken.decimals}
+            faucetId={requestToken.faucetId}
+            symbol={requestToken.symbol}
           />
         }
         value={
@@ -301,7 +319,18 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           <DetailRow
             label={t('swapFillStatus')}
             sub={
-              expected !== undefined ? t('swapVerdictExpected', { amount: expected, symbol: requestLabel }) : undefined
+              expected !== undefined ? (
+                <>
+                  {t('swapVerdictExpected', { amount: expected, symbol: requestLabel })}
+                  <TokenUsdValue
+                    amount={expected}
+                    decimals={requestToken.decimals}
+                    faucetId={requestToken.faucetId}
+                    symbol={requestToken.symbol}
+                    className="block"
+                  />
+                </>
+              ) : undefined
             }
             className={blocksSubmit ? 'text-negative-ink' : undefined}
             data-testid="swap-verdict-row"
@@ -343,6 +372,11 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           // of the swap — the two are different costs.
           <DetailRow
             label={t('networkFeeMax')}
+            sub={
+              networkFeeDetails && (
+                <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+              )
+            }
             info={
               <InfoHint label={t('moreInfoAbout', { label: t('networkFeeMax') })} data-testid="swap-network-fee-info">
                 {t('networkFeeEstimateNote')}

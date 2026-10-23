@@ -86,7 +86,7 @@ jest.mock('lib/usdcx/use-burn-minimum', () => ({
 }));
 
 const mockWalletStoreState = {
-  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
+  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number; observedAt?: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
   readSpendingLimit: jest.fn()
@@ -339,6 +339,7 @@ jest.mock('lib/epoch', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
   toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn()
 }));
@@ -802,7 +803,7 @@ describe('ReviewTransaction — rendering', () => {
     mockBalanceData = [
       { tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
     ];
-    mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
+    mockWalletStoreState.tokenPrices = { ETH: { price: 3, observedAt: Date.now() } };
     try {
       render(<ReviewTransaction />);
       await flush();
@@ -944,7 +945,7 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
-    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-recall-note')).not.toBeInTheDocument();
     expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
     // A bridge has neither a transfer type nor an expiration, so nothing to fold away.
     expect(screen.queryByTestId('review-advanced-options')).not.toBeInTheDocument();
