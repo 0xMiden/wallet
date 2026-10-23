@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Looper;
 import android.webkit.WebView;
 import androidx.activity.ComponentActivity;
 import androidx.activity.result.ActivityResultCallback;
@@ -230,6 +231,7 @@ public class BreadAuthControllerTest {
         host.recreate();
         activity = host.get();
         activity.setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
+        BreadAuthTabLauncher.hostLoaded((ComponentActivity) activity);
     }
 
     @Test public void installsBreadAuthBeforePresentationAndFirstNavigation() {
@@ -767,6 +769,7 @@ public class BreadAuthControllerTest {
         ShadowActivity.IntentForResult nextLaunch = takeAuthLaunch();
         ActivityResultCallback<AuthTabIntent.AuthResult> nextCallback = authTabCallback(next);
         ActivityResultRegistry newRegistry = ((ComponentActivity) activity).getActivityResultRegistry();
+        assertNotEquals(oldLaunch.requestCode, nextLaunch.requestCode);
         Intent data = new Intent().setData(Uri.parse(CALLBACK));
         oldRegistry.dispatchResult(oldLaunch.requestCode, AuthTabIntent.RESULT_OK, data);
         newRegistry.dispatchResult(oldLaunch.requestCode, AuthTabIntent.RESULT_OK, data);
@@ -781,6 +784,69 @@ public class BreadAuthControllerTest {
         nextCallback.onActivityResult(authTabResult(AuthTabIntent.RESULT_CANCELED, null));
         assertReply(nextProxy, "b", "url", CALLBACK);
         assertReplyReleased(next);
+        verifyNoInteractions(oldProxy);
+    }
+
+    @Test public void restoredAuthTabResultIsDiscardedBeforeAnotherPageOpens() throws Exception {
+        registerChrome(); enableAuthTabs();
+        WebViewDialog old = open(); registerOwnedDialog(old);
+        JavaScriptReplyProxy oldProxy = post(old, PAGE, true, request("a", SIGN_IN));
+        ShadowActivity.IntentForResult oldLaunch = takeAuthLaunch();
+        new InAppBrowserPlugin().handleOnDestroy();
+        WebViewRegistry.getShared().clear();
+        Bundle saved = new Bundle();
+        host.pause().saveInstanceState(saved).stop().destroy();
+        host = Robolectric.buildActivity(ComponentActivity.class).create(saved).start().resume().visible();
+        activity = host.get();
+        activity.setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
+        ActivityResultRegistry registry = ((ComponentActivity) activity).getActivityResultRegistry();
+        registry.dispatchResult(oldLaunch.requestCode, AuthTabIntent.RESULT_OK, new Intent().setData(Uri.parse(CALLBACK)));
+        Bundle beforeLoad = new Bundle();
+        registry.onSaveInstanceState(beforeLoad);
+        assertFalse(beforeLoad.getBundle("KEY_COMPONENT_ACTIVITY_PENDING_RESULT").isEmpty());
+
+        BreadAuthTabLauncher.hostLoaded((ComponentActivity) activity);
+        Bundle afterLoad = new Bundle();
+        registry.onSaveInstanceState(afterLoad);
+        assertTrue("Restored auth data must be consumed at host load",
+            afterLoad.getBundle("KEY_COMPONENT_ACTIVITY_PENDING_RESULT").isEmpty());
+        shadowOf(Looper.getMainLooper()).idle();
+        Bundle afterCleanup = new Bundle();
+        registry.onSaveInstanceState(afterCleanup);
+        assertTrue("Synchronous restored delivery must also unregister its key",
+            afterCleanup.getStringArrayList("KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS").isEmpty());
+        verifyNoInteractions(oldProxy);
+        assertEquals(BreadAuthState.Phase.IDLE, BreadAuthController.state.phase());
+        registerChrome(); enableAuthTabs();
+        WebViewDialog next = open();
+        JavaScriptReplyProxy nextProxy = post(next, PAGE, true, request("b", SIGN_IN));
+        ShadowActivity.IntentForResult nextLaunch = takeAuthLaunch();
+        assertNotEquals(oldLaunch.requestCode, nextLaunch.requestCode);
+        deliver(nextLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        assertReply(nextProxy, "b", "url", CALLBACK);
+        verifyNoInteractions(oldProxy);
+    }
+
+    @Test public void abandonedAuthTabKeySurvivesAnotherRecreationUntilItsResultArrives() throws Exception {
+        registerChrome(); enableAuthTabs();
+        WebViewDialog old = open(); registerOwnedDialog(old);
+        JavaScriptReplyProxy oldProxy = post(old, PAGE, true, request("a", SIGN_IN));
+        ShadowActivity.IntentForResult oldLaunch = takeAuthLaunch();
+        destroyPluginAndRecreateHost();
+        destroyPluginAndRecreateHost();
+        registerChrome(); enableAuthTabs();
+        WebViewDialog next = open();
+        JavaScriptReplyProxy nextProxy = post(next, PAGE, true, request("b", SIGN_IN));
+        ShadowActivity.IntentForResult nextLaunch = takeAuthLaunch();
+        assertNotEquals(oldLaunch.requestCode, nextLaunch.requestCode);
+        deliver(oldLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        Bundle saved = new Bundle();
+        ((ComponentActivity) activity).getActivityResultRegistry().onSaveInstanceState(saved);
+        assertTrue(saved.getBundle("KEY_COMPONENT_ACTIVITY_PENDING_RESULT").isEmpty());
+        verifyNoInteractions(oldProxy, nextProxy);
+        assertEquals(BreadAuthState.Phase.LAUNCHING, BreadAuthController.state.phase());
+        deliver(nextLaunch, AuthTabIntent.RESULT_OK, CALLBACK);
+        assertReply(nextProxy, "b", "url", CALLBACK);
         verifyNoInteractions(oldProxy);
     }
 

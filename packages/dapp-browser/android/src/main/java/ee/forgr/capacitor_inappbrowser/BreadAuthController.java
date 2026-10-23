@@ -74,6 +74,7 @@ final class BreadAuthController {
             if (CustomTabsClient.isAuthTabSupported(owner.activity, browser)) {
                 launchPath = LaunchPath.AUTH_TAB;
                 if (!(owner.activity instanceof ComponentActivity)) { finish("error", BreadAuthState.UNAVAILABLE); return; }
+                BreadAuthTabLauncher.hostLoaded((ComponentActivity) owner.activity);
                 final long expectedTicket = ticket;
                 authTabLauncher = new BreadAuthTabLauncher(((ComponentActivity) owner.activity).getActivityResultRegistry(),
                     result -> authTabResult(expectedTicket, result.resultCode, result.resultUri));
