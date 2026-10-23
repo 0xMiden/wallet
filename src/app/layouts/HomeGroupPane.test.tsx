@@ -5,7 +5,7 @@
  *
  * - **The horizontal gesture belongs to the carousel.** `HomeSwipeContainer` is a native
  *   scroll-snap scroller, and `touch-action` intersects up to it. A pane that becomes a horizontal
- *   scroll container is the handler for a sideways pan and takes that gesture before the carousel sees it — which is how
+ *   scroll container is the handler for a sideways pan and takes that gesture before the carousel sees it, which is how
  *   the Send pane stopped switching tabs. The body's `touch-action: pan-x pan-y` and
  *   `overflow-x-hidden` are what make that impossible, so they are asserted rather than left to a reviewer's eye.
  * - **One page margin, and one top offset per kind of pane**, so a titled pane's first line does
