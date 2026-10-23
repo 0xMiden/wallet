@@ -58,7 +58,13 @@ adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
 device_pin=1234
 adb shell locksettings set-pin "$device_pin" >/dev/null
-adb install -r "$RUNNER_TEMP/firefox.apk"
+# sys.boot_completed can precede a package manager that accepts installs ("Broken pipe" from the package service).
+for _ in $(seq 1 30); do adb shell pm path android >/dev/null 2>&1 && break; sleep 2; done
+for attempt in 1 2 3; do
+  if adb install -r "$RUNNER_TEMP/firefox.apk"; then break; fi
+  [[ $attempt -eq 3 ]] && exit 1
+  sleep 10
+done
 adb shell dumpsys package org.mozilla.firefox > "$results_dir/firefox-package.txt"
 grep -m1 'versionName=158.0.2' "$results_dir/firefox-package.txt"
 adb shell mkdir -p /sdcard/Download
