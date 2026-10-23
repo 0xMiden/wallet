@@ -133,6 +133,8 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           className="mt-4 face-heading"
         />
         <ReceiptRows
+          surface="outline"
+          face="heading"
           className="mt-4"
           rows={[
             // The source chain is the market's own, read from the row's market uid, never a fixed network.
