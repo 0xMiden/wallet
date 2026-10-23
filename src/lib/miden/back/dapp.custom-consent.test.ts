@@ -142,6 +142,9 @@ const emptyView = {
   account: 'miden-account-1',
   outgoing: [],
   incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
   inputNotesConsumed: 0,
   outputNotesCreated: 0,
   storageChanged: false
@@ -252,6 +255,36 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
     await raiseSheet(false);
 
     expect(sheetMessages()).toContain('No assets move');
+  });
+
+  // #1600: an NFT has no amount, so the amount rows alone made an NFT-only transfer read as nothing.
+  it('lists an NFT that leaves and one that enters, and never says no assets move', async () => {
+    mockSummaryBytesToView.mockReturnValue({
+      ...emptyView,
+      outgoingNfts: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaaaaaaaa', assetId: '0xaa11bb22\u2026cc33dd' }],
+      incomingNfts: [{ faucetId: 'mtst1otherfaucetbbbbbbbbbbbbbbbbbbbbbb', assetId: '0x01020304\u2026050607' }]
+    });
+
+    await raiseSheet(false);
+
+    const messages = sheetMessages();
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^Leaves this account, NFT 0xaa11bb22\u2026cc33dd from faucet mtst1n/),
+        expect.stringMatching(/^Enters this account, NFT 0x01020304\u2026050607 from faucet mtst1o/)
+      ])
+    );
+    expect(messages).not.toContain('No assets move');
+  });
+
+  it('warns about a vault change it cannot list instead of saying no assets move', async () => {
+    mockSummaryBytesToView.mockReturnValue({ ...emptyView, unlistedAssets: 1 });
+
+    await raiseSheet(false);
+
+    const messages = sheetMessages();
+    expect(messages).toEqual(expect.arrayContaining([expect.stringMatching(/^Warning, .*cannot list.*NFT/)]));
+    expect(messages).not.toContain('No assets move');
   });
 
   it('keeps the existing preview lines, so the recipient is still named', async () => {

@@ -154,6 +154,7 @@ import { IConsumedAssetTotal, type ITransaction } from '../db/types';
 import { accountRefToSdk, getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
+import { describeNft, toNft, type NftAsset } from '../sdk/nft-asset';
 import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { causeChain, isPipelineKillLink, pipelineKillIn } from '../sdk/sdk-error-code';
@@ -1143,10 +1144,11 @@ async function getPrivateNoteDetails(
                 return true;
               })
             : candidates;
-        // `restriction` is the wallet's own consume guard, not note data the user agreed to share.
+        // `restriction` is the wallet's own consume guard and `nonFungibleAssets` feeds only its own approval sheet,
+        // not note data the user agreed to share.
         return uniqueCandidates
           .filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId))
-          .map(({ restriction: _restriction, ...note }) => note);
+          .map(({ restriction: _restriction, nonFungibleAssets: _nonFungibleAssets, ...note }) => note);
       });
     });
     return privateNotes;
@@ -3428,6 +3430,7 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
 interface ResolvedConsumeNote {
   noteId: string;
   assets: Asset[];
+  nonFungibleAssets: NftAsset[];
   noteType: string;
   restriction?: ConsumeRestriction;
 }
@@ -3475,7 +3478,8 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
         .map(asset => ({
           amount: asset.amount().toString(),
           faucetId: getBech32AddressFromAccountId(asset.faucetId())
-        }))
+        })),
+      nonFungibleAssets: note.assets().nonFungibleAssets().map(toNft)
     };
   } catch (error) {
     if (error instanceof WebAssembly.RuntimeError) throw error;
@@ -3505,6 +3509,7 @@ function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): Resolve
       return {
         noteId: decoded.noteId,
         assets: decoded.assets,
+        nonFungibleAssets: decoded.nonFungibleAssets,
         noteType: decoded.noteType,
         restriction: decoded.restriction
       };
@@ -3556,6 +3561,7 @@ async function resolveConsumeNote(
   return {
     noteId,
     assets: details.assets,
+    nonFungibleAssets: details.nonFungibleAssets,
     noteType: details.noteType !== undefined ? toNoteTypeString(details.noteType) : 'unknown',
     restriction: details.restriction
   };
@@ -3597,14 +3603,15 @@ async function formatConsumeTransactionPreview(
   carried: ResolvedConsumeNote | null,
   accountId: string
 ): Promise<ConsumePreview> {
-  const { noteId, assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction, accountId));
+  const { noteId, assets, nonFungibleAssets, noteType, restriction } =
+    carried ?? (await resolveConsumeNote(transaction, accountId));
   // Refused here, before the sheet: once approved, the consume would fail at execution with
   // ERR_NOTE_ACTIVE_ACCOUNT_IS_NOT_TARGET_ACCOUNT or ERR_RECLAIM_DISABLED, and nothing before execution asks whether the
   // account can consume the note.
   if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
     throw new Error('This account can never consume this note - refusing it');
   }
-  const headlineFaucet = assets[0]?.faucetId;
+  const headlineFaucet = assets[0]?.faucetId ?? nonFungibleAssets[0]?.faucetId;
   const messages = [
     headlineFaucet
       ? `Consuming note from faucet: ${truncateAddress(headlineFaucet, false)}`
@@ -3615,6 +3622,9 @@ async function formatConsumeTransactionPreview(
     messages.push(
       `Amount, ${formatAmountSafe(BigInt(asset.amount), 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))}`
     );
+  }
+  for (const nft of nonFungibleAssets) {
+    messages.push(`Receiving, ${describeNft(nft, faucetId => truncateAddress(faucetId, false))}`);
   }
   messages.push(`Note Type, ${capitalizeFirstLetter(noteType)}`);
   const maxFee = await formatMaxNetworkFee();
@@ -3673,6 +3683,15 @@ const OPAQUE_SIGNATURE_WARNING =
  * as strings. Amounts go through the faucet's own decimals, like every other
  * preview row in this file.
  */
+const nftFaucetLabel = (faucetId: string) => truncateAddress(faucetId, false);
+
+/**
+ * Shown where a summary's vault change counts assets the wallet cannot list (an NFT in a Guardian signing summary,
+ * whose vault delta the SDK exposes only as a count). Stands in for the asset rows rather than "No assets move".
+ */
+const UNLISTED_ASSETS_WARNING =
+  'Warning, this transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it.';
+
 async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
   const rows: string[] = [];
   for (const asset of view.outgoing) {
@@ -3687,6 +3706,9 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
       `Receiving, ${formatAmountSafe(asset.amount, 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))} ${getAssetSymbol(tokenMetadata)}`
     );
   }
+  for (const nft of view.outgoingNfts) rows.push(`Sending, ${describeNft(nft, nftFaucetLabel)}`);
+  for (const nft of view.incomingNfts) rows.push(`Receiving, ${describeNft(nft, nftFaucetLabel)}`);
+  if (view.unlistedAssets > 0) rows.push(UNLISTED_ASSETS_WARNING);
   if (rows.length === 0) {
     rows.push('Assets, no fungible asset moves');
   }
@@ -3855,8 +3877,11 @@ async function formatSimulatedCustomEffects(
 
     const effects = [
       ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
-      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume'))))
+      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume')))),
+      ...view.outgoingNfts.map(nft => `Leaves this account, ${describeNft(nft, nftFaucetLabel)}`),
+      ...view.incomingNfts.map(nft => `Enters this account, ${describeNft(nft, nftFaucetLabel)}`)
     ];
+    if (view.unlistedAssets > 0) effects.push(UNLISTED_ASSETS_WARNING);
     // BEFORE the "nothing moves" check, and separate from it. `summaryToView` subtracts the
     // fee out of `outgoing` so it is not double-counted against the transfer, which means a
     // transaction whose ONLY movement is the fee arrives here with two empty lists -- and
