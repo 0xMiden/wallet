@@ -1481,6 +1481,9 @@ export class Vault {
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
+      // A Guardian account's cold key comes back from the phrase and its state from the dump.
+      // The everyday key never travels in a file, so each lands in the recovered shape.
+      const restoredGuardianColdKeys = new Map<string, { coldPublicKey: string; coldSecretKeyHex: string }>();
       // Wrap WASM client operations in a lock to prevent concurrent access
       await withWasmClientLock(
         async hold => {
@@ -1572,7 +1575,41 @@ export class Vault {
               hdIndex: walletAccount.hdIndex
             });
             const secretKey = authSecretKeyFromSeed(walletAccount.authScheme, walletSeed);
+            if (walletAccount.type === WalletType.Guardian) {
+              // The phrase has to derive the cold signer the restored account names on chain, else the
+              // file and the phrase belong to different wallets and nothing would ever sign.
+              if (walletAccount.authScheme !== 'ecdsa') failMismatchedImport('guardian-auth-scheme');
+              const { commitment: onChainCold } = await getSignerDetailsFromAccount(account, true);
+              assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the cold signer read');
+              const derivedPublicKey = secretKey.publicKey();
+              const derivedCommitment = derivedPublicKey.toCommitment();
+              const coldPublicKey = Buffer.from(derivedPublicKey.serialize().slice(1)).toString('hex');
+              const matchesChain = normalizeHex(derivedCommitment.toHex()) === normalizeHex(onChainCold);
+              derivedCommitment.free();
+              derivedPublicKey.free();
+              if (
+                !matchesChain ||
+                (walletAccount.coldPublicKey !== undefined && walletAccount.coldPublicKey !== coldPublicKey)
+              ) {
+                failMismatchedImport('guardian-cold-key-mismatch');
+              }
+              restoredGuardianColdKeys.set(walletAccount.publicKey, {
+                coldPublicKey,
+                coldSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
+              });
+            }
             preparedKeys.push({ accountId, imported: false, secretKey });
+          }
+
+          // An account the file lists with no state in its dump would be a Guardian account with nothing to sign.
+          for (const walletAccount of walletAccounts) {
+            if (
+              walletAccount.type === WalletType.Guardian &&
+              walletAccount.hdIndex >= 0 &&
+              !restoredGuardianColdKeys.has(walletAccount.publicKey)
+            ) {
+              failMissingImport('guardian-state-missing');
+            }
           }
 
           if (
@@ -1620,7 +1657,21 @@ export class Vault {
         }
         const evmKey = deriveEvmKeyPair(mnemonic, wa.type, wa.hdIndex);
         await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
-        accountsToSave.push({ ...wa, evmAddress: evmKey.address });
+        const cold = restoredGuardianColdKeys.get(wa.publicKey);
+        if (!cold) {
+          accountsToSave.push({ ...wa, evmAddress: evmKey.address });
+          continue;
+        }
+        await persistRecoveredGuardianColdKey(vaultKey, cold.coldPublicKey, cold.coldSecretKeyHex);
+        // The same shape a seed recovery leaves: no everyday key until one is rotated in or imported.
+        const { hotPublicKey: _lostHotKey, ...withoutHotKey } = wa;
+        accountsToSave.push({
+          ...withoutHotKey,
+          evmAddress: evmKey.address,
+          coldPublicKey: cold.coldPublicKey,
+          requiresHotKeyRotation: true,
+          guardianNoteRecoveryPending: true
+        });
       }
 
       await encryptAndSaveMany(
@@ -2001,6 +2052,78 @@ export class Vault {
         ],
         this.vaultKey
       );
+    });
+  }
+
+  /**
+   * Give a recovered or file-restored Guardian account (no everyday key, `requiresHotKeyRotation`)
+   * the everyday key from a saved key pair, in place of a rotation that needs the Guardian operator.
+   * The key has to be the one the restored account state names as its everyday signer on chain; the
+   * recovery key and a rotated-out key are refused with the same reasons as the key-pair import at
+   * onboarding. The pair's EVM half is not read: the account's own is derived from the phrase.
+   */
+  async importHotKeyPair(accountPublicKey: string, keyPairPayload: string) {
+    return withError('Failed to import the everyday key', async () => {
+      const pair = parsePrivateKeyPair(keyPairPayload);
+      if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
+      const accounts = await this.fetchAccounts();
+      const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
+      if (
+        !account ||
+        account.type !== WalletType.Guardian ||
+        account.requiresHotKeyRotation !== true ||
+        account.hotPublicKey ||
+        !account.coldPublicKey
+      ) {
+        throw new PublicError('This account does not need an everyday key');
+      }
+      const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
+      const { hotPublicKey, hotSecretKeyHex } = await withWasmClientLock(async hold => {
+        const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+        assertWasmHoldCurrent(hold, 'in importHotKeyPair after the account read');
+        if (!sdkAccount) throw new PublicError('This account is not in the wallet database');
+        let secretKey: AuthSecretKey;
+        try {
+          secretKey = deserializeHotSecretKey(pair.hotPrivateKey);
+        } catch {
+          throw new PublicError(getMessage('importHotKeyInvalid'));
+        }
+        try {
+          if (detectAuthScheme(secretKey) !== 'ecdsa') throw new PublicError(getMessage('importHotKeyWrongScheme'));
+          const publicKey = secretKey.publicKey();
+          const commitment = publicKey.toCommitment();
+          try {
+            const pasted = normalizeHex(commitment.toHex());
+            const { commitment: hotOnChain } = await getSignerDetailsFromAccount(sdkAccount, false);
+            assertWasmHoldCurrent(hold, 'in importHotKeyPair after the everyday signer read');
+            if (normalizeHex(hotOnChain) !== pasted) {
+              const { commitment: coldOnChain } = await getSignerDetailsFromAccount(sdkAccount, true);
+              throw new PublicError(
+                getMessage(normalizeHex(coldOnChain) === pasted ? 'importHotKeyIsRecoveryKey' : 'importHotKeyNotActive')
+              );
+            }
+            return {
+              hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
+              hotSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
+            };
+          } finally {
+            commitment.free();
+            publicKey.free();
+          }
+        } finally {
+          secretKey.free();
+        }
+      });
+      // The plain serialized-hex blob, as the onboarding import stores it: a pasted key cannot be
+      // wrapped by the secure element retroactively.
+      await encryptAndSaveMany(
+        [
+          [accAuthPubKeyStrgKey(hotPublicKey), hotPublicKey],
+          [accAuthSecretKeyStrgKey(hotPublicKey), hotSecretKeyHex]
+        ],
+        this.vaultKey
+      );
+      return this.swapHotKey(account.publicKey, hotPublicKey, null);
     });
   }
 

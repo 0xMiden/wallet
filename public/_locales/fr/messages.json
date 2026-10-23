@@ -3559,6 +3559,27 @@
     "message": "Je ne partagerai mon fichier de portefeuille crypté avec personne, pas même avec Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "L'état du compte $accountNames$ figure dans ce fichier",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Le fichier contient votre phrase de récupération et l’état du compte que votre opérateur Guardian conserve habituellement pour vous ; ainsi, toute personne disposant du fichier et de son mot de passe peut consulter ces deux éléments. Il ne contient aucune clé courante : après la restauration, le portefeuille la remplace via votre opérateur Guardian, ou vous pouvez utiliser une paire de clés courantes enregistrée (Paramètres → Clés → Afficher la clé privée). Ce fichier est un instantané : après chaque envoi ou réception, enregistrez-en un nouveau, car un fichier plus ancien ne permet pas de restaurer les opérations effectuées après sa création.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Une rotation est toujours en cours. Attendez qu’elle se termine, puis réessayez.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Utiliser ma paire de clés quotidienne enregistrée",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Non restauré à partir de ce fichier : $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",

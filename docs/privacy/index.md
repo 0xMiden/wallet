@@ -201,9 +201,7 @@ For transparency about how the App functions on your device (this is not data we
 
 - Your Recovery Phrase and your Everyday Key are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled. They never leave your device. You can copy your Recovery Phrase, and you can download it and remove it from the device; what you do with that copy is up to you.
 - The App also derives an Ethereum address and key for you from your Recovery Phrase, used for Earn and for fiat on-ramp and off-ramp. That key is stored encrypted on your device, signs on your device, and never leaves it; restoring from your Recovery Phrase restores it.
-- Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, an encrypted copy is also held by your Guardian Operator; see "Your Guardian Operator" below. The App does not currently offer an export of your account state.
-
-<!-- TODO: when the account-state export ships, describe it here and in the Terms (section 3.3). Until then, do not reintroduce the "Encrypted Wallet File" sentence; the feature has no user interface. -->
+- Your account state (your accounts' data, balances and history) is held on your device. If you use a Guardian, an encrypted copy is also held by your Guardian Operator; see "Your Guardian Operator" below. Apart from that copy, your account state leaves your device only if you export it: **Settings → Security → Encrypted Wallet File** saves it, together with your Recovery Phrase, in a file encrypted with a password you choose. The App writes that file where you tell it to and sends it nowhere; whoever holds the file and its password can read both.
 
 ## Biometric authentication (Face ID, Touch ID, Fingerprint)
 

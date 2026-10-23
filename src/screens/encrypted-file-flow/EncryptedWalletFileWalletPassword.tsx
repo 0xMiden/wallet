@@ -18,6 +18,7 @@ import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const LOCK_TIME = 60_000;
@@ -59,6 +60,10 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // The exporter drops these records by the same rule, so the notice matches the file.
   const accounts = useWalletStore(s => s.accounts);
   const excludedAccounts = useMemo(() => accounts.filter(isExcludedFromWalletFile), [accounts]);
+  const guardianAccounts = useMemo(
+    () => accounts.filter(account => account.type === WalletType.Guardian && !isExcludedFromWalletFile(account)),
+    [accounts]
+  );
   const {
     setError,
     clearErrors,
@@ -218,6 +223,18 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           data-testid="encrypted-file-excluded-accounts"
         >
           {t('encryptedWalletFileExcludedDesc')}
+        </Notice>
+      )}
+
+      {guardianAccounts.length > 0 && (
+        <Notice
+          tone="warning"
+          title={t('encryptedWalletFileGuardianTitle', {
+            accountNames: formatNameList(guardianAccounts.map(account => account.name))
+          })}
+          data-testid="encrypted-file-guardian-accounts"
+        >
+          {t('encryptedWalletFileGuardianDesc')}
         </Notice>
       )}
 
