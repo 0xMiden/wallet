@@ -450,6 +450,8 @@
   "swapVerdictTolerated": "Daha uzun sürebilir: fiyat hafifçe hareket ettiğinde doldurulur.",
   "swapVerdictPartial": "Şu anda bu emrin sadece bir kısmı yerine getiriliyor; geri kalanı beklemede.",
   "swapVerdictFull": "Mevcut fiyattan doldurulur.",
+  "swapNoFillWarning": "Bu takas emrinin şu anda mevcut likidite ile yerine getirilmesi olası değildir. Devam edebilirsiniz, ancak emriniz süresi dolana kadar yerine getirilmeyebilir.",
+  "swapPartialFillWarning": "Bu takasın yalnızca bir kısmı şu anda mevcut likidite ile doldurulabilir. Devam edebilirsiniz, ancak geri kalan kısım emrin süresi dolana kadar doldurulmamış olarak kalabilir.",
   "swapVerdictExpected": "$amount$ tutarında $symbol$ alırsınız.",
   "swapSlippage": "Kayma",
   "percentSign": "%",

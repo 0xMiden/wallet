@@ -450,6 +450,8 @@
   "swapVerdictTolerated": "Może to potrwać dłużej: zlecenie zostanie zrealizowane, gdy cena nieznacznie się zmieni.",
   "swapVerdictPartial": "Obecnie realizowana jest tylko część tego zlecenia; reszta pozostaje w oczekiwaniu.",
   "swapVerdictFull": "Realizacja po aktualnej cenie.",
+  "swapNoFillWarning": "Jest mało prawdopodobne, aby to zlecenie swapowe zostało zrealizowane przy obecnej dostępnej płynności. Możesz kontynuować, ale Twoje zlecenie może pozostać niezrealizowane aż do momentu jego wygaśnięcia.",
+  "swapPartialFillWarning": "Tylko część tego zlecenia swapowego może zostać zrealizowana przy użyciu obecnie dostępnej płynności. Możesz kontynuować, ale pozostała część może pozostać niezrealizowana do momentu wygaśnięcia zlecenia.",
   "swapVerdictExpected": "Otrzymujesz około $amount$ $symbol$.",
   "swapSlippage": "Poślizg cenowy",
   "percentSign": "%",

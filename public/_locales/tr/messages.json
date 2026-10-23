@@ -2079,6 +2079,14 @@
     "message": "Mevcut fiyattan doldurulur.",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "Bu takas emrinin şu anda mevcut likidite ile yerine getirilmesi olası değildir. Devam edebilirsiniz, ancak emriniz süresi dolana kadar yerine getirilmeyebilir.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Bu takasın yalnızca bir kısmı şu anda mevcut likidite ile doldurulabilir. Devam edebilirsiniz, ancak geri kalan kısım emrin süresi dolana kadar doldurulmamış olarak kalabilir.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "$amount$ tutarında $symbol$ alırsınız.",
     "englishSource": "You receive about $amount$ $symbol$.",

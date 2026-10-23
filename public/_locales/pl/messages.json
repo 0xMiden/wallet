@@ -2079,6 +2079,14 @@
     "message": "Realizacja po aktualnej cenie.",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "Jest mało prawdopodobne, aby to zlecenie swapowe zostało zrealizowane przy obecnej dostępnej płynności. Możesz kontynuować, ale Twoje zlecenie może pozostać niezrealizowane aż do momentu jego wygaśnięcia.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Tylko część tego zlecenia swapowego może zostać zrealizowana przy użyciu obecnie dostępnej płynności. Możesz kontynuować, ale pozostała część może pozostać niezrealizowana do momentu wygaśnięcia zlecenia.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "Otrzymujesz około $amount$ $symbol$.",
     "englishSource": "You receive about $amount$ $symbol$.",

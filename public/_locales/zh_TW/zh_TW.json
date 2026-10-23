@@ -450,6 +450,8 @@
   "swapVerdictTolerated": "可能需要較長時間：當價格略有波動時即會成交。",
   "swapVerdictPartial": "目前僅部分訂單成交；其餘部分則處於待處理狀態。",
   "swapVerdictFull": "以當前價格成交。",
+  "swapNoFillWarning": "以目前可用的流動性來看，這筆交換交易不太可能成交。您可以繼續進行，但您的訂單可能會在到期前始終處於未成交狀態。",
+  "swapPartialFillWarning": "此筆交換交易僅能利用當前可用的流動性部分成交。您可以繼續進行，但剩餘部分可能在訂單到期前仍無法成交。",
   "swapVerdictExpected": "您將收到約 $amount$ 的 $symbol$。",
   "swapSlippage": "滑點",
   "percentSign": "%",

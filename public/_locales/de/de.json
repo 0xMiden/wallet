@@ -450,6 +450,8 @@
   "swapVerdictTolerated": "Kann länger dauern: Die Ausführung erfolgt, wenn sich der Kurs leicht bewegt.",
   "swapVerdictPartial": "Derzeit wird nur ein Teil dieser Order ausgeführt; der Rest bleibt in der Warteschlange.",
   "swapVerdictFull": "Ausführung zum aktuellen Kurs.",
+  "swapNoFillWarning": "Es ist unwahrscheinlich, dass dieser Swap mit der derzeit verfügbaren Liquidität ausgeführt wird. Sie können fortfahren, aber Ihre Order bleibt möglicherweise bis zu ihrem Ablauf unausgeführt.",
+  "swapPartialFillWarning": "Nur ein Teil dieses Swaps kann mit der derzeit verfügbaren Liquidität ausgeführt werden. Sie können fortfahren, aber der Rest bleibt möglicherweise bis zum Ablauf der Order unausgeführt.",
   "swapVerdictExpected": "Sie erhalten etwa $amount$ $symbol$.",
   "swapSlippage": "Slippage",
   "percentSign": "%",

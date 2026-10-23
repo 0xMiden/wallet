@@ -2079,6 +2079,14 @@
     "message": "Fills at the current price.",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "You receive about $amount$ $symbol$.",
     "englishSource": "You receive about $amount$ $symbol$.",
