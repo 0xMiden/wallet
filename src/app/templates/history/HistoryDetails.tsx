@@ -102,8 +102,6 @@ import { useTransactionActions } from './useTransactionActions';
 import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
 import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
-/** The message History gives a failed row, so the detail heading matches its Activity row. */
-const FAILED_ROW_MESSAGE = 'Transaction failed';
 const ONE_CLICK_NETWORK_LABELS: Record<string, string> = {
   miden: 'oneClickNetworkMiden',
   eth: 'oneClickNetworkEthereum',
@@ -665,7 +663,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       : entry.isCancelled
         ? t('cancelled')
         : entry.status === ITransactionStatus.Failed
-          ? FAILED_ROW_MESSAGE
+          ? t('transactionFailedNotificationTitle')
           : !entry.guardianRecovered && guardianSwitchTitleKey
             ? t(guardianSwitchTitleKey)
             : entry.message;

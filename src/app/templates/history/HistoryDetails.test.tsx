@@ -1292,7 +1292,7 @@ describe('HistoryDetails', () => {
       [
         'failed',
         switchRow({}, { status: STATUS_FAILED, displayMessage: 'Guardian switch discarded' }),
-        'Transaction failed'
+        'transactionFailedNotificationTitle'
       ],
       ['queued', switchRow({}, { status: 0, displayMessage: 'Switching guardian' }), 'Switching guardian'],
       [
