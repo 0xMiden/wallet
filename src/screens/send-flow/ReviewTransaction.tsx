@@ -168,7 +168,10 @@ export const ReviewTransaction: React.FC = () => {
 
   // A burn keeps its own 6-decimal refusal. Every other review refuses a finer amount
   // before `stringToBigInt` can truncate it into a smaller transfer.
-  const amountExceedsPrecision = !isUsdcxBurn && !!token && amountExceedsTokenDecimals(amount, token.decimals);
+  const amountExceedsPrecision = useMemo(
+    () => !isUsdcxBurn && !!token && amountExceedsTokenDecimals(amount, token.decimals),
+    [isUsdcxBurn, token, amount]
+  );
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount || amountExceedsPrecision) return undefined;
     try {
@@ -180,7 +183,7 @@ export const ReviewTransaction: React.FC = () => {
     } catch {
       return undefined;
     }
-  }, [token, amount, isUsdcxBurn]);
+  }, [token, amount, isUsdcxBurn, amountExceedsPrecision]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route — drives the
   // "you receive" row.
