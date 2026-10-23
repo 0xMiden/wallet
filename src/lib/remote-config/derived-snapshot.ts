@@ -1,3 +1,6 @@
+import { getAddress } from 'viem';
+
+import { earnLenderFamily, type EarnVaultInfo } from 'lib/epoch/pools-read';
 import { isRecord } from 'lib/update/guards';
 
 import type {
@@ -8,7 +11,16 @@ import type {
   Probe,
   TokenMetadata
 } from './derive';
-import type { BridgeConfig, EvmAddress } from './schema';
+import {
+  type BridgeConfig,
+  EARN_VAULT_LOGO,
+  EARN_VAULT_PROTOCOLS,
+  EARN_VAULT_RISKS,
+  type EarnVaultConfig,
+  type EvmAddress,
+  MAX_EARN_VAULT_ABOUT_LENGTH,
+  MAX_EARN_VAULT_NAME_LENGTH
+} from './schema';
 import { parseSwapPairs, type SwapPairs } from './swap-pairs';
 import type { EarnMarket } from './values';
 
@@ -106,6 +118,150 @@ function market(value: Parameters<typeof metadata>[0]): EarnMarket | null {
   };
 }
 
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const CHAIN_ID = /^[1-9][0-9]*$/;
+const EARN_VAULT_ID = /^[a-z][a-z0-9-]*$/;
+const EARN_MARKET_UID = /^[a-z0-9_]+:[1-9][0-9]*:0x[0-9a-f]{40}$/;
+const CHECKSUM_EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/** The value of an optional key: undefined when it is absent, `false` when it holds a value `check` refuses. */
+function optional<T>(
+  record: Record<string, unknown>,
+  key: string,
+  check: (value: unknown) => value is T
+): T | undefined | false {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  return check(value) ? value : false;
+}
+
+function earnText(value: unknown, maxLength: number): value is string {
+  return isString(value) && value.length > 0 && value.length <= maxLength;
+}
+
+// The document's entry as the parser kept it (`readEarnVault` in schema.ts). The stored snapshot is bound to the
+// document version, so the same rules hold for it.
+function earnListing(value: unknown): EarnVaultConfig | null {
+  if (!isRecord(value)) return null;
+  const { id, marketUid, name, protocol, about, risk, depositsEnabled, logo } = value;
+  const knownProtocol = EARN_VAULT_PROTOCOLS.find(known => known === protocol);
+  const knownRisk = EARN_VAULT_RISKS.find(known => known === risk);
+  if (
+    !isString(id) ||
+    !EARN_VAULT_ID.test(id) ||
+    !isString(marketUid) ||
+    !EARN_MARKET_UID.test(marketUid) ||
+    !earnText(name, MAX_EARN_VAULT_NAME_LENGTH) ||
+    knownProtocol === undefined ||
+    (about !== undefined && !earnText(about, MAX_EARN_VAULT_ABOUT_LENGTH)) ||
+    (risk !== undefined && knownRisk === undefined) ||
+    typeof depositsEnabled !== 'boolean' ||
+    (logo !== undefined && !(isString(logo) && EARN_VAULT_LOGO.test(logo)))
+  ) {
+    return null;
+  }
+  return {
+    id,
+    marketUid,
+    name,
+    protocol: knownProtocol,
+    ...(isString(about) ? { about } : {}),
+    ...(knownRisk === undefined ? {} : { risk: knownRisk }),
+    depositsEnabled,
+    ...(isString(logo) ? { logo } : {})
+  };
+}
+
+function earnRisk(value: unknown): value is { score: number; label: string } {
+  return isRecord(value) && isFiniteNumber(value.score) && isString(value.label);
+}
+
+// A vault as `readEarnVaults` (lib/epoch/pools-read.ts) builds it. The uid must name the vault's own lender, chain and
+// token and the listing's market, since a deposit names it; the lender family is the one its lender key gives.
+function earnVault(value: unknown): EarnVaultInfo | null {
+  if (!isRecord(value)) return null;
+  const { marketUid, lenderKey, lenderFamily, lenderName, marketName, logoUri, chainId, underlying } = value;
+  const { depositApr, aprTotal, canOpen } = value;
+  const listing = earnListing(value.listing);
+  if (
+    !listing ||
+    !isString(marketUid) ||
+    !isString(lenderKey) ||
+    lenderKey.length === 0 ||
+    !isString(lenderName) ||
+    !isString(marketName) ||
+    !isString(logoUri) ||
+    !isString(chainId) ||
+    !CHAIN_ID.test(chainId) ||
+    !isRecord(underlying) ||
+    !isFiniteNumber(depositApr) ||
+    !isFiniteNumber(aprTotal) ||
+    typeof canOpen !== 'boolean'
+  ) {
+    return null;
+  }
+  const { address, symbol, decimals } = underlying;
+  if (
+    !isString(address) ||
+    !CHECKSUM_EVM_ADDRESS.test(address) ||
+    getAddress(address) !== address ||
+    !isString(symbol) ||
+    !isCount(decimals) ||
+    decimals > 255
+  ) {
+    return null;
+  }
+  if (
+    marketUid !== `${lenderKey}:${chainId}:${address.toLowerCase()}` ||
+    marketUid.toLowerCase() !== listing.marketUid
+  ) {
+    return null;
+  }
+  const family = earnLenderFamily(lenderKey);
+  if (lenderFamily !== family) return null;
+  const totalDepositsUsd = optional(value, 'totalDepositsUsd', isFiniteNumber);
+  const totalLiquidityUsd = optional(value, 'totalLiquidityUsd', isFiniteNumber);
+  const utilization = optional(value, 'utilization', isFiniteNumber);
+  const risk = optional(value, 'risk', earnRisk);
+  const about = optional(value, 'about', isString);
+  if (
+    totalDepositsUsd === false ||
+    totalLiquidityUsd === false ||
+    utilization === false ||
+    risk === false ||
+    about === false
+  ) {
+    return null;
+  }
+  return {
+    marketUid,
+    lenderKey,
+    ...(family === undefined ? {} : { lenderFamily: family }),
+    lenderName,
+    marketName,
+    logoUri,
+    chainId,
+    underlying: { address: getAddress(address), symbol, decimals },
+    depositApr,
+    aprTotal,
+    ...(totalDepositsUsd === undefined ? {} : { totalDepositsUsd }),
+    ...(totalLiquidityUsd === undefined ? {} : { totalLiquidityUsd }),
+    ...(utilization === undefined ? {} : { utilization }),
+    ...(risk === undefined ? {} : { risk: { score: risk.score, label: risk.label } }),
+    canOpen,
+    ...(about === undefined ? {} : { about }),
+    listing
+  };
+}
+
+// One vault that does not read back makes the whole list unreadable: a partial catalogue would hide a listed vault.
+function earnVaults(value: unknown): EarnVaultInfo[] | null {
+  if (!Array.isArray(value)) return null;
+  const vaults = value.map(earnVault);
+  return vaults.every((vault): vault is EarnVaultInfo => vault !== null) ? vaults : null;
+}
+
 // The stored copy is the parser's own result, so one that loses an entry when parsed again was damaged: serving what
 // survives would be a partial registry, so the document is derived again instead.
 function parseStoredSwapPairs(value: unknown): SwapPairs | null {
@@ -153,7 +309,17 @@ export function parseStoredDerived(value: unknown, network: string, version: num
   const midenUsdcFaucet = probe(epoch.midenUsdcFaucet, metadata);
   // A copy stored by a build that read no swap pairs has no such probe, so it reads as missing and is derived again.
   const swapPairs = isRecord(value.swap) ? probe(value.swap.pairs, parseStoredSwapPairs) : null;
-  if (!indexer || !allocator || !earnMarket || !midenUsdcFaucet || !swapPairs) return null;
+  // Likewise a copy stored by a build that kept no vault catalogue. A catalogue that is stored but does not read back
+  // is a failed read, not a partial list: the copy stays in use, and the failed read keeps the poll at its degraded
+  // pace (`unavailableReasons` in runtime.ts), so a bad copy is replaced on the next check, not derived again in a loop.
+  const vaults: Probe<EarnVaultInfo[]> | null =
+    epoch.vaults === undefined
+      ? null
+      : (probe(epoch.vaults, earnVaults) ?? {
+          state: 'error',
+          message: 'The stored Earn vault catalogue is malformed'
+        });
+  if (!indexer || !allocator || !earnMarket || !midenUsdcFaucet || !swapPairs || !vaults) return null;
   const reads: Record<number, DerivedChainConfig> = {};
   for (const [key, entry] of Object.entries(chains)) {
     const chainId = Number(key);
@@ -167,7 +333,7 @@ export function parseStoredDerived(value: unknown, network: string, version: num
     derivedAt,
     chains: reads,
     agglayer: { indexer },
-    epoch: { allocator, market: earnMarket, midenUsdcFaucet },
+    epoch: { allocator, market: earnMarket, midenUsdcFaucet, vaults },
     swap: { pairs: swapPairs }
   };
 }
@@ -188,7 +354,7 @@ export function failedDerivation(config: BridgeConfig, message: string, derivedA
     derivedAt,
     chains,
     agglayer: { indexer: error },
-    epoch: { allocator: error, market: error, midenUsdcFaucet: error },
+    epoch: { allocator: error, market: error, midenUsdcFaucet: error, vaults: error },
     swap: { pairs: error }
   };
 }

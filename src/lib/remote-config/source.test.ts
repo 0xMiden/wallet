@@ -17,7 +17,8 @@ const doc = (version: number, overrides: Record<string, unknown> = {}) => ({
   network: 'testnet',
   version,
   'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
-  features: { earn: true },
+  // Earn off: Earn on needs an `earn.vaults` list on an Epoch route, which this document has none of.
+  features: { earn: false, nearIntents: false },
   ...overrides
 });
 const parsed = (version: number) => ({
@@ -25,7 +26,7 @@ const parsed = (version: number) => ({
   version,
   supportedEvmChains: {},
   'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
-  features: { earn: true, nearIntents: false },
+  features: { earn: false, nearIntents: false },
   mainnetCountdown: { enabled: false },
   swap: {}
 });

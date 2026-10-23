@@ -80,7 +80,12 @@ const snapshotWith = (
       derivedAt: 0,
       chains: Object.fromEntries(Object.entries(registries).map(([id, tokens]) => [id, registryReads(tokens)])),
       agglayer: { indexer: { state: 'ok', value: true } },
-      epoch: { allocator: { state: 'skipped' }, market: { state: 'skipped' }, midenUsdcFaucet: { state: 'skipped' } }
+      epoch: {
+        allocator: { state: 'skipped' },
+        market: { state: 'skipped' },
+        midenUsdcFaucet: { state: 'skipped' },
+        vaults: { state: 'skipped' }
+      }
     }
   };
 };

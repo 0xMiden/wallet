@@ -25,8 +25,16 @@ function e2eBaseUrl(): string | null {
   return base ? base.replace(/\/+$/, '') : null;
 }
 
+/**
+ * The base URL the document of `network` is fetched from, with no trailing slash: `bridgeConfigUrl` without its
+ * `/<network>.json`. A path the document names (an Earn vault's `logo`) is relative to it.
+ */
+export function bridgeConfigBaseUrl(_network: string): string {
+  return e2eBaseUrl() ?? PUBLISHED_BASE_URL;
+}
+
 export function bridgeConfigUrl(network: string): string {
-  return `${e2eBaseUrl() ?? PUBLISHED_BASE_URL}/${network}.json`;
+  return `${bridgeConfigBaseUrl(network)}/${network}.json`;
 }
 
 // Local http only in a document an E2E build serves itself; reading the published repo, it validates as production.

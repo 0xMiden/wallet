@@ -32,6 +32,10 @@ export interface CreateEarnP2IDENoteArgs {
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   allocatorUrl?: string;
+  /** Protocol string a deposit hashes. Stored on the row with `chainId`. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain of the Earn market the deposit opens. */
+  chainId?: number;
 }
 
 /**
@@ -95,7 +99,9 @@ export async function createEarnP2IDENote(
       true,
       requestBytes,
       spendingLimitAuthorization,
-      args.allocatorUrl
+      args.allocatorUrl,
+      args.protocol,
+      args.chainId
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.

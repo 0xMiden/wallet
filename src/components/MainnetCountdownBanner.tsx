@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useState } from 'react';
+import React, { FC, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -9,7 +9,8 @@ import { TextAction } from 'components/ui/TextAction';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
+import { useMainnetLaunchNow } from 'lib/remote-config/use-mainnet-launch';
+import { selectMainnetLaunchAt } from 'lib/remote-config/values';
 
 const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
@@ -33,38 +34,27 @@ export function formatCountdown(now: number, launchAt: number): string | null {
 }
 
 /**
- * The strip above every page of the open wallet: the Bread mark, a live `DD:HH:MM:SS` countdown
- * to the mainnet launch, and a link to the early-access list. The network's remote config drives
- * it (`mainnetCountdown`, 0xMiden/wallet-config): the banner shows on a test network while the
- * switch is on and the launch moment is set and still ahead, and renders nothing otherwise (so
- * never on mainnet), so flipping the switch or
- * the moment there reaches every wallet within about an hour. The clock ticks once a second while a
- * countdown is set; the banner mounts outside every page-active provider, so it has no on-screen
- * signal to gate on.
+ * The strip above every page of the open wallet: the Bread mark and, before the mainnet launch, a live
+ * `DD:HH:MM:SS` countdown to it with a link to the early-access list; from the launch moment on, the
+ * switch to mainnet. The network's remote config drives it (`mainnetCountdown`, 0xMiden/wallet-config):
+ * the banner shows on a test network while the switch is on and the launch moment is set, and renders
+ * nothing otherwise (so never on mainnet), so flipping the switch or the moment there reaches every
+ * wallet within about an hour. The clock ticks once a second while a countdown is set, and the tick
+ * that reaches the moment turns the countdown into the switch; the banner mounts outside every
+ * page-active provider, so it has no on-screen signal to gate on.
  */
 export const MainnetCountdownBanner: FC = () => {
   const { t } = useTranslation();
-  const [now, setNow] = useState(() => Date.now());
-
   const snapshot = useBridgeConfigSnapshot();
-  const config = snapshot.config?.mainnetCountdown;
-  // A wallet on mainnet has nothing to count down to. The effective network decides, so a
-  // Developer Settings override to mainnet hides the banner too.
+  // A wallet on mainnet has nothing to count down to, and nothing to switch to. The effective network
+  // decides, so a Developer Settings override to mainnet hides the banner too.
   const onTestNetwork = getTestNetworkNameKey() !== null;
-  const canSwitch = onTestNetwork && selectInviteOnlyOnboarding(snapshot) === true;
-  const launchAt = onTestNetwork && !canSwitch && config?.enabled ? config.launchAt : undefined;
-  const countdown = launchAt === undefined ? null : formatCountdown(now, launchAt);
-  const ticking = countdown !== null;
+  const launchAt = onTestNetwork ? selectMainnetLaunchAt(snapshot) : null;
+  const now = useMainnetLaunchNow(launchAt);
+  const countdown = launchAt === null ? null : formatCountdown(now, launchAt);
 
-  useEffect(() => {
-    if (!ticking) return;
-    setNow(Date.now());
-    const intervalId = setInterval(() => setNow(Date.now()), SECOND_MS);
-    return () => clearInterval(intervalId);
-  }, [ticking]);
-
-  if (canSwitch) return <MainnetSwitchBanner />;
-  if (countdown === null) return null;
+  if (launchAt === null) return null;
+  if (countdown === null) return <MainnetSwitchBanner />;
 
   const openEarlyAccess = () => {
     openExternalUrl({ url: MAINNET_EARLY_ACCESS_URL, title: t('mainnetCountdownLink') }).catch(() => {});

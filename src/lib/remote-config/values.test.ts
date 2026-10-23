@@ -1,7 +1,10 @@
+import { TEST_EARN_VAULT_INFO } from 'lib/epoch/testing/bridge-config';
+
 import type { DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { BridgeConfig } from './schema';
+import { bridgeConfigBaseUrl, bridgeConfigUrl } from './source';
 import {
   BridgeConfigUnavailableError,
   getAgglayerBridgeOut,
@@ -12,6 +15,7 @@ import {
   getAgglayerMidenBridge,
   getAgglayerRollupId,
   getEarnMarket,
+  getEarnVaults,
   getEpochAllocatorUrl,
   getEpochPositionsUrl,
   getEvmChainId,
@@ -21,9 +25,14 @@ import {
   getEvmUsdcAddress,
   getMidenUsdc,
   selectEarnMarket,
+  selectEarnVault,
+  selectEarnVaultCatalog,
+  selectEarnVaultLogoUrl,
+  selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
-  selectInviteOnlyOnboarding,
+  hasMainnetLaunched,
+  selectMainnetLaunchAt,
   selectMidenUsdc,
   selectMidenUsdcFaucetId,
   selectAgglayerDeliveryFaucets,
@@ -69,7 +78,18 @@ const CONFIG: BridgeConfig = {
       }
     }
   },
-  features: { earn: true, nearIntents: false }
+  features: { earn: true, nearIntents: false },
+  earn: {
+    vaults: [
+      {
+        id: 'dummy-lending-sepolia-usdc',
+        marketUid: 'dummy_lending:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+        name: 'Dummy Lending USDC',
+        protocol: 'dummy-lending',
+        depositsEnabled: true
+      }
+    ]
+  }
 };
 const ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
 const SEPOLIA_READS: DerivedChainConfig = {
@@ -115,7 +135,8 @@ const DERIVED: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
+    vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] }
   }
 };
 const RECOVERY = {
@@ -191,12 +212,18 @@ describe('selectors', () => {
     });
   });
 
+  it('select the Earn vault catalogue the derivation read', () => {
+    expect(selectEarnVaultCatalog(snapshot())).toEqual([TEST_EARN_VAULT_INFO]);
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'ok', value: [] } } }))).toEqual([]);
+  });
+
   it('select nothing without an accepted document', () => {
     for (const select of [
       selectMidenUsdc,
       selectMidenUsdcFaucetId,
       selectEvmUsdc,
       selectEarnMarket,
+      selectEarnVaultCatalog,
       selectNativeEthFaucet,
       selectNativeEthToken
     ]) {
@@ -206,6 +233,8 @@ describe('selectors', () => {
 
   it('select nothing whose read did not succeed, but still name the configured faucet', () => {
     const failed = withDerived({ epoch: { midenUsdcFaucet: ERROR, evmUsdc: { state: 'absent' } } });
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: ERROR } }))).toBeNull();
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'skipped' } } }))).toBeNull();
     expect(selectMidenUsdc(failed)).toBeNull();
     expect(selectMidenUsdcFaucetId(failed)).toBe('0x537c15a622074e91188aa894456c52');
     expect(selectEvmUsdc(failed)).toBeNull();
@@ -263,11 +292,26 @@ describe('selectors', () => {
     expect(selectMidenUsdc(snapshot())?.faucetId).toBe('0x537c15a622074e91188aa894456c52');
   });
 
-  it('select the Welcome variant the document sets, and null when it sets none', () => {
-    expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: true } }))).toBe(true);
-    expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: false } }))).toBe(false);
-    expect(selectInviteOnlyOnboarding(snapshot())).toBeNull();
-    expect(selectInviteOnlyOnboarding(EMPTY)).toBeNull();
+  it('selects the mainnet launch moment the document sets, and null while the countdown is off or absent', () => {
+    const launchAt = Date.parse('2026-10-26T14:00:00Z');
+    expect(selectMainnetLaunchAt(snapshot({ ...CONFIG, mainnetCountdown: { enabled: true, launchAt } }))).toBe(
+      launchAt
+    );
+    expect(selectMainnetLaunchAt(snapshot({ ...CONFIG, mainnetCountdown: { enabled: false, launchAt } }))).toBeNull();
+    expect(selectMainnetLaunchAt(snapshot({ ...CONFIG, mainnetCountdown: { enabled: true } }))).toBeNull();
+    expect(selectMainnetLaunchAt(snapshot())).toBeNull();
+    expect(selectMainnetLaunchAt(EMPTY)).toBeNull();
+  });
+
+  it('says mainnet has launched from the moment on, and never without one', () => {
+    const launchAt = Date.parse('2026-10-26T14:00:00Z');
+    const on = snapshot({ ...CONFIG, mainnetCountdown: { enabled: true, launchAt } });
+    expect(hasMainnetLaunched(on, launchAt - 1)).toBe(false);
+    expect(hasMainnetLaunched(on, launchAt)).toBe(true);
+    expect(hasMainnetLaunched(snapshot({ ...CONFIG, mainnetCountdown: { enabled: false, launchAt } }), launchAt)).toBe(
+      false
+    );
+    expect(hasMainnetLaunched(EMPTY, launchAt)).toBe(false);
   });
 
   it('selects the bridge-in balance ceiling the document sets, and null when it sets none', () => {
@@ -286,6 +330,62 @@ describe('findEpochUsdcAddress', () => {
     expect(findEpochUsdcAddress(84532)).toBeNull();
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(findEpochUsdcAddress(11155111)).toBeNull();
+  });
+});
+
+describe('the Earn vaults', () => {
+  const [vault] = CONFIG.earn?.vaults ?? [];
+
+  it("selects the document's list, and a vault by its market in any case", () => {
+    expect(selectEarnVaults(snapshot())).toEqual([vault]);
+    expect(selectEarnVault(snapshot(), 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69')).toBe(
+      vault
+    );
+    expect(selectEarnVault(snapshot(), 'AAVE_V3:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69')).toBeNull();
+  });
+
+  it('selects no vault while no document is accepted, or while it lists none', () => {
+    const { earn: _earn, ...unlisted } = CONFIG;
+    expect(selectEarnVaults(EMPTY)).toEqual([]);
+    expect(selectEarnVaults(snapshot({ ...unlisted, features: { earn: false, nearIntents: false } }))).toEqual([]);
+  });
+
+  it("reads this realm's list without throwing", () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot());
+    expect(getEarnVaults()).toEqual([vault]);
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(getEarnVaults()).toEqual([]);
+  });
+});
+
+describe('selectEarnVaultLogoUrl', () => {
+  const [listed] = CONFIG.earn?.vaults ?? [];
+  if (!listed) throw new Error('the test document lists no vault');
+  const savedUrl = process.env.MIDEN_REMOTE_CONFIG_URL;
+  afterEach(() => {
+    if (savedUrl === undefined) delete process.env.MIDEN_REMOTE_CONFIG_URL;
+    else process.env.MIDEN_REMOTE_CONFIG_URL = savedUrl;
+  });
+
+  it("resolves the logo against the base URL the network's document is fetched from", () => {
+    // The document's own URL without its `/<network>.json`.
+    const base = bridgeConfigUrl('testnet').replace(/\/testnet\.json$/, '');
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/aave.svg' })).toBe(`${base}/icons/aave.svg`);
+    expect(bridgeConfigBaseUrl('testnet')).toBe(base);
+  });
+
+  it('resolves against the served base in an E2E build', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    process.env.MIDEN_REMOTE_CONFIG_URL = 'http://127.0.0.1:8550/config/';
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/dummy-lending.png' })).toBe(
+      'http://127.0.0.1:8550/config/icons/dummy-lending.png'
+    );
+  });
+
+  it('gives null for a listing with no logo, or one that is not an icons/ path', () => {
+    expect(selectEarnVaultLogoUrl(snapshot(), listed)).toBeNull();
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'https://evil.example/x.svg' })).toBeNull();
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/../x.svg' })).toBeNull();
   });
 });
 

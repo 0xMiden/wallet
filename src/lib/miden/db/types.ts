@@ -525,6 +525,10 @@ export interface IEarnDepositExtraInputs {
   outputSymbol?: string;
   /** settlement status derived from polling `getIntentStatus`. */
   epochStatus?: 'pending' | 'confirmed' | 'failed';
+  /** Protocol string a deposit hashes. Absent on a row queued before it was stored. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain of the Earn market. Absent on a legacy row. */
+  chainId?: number;
 }
 
 /**
@@ -592,6 +596,10 @@ export interface IEarnWithdrawExtraInputs {
   outputSymbol?: string;
   /** failure reason, set alongside `phase === 'failed'`. */
   error?: string;
+  /** Protocol string a deposit hashes. A retry refuses a row that has none. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain the withdrawal executes on. A retry may derive it from `marketUid` when `protocol` is present. */
+  chainId?: number;
 }
 
 /**
@@ -1631,7 +1639,9 @@ export class EarnDepositTransaction implements ITransaction {
     faucetId: string,
     sendParams: IBridgedSendNoteParams,
     delegateTransaction?: boolean,
-    requestBytes?: Uint8Array
+    requestBytes?: Uint8Array,
+    protocol?: '1delta' | 'dummy-lending',
+    chainId?: number
   ) {
     this.id = uuid();
     this.type = 'earn-deposit';
@@ -1652,7 +1662,9 @@ export class EarnDepositTransaction implements ITransaction {
       marketUid,
       sourceFaucetId: faucetId,
       recallBlocks: sendParams.recallBlocks,
-      epochStatus: 'pending'
+      epochStatus: 'pending',
+      ...(protocol ? { protocol } : {}),
+      ...(chainId !== undefined ? { chainId } : {})
     };
   }
 }
@@ -1688,7 +1700,9 @@ export class EarnWithdrawTransaction implements ITransaction {
     sourceSymbol = 'USDC',
     submissionAttemptId?: string,
     attemptStartedAt?: number,
-    sourceDecimals?: number
+    sourceDecimals?: number,
+    protocol?: '1delta' | 'dummy-lending',
+    chainId?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -1711,7 +1725,9 @@ export class EarnWithdrawTransaction implements ITransaction {
       phase: 'redeeming',
       submissionState: 'preparing',
       submissionAttemptId,
-      attemptStartedAt: attemptStartedAt ?? now
+      attemptStartedAt: attemptStartedAt ?? now,
+      ...(protocol ? { protocol } : {}),
+      ...(chainId !== undefined ? { chainId } : {})
     };
   }
 }

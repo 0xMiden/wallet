@@ -18,6 +18,7 @@ import { SectionHeader } from 'components/ui/SectionHeader';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
+import { earnRowChain } from 'lib/epoch/market-uid';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { isOutcomeUnconfirmed, isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
@@ -65,6 +66,7 @@ import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/co
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
+  earnMarketLabel,
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -99,7 +101,6 @@ import { useTransactionActions } from './useTransactionActions';
 import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
 import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
-const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const ONE_CLICK_NETWORK_LABELS: Record<string, string> = {
   miden: 'oneClickNetworkMiden',
   eth: 'oneClickNetworkEthereum',
@@ -113,8 +114,6 @@ const oneClickNetworkLabel = (t: TFunction, blockchain: string): string => {
   const key = ONE_CLICK_NETWORK_LABELS[blockchain];
   return key ? t(key) : blockchain;
 };
-const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
-
 function oneClickProviderStatus(t: TFunction, status: IOneClickTrackingData['providerStatus']): string {
   switch (status) {
     case 'KNOWN_DEPOSIT_TX':
@@ -141,7 +140,6 @@ function formatOneClickBaseUnit(value: string | undefined, decimals: number): st
     return undefined;
   return formatAmount(BigInt(value), decimals);
 }
-
 interface HistoryDetailsProps {
   transactionId: string;
 }
@@ -646,6 +644,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
+  // The EVM links of an Earn row go to the chain of its market (Base, Arbitrum, Ethereum, or a testnet).
+  const earnWithdrawChain = earnWithdraw ? earnRowChain(earnWithdraw.marketUid) : undefined;
+  const earnDepositChain = earnDeposit ? earnRowChain(earnDeposit.marketUid) : undefined;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
   const isUnconfirmedSwitch =
     isGuardianSwitch &&
@@ -1044,15 +1045,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <DetailSection title={t('earnWithdrawDetailsTitle')}>
                     {typeof earnWithdraw.marketUid === 'string' && earnWithdraw.marketUid !== '' && (
                       <DetailRow label={t('earnMarketLabel')}>
-                        <span className="select-text">
-                          {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
+                        <span className="min-w-0 select-text truncate" title={earnWithdraw.marketUid}>
+                          {earnMarketLabel(bridgeConfig, earnWithdraw.marketUid) ?? earnWithdraw.marketUid}
                         </span>
                       </DetailRow>
                     )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnWithdraw.evmOwner} trimHash className="ml-2" />}
-                        href={SEPOLIA_ADDRESS_URL(earnWithdraw.evmOwner)}
+                        href={evmExplorerUrl(earnWithdrawChain, 'address', earnWithdraw.evmOwner)}
                       />
                     </DetailRow>
                     {earnWithdraw.withdrawIntentNonce && (
@@ -1064,7 +1065,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={earnWithdraw.evmTxHash} trimHash className="ml-2" />}
-                          href={SEPOLIA_TX_URL(earnWithdraw.evmTxHash)}
+                          href={evmExplorerUrl(earnWithdrawChain, 'tx', earnWithdraw.evmTxHash)}
                         />
                       </DetailRow>
                     )}
@@ -1087,7 +1088,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
-            {/* Smart Deposit details (market, position owner, intent, Sepolia tx) */}
+            {/* Smart Deposit details (market, position owner, intent, EVM tx on the market's chain) */}
             {isEarnDeposit && earnDeposit && (
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
@@ -1095,15 +1096,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <DetailSection title={t('earnDepositDetailsTitle')}>
                     {typeof earnDeposit.marketUid === 'string' && earnDeposit.marketUid !== '' && (
                       <DetailRow label={t('earnMarketLabel')}>
-                        <span className="select-text">
-                          {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                        <span className="min-w-0 select-text truncate" title={earnDeposit.marketUid}>
+                          {earnMarketLabel(bridgeConfig, earnDeposit.marketUid) ?? earnDeposit.marketUid}
                         </span>
                       </DetailRow>
                     )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnDeposit.evmRecipient} trimHash className="ml-2" />}
-                        href={SEPOLIA_ADDRESS_URL(earnDeposit.evmRecipient)}
+                        href={evmExplorerUrl(earnDepositChain, 'address', earnDeposit.evmRecipient)}
                       />
                     </DetailRow>
                     {earnDeposit.intentNonce && (
@@ -1115,7 +1116,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={earnDeposit.evmTxHash} trimHash className="ml-2" />}
-                          href={SEPOLIA_TX_URL(earnDeposit.evmTxHash)}
+                          href={evmExplorerUrl(earnDepositChain, 'tx', earnDeposit.evmTxHash)}
                         />
                       </DetailRow>
                     )}
