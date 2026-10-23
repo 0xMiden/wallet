@@ -26,6 +26,7 @@ import { isLockedError } from './helper';
 import {
   completeSendTransaction,
   getCompletedTransactions,
+  getCompletedTransactionsPage,
   getSwapSettlementNotes,
   getSwapSettlementNotesForOrders,
   cancelStaleQueuedTransactions,
@@ -57,6 +58,11 @@ _g.__txBrTest = {
 };
 
 const txStore: any[] = _g.__txBrTest.rows;
+const transactionQueryMetrics = { rowsVisited: 0 };
+type HistoryRepoTestMock = {
+  openTransactionIndexCursor: jest.Mock<Promise<unknown>, [unknown, string, boolean, unknown?]>;
+  transactions: { filter: jest.Mock };
+};
 
 // Stable across `where()` calls so a per-id `.equals` loop is zero calls here, not a fresh mock each time.
 const settlementAnyOf = jest.fn((values: readonly string[]) => ({
@@ -65,38 +71,94 @@ const settlementAnyOf = jest.fn((values: readonly string[]) => ({
   }))
 }));
 
-jest.mock('lib/miden/repo', () => ({
-  db: {
+jest.mock('lib/miden/repo', () => {
+  const db = {
     transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
-  },
-  transactions: {
-    add: jest.fn(async (tx: any) => {
-      txStore.push({ ...tx });
-    }),
-    filter: jest.fn((fn: (tx: any) => boolean) => ({
-      toArray: jest.fn(async () => txStore.filter(fn))
-    })),
-    where: jest.fn((query: any) => {
-      if (query === 'extraInputs.swapOrderTxId') {
-        return {
-          equals: jest.fn((value: string) => ({
-            filter: jest.fn((fn: (tx: any) => boolean) => ({
-              toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
-            }))
-          })),
-          anyOf: settlementAnyOf
-        };
-      }
-      return {
-        first: jest.fn(async () => txStore.find(t => t.id === query.id)),
-        modify: jest.fn(async (fn: (tx: any) => void) => {
-          const tx = txStore.find(t => t.id === query.id);
-          if (tx) fn(tx);
-        })
+  };
+  // Ordered stand-in for the `completedAt` / `initiatedAt` indexes. Each landed row counts as a visit,
+  // including rows the merge skips, and rows the cursor never reaches do not.
+  const openTransactionIndexCursor = jest.fn(
+    async (
+      _table: unknown,
+      indexName: string,
+      reverse: boolean,
+      bound?: { lower?: number; lowerOpen?: boolean; upper?: number; upperOpen?: boolean }
+    ) => {
+      const keyOf = (tx: ITransaction): number | undefined => {
+        const value =
+          indexName === 'completedAt' ? tx.completedAt : indexName === 'initiatedAt' ? tx.initiatedAt : undefined;
+        return typeof value === 'number' && !Number.isNaN(value) ? value : undefined;
       };
-    })
-  }
-}));
+      const inBound = (key: number): boolean => {
+        if (bound?.lower !== undefined && (bound.lowerOpen ? key <= bound.lower : key < bound.lower)) return false;
+        if (bound?.upper !== undefined && (bound.upperOpen ? key >= bound.upper : key > bound.upper)) return false;
+        return true;
+      };
+      const indexed: Array<{ key: number; tx: ITransaction }> = [];
+      for (const tx of txStore) {
+        const key = keyOf(tx);
+        if (key === undefined || !inBound(key)) continue;
+        indexed.push({ key, tx });
+      }
+      indexed.sort((a, b) => a.key - b.key || (a.tx.id < b.tx.id ? -1 : a.tx.id > b.tx.id ? 1 : 0));
+      const rows = indexed.map(entry => entry.tx);
+      if (reverse) rows.reverse();
+      if (rows.length === 0) return null;
+      let index = 0;
+      transactionQueryMetrics.rowsVisited += 1;
+      return {
+        done: false,
+        get value() {
+          return rows[index];
+        },
+        async next(this: { done: boolean }) {
+          index += 1;
+          if (index >= rows.length) {
+            this.done = true;
+            return this;
+          }
+          transactionQueryMetrics.rowsVisited += 1;
+          return this;
+        }
+      };
+    }
+  );
+  return {
+    db,
+    openTransactionIndexCursor,
+    transactions: {
+      db,
+      add: jest.fn(async (tx: any) => {
+        txStore.push({ ...tx });
+      }),
+      filter: jest.fn((fn: (tx: any) => boolean) => ({
+        toArray: jest.fn(async () => {
+          transactionQueryMetrics.rowsVisited += txStore.length;
+          return txStore.filter(fn);
+        })
+      })),
+      where: jest.fn((query: any) => {
+        if (query === 'extraInputs.swapOrderTxId') {
+          return {
+            equals: jest.fn((value: string) => ({
+              filter: jest.fn((fn: (tx: any) => boolean) => ({
+                toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
+              }))
+            })),
+            anyOf: settlementAnyOf
+          };
+        }
+        return {
+          first: jest.fn(async () => txStore.find(t => t.id === query.id)),
+          modify: jest.fn(async (fn: (tx: any) => void) => {
+            const tx = txStore.find(t => t.id === query.id);
+            if (tx) fn(tx);
+          })
+        };
+      })
+    }
+  };
+});
 
 jest.mock('dexie', () => ({
   liveQuery: jest.fn((cb: () => any) => ({
@@ -234,6 +296,7 @@ const stubGuardianProvider = {
 beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
+  transactionQueryMetrics.rowsVisited = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });
 
@@ -732,6 +795,276 @@ describe('getCompletedTransactions', () => {
     }
     expect(await getCompletedTransactions('acc-1')).toHaveLength(10);
     expect(await getCompletedTransactions('acc-1', 8)).toHaveLength(2);
+  });
+
+  it('stops the indexed scan after enough account and token matches', async () => {
+    const history = Array.from({ length: 2000 }, (_, index) => {
+      const isAccountMatch = index % 4 !== 0;
+      const isTokenMatch = index % 3 !== 0;
+      return {
+        id: `tx-${String(index).padStart(4, '0')}`,
+        status: ITransactionStatus.Completed,
+        accountId: isAccountMatch ? 'acc-1_tag' : 'acc-2_tag',
+        type: 'send',
+        faucetId: isTokenMatch ? 'f1' : 'f2',
+        completedAt: index % 2 === 0 ? index + 1000 : 0,
+        initiatedAt: index + 1000
+      };
+    });
+    txStore.push(...history);
+
+    const pageLimit = 8;
+    const probeBound = 64;
+    const expected = history
+      .filter(tx => tx.accountId === 'acc-1_tag' && tx.faucetId === 'f1')
+      .sort((a, b) => (a.completedAt || a.initiatedAt) - (b.completedAt || b.initiatedAt) || a.id.localeCompare(b.id))
+      .slice(0, pageLimit);
+    const page = await getCompletedTransactions('acc-1', 0, pageLimit, false, 'f1');
+
+    expect(page.map(tx => tx.id)).toEqual(expected.map(tx => tx.id));
+    expect(transactionQueryMetrics.rowsVisited).toBeLessThanOrEqual(pageLimit + probeBound);
+    const repo = jest.requireMock<HistoryRepoTestMock>('lib/miden/repo');
+    const indexes = repo.openTransactionIndexCursor.mock.calls.map(([, indexName]) => indexName);
+    expect(indexes).toEqual(expect.arrayContaining(['completedAt', 'initiatedAt']));
+    expect(repo.transactions.filter).not.toHaveBeenCalled();
+  });
+
+  it('merges completion, fallback, status and token matches without reading the whole table', async () => {
+    const repo = jest.requireMock<HistoryRepoTestMock>('lib/miden/repo');
+    const rows = [
+      {
+        id: 'neg',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 100,
+        completedAt: -5
+      },
+      {
+        id: 'miss',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 10
+      },
+      {
+        id: 'zero-a',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'consume',
+        faucetId: 'other',
+        initiatedAt: 10,
+        completedAt: 0,
+        assetTotals: [{ faucetId: 'f1', amount: 1n }]
+      },
+      {
+        id: 'zero-b',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'swap',
+        faucetId: 'f2',
+        initiatedAt: 10,
+        completedAt: 0,
+        extraInputs: { requestedFaucetId: 'f1' }
+      },
+      {
+        id: 'fail',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 1,
+        completedAt: 15
+      },
+      {
+        id: 'fall-20',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 20,
+        completedAt: 0
+      },
+      {
+        id: 'prim',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 1,
+        completedAt: 20
+      },
+      {
+        id: 'tie-a',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 3,
+        completedAt: 20
+      },
+      {
+        id: 'tie-b',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 50,
+        completedAt: 20
+      },
+      {
+        id: 'unconf',
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1_tag',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 30,
+        completedAt: 30
+      },
+      {
+        id: 'other-acct',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-2',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 1,
+        completedAt: 1
+      },
+      {
+        id: 'other-tok',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f2',
+        initiatedAt: 12,
+        completedAt: 12
+      },
+      {
+        id: 'queued',
+        status: ITransactionStatus.Queued,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 16,
+        completedAt: 16
+      },
+      {
+        id: 'newer-wrong',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f2',
+        initiatedAt: 90,
+        completedAt: 90
+      },
+      {
+        id: 'newer-other',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-2',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 100,
+        completedAt: 100
+      }
+    ];
+    txStore.push(...rows);
+    const ascending = ['neg', 'miss', 'zero-a', 'zero-b', 'fail', 'fall-20', 'prim', 'tie-a', 'tie-b', 'unconf'];
+
+    const newest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      tokenId: 'f1',
+      includeFailed: true,
+      fromEnd: true,
+      limit: 3
+    });
+    expect(newest.transactions.map(tx => tx.id)).toEqual(['unconf', 'tie-b', 'tie-a']);
+    expect(newest.rawCount).toBe(3);
+    expect(newest.hasMore).toBe(true);
+    expect(newest.nextCursor).toEqual({ effectiveTimestamp: 20, transactionId: 'tie-a' });
+    expect(transactionQueryMetrics.rowsVisited).toBeLessThanOrEqual(rows.length);
+
+    const older = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      tokenId: 'f1',
+      includeFailed: true,
+      limit: 3,
+      cursor: newest.nextCursor
+    });
+    expect(older.transactions.map(tx => tx.id)).toEqual(['prim', 'fall-20', 'fail']);
+    expect(older.nextCursor).toEqual({ effectiveTimestamp: 15, transactionId: 'fail' });
+    expect(older.hasMore).toBe(true);
+
+    const rest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      tokenId: 'f1',
+      includeFailed: true,
+      limit: 10,
+      cursor: older.nextCursor
+    });
+    expect(rest.transactions.map(tx => tx.id)).toEqual(['zero-b', 'zero-a', 'miss', 'neg']);
+    expect(rest.hasMore).toBe(false);
+    expect(rest.rawCount).toBe(4);
+    expect([...newest.transactions, ...older.transactions, ...rest.transactions].map(tx => tx.id).reverse()).toEqual(
+      ascending
+    );
+
+    const completedOnly = await getCompletedTransactions('acc-1', undefined, 20, false, 'f1');
+    expect(completedOnly.map(tx => tx.id)).toEqual([
+      'neg',
+      'miss',
+      'zero-a',
+      'zero-b',
+      'fall-20',
+      'prim',
+      'tie-a',
+      'tie-b'
+    ]);
+    expect(repo.transactions.filter).not.toHaveBeenCalled();
+  });
+
+  it('reads the whole table when history is not bounded', async () => {
+    const history: Array<
+      Pick<ITransaction, 'id' | 'status' | 'accountId' | 'type' | 'initiatedAt'> & Partial<ITransaction>
+    > = Array.from({ length: 40 }, (_, index) => ({
+      id: `full-${String(index).padStart(2, '0')}`,
+      status: index % 7 === 0 ? ITransactionStatus.Failed : ITransactionStatus.Completed,
+      accountId: index % 11 === 0 ? 'acc-1_tag' : 'acc-2',
+      type: 'send',
+      faucetId: 'f1',
+      initiatedAt: 1_000 - index,
+      completedAt: index % 2 === 0 ? 0 : 1_000 - index
+    }));
+    history.push({
+      id: 'full-unconfirmed',
+      status: ITransactionStatus.Unconfirmed,
+      accountId: 'acc-1',
+      type: 'swap',
+      faucetId: 'other',
+      initiatedAt: 50,
+      completedAt: 50,
+      extraInputs: { requestedFaucetId: 'f1' }
+    });
+    txStore.push(...history);
+
+    const unlimited = await getCompletedTransactions('acc-1', undefined, undefined, true, 'f1');
+    const matches = history.filter(
+      tx =>
+        (tx.accountId === 'acc-1_tag' || tx.accountId === 'acc-1') &&
+        (tx.faucetId === 'f1' || tx.extraInputs?.requestedFaucetId === 'f1') &&
+        (tx.status === ITransactionStatus.Completed ||
+          tx.status === ITransactionStatus.Failed ||
+          tx.status === ITransactionStatus.Unconfirmed)
+    );
+    expect(unlimited.map(tx => tx.id).sort()).toEqual(matches.map(tx => tx.id).sort());
+    expect(unlimited).toHaveLength(matches.length);
+    expect(transactionQueryMetrics.rowsVisited).toBe(history.length * 3);
+
+    transactionQueryMetrics.rowsVisited = 0;
+    const completedOnly = await getCompletedTransactions('acc-1', undefined, undefined, false, 'f1');
+    expect(completedOnly.every(tx => tx.status === ITransactionStatus.Completed)).toBe(true);
+    expect(transactionQueryMetrics.rowsVisited).toBe(history.length);
   });
 });
 
