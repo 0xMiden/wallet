@@ -1,15 +1,25 @@
+import { keccak256, toBytes } from 'viem';
+
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
-import { getEarnMarket } from 'lib/remote-config/values';
+import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
-import { openEarnPosition, pollEarnIntentStatus, reconcileEarnDeposits, resolveEarnIntentOutcome } from './earn';
+import {
+  type OpenEarnPositionArgs,
+  openEarnPosition,
+  pollEarnIntentStatus,
+  reconcileEarnDeposits,
+  resolveEarnIntentOutcome
+} from './earn';
 import { createEarnP2IDENote } from './earn-note';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
+import { earnMarketForVault } from './pools-read';
 import { getEpochReadOnlySdk } from './sdk';
 import { TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
+import { AAVE_V3_LISTING } from './testing/pools-fixtures';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   CollateralType: { Miden: 'Miden' },
@@ -500,10 +510,12 @@ const mockCreateEarnP2IDENote = createEarnP2IDENote as jest.MockedFunction<typeo
  * by transactions.guardian.test.ts, not here.)
  */
 describe('openEarnPosition guards', () => {
-  const baseArgs = () => ({
+  const baseArgs = (): OpenEarnPositionArgs => ({
     amount: 1_000_000n,
     collateral: TEST_MIDEN_USDC,
     evmAddress: SPONSOR,
+    market: TEST_EARN_MARKET,
+    protocol: 'dummy-lending',
     senderPublicKey: 'mtst1sender',
     deps: { signTransaction: jest.fn(), guardianProvider: {} } as never,
     onRowCreated: jest.fn()
@@ -572,11 +584,17 @@ describe('openEarnPosition guards', () => {
     } as never);
 
     await expect(openEarnPosition({ ...baseArgs(), spendingLimitAuthorization })).rejects.toBe(error);
-    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(expect.objectContaining({ spendingLimitAuthorization }));
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spendingLimitAuthorization,
+        protocol: 'dummy-lending',
+        chainId: TEST_EARN_MARKET.chainId
+      })
+    );
     expect(mockUpdateStatus).not.toHaveBeenCalled();
   });
 
-  it('builds the intent for the configured market, locking the collateral it was reviewed with', async () => {
+  it('builds the intent for the market it is given, locking the collateral it was reviewed with', async () => {
     const getTaskData = jest.fn().mockRejectedValue(new Error('stop'));
     mockGetSdk.mockResolvedValue({ getTaskData } as never);
 
@@ -596,9 +614,79 @@ describe('openEarnPosition guards', () => {
     );
   });
 
-  it('refuses before any SDK work while the config names no Earn market, as a rejection the flow catches', async () => {
-    jest.mocked(getEarnMarket).mockImplementationOnce(() => {
-      throw new Error('no market');
+  it("names the chosen vault's market, not the default market", async () => {
+    const getTaskData = jest.fn().mockRejectedValue(new Error('stop'));
+    mockGetSdk.mockResolvedValue({ getTaskData } as never);
+    const market = earnMarketForVault({
+      marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      lenderKey: 'AAVE_V3',
+      lenderFamily: 'AAVE_V3',
+      lenderName: 'Aave V3',
+      marketName: 'Aave V3 USDC',
+      logoUri: '',
+      chainId: '8453',
+      underlying: { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
+      depositApr: 3.75,
+      aprTotal: 5.2,
+      canOpen: true,
+      listing: AAVE_V3_LISTING
+    });
+
+    await expect(openEarnPosition({ ...baseArgs(), market })).rejects.toThrow('stop');
+
+    expect(getEarnMarket).not.toHaveBeenCalled();
+    expect(getTaskData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intentData: expect.objectContaining({
+          outputTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          destinationChainId: '8453',
+          // The protocol string the document lists the vault with.
+          protocolHashIdentifier: keccak256(toBytes('1delta'))
+        }),
+        extraData: expect.objectContaining({ marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' })
+      })
+    );
+  });
+
+  it('forwards the selected vault protocol and chain into the deposit note', async () => {
+    const market = earnMarketForVault({
+      marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      lenderKey: 'AAVE_V3',
+      lenderFamily: 'AAVE_V3',
+      lenderName: 'Aave V3',
+      marketName: 'Aave V3 USDC',
+      logoUri: '',
+      chainId: '8453',
+      underlying: { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
+      depositApr: 3.75,
+      aprTotal: 5.2,
+      canOpen: true,
+      listing: AAVE_V3_LISTING
+    });
+    mockGetSdk.mockResolvedValue({
+      getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+      getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+      solveIntent: jest.fn(async options => {
+        await options.createMidenP2IDENote('0xfaucet', '1000000', '0xallocator', 5_000, [1n]);
+        return { nonce: 'nonce-1' };
+      })
+    } as never);
+    mockCreateEarnP2IDENote.mockRejectedValue(new Error('stop-after-forward'));
+
+    await expect(openEarnPosition({ ...baseArgs(), market, protocol: '1delta' })).rejects.toThrow('stop-after-forward');
+
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        protocol: '1delta',
+        chainId: 8453,
+        marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
+      })
+    );
+  });
+
+  it('refuses before any SDK work while the config names no allocator, as a rejection the flow catches', async () => {
+    jest.mocked(getEpochAllocatorUrl).mockImplementationOnce(() => {
+      throw new Error('no allocator');
     });
 
     // The getter throws synchronously; a caller's try/await must still see a rejection, never a throw at call time.
@@ -606,7 +694,7 @@ describe('openEarnPosition guards', () => {
     expect(() => {
       pending = openEarnPosition(baseArgs());
     }).not.toThrow();
-    await expect(pending).rejects.toThrow('no market');
+    await expect(pending).rejects.toThrow('no allocator');
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 });

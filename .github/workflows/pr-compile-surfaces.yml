@@ -99,13 +99,15 @@ jobs:
       - name: Install Tauri system dependencies
         # Same mirror hardening as the xvfb steps in the e2e workflows: the
         # azure mirror intermittently blackholes and an unbounded `apt-get
-        # update` can eat the whole job budget.
+        # update` can eat the whole job budget. Current runners also use a
+        # mirror+file source, so rewrite its mirror list as well as direct sources.
         timeout-minutes: 8
         run: |
           sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
+            /etc/apt/apt-mirrors.txt 2>/dev/null || true
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       # These surfaces compile wallet code that imports unreleased APIs from
       # both the web SDK and the guardian multisig client. Without the
       # injections they build against the published packages and fail on the

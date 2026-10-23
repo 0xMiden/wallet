@@ -41,7 +41,7 @@ const configFor = ({
         }
       }
     },
-    features: { earn: false }
+    features: { earn: false, nearIntents: false }
   },
   derived: {
     network: 'testnet',
@@ -60,7 +60,7 @@ const configFor = ({
       }
     },
     agglayer: { indexer: SKIPPED },
-    epoch: { allocator: { state: 'ok', value: true }, market: SKIPPED, midenUsdcFaucet: SKIPPED }
+    epoch: { allocator: { state: 'ok', value: true }, market: SKIPPED, midenUsdcFaucet: SKIPPED, vaults: SKIPPED }
   },
   lastFetch: null
 });

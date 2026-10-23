@@ -763,9 +763,12 @@ function detailRowValue(page: Page, label: string) {
   return page.locator(`xpath=//div[span[normalize-space(.)="${label}"]]/div`);
 }
 
-/** The value cell of a payout row, which `DetailRow` renders as a label span beside a value div. */
+/**
+ * The value text of a payout row. `DetailRow` renders a label span beside a column div whose first div is the value and
+ * whose optional second line is the USD equivalent, so the token amount is read apart from that estimate.
+ */
 function payoutRowValue(scope: Page | Locator, testId: string): Locator {
-  return scope.getByTestId(testId).locator(':scope > div');
+  return scope.getByTestId(testId).locator(':scope > div > div:first-child');
 }
 
 function readNetworkChips(page: Page): Promise<NetworkChipState[]> {

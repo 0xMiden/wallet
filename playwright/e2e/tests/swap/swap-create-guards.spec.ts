@@ -21,7 +21,7 @@ test.describe('swap: create-side guards', () => {
       await setEligibilityFixtureConfig({
         network: 'localnet',
         version: 1,
-        features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+        features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
         swap: { etaUrl }
       });
       await forgetFixtureConfig(page, 'localnet');

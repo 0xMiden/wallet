@@ -24,16 +24,6 @@
         "error": "failed to execute transaction: asset error: subtracting"
       }
     },
-    "R10": {
-      "offchain": {
-        "stage": "sending",
-        "error": "assertion failed with error code: 9127845879078954504"
-      },
-      "guardian": {
-        "stage": "creating-proposal",
-        "error": "assertion failed with error code: 9127845879078954504"
-      }
-    },
     "MF3": {
       "offchain": {
         "error": "Error: failed to import public account: account",

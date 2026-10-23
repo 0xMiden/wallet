@@ -47,6 +47,10 @@ jest.mock('lib/epoch', () => ({
         .gaslessEarnWithdrawalToMiden(...args)
   )
 }));
+jest.mock('lib/miden/swap/tokens', () => ({
+  ...jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens'),
+  tokenQuote: () => undefined
+}));
 jest.mock('lib/epoch/sdk', () => ({ ensureEpochSmartAccount: jest.fn(), getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/epoch/bridge', () => ({ normalizeMidenIdToHex: (value: string) => value }));
 jest.mock('lib/epoch/evm-account', () => ({
@@ -96,6 +100,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => '0xabcdef1234567890abcdef12345678',
   getNativeAssetIdSync: () => '0xabcdef1234567890abcdef12345678',
   getNativeAssetMetadataSync: () => null,
+  getSdkSyncedNativeAssetIdSync: () => null,
   captureNativeAssetSnapshot: () => ({ scope: 'testnet', revision: 1 })
 }));
 jest.mock('lib/miden/front', () => ({
@@ -151,6 +156,7 @@ const mockPosition: EarnPosition = {
   withdrawable: '20',
   decimals: 6,
   protocol: 'Aave',
+  epochProtocol: 'dummy-lending',
   asset: 'USDC',
   network: 'Sepolia',
   amount: '$20',
@@ -277,7 +283,9 @@ async function pastFailure() {
     marketUid: mockPosition.marketUid,
     underlyingAddress: PREPARED_TOKEN,
     amount: '10',
-    underlyingDecimals: 6
+    underlyingDecimals: 6,
+    protocol: 'dummy-lending',
+    chainId: 11155111
   }).catch(error => {
     if (error !== failure) throw error;
   });
@@ -352,7 +360,13 @@ describe('Earn withdrawal first-query reporting', () => {
         id,
         type: 'earn-withdraw',
         status: ITransactionStatus.Completed,
-        extraInputs: { phase: 'failed', submissionState: 'preparing', error: failure.message }
+        extraInputs: {
+          phase: 'failed',
+          submissionState: 'preparing',
+          error: failure.message,
+          protocol: 'dummy-lending',
+          chainId: 11155111
+        }
       });
       expect(mockExecuteActions).not.toHaveBeenCalled();
       expect(read.rows).toEqual([]);
