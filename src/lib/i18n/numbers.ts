@@ -186,18 +186,20 @@ export function typedAmountExceedsBalance(amount: string, balance: number, decim
 
 // Relative margin of four double ulps: wider than the rounding between a stored balance and the chain's.
 const BALANCE_MARGIN = 2 ** -50;
+// A double spaces its values at most one base unit apart only while the balance is within 2^52 base units.
+const EXACT_BASE_UNITS = 2n ** 52n;
 
 /**
  * The most of `balance` that can be relied on, as a number.
  *
- * Balances are stored as doubles, which keep every base unit only while they fit 2^53. Past that the
+ * Balances are stored as doubles, which keep every base unit only while they fit 2^52. Past that the
  * stored figure can sit a few units above the real balance, so Max or a cap check built from it could
- * accept an amount the account does not hold. Those balances are shaved by a few ulps; the rest are
- * returned unchanged.
+ * accept an amount the account does not hold. Those balances (past 2^52 base units, where one double
+ * can stand for several) are shaved by a few ulps; the rest are returned unchanged.
  */
 export function balanceLowerBound(balance: number, decimals: number): number {
   if (!(balance > 0) || !Number.isFinite(balance)) return balance;
-  if (stringToBigInt(balance.toString(), decimals) <= BigInt(Number.MAX_SAFE_INTEGER)) return balance;
+  if (stringToBigInt(balance.toString(), decimals) <= EXACT_BASE_UNITS) return balance;
   return balance * (1 - BALANCE_MARGIN);
 }
 

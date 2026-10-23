@@ -190,7 +190,7 @@ describe('SendAmount', () => {
     expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
   });
 
-  it('fills Max below a stored balance that may have been rounded up past 2^53 base units', () => {
+  it('fills Max below a stored balance that may have been rounded up past 2^52 base units', () => {
     const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
 
     fireEvent.click(screen.getByTestId('send-amount-max'));

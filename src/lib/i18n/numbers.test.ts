@@ -331,11 +331,17 @@ describe('typedAmountExceedsBalance', () => {
     expect(typedAmountExceedsBalance('0.30', 0.29, 2)).toBe(true);
   });
 
-  it('refuses a balance past 2^53 base units by the amount the double may have rounded up', () => {
+  it('refuses a balance past 2^52 base units by the amount the double may have rounded up', () => {
     // At 12 decimals this balance is about 1.2e19 base units, past what a double keeps exactly.
     const stored = 12345678.901234568;
     expect(typedAmountExceedsBalance(stored.toString(), stored, 12)).toBe(true);
     expect(typedAmountExceedsBalance('12345678.9', stored, 12)).toBe(false);
+  });
+
+  it('refuses the stored figure of a balance whose base units a double cannot tell apart', () => {
+    // 9000000000000001 base units at 12 decimals is stored as 9000.000000000002 (one unit higher).
+    expect(typedAmountExceedsBalance('9000.000000000002', 9000.000000000002, 12)).toBe(true);
+    expect(typedAmountExceedsBalance('8999.999999999', 9000.000000000002, 12)).toBe(false);
   });
 
   it('does not treat an unparsable amount as over the cap', () => {
@@ -347,11 +353,11 @@ describe('typedAmountExceedsBalance', () => {
 describe('balanceLowerBound', () => {
   it('returns a balance whose base units fit 2^53 unchanged', () => {
     expect(balanceLowerBound(0.29, 2)).toBe(0.29);
-    expect(balanceLowerBound(9000.5, 12)).toBe(9000.5);
+    expect(balanceLowerBound(4000.5, 12)).toBe(4000.5);
     expect(balanceLowerBound(0, 6)).toBe(0);
   });
 
-  it('shaves a balance past 2^53 base units below the stored figure', () => {
+  it('shaves a balance past 2^52 base units below the stored figure', () => {
     const stored = 10000.299999999999;
     expect(balanceLowerBound(stored, 12)).toBeLessThan(stored);
     expect(balanceLowerBound(stored, 12)).toBeGreaterThan(stored * (1 - 2 ** -48));
