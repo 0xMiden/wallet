@@ -62,6 +62,14 @@ beforeEach(() => {
 });
 
 describe('OneClickAmounts error reporting', () => {
+  it.each([
+    ['recipient', 'Recipient'],
+    ['refund', 'Refund account']
+  ] as const)('labels the external address section for the %s route', (externalAddressLabel, accessibleName) => {
+    renderAmounts({ externalAddressLabel });
+    expect(screen.getByRole('region', { name: accessibleName })).toBeInTheDocument();
+  });
+
   it('reports an external balance read failure with a closed ID only', async () => {
     renderAmounts({
       offerNetwork: ethereumNetwork,

@@ -397,6 +397,39 @@ describe('1Click client', () => {
   });
 
   it.each([
+    { boundary: 'quote', shape: 'null', appFees: null },
+    { boundary: 'quote', shape: 'a string', appFees: 'not-an-array' },
+    { boundary: 'quote', shape: 'a number', appFees: 25 },
+    { boundary: 'quote', shape: 'an object', appFees: { recipient: fixtureFee.recipient, fee: fixtureFee.fee } },
+    { boundary: 'status', shape: 'null', appFees: null },
+    { boundary: 'status', shape: 'a string', appFees: 'not-an-array' },
+    { boundary: 'status', shape: 'a number', appFees: 25 },
+    { boundary: 'status', shape: 'an object', appFees: { recipient: fixtureFee.recipient, fee: fixtureFee.fee } },
+    { boundary: 'submit', shape: 'null', appFees: null },
+    { boundary: 'submit', shape: 'a string', appFees: 'not-an-array' },
+    { boundary: 'submit', shape: 'a number', appFees: 25 },
+    { boundary: 'submit', shape: 'an object', appFees: { recipient: fixtureFee.recipient, fee: fixtureFee.fee } }
+  ])(
+    '$boundary boundary rejects appFees supplied as $shape while preserving the signed wet quote',
+    async ({ boundary, appFees }) => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
+      const source = pinnedWetQuote;
+      const response = { ...source, quoteRequest: { ...source.quoteRequest, appFees } as any };
+      expect(verifyOneClickQuoteSignature(response)).toBe(true);
+      expect(hashOneClickQuote(response)).toBe(hashOneClickQuote(source));
+      fetchMock.mockResolvedValue(Response.json(response));
+
+      const outcome =
+        boundary === 'quote'
+          ? requestOneClickQuote(configWithFees([]), requestForFixture(pinnedWetQuote), false)
+          : boundary === 'status'
+            ? callStatusBoundary(configWithFees([]), response)
+            : callSubmitBoundary(configWithFees([]), response);
+      await expect(outcome).rejects.toThrow('Invalid 1Click quote response');
+    }
+  );
+
+  it.each([
     {
       boundary: 'status',
       name: 'unsigned extra fee against empty configuration',

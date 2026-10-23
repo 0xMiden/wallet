@@ -45,6 +45,14 @@ const destination: OneClickAsset = {
   decimals: 9,
   contractAddress: 'sol-contract'
 };
+const evmOrigin: OneClickAsset = {
+  assetId: 'eth:token',
+  blockchain: 'eth',
+  symbol: 'USDC',
+  decimals: 6,
+  contractAddress: '0x5555555555555555555555555555555555555555',
+  chainId: 1
+};
 const tracking: IOneClickTrackingData = {
   direction: 'miden-to-evm',
   request: {
@@ -119,6 +127,47 @@ describe('OneClickRecovery', () => {
 
     expect(await screen.findByTestId('restored-flow')).toHaveAttribute('data-destination', 'sol');
     expect(fetchOneClickAssets).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores an ambiguous inbound attempt without offering another funding submit', async () => {
+    const inbound = Object.assign(
+      {
+        ...tracking,
+        direction: 'evm-to-miden' as const,
+        request: {
+          ...tracking.request,
+          originAsset: evmOrigin,
+          destinationAsset: origin,
+          refundTo: '0x7777777777777777777777777777777777777777',
+          recipient: 'miden-account'
+        },
+        quote: {
+          ...tracking.quote,
+          quoteRequest: {
+            ...tracking.quote.quoteRequest,
+            originAsset: evmOrigin.assetId,
+            destinationAsset: origin.assetId,
+            refundTo: '0x7777777777777777777777777777777777777777',
+            recipient: 'miden-account'
+          },
+          quote: { ...tracking.quote.quote, depositAddress: '0x8888888888888888888888888888888888888888' }
+        },
+        originAsset: evmOrigin,
+        destinationAsset: origin,
+        faucetId: origin.faucetId,
+        phase: 'pending-deposit' as const,
+        accountAddress: 'miden-account'
+      },
+      { evmSubmission: 'attempted' as const }
+    );
+    mockConfig = {
+      ...config,
+      midenAssets: [{ assetId: origin.assetId, faucetId: origin.faucetId!, decimals: origin.decimals }]
+    };
+    mockCatalog = [evmOrigin, origin];
+    render(<OneClickRecovery tracking={inbound} transactionAccountId="miden-account" onBack={jest.fn()} />);
+
+    expect(await screen.findByTestId('restored-flow')).toBeInTheDocument();
   });
 
   it.each([

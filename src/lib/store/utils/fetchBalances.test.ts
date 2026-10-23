@@ -335,6 +335,26 @@ describe('fetchBalances', () => {
     });
   });
 
+  it('publishes raw base units alongside the display balance', async () => {
+    const faucetId = 'large-balance-faucet';
+    mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => faucetId, amount: () => ({ toString: () => '12345678901234567890' }) }]
+      })
+    });
+
+    const balances = (await fetchBalances(
+      'large-balance-account',
+      { [faucetId]: { name: 'Large', symbol: 'LARGE', decimals: 0 } },
+      { tokenPrices: {} }
+    ))!;
+    const row = balances.find(balance => balance.tokenId === faucetId)!;
+
+    expect(row).toMatchObject({ balanceBaseUnits: '12345678901234567890' });
+    expect(row.balance).toBe(Number('12345678901234567890'));
+  });
+
   it('returns empty list when account not found AND native-asset discovery has not resolved', async () => {
     // Pre-discovery state: getFaucetIdSetting returns '' / undefined, so we
     // can't fabricate a "0 MIDEN" row and must return [] so the UI renders a

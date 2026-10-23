@@ -122,7 +122,7 @@ const send = (recallBlocks?: number) =>
 
 beforeEach(() => jest.clearAllMocks());
 
-describe('initiateSendTransaction — reclaim window bounds', () => {
+describe('initiateSendTransaction - reclaim window bounds', () => {
   it.each([
     ['request cutoff first', 20, 40],
     ['provider expiry first', 40, 20]
@@ -141,7 +141,7 @@ describe('initiateSendTransaction — reclaim window bounds', () => {
         quote: { ...oneClickMetadata.quote.quote, deadline: providerExpiry }
       }
     };
-    Reflect.set(tracking, 'fundingDeadline', expectedFundingDeadline);
+    expect(tracking).not.toHaveProperty('fundingDeadline');
     await Reflect.apply(initiateSendTransaction, undefined, [
       sender,
       recipient,

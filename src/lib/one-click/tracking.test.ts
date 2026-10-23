@@ -1,20 +1,35 @@
 import { ITransactionStatus } from 'lib/miden/db/types';
 
-import { initiateOneClickMidenDeposit, persistOneClickTrackingRow, phaseForProviderStatus } from './tracking';
+import {
+  initiateOneClickMidenDeposit,
+  persistOneClickTrackingRow,
+  phaseForProviderStatus,
+  reconcileOneClickSwaps
+} from './tracking';
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
 const addTransaction = jest.fn();
 const initiateSend = jest.fn();
+const storedRows: any[] = [];
+const fetchStatus = jest.fn();
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    add: (...args: unknown[]) => addTransaction(...args)
+    add: (...args: unknown[]) => addTransaction(...args),
+    where: (field: string) => ({
+      equals: (value: unknown) => ({
+        toArray: async () => storedRows.filter(row => row[field] === value),
+        modify: async (mutator: (row: any) => unknown) => {
+          for (const row of storedRows.filter(candidate => candidate[field] === value)) mutator(row);
+        }
+      })
+    })
   }
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (left: string, right: string) => left === right }));
 jest.mock('lib/one-click/client', () => ({
   assertOneClickQuoteBinding: jest.fn(),
-  fetchOneClickStatus: jest.fn(),
+  fetchOneClickStatus: (...args: unknown[]) => fetchStatus(...args),
   resolveOneClickDestinationReceipts: jest.fn(),
   submitOneClickDeposit: jest.fn()
 }));
@@ -106,8 +121,10 @@ const inboundInput = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  storedRows.length = 0;
   addTransaction.mockResolvedValue('row-id');
   initiateSend.mockResolvedValue('send-row-id');
+  fetchStatus.mockResolvedValue({ status: 'PENDING_DEPOSIT', swapDetails: {} });
 });
 
 describe('1Click durable tracking', () => {
@@ -137,6 +154,13 @@ describe('1Click durable tracking', () => {
         }
       }
     });
+  });
+
+  it('persists EVM submission state on inbound rows', async () => {
+    await persistOneClickTrackingRow(inboundInput);
+
+    const [row] = addTransaction.mock.calls[0];
+    expect(row.extraInputs.oneClick).toMatchObject({ evmSubmission: 'not-started' });
   });
 
   it.each([
@@ -177,6 +201,41 @@ describe('1Click durable tracking', () => {
       'not bound to the selected Miden account'
     );
     expect(addTransaction).not.toHaveBeenCalled();
+  });
+
+  it('skips pre-request failed rows and polls attempted rows after restart', async () => {
+    const makeReceive = (id: string, phase: string, evmSubmission?: string) => ({
+      id,
+      type: 'bridged-receive',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      extraInputs: {
+        phase,
+        oneClick: {
+          direction: 'evm-to-miden',
+          request: inboundInput.request,
+          quote: inboundInput.quote,
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset: destinationAsset,
+          destinationAsset: originAsset,
+          faucetId: 'miden-faucet',
+          amount: inboundInput.request.amount,
+          phase,
+          depositAddress: 'miden-deposit-address',
+          ...(evmSubmission ? { evmSubmission } : {})
+        }
+      }
+    });
+    storedRows.push(makeReceive('failed-row', 'failed'), makeReceive('attempted-row', 'pending-deposit', 'attempted'));
+
+    await reconcileOneClickSwaps();
+
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
+    expect(fetchStatus).toHaveBeenCalledWith(config, 'miden-deposit-address', undefined, inboundInput.quote);
   });
 
   it('sends the selected Miden account-bound amount to the signed deposit address', async () => {

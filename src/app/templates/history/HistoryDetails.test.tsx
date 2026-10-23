@@ -555,7 +555,7 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
-  it('formats persisted 1Click amounts with their asset decimals and shows both route networks', async () => {
+  const setOneClickHistoryRow = (originBlockchain = 'eth', destinationBlockchain = 'miden') => {
     setMockRow({
       ...baseSendTx,
       id: 'one-click-history',
@@ -615,8 +615,8 @@ describe('HistoryDetails', () => {
           accountAddress: 'account',
           faucetId: 'faucet',
           amount: '245000000',
-          originAsset: { assetId: 'usdc', blockchain: 'eth', symbol: 'USDC', decimals: 6 },
-          destinationAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          originAsset: { assetId: 'usdc', blockchain: originBlockchain, symbol: 'USDC', decimals: 6 },
+          destinationAsset: { assetId: 'miden-usdc', blockchain: destinationBlockchain, symbol: 'MUSDC', decimals: 6 },
           phase: 'arriving',
           depositAddress: 'deposit',
           providerStatus: 'SUCCESS',
@@ -639,19 +639,39 @@ describe('HistoryDetails', () => {
         }
       }
     });
+  };
+  it('formats persisted 1Click amounts with their asset decimals and shows the friendly origin network name', async () => {
+    setOneClickHistoryRow();
     (formatAmount as jest.Mock).mockClear();
 
     await renderAndLoad({ transactionId: 'one-click-history' });
 
     expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
     const details = screen.getAllByTestId('detail-row');
-    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent('eth');
-    expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
-      'miden'
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'Ethereum'
     );
     expect(formatAmount).toHaveBeenCalledWith(245000000n, 6);
     expect(formatAmount).toHaveBeenCalledWith(240000000n, 6);
     expect(formatAmount).toHaveBeenCalledWith(1000000n, 6);
+  });
+
+  it('shows the friendly destination network name', async () => {
+    setOneClickHistoryRow();
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+      'Miden'
+    );
+  });
+
+  it('keeps an unknown route network visible as its raw ID', async () => {
+    setOneClickHistoryRow('unknown-chain');
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'unknown-chain'
+    );
   });
 
   it('shows both Guardians on a recovered switch receipt', async () => {

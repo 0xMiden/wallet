@@ -202,20 +202,47 @@ describe('mainnet 1Click EVM sender', () => {
 
   it('checks gas, max fee, remaining budget, current balance and retained native reserve before broadcast', async () => {
     const cases = [
-      { client: makeClient({ estimateGas: jest.fn(async () => 100_001n) }), gasBudgetWei: 100_000_000_000_000n },
-      { client: makeClient({ estimateFeesPerGas: jest.fn(async () => ({ maxFeePerGas: 2_000_000_001n })) }), gasBudgetWei: 100_000_000_000_000n },
-      { client: makeClient(), gasBudgetWei: 99_999_999_999_999n },
-      { client: makeClient({ getBalance: jest.fn(async () => 200_000_000_000_001n) }), gasBudgetWei: 100_000_000_000_000n },
-      { client: makeClient({ readTokenBalance: jest.fn(async () => 999_999n) }), gasBudgetWei: 100_000_000_000_000n }
+      {
+        client: makeClient(),
+        gasBudgetWei: 99_999_999_999_999n,
+        message: /bounded transfer and retained gas reserve/
+      },
+      {
+        client: makeClient({ getBalance: jest.fn(async () => 200_000_000_000_001n) }),
+        gasBudgetWei: 100_000_000_000_000n,
+        message: /bounded transfer and retained gas reserve/
+      },
+      {
+        client: makeClient({ readTokenBalance: jest.fn(async () => 999_999n) }),
+        gasBudgetWei: 100_000_000_000_000n,
+        message: /bounded transfer and retained gas reserve/
+      }
     ];
     for (const item of cases) {
       const broadcast = jest.fn(async () => testHash(`0x${'aa'.repeat(32)}`));
       const sender = makeSender({ holding: makeHolding(item.client), gasBudgetWei: item.gasBudgetWei, broadcast });
       bind(sender);
-      await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow();
+      await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow(item.message);
       expect(broadcast).not.toHaveBeenCalled();
       expect(sender.broadcastCount).toBe(0);
     }
+  });
+
+  it.each([
+    ['gas cap', makeClient({ estimateGas: jest.fn(async () => 100_001n) })],
+    [
+      'max fee',
+      makeClient({ estimateFeesPerGas: jest.fn(async () => ({ maxFeePerGas: 2_000_000_001n })) })
+    ]
+  ])('rejects an isolated %s violation before broadcast', async (_label, client) => {
+    const broadcast = jest.fn(async () => testHash(`0x${'aa'.repeat(32)}`));
+    const sender = makeSender({ holding: makeHolding(client), gasBudgetWei: 1_000_000_000_000_000n, broadcast });
+    bind(sender);
+    await expect(sender.send(transaction(), new AbortController().signal)).rejects.toThrow(
+      'The reviewed reverse EVM transaction exceeds the captured gas or fee bound'
+    );
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(sender.broadcastCount).toBe(0);
   });
 
   it('honors abort before reads and again before broadcast', async () => {

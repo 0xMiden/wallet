@@ -2,6 +2,7 @@ import React from 'react';
 
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
+import { waitFor } from '@testing-library/react';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
@@ -142,6 +143,9 @@ jest.mock('lib/miden/activity', () => ({
 let mockRowState: { row: any; loaded: boolean } = { row: undefined, loaded: false };
 jest.mock('./useTransactionRow', () => ({
   useTransactionRow: () => mockRowState
+}));
+jest.mock('screens/swap-flow/OneClickRecovery', () => ({
+  OneClickRecovery: () => <div data-testid="restored-flow" />
 }));
 
 // Minimal ITransaction factory for container tests.
@@ -380,6 +384,34 @@ describe('GeneratingTransactionPage container effects', () => {
       false
     );
     expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.GeneratingTransaction)).toBe(false);
+  });
+
+  it('routes a persisted inbound attempted row to recovery after reload', async () => {
+    const oneClick = Object.assign(
+      {
+        direction: 'evm-to-miden',
+        request: { originAsset: { blockchain: 'eth' }, destinationAsset: { blockchain: 'miden' } },
+        quote: { quote: { depositAddress: '0x8888888888888888888888888888888888888888' } },
+        config: { serviceUrl: 'https://quotes.example', midenAssets: [] },
+        network: 'mainnet',
+        accountId: 'acc-1',
+        accountAddress: 'acc-1',
+        originAsset: { assetId: 'eth:token', blockchain: 'eth' },
+        destinationAsset: { assetId: 'miden:token', blockchain: 'miden' },
+        faucetId: 'miden-faucet',
+        depositAddress: '0x8888888888888888888888888888888888888888',
+        phase: 'pending-deposit'
+      },
+      { evmSubmission: 'attempted' }
+    );
+    mockRowState = {
+      row: makeTx({ type: 'bridged-receive', status: ITransactionStatus.Completed, extraInputs: { oneClick } }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    await waitFor(() => expect(container.querySelector('[data-testid="restored-flow"]')).not.toBeNull());
+    act(() => root.unmount());
   });
 
   // #602 — the processing screen nests a fixed-height full-screen page

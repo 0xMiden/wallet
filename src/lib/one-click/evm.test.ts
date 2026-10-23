@@ -173,6 +173,59 @@ describe('EVM 1Click wallet submission', () => {
     );
   });
 
+  it.each([
+    { label: 'provider rejection', sendResult: () => Promise.reject(new Error('wallet rejected after request began')) },
+    { label: 'provider timeout', sendResult: () => Promise.reject(new Error('wallet request timed out')) },
+    { label: 'malformed hash', sendResult: () => 'not-a-transaction-hash' },
+    { label: 'missing hash', sendResult: () => undefined }
+  ])('classifies provider outcomes after eth_sendTransaction begins as ambiguous: $label', async ({ sendResult }) => {
+    const { request, quote } = signedDeposit();
+    const wallet = providerWith(method => {
+      if (method === 'eth_chainId') return 8453;
+      if (method === 'eth_accounts') return [account];
+      if (method === 'eth_sendTransaction') return sendResult();
+      return null;
+    });
+
+    const outcome = await submitEvmOneClickDeposit({ provider: wallet, account, request, quote, config }).catch(
+      error => error
+    );
+
+    expect(wallet.request).toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+    expect(outcome).toMatchObject({ outcome: 'ambiguous' });
+  });
+
+  it.each([
+    { label: 'persistence succeeds', reject: false },
+    { label: 'persistence fails closed', reject: true }
+  ])(
+    'persists attempted state before eth_sendTransaction and refuses send if persistence fails: $label',
+    async ({ reject }) => {
+      const { request, quote } = signedDeposit();
+      const order: string[] = [];
+      const wallet = providerWith(method => {
+        if (method === 'eth_chainId') return 8453;
+        if (method === 'eth_accounts') return [account];
+        if (method === 'eth_sendTransaction') {
+          order.push('send');
+          return txHash;
+        }
+        return null;
+      });
+      const onAttempting = jest.fn(async () => {
+        order.push('attempting');
+        if (reject) throw new Error('tracking persistence failed');
+      });
+      const input = Object.assign({ provider: wallet, account, request, quote, config }, { onAttempting });
+
+      await submitEvmOneClickDeposit(input).catch(() => undefined);
+
+      if (reject)
+        expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+      else expect(order.slice(0, 2)).toEqual(['attempting', 'send']);
+    }
+  );
+
   it('accepts WalletConnect numeric chain IDs and still rechecks the account before sending', async () => {
     const { request, quote } = signedDeposit();
     const calls: string[] = [];

@@ -9,12 +9,18 @@ import { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { requestOneClickQuote } from 'lib/one-click/client';
 import { submitEvmOneClickDeposit } from 'lib/one-click/evm';
 import {
+  getOneClickTransactions,
   initiateOneClickMidenDeposit,
   persistOneClickTrackingRow,
-  recordOneClickOriginTransactionHash
+  recordOneClickOriginTransactionHash,
+  updateOneClickTrackingPhase
 } from 'lib/one-click/tracking';
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import {
+  FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY,
+  signFakeOneClickQuote
+} from '../../../playwright/e2e/helpers/fake-one-click-service';
 
 import { OneClickFlow } from './OneClickFlow';
 import { OneClickNetworkOption } from './OneClickPickers';
@@ -25,6 +31,21 @@ const mockOriginAddress = '0x2222222222222222222222222222222222222222';
 const mockMidenAddress = '0x333333333333333333333333333333';
 const mockTxHash = `0x${'4'.repeat(64)}`;
 let mockEvmConnected = true;
+let mockBalanceRows: Array<{
+  tokenId: string;
+  balance: number;
+  balanceBaseUnits?: string;
+  metadata: { decimals: number };
+}> = [
+  {
+    tokenId: '0x111111111111111111111111111111',
+    balance: 100,
+    balanceBaseUnits: '100000000',
+    metadata: { decimals: 6 }
+  }
+];
+let mockPersistedRows: unknown[] = [];
+let mockEvmProvider: { request: jest.Mock; on: jest.Mock; removeListener: jest.Mock };
 let mockSpendingLimitAssessment: SpendingLimitAssessment | undefined;
 const mockConnectExternal = jest.fn(async () => undefined);
 let mockEvmBalanceSnapshot = {
@@ -54,14 +75,12 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () 
 jest.mock('lib/biometric', () => ({ confirmSensitiveAction: jest.fn(() => mockConfirmResult) }));
 jest.mock('lib/miden/back/protector-probe', () => ({ probeHardwareProtector: jest.fn() }));
 jest.mock('lib/miden/fees/spendable', () => ({
-  hasNoFeeAsset: () => false,
-  maxSendableNative: (balance: number) => balance
+  ...jest.requireActual('lib/miden/fees/spendable'),
+  hasNoFeeAsset: () => false
 }));
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: mockAccountId }),
-  useAllBalances: () => ({
-    data: [{ tokenId: '0x111111111111111111111111111111', balance: 100, metadata: { decimals: 6 } }]
-  }),
+  useAllBalances: () => ({ data: mockBalanceRows }),
   useAllTokensBaseMetadata: () => ({})
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'mainnet' }));
@@ -74,6 +93,7 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
 jest.mock('lib/miden/activity', () => ({ requestSWTransactionProcessing: jest.fn() }));
 jest.mock('lib/one-click/client', () => ({
+  ...jest.requireActual('lib/one-click/client'),
   ONE_CLICK_EVM_CHAIN_IDS: { eth: 1 },
   isSameOneClickUnderlyingAsset: (left: OneClickAsset, right: OneClickAsset) =>
     left.assetId === right.assetId || (!!left.coingeckoId && left.coingeckoId === right.coingeckoId),
@@ -81,39 +101,35 @@ jest.mock('lib/one-click/client', () => ({
 }));
 jest.mock('lib/telemetry/use-user-visible-error', () => ({ useUserVisibleError: jest.fn() }));
 jest.mock('lib/one-click/tracking', () => ({
+  getOneClickTransactions: jest.fn(async () => mockPersistedRows),
   initiateOneClickMidenDeposit: jest.fn(async () => 'miden-transaction'),
   persistOneClickTrackingRow: jest.fn(async () => 'one-click-row'),
   recordOneClickOriginTransactionHash: jest.fn(async () => undefined),
   updateOneClickTrackingPhase: jest.fn()
 }));
 jest.mock('lib/one-click/evm', () => {
-  class OneClickDepositBroadcastError extends Error {
-    constructor(
-      public transactionHash: string,
-      cause: unknown
-    ) {
-      super('The EVM transaction was broadcast, but its submission could not be fully recorded');
-      this.name = 'OneClickDepositBroadcastError';
-      Object.assign(this, { cause });
-    }
-  }
+  const actual = jest.requireActual('lib/one-click/evm');
   return {
-    OneClickDepositBroadcastError,
+    ...actual,
     submitEvmOneClickDeposit: jest.fn(async ({ onSubmitted }: { onSubmitted?: (hash: string) => Promise<void> }) => {
       if (onSubmitted) {
         try {
           await onSubmitted(mockTxHash);
         } catch (cause) {
-          throw new OneClickDepositBroadcastError(mockTxHash, cause);
+          throw new actual.OneClickDepositBroadcastError(mockTxHash, cause);
         }
       }
       return mockTxHash;
     })
   };
 });
+const mockAssertEvmDepositFunded = jest.fn();
+jest.mock('lib/one-click/evm-balance', () => ({
+  assertOneClickEvmDepositFunded: (...args: unknown[]) => mockAssertEvmDepositFunded(...args)
+}));
 jest.mock('lib/walletconnect/useEvmWalletProvider', () => ({
   useEvmWalletProvider: () => ({
-    provider: { request: jest.fn() },
+    provider: mockEvmProvider,
     address: mockEvmConnected ? mockOriginAddress : undefined,
     isConnected: mockEvmConnected,
     connect: mockConnectExternal
@@ -280,11 +296,15 @@ function quoteFor(request: OneClickQuoteRequest, dry: boolean, expired = false):
   };
 }
 
-function renderFlow(originAsset: OneClickAsset, destinationAsset: OneClickAsset) {
+function renderFlow(
+  originAsset: OneClickAsset,
+  destinationAsset: OneClickAsset,
+  options: { assets?: OneClickAsset[]; config?: OneClickConfig } = {}
+) {
   return render(
     <OneClickFlow
-      config={config}
-      assets={[midenAsset, ethereumAsset, manualAsset]}
+      config={options.config ?? config}
+      assets={options.assets ?? [midenAsset, ethereumAsset, manualAsset]}
       networks={networks}
       offerNetwork={networkFor(originAsset.blockchain)}
       requestNetwork={networkFor(destinationAsset.blockchain)}
@@ -292,6 +312,44 @@ function renderFlow(originAsset: OneClickAsset, destinationAsset: OneClickAsset)
       onBackToSwap={jest.fn()}
     />
   );
+}
+
+function installSignedWetQuoteFixture(): () => void {
+  const previous = {
+    enabled: process.env.MIDEN_E2E_ONE_CLICK_TESTNET,
+    test: process.env.MIDEN_E2E_TEST,
+    network: process.env.MIDEN_NETWORK,
+    managerKey: process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY
+  };
+  process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'true';
+  process.env.MIDEN_E2E_TEST = 'true';
+  process.env.MIDEN_NETWORK = 'localhost';
+  process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY = FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY;
+  jest.mocked(requestOneClickQuote).mockImplementation(async (_config, request, dry = true) => {
+    const response = quoteFor(request, dry, !dry && nextWetQuoteExpired);
+    response.quoteRequest.deadline = request.deadline;
+    if (dry) return response;
+    const { signature: _placeholder, ...unsigned } = response;
+    return signFakeOneClickQuote(unsigned);
+  });
+  return () => {
+    const restore = (name: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    };
+    restore('MIDEN_E2E_ONE_CLICK_TESTNET', previous.enabled);
+    restore('MIDEN_E2E_TEST', previous.test);
+    restore('MIDEN_NETWORK', previous.network);
+    restore('MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY', previous.managerKey);
+  };
+}
+
+function setEvmProvider(answer: (method: string) => unknown | Promise<unknown>): void {
+  mockEvmProvider = {
+    request: jest.fn(async ({ method }: { method: string }) => answer(method)),
+    on: jest.fn(),
+    removeListener: jest.fn()
+  };
 }
 
 async function setAmountAndReview(address?: string): Promise<void> {
@@ -302,11 +360,36 @@ async function setAmountAndReview(address?: string): Promise<void> {
   await screen.findByRole('button', { name: 'Confirm route' });
 }
 
+async function flushFlowMicrotasks(): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < 8; index++) await Promise.resolve();
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAssertEvmDepositFunded.mockReset().mockResolvedValue({});
   mockAccountId = '0x111111111111111111111111111111';
   mockConfirmResult = Promise.resolve(true);
   mockEvmConnected = true;
+  mockBalanceRows = [
+    {
+      tokenId: '0x111111111111111111111111111111',
+      balance: 100,
+      balanceBaseUnits: '100000000',
+      metadata: { decimals: 6 }
+    }
+  ];
+  mockPersistedRows = [];
+  setEvmProvider(method =>
+    method === 'eth_chainId'
+      ? '0x1'
+      : method === 'eth_accounts'
+        ? [mockOriginAddress]
+        : method === 'eth_sendTransaction'
+          ? mockTxHash
+          : null
+  );
   mockSpendingLimitAssessment = undefined;
   mockEvmBalanceSnapshot = {
     chainId: 1,
@@ -335,6 +418,96 @@ beforeEach(() => {
 let nextWetQuoteExpired = false;
 
 describe('OneClickFlow', () => {
+  it('blocks an amount one base unit above a large Miden balance', async () => {
+    const zeroDecimalAsset: OneClickAsset = {
+      assetId: 'miden:whole-token',
+      blockchain: 'miden',
+      symbol: 'WHOLE',
+      decimals: 0,
+      faucetId: 'whole-token-id'
+    };
+    mockBalanceRows = [
+      {
+        tokenId: 'whole-token-id',
+        balance: 9007199254740992,
+        balanceBaseUnits: '9007199254740992',
+        metadata: { decimals: 0 }
+      }
+    ];
+    renderFlow(zeroDecimalAsset, ethereumAsset, {
+      assets: [zeroDecimalAsset, ethereumAsset],
+      config: {
+        ...config,
+        midenAssets: [{ assetId: zeroDecimalAsset.assetId, faucetId: zeroDecimalAsset.faucetId!, decimals: 0 }]
+      }
+    });
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254740993' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+
+    expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
+  });
+
+  it('allows a request equal to a large non-native balance', async () => {
+    const zeroDecimalAsset: OneClickAsset = {
+      assetId: 'miden:whole-token',
+      blockchain: 'miden',
+      symbol: 'WHOLE',
+      decimals: 0,
+      faucetId: 'whole-token-id'
+    };
+    mockBalanceRows = [
+      {
+        tokenId: 'whole-token-id',
+        balance: 9007199254740992,
+        balanceBaseUnits: '9007199254740992',
+        metadata: { decimals: 0 }
+      }
+    ];
+    renderFlow(zeroDecimalAsset, ethereumAsset, {
+      assets: [zeroDecimalAsset, ethereumAsset],
+      config: {
+        ...config,
+        midenAssets: [{ assetId: zeroDecimalAsset.assetId, faucetId: zeroDecimalAsset.faucetId!, decimals: 0 }]
+      }
+    });
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254740992' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+
+    expect(screen.getByRole('button', { name: 'Review route' })).toBeEnabled();
+  });
+
+  it('applies native fee reserve before comparing exact base units', async () => {
+    mockBalanceRows = [
+      {
+        tokenId: midenAsset.faucetId!,
+        balance: Number('9007199254741004') / 10 ** 6,
+        balanceBaseUnits: '9007199254741004',
+        metadata: { decimals: 6 }
+      }
+    ];
+    renderFlow(midenAsset, ethereumAsset);
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254.740975' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+
+    expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
+  });
+
+  it('allows an amount equal to native spendable balance after fee reserve', async () => {
+    mockBalanceRows = [
+      {
+        tokenId: midenAsset.faucetId!,
+        balance: Number('9007199254741004') / 10 ** 6,
+        balanceBaseUnits: '9007199254741004',
+        metadata: { decimals: 6 }
+      }
+    ];
+    renderFlow(midenAsset, ethereumAsset);
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254.740974' } });
+    fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+
+    expect(screen.getByRole('button', { name: 'Review route' })).toBeEnabled();
+  });
+
   it('allows outbound review for a dry quote without provider expiry while its signed request is live', async () => {
     jest.mocked(requestOneClickQuote).mockImplementationOnce(async (_config, request, dry = true) => {
       const quote = quoteFor(request, dry);
@@ -418,6 +591,153 @@ describe('OneClickFlow', () => {
     expect(await screen.findByTestId('one-click-review-error')).toHaveTextContent('oneClickSubmitFailed');
     expect(screen.getByTestId('one-click-review-error-id')).toHaveTextContent('oneClickSubmitFailed');
     expect(screen.queryByText(privateFailure)).not.toBeInTheDocument();
+  });
+
+  it('marks a demonstrable pre-request failure terminal before allowing retry', async () => {
+    const restoreEnvironment = installSignedWetQuoteFixture();
+    try {
+      const actualSubmit =
+        jest.requireActual<typeof import('lib/one-click/evm')>('lib/one-click/evm').submitEvmOneClickDeposit;
+      jest.mocked(submitEvmOneClickDeposit).mockImplementation(actualSubmit);
+      setEvmProvider(method => (method === 'eth_chainId' ? 'malformed-chain' : null));
+      renderFlow(ethereumAsset, midenAsset);
+      await setAmountAndReview();
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('one-click-review-error')).toHaveTextContent('oneClickSubmitFailed')
+      );
+      expect(mockEvmProvider.request).not.toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'eth_sendTransaction' })
+      );
+      expect(updateOneClickTrackingPhase).toHaveBeenCalledWith('one-click-row', 'failed');
+    } finally {
+      restoreEnvironment();
+    }
+  });
+
+  it('keeps provider rejection ambiguous and blocks a second confirm', async () => {
+    const restoreEnvironment = installSignedWetQuoteFixture();
+    try {
+      const actualSubmit =
+        jest.requireActual<typeof import('lib/one-click/evm')>('lib/one-click/evm').submitEvmOneClickDeposit;
+      jest.mocked(submitEvmOneClickDeposit).mockImplementation(actualSubmit);
+      setEvmProvider(method => {
+        if (method === 'eth_chainId') return '0x1';
+        if (method === 'eth_accounts') return [mockOriginAddress];
+        if (method === 'eth_sendTransaction') throw new Error('wallet response lost');
+        return null;
+      });
+      renderFlow(ethereumAsset, midenAsset);
+      await setAmountAndReview();
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+      await screen.findByTestId('one-click-review-error');
+      await waitFor(() =>
+        expect(mockEvmProvider.request).toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }))
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+      await flushFlowMicrotasks();
+      expect(mockEvmProvider.request.mock.calls.filter(([arg]) => arg.method === 'eth_sendTransaction')).toHaveLength(
+        1
+      );
+      expect(submitEvmOneClickDeposit).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreEnvironment();
+    }
+  });
+
+  const unresolvedInboundRow = (oneClick: Record<string, unknown> = {}) => ({
+    id: 'prior-row',
+    type: 'bridged-receive',
+    accountId: 'different-account',
+    initiatedAt: Date.now(),
+    status: 2,
+    extraInputs: {
+      oneClick: {
+        direction: 'evm-to-miden',
+        request: { amount: '2000000', originAsset: ethereumAsset, destinationAsset: midenAsset },
+        quote: { quote: { depositAddress: '0x6666666666666666666666666666666666666666' } },
+        accountId: 'different-account',
+        network: 'testnet',
+        originAsset: ethereumAsset,
+        destinationAsset: midenAsset,
+        depositAddress: '0x6666666666666666666666666666666666666666',
+        phase: 'pending-deposit',
+        ...oneClick
+      }
+    }
+  });
+
+  it.each([
+    { label: 'attempted marker with matching persisted reference', marker: { evmSubmission: 'attempted' } },
+    { label: 'legacy absent marker with matching persisted reference', marker: {} }
+  ])(
+    'blocks funding from a persisted attempted or legacy unmarked EVM row after remount: $label',
+    async ({ marker }) => {
+      mockPersistedRows = [unresolvedInboundRow(marker)];
+      renderFlow(ethereumAsset, midenAsset);
+      await setAmountAndReview();
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+      await flushFlowMicrotasks();
+      expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
+    }
+  );
+
+  it('blocks the same persisted deposit reference when mutable UI route fields change', async () => {
+    mockPersistedRows = [
+      unresolvedInboundRow({
+        evmSubmission: 'attempted',
+        request: { amount: '9999999', originAsset: manualAsset, destinationAsset: ethereumAsset },
+        accountId: 'another-account',
+        network: 'mainnet'
+      })
+    ];
+    renderFlow(ethereumAsset, midenAsset);
+    await setAmountAndReview();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+    await flushFlowMicrotasks();
+    expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
+  });
+
+  it.each(['pending', 'rejected'])('keeps funding disabled while persisted-row lookup is %s', async state => {
+    if (state === 'pending') jest.mocked(getOneClickTransactions).mockReturnValueOnce(new Promise(() => {}));
+    else jest.mocked(getOneClickTransactions).mockRejectedValueOnce(new Error('tracking lookup unavailable'));
+    renderFlow(ethereumAsset, midenAsset);
+    fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1' } });
+
+    expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
+    expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
+  });
+
+  it('rechecks and blocks an unresolved row created after mount lookup', async () => {
+    jest
+      .mocked(getOneClickTransactions)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([unresolvedInboundRow({ evmSubmission: 'attempted' })] as never);
+    renderFlow(ethereumAsset, midenAsset);
+    await setAmountAndReview();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+    await flushFlowMicrotasks();
+    expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
+  });
+
+  it('allows a distinct persisted deposit reference and a terminal prior attempt', async () => {
+    mockPersistedRows = [
+      unresolvedInboundRow({
+        phase: 'failed',
+        evmSubmission: 'attempted',
+        depositAddress: '0x6666666666666666666666666666666666666666'
+      }),
+      unresolvedInboundRow({
+        evmSubmission: 'attempted',
+        depositAddress: '0x9999999999999999999999999999999999999999'
+      })
+    ];
+    renderFlow(ethereumAsset, midenAsset);
+    await setAmountAndReview();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
+
+    await waitFor(() => expect(submitEvmOneClickDeposit).toHaveBeenCalledTimes(1));
   });
 
   it('localizes a failure after authorized spending-limit challenge without exposing its detail', async () => {
