@@ -92,7 +92,7 @@ public class AuthTabCertificateSetupTest {
             for (String label : nextLabels) {
                 if (device.findObject(By.text(label)) != null) return;
             }
-            device.wait(Until.newWindow(), 500);
+            device.waitForWindowUpdate(null, 500);
         }
     }
 
@@ -114,7 +114,7 @@ public class AuthTabCertificateSetupTest {
                     return;
                 }
             }
-            device.wait(Until.newWindow(), 500);
+            device.waitForWindowUpdate(null, 500);
         }
     }
 
