@@ -17,7 +17,7 @@ import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnCollateralFaucetId, openEarnPosition } from 'lib/epoch';
-import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -91,7 +91,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const amountBaseUnits = useMemo(() => {
     if (collateralDecimals === undefined) return undefined;
     try {
-      return stringToBigInt(amount.replace(/,/g, ''), collateralDecimals);
+      const typed = amount.replace(/,/g, '');
+      // The review URL is not bound to what the amount step allowed; finer than the scale would be cut, not refused.
+      if (amountExceedsTokenDecimals(typed, collateralDecimals)) return undefined;
+      return stringToBigInt(typed, collateralDecimals);
     } catch {
       return undefined;
     }
