@@ -1,35 +1,33 @@
-import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { FC, memo, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { animate, motion, useDragControls, useMotionValue, useReducedMotion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 
 import { PageActiveContext, usePageActive, useTabShownAgain } from 'app/layouts/page-active';
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
-import { resolveTransition, springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
+import { pagerMotion, pagerTapDurationMs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
+import { beginInteraction } from 'lib/ui/interaction-priority';
 import { navigate, useLocation } from 'lib/woozie';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 /**
- * Carousel container that mounts the home-group pages (Overview / Send /
- * Receive / Earn / Swap) in a horizontal track and lets the user drag between
- * them with their finger. The page tracks the finger in real time and
- * snaps to the next/previous index on release if dragged or flicked past
- * a threshold; otherwise it snaps back.
+ * Pager that mounts the home-group pages (Overview / Send / Receive / Earn / Swap) side by side in a
+ * native horizontal scroller with mandatory scroll snap, on every platform. The engine tracks the
+ * finger, flings and snaps (UIKit on iOS, the compositor on Chromium), so a swipe never waits on the
+ * main thread; this component only reads where the scroller came to rest and commits that page.
  *
- * Pathname is the source of truth for which page is centered — the
- * SegmentedActionBar in TabLayout reads the same path and stays in sync
- * via its sliding Highlight pill.
+ * Pathname is the source of truth for which page is selected: a settle navigates, and a route change
+ * from anywhere else (the SegmentedActionBar, back, a deep link) moves the scroller with an instant
+ * `scrollTo` plus a compositor FLIP on the track, so a tap slides the same way a swipe does.
  *
- * Earn ships unconditionally; only the Swap (isSwapEnabled) pane is
- * feature-gated and can be absent. Track length, page widths and the index
- * math all derive from the same filtered `pages` array, so the carousel stays
- * consistent no matter how many panes are present.
+ * Earn ships unconditionally; only the Swap (isSwapEnabled) pane is feature-gated. Track length,
+ * pane widths and the index math all derive from the same `pages` array.
  */
 
 interface HomePage {
@@ -38,83 +36,92 @@ interface HomePage {
   node: ReactNode;
 }
 
-// Commit threshold: how far (as a fraction of the page width) the user
-// has to drag — accounting for fling velocity — to snap to the adjacent
-// page. Anything short of this snaps back.
-const COMMIT_THRESHOLD = 0.3;
-// Velocity projection factor — how many milliseconds of post-release
-// momentum to extrapolate when deciding whether to commit. Higher feels
-// flickier; lower feels stickier.
-const VELOCITY_PROJECTION_MS = 300;
-// Momentum factor framer uses to project a release into a coasting distance
-// (`origin + power * velocity`). Only the projection depends on it, since
-// `modifyTarget` replaces that distance with a page boundary.
-const DRAG_POWER = 0.8;
-
-/**
- * Where the track actually is on screen right now.
- *
- * While a compositor release is running it owns the element's transform, and the
- * animated value only shows up in the computed style — the inline style still
- * holds whatever framer last wrote. Reading this forces a style recalc, so only
- * do it on discrete events (a release ending, a finger landing), never per frame.
- */
-function readTranslateX(el: HTMLElement): number {
-  const { transform } = getComputedStyle(el);
-  if (!transform || transform === 'none') return 0;
-  return new DOMMatrixReadOnly(transform).m41;
+function buildPages(swapEnabled: boolean): HomePage[] {
+  return [
+    { id: 'overview', path: '/', node: <Explore /> },
+    { id: 'send', path: '/send', node: <SendFlow isLoading={false} /> },
+    { id: 'receive', path: '/receive', node: <Receive /> },
+    { id: 'earn', path: '/earn', node: <Earn /> },
+    ...(swapEnabled ? [{ id: 'swap', path: '/swap', node: <SwapFlow /> }] : [])
+  ];
 }
 
-/**
- * Mirrors framer's own `isElementTextInput`, the predicate it uses to decide a
- * drag may not start. Kept in step with it deliberately: this file overrides
- * that decision for touch, and an override has to test the same thing.
- */
+// A scroll event this recent means the scroller is still coasting, so a tap has to stop it before
+// jumping, or the momentum carries on from the new position.
+const MOMENTUM_WINDOW_MS = 50;
+
 const TEXT_INPUT_TAGS = new Set(['INPUT', 'SELECT', 'TEXTAREA']);
 
 function isTextInput(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (TEXT_INPUT_TAGS.has(target.tagName) || target.isContentEditable);
 }
 
+/**
+ * A touch that stops a slide means "stop", and should not also focus the field under it: the fields
+ * are still moving, so which one the finger is over is accidental, and the keyboard would interrupt
+ * the slide it just stopped. Attached only while a FLIP runs.
+ */
+function blockFieldFocus(event: PointerEvent) {
+  if (isTextInput(event.target)) event.preventDefault();
+}
+
+/** Where a FLIP has the track right now. Forces a style recalc, so only on discrete events. */
+function readTranslateX(el: HTMLElement): number {
+  const { transform } = getComputedStyle(el);
+  if (!transform || transform === 'none') return 0;
+  return new DOMMatrixReadOnly(transform).m41;
+}
+
+interface PaneProps {
+  id: string;
+  share: string;
+  active: boolean;
+  inert: boolean;
+  node: ReactNode;
+}
+
+/** One page of the track. Memoized so a route change re-renders only the panes whose flags changed. */
+const Pane = memo(function Pane({ id, share, active, inert, node }: PaneProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  // React 18 has no `inert` prop. Off-screen panes are inert so focus, find-in-page and assistive
+  // tech cannot reach a page the user cannot see.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (inert) el.setAttribute('inert', '');
+    else el.removeAttribute('inert');
+  }, [inert]);
+  return (
+    <div
+      ref={ref}
+      data-home-page={id}
+      className="h-full shrink-0"
+      style={{ width: share, scrollSnapAlign: 'start', scrollSnapStop: 'always' }}
+    >
+      <PageActiveContext.Provider value={active}>{node}</PageActiveContext.Provider>
+    </div>
+  );
+});
+
+interface Flip {
+  animation: Animation;
+  targetLeft: number;
+  endInteraction: () => void;
+}
+
 const HomeSwipeContainer: FC = () => {
   const { pathname } = useLocation();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const x = useMotionValue(0);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  // #481 — lock the horizontal carousel swipe whenever a focused sub-surface is
-  // up (keyboard visible, or the send flow past its recipient step — both flip
-  // `data-hide-navbar`). The nested send steps keep `pathname === '/send'`, so
-  // the carousel otherwise stays draggable and a horizontal swipe on Select
-  // Amount drags an adjacent pane over the amount field. Programmatic slides
-  // (tapping Send/Receive) animate `x` directly and are unaffected.
+  // #481: no swiping while a focused sub-surface is up (keyboard, or the send flow past its recipient
+  // step; both raise `data-hide-navbar`). The nested send steps keep `pathname === '/send'`, so
+  // without this a horizontal swipe on Select Amount drags an adjacent pane over the amount field.
+  // Programmatic moves still work: `overflow: hidden` blocks only user scrolling.
   const navbarHidden = useNavbarHidden();
   const reduceMotion = useReducedMotion();
-  const dragControls = useDragControls();
-  // Index the release animation is already heading toward. The `navigate()` in
-  // handleDragEnd re-runs the effect below on the next commit; without this
-  // marker that effect would start a second, competing animation on `x`.
-  const dragTargetIdxRef = useRef<number | null>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
-  // The in-flight release. It runs on the compositor rather than through `x`, so
-  // while it is set `x` is stale and the element's computed transform is the
-  // only source of truth for where the track actually is.
-  const releaseRef = useRef<Animation | null>(null);
-  // Whether the current touch has dragged. framer runs `modifyTarget` for a tap
-  // too: once a drag has resolved the constraints, its pan session "resumes" them
-  // whenever a pointer lifts without dragging. That release is a tap stopping the
-  // track, not a swipe, and must not be judged as one — see `snapToPage`.
-  const draggedRef = useRef(false);
-
-  // Only the Swap pane is feature-gated (isSwapEnabled); every downstream
-  // calculation reads `pages`, so dropping a pane can't desync the track
-  // width / index math.
-  const pages: HomePage[] = [
-    { id: 'overview', path: '/', node: <Explore /> },
-    { id: 'send', path: '/send', node: <SendFlow isLoading={false} /> },
-    { id: 'receive', path: '/receive', node: <Receive /> },
-    { id: 'earn', path: '/earn', node: <Earn /> },
-    ...(isSwapEnabled() ? [{ id: 'swap', path: '/swap', node: <SwapFlow /> }] : [])
-  ];
+  const swapEnabled = isSwapEnabled();
+  const pages = useMemo(() => buildPages(swapEnabled), [swapEnabled]);
 
   // The home page the route names, or -1 when it names none.
   const routeIdx = (() => {
@@ -123,22 +130,38 @@ const HomeSwipeContainer: FC = () => {
     // Match by prefix for nested routes (e.g. /send/sub-step).
     return pages.findIndex(p => p.path !== '/' && pathname.startsWith(`${p.path}/`));
   })();
-  // TabLayout keeps this pane mounted, hidden, while another tab shows, and the
-  // route then names no home page. The track holds the page it was on rather
-  // than sliding to Overview out of sight, which is what the pane showed on the
-  // way back before it slid to the page the action bar named.
+  // TabLayout keeps this pane mounted, hidden, while another tab shows, and the route then names no
+  // home page. The pager holds the page it was on rather than sliding to Overview out of sight.
   const onHome = routeIdx !== -1;
   const selectedPageId = pages[routeIdx]?.id;
   const lastHomeIdxRef = useRef(0);
   const shownAgain = useTabShownAgain();
   const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
-  // Every page stays mounted in the track, so only the centred one, on a shown and uncovered tab, is
-  // on screen; the others pause their display-only work as a hidden tab's pages do.
+  // Every page stays mounted, so only the selected one, on a shown and uncovered tab, is on screen;
+  // the others pause their display-only work as a hidden tab's pages do.
   const parentActive = usePageActive();
 
-  // A page can keep its focused input after it moves out of view because the carousel keeps
-  // every page mounted. Release that focus when the route selects another page so the mobile
-  // keyboard closes and its navbar hold can end.
+  // Latest values for the scroller's native listeners, which are attached once.
+  const widthRef = useRef(0);
+  const pagesRef = useRef(pages);
+  const lockedRef = useRef(navbarHidden);
+  // The page the route is on, or the one a settle has just navigated to, so a second settle report
+  // for the same rest (scrollend plus the idle check) never buzzes or navigates twice.
+  const committedIdxRef = useRef(activeIdx);
+  const placedWidthRef = useRef(0);
+  const flipRef = useRef<Flip | null>(null);
+  const programmaticRef = useRef(0);
+  const lastScrollAtRef = useRef(0);
+
+  useLayoutEffect(() => {
+    widthRef.current = width;
+    pagesRef.current = pages;
+    lockedRef.current = navbarHidden;
+  });
+
+  // A page can keep its focused input after it moves out of view because the pager keeps every page
+  // mounted. Release that focus when the route selects another page so the mobile keyboard closes and
+  // its navbar hold can end.
   useLayoutEffect(() => {
     const focused = document.activeElement;
     if (!(focused instanceof HTMLElement)) return;
@@ -147,19 +170,17 @@ const HomeSwipeContainer: FC = () => {
     focused.blur();
   }, [selectedPageId]);
 
-  // Measure container width — drives both the snap positions and the
-  // drag constraints. Set synchronously on mount so the first render
-  // can place the active page correctly without a flash.
+  // Measured before the first paint so the selected page is placed without a flash.
   useLayoutEffect(() => {
-    if (!containerRef.current) return;
-    setWidth(containerRef.current.clientWidth);
+    const w = scrollerRef.current?.getBoundingClientRect().width ?? 0;
+    if (w > 0) setWidth(w);
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    const el = containerRef.current;
-    const ro = new ResizeObserver(entries => {
-      const w = entries[0]?.contentRect.width ?? 0;
+    const el = scrollerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const w = el.getBoundingClientRect().width;
       if (w > 0) setWidth(w);
     });
     ro.observe(el);
@@ -167,344 +188,239 @@ const HomeSwipeContainer: FC = () => {
   }, []);
 
   /**
-   * Tears down the in-flight release, optionally adopting wherever it had got to.
-   *
-   * `x` is stale during a compositor release, so anything that takes control back
-   * — a new drag, a route change from elsewhere — has to sync `x` to the real
-   * on-screen position first or the track jumps back to where the finger left it.
-   * The read has to happen before `cancel()`, which discards the animated value.
+   * Moves the scroller without it counting as the user's scroll. The flag covers the scroll events
+   * the move fires, which arrive in the next rendering step, before that frame's callbacks run.
    */
-  const endRelease = useCallback(
-    (adoptPosition: boolean) => {
-      const release = releaseRef.current;
-      if (!release) return;
-      releaseRef.current = null;
-      const track = trackRef.current;
-      if (adoptPosition && track) {
-        const current = readTranslateX(track);
-        // Write the transform synchronously, then hand the value to framer.
-        // `x.set` only queues a write for framer's next render frame, whereas
-        // `cancel()` drops the compositor's hold immediately — so setting only the
-        // motion value leaves one frame showing the stale inline transform, the
-        // spot the finger left. Measured as a 172px backward jump when grabbing a
-        // release mid-flight.
-        track.style.transform = `translateX(${current}px)`;
-        x.set(current);
-      }
-      release.cancel();
-    },
-    [x]
+  const scrollProgrammatically = useCallback((move: (scroller: HTMLDivElement) => void) => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const token = ++programmaticRef.current;
+    move(scroller);
+    requestAnimationFrame(() => {
+      if (programmaticRef.current === token) programmaticRef.current = 0;
+    });
+  }, []);
+
+  const scrollInstantly = useCallback(
+    (left: number) => scrollProgrammatically(s => s.scrollTo({ left, behavior: 'instant' })),
+    [scrollProgrammatically]
   );
 
-  /**
-   * Whether a release is still moving the track.
-   *
-   * Deliberately not the same question as whether `releaseRef` is set, which asks
-   * who owns the transform: `onfinish` doesn't cancel — that is what stops the
-   * 244px flash — so a finished animation keeps holding its landing position
-   * until something takes over. Conflating the two made every tap after a flick
-   * look like an interruption.
-   */
-  const isReleaseRunning = useCallback(() => releaseRef.current?.playState === 'running', []);
-
-  // Animate to the active page's resting position whenever activeIdx or
-  // width changes. Uses the standard spring so this matches the rest of
-  // the wallet's motion vocabulary.
-  useEffect(() => {
-    const dragTargetIdx = dragTargetIdxRef.current;
-    dragTargetIdxRef.current = null;
-    if (onHome) lastHomeIdxRef.current = activeIdx;
-    if (!width) {
-      x.set(-activeIdx * (containerRef.current?.clientWidth ?? 0));
-      return;
-    }
-    // A release is already carrying the track to this exact index. Re-animating
-    // would restart the motion from a standstill mid-flight.
-    //
-    // Tested against the animation rather than the index alone: a drag that snaps
-    // back to the same page leaves the index recorded, and this effect doesn't
-    // re-run to consume it, so a later width change (rotation, split-screen) would
-    // otherwise bail out here and leave the track offset across two panes.
-    if (dragTargetIdx === activeIdx && isReleaseRunning()) return;
-    // Any other route change outranks a release still in flight.
-    endRelease(true);
-    // The pane was hidden until now, so this is a tab change, which swaps rather than slides across
-    // every page in between. Read, not a dependency: TabLayout shows this pane only on Home's own routes
-    // and keeps it mounted, hidden, on every other tab's route, so `onHome` is false exactly while the
-    // pane is hidden and rises in the commit that shows it again, which runs this effect; a later render
-    // must not re-run it mid-gesture.
-    if (shownAgain) {
-      x.set(-activeIdx * width);
-      return;
-    }
-    const controls = animate(x, -activeIdx * width, resolveTransition(reduceMotion, springs.standard));
-    return () => controls.stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- shownAgain is read, not a trigger (above)
-  }, [activeIdx, onHome, width, x, reduceMotion, endRelease, isReleaseRunning]);
-
-  useEffect(() => () => releaseRef.current?.cancel(), []);
-
-  /**
-   * Hands the release to the compositor as a single transform animation.
-   *
-   * `springs.dragRelease` is solved and sampled into a `linear()` easing up front
-   * because the compositor needs a fixed curve; see `springToLinearEasing`. The
-   * animation deliberately overrides framer's inline transform for its duration
-   * (animations outrank inline styles in the cascade), which is what lets it run
-   * without the main thread writing a frame. An engine that cannot parse `linear()`
-   * jumps to the page, as reduced motion does, since `animate` would throw.
-   */
-  const startRelease = (from: number, to: number, velocity: number) => {
+  const endFlip = useCallback((flip: Flip, cancel: boolean) => {
+    if (flipRef.current !== flip) return;
+    flipRef.current = null;
+    if (cancel) flip.animation.cancel();
     const track = trackRef.current;
-    const spring =
-      track && !reduceMotion && supportsLinearEasing()
-        ? springToLinearEasing(springs.dragRelease, { distance: from - to, velocity })
-        : null;
-    if (!track || !spring) {
-      x.set(to);
+    if (track) track.style.willChange = '';
+    scrollerRef.current?.removeEventListener('pointerdown', blockFieldFocus, true);
+    flip.endInteraction();
+  }, []);
+
+  /**
+   * A tap's slide: the scroller jumps to the page at once, and the track is animated from where the
+   * content was back to rest, on the compositor. The scroller is already at its destination for the
+   * whole slide, so a settle, a resize or a second tap never has to work out where it was going.
+   */
+  const startFlip = useCallback(
+    (currentLeft: number, targetLeft: number, pageWidth: number) => {
+      const scroller = scrollerRef.current;
+      const track = trackRef.current;
+      if (!scroller || !track) return;
+      const endInteraction = beginInteraction();
+      if (Date.now() - lastScrollAtRef.current < MOMENTUM_WINDOW_MS) {
+        scroller.style.overflowX = 'hidden';
+        requestAnimationFrame(() => {
+          scroller.style.overflowX = lockedRef.current ? 'hidden' : 'auto';
+        });
+      }
+      scrollInstantly(targetLeft);
+      const duration = pagerTapDurationMs(Math.round(Math.abs(targetLeft - currentLeft) / pageWidth));
+      // Scoped to the slide: holding the display at its top rate on a mostly static screen costs
+      // battery for nothing.
+      boostRefreshRate(duration);
+      track.style.willChange = 'transform';
+      const animation = track.animate(
+        [{ transform: `translateX(${targetLeft - currentLeft}px)` }, { transform: 'none' }],
+        { duration, easing: pagerMotion.tapEasing }
+      );
+      const flip: Flip = { animation, targetLeft, endInteraction };
+      flipRef.current = flip;
+      scroller.addEventListener('pointerdown', blockFieldFocus, true);
+      animation.onfinish = () => endFlip(flip, false);
+      animation.oncancel = () => endFlip(flip, false);
+    },
+    [endFlip, scrollInstantly]
+  );
+
+  // Route-driven moves. A settle's own navigate lands here too, already aligned, and does nothing.
+  useLayoutEffect(() => {
+    if (onHome) lastHomeIdxRef.current = activeIdx;
+    committedIdxRef.current = activeIdx;
+    const scroller = scrollerRef.current;
+    const track = trackRef.current;
+    if (!scroller || !track || !width) return;
+    const targetLeft = activeIdx * width;
+    const resized = placedWidthRef.current !== width;
+    placedWidthRef.current = width;
+    const flip = flipRef.current;
+    if (flip && flip.targetLeft === targetLeft && !resized) return;
+    // A slide interrupted by another route change starts the next one from where it is on screen.
+    const currentLeft = flip ? scroller.scrollLeft - readTranslateX(track) : scroller.scrollLeft;
+    if (flip) endFlip(flip, true);
+    if (Math.abs(currentLeft - targetLeft) <= pagerMotion.alignTolerancePx) {
+      if (Math.abs(scroller.scrollLeft - targetLeft) > pagerMotion.alignTolerancePx) scrollInstantly(targetLeft);
       return;
     }
+    // The first placement and a resize realign; a tab shown again swaps, which is what a tab change
+    // does, rather than sliding across every page in between. `shownAgain` is read, not a trigger:
+    // the commit that shows the pane again also raises `onHome`, which runs this effect.
+    if (resized || shownAgain || reduceMotion) {
+      scrollInstantly(targetLeft);
+      return;
+    }
+    startFlip(currentLeft, targetLeft, width);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- shownAgain and reduceMotion are read, not triggers (above)
+  }, [activeIdx, onHome, width, endFlip, scrollInstantly, startFlip]);
 
-    endRelease(false);
-    // The snap is the one animation here that could use a rate above 60Hz, since
-    // it runs on the compositor instead of through rAF. Scoped to the animation's
-    // own duration: holding the display at 120Hz on a mostly-static wallet screen
-    // would cost battery continuously for no benefit.
-    boostRefreshRate(spring.duration);
-    const release = track.animate([{ transform: `translateX(${from}px)` }, { transform: `translateX(${to}px)` }], {
-      duration: spring.duration,
-      easing: spring.easing,
-      // Hold the landing position once the curve ends. Without this the transform
-      // reverts to whatever framer last wrote — the spot the finger left — for the
-      // frame between the animation ending and `onfinish` running.
-      fill: 'forwards'
-    });
-    // Start on this frame's timeline. Left unset, the animation waits for the
-    // next frame and the track sits where the finger left for that gap.
-    const now = document.timeline?.currentTime;
-    if (typeof now === 'number') release.startTime = now;
-    releaseRef.current = release;
-    release.onfinish = () => {
-      if (releaseRef.current !== release) return;
-      // Deliberately no `cancel()` here. `x.set` only queues a write for framer's
-      // next render frame, so releasing the compositor's hold now would leave one
-      // frame where the transform falls back to the stale inline value — the spot
-      // the finger left. Measured as a 244px round trip, once per release. The
-      // hold is dropped later, by `endRelease`, once something else takes over.
-      x.set(to);
+  // Settle detection and the gesture signal, on passive native listeners so the scroller never
+  // waits on this thread.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const supportsScrollEnd = 'onscrollend' in window;
+    let endGesture: (() => void) | null = null;
+    let touchDown = false;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const beginGesture = () => {
+      if (!endGesture) endGesture = beginInteraction();
     };
-  };
+    const finishGesture = () => {
+      endGesture?.();
+      endGesture = null;
+    };
 
-  /**
-   * Picks the page a release commits to and starts the animation toward it.
-   *
-   * Runs synchronously inside framer's pointer-up handling, before it defers
-   * `onDragEnd` to `frame.postRender`. That ordering is the point: driving the
-   * snap from `onDragEnd` — let alone from the `navigate()` round-trip through a
-   * React commit — starts it a frame or more after the finger left, and nothing
-   * moves the track in between. Mid-flick, at ~30px/frame, that gap reads as a
-   * stutter, and it was measurably present on 22 of 24 flicks.
-   */
-  const snapToPage = (ideal: number) => {
-    if (!width) return ideal;
-    const origin = x.get();
-    // framer passes the coasting target rather than the release velocity, but
-    // that target is `origin + power * velocity`, so the velocity is recoverable
-    // — and it is needed both to judge the flick and to seed the spring.
-    const velocity = (ideal - origin) / DRAG_POWER;
-    const offset = origin + activeIdx * width;
-    const projected = offset + velocity * (VELOCITY_PROJECTION_MS / 1000);
+    const settle = (k: number) => {
+      finishGesture();
+      const page = pagesRef.current[k];
+      if (!page || k === committedIdxRef.current) return;
+      committedIdxRef.current = k;
+      // A swipe that lands on another page is a tab switch, so it buzzes once, at the landing, like a
+      // tap on the bar does; the bar buzzes only for taps, so the two never double up.
+      hapticSelection();
+      navigate(page.path);
+    };
 
-    // A tap lands on the page the route is on. Judged as a swipe, a tap that stops
-    // the track mid-slide reads its distance from that page as a drag toward the
-    // neighbour, and commits there with no route change — a tap just after
-    // choosing Send left the track on Overview under a bar still showing Send.
-    let newIdx = activeIdx;
-    if (draggedRef.current) {
-      if (projected < -width * COMMIT_THRESHOLD && activeIdx < pages.length - 1) {
-        newIdx = activeIdx + 1;
-      } else if (projected > width * COMMIT_THRESHOLD && activeIdx > 0) {
-        newIdx = activeIdx - 1;
+    const checkRest = () => {
+      const w = widthRef.current;
+      if (!w) {
+        finishGesture();
+        return;
       }
-    }
+      const left = scroller.scrollLeft;
+      const k = Math.min(pagesRef.current.length - 1, Math.max(0, Math.round(left / w)));
+      if (Math.abs(left - k * w) <= pagerMotion.alignTolerancePx) {
+        settle(k);
+        return;
+      }
+      // At rest between two pages: a touch stopped a slide and lifted without dragging. Snap to the
+      // nearest page; that scroll's own end settles it.
+      scroller.scrollTo({ left: k * w, behavior: 'smooth' });
+    };
 
-    dragTargetIdxRef.current = newIdx;
-    startRelease(origin, -newIdx * width, velocity);
-    // Park framer's own momentum animation on the spot the finger left, so it has
-    // nothing to travel and cannot fight the compositor for the transform.
-    return origin;
-  };
+    const onIdle = () => {
+      if (touchDown) return;
+      const quiet = Date.now() - lastScrollAtRef.current;
+      if (quiet < pagerMotion.settleIdleMs) {
+        idleTimer = setTimeout(onIdle, pagerMotion.settleIdleMs - quiet);
+        return;
+      }
+      checkRest();
+    };
+    const armIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(onIdle, pagerMotion.settleIdleMs);
+    };
 
-  const handleDragEnd = () => {
-    // snapToPage already chose the page and is already animating toward it; this
-    // only syncs the route so pathname stays the source of truth for the
-    // SegmentedActionBar pill and back handling. A swipe that lands on another
-    // page is a tab switch, so it buzzes once, like a tap on the bar does; the
-    // bar itself only buzzes for taps, so the two never double up.
-    const newIdx = dragTargetIdxRef.current;
-    if (newIdx === null || newIdx === activeIdx) return;
-    const target = pages[newIdx];
-    if (!target) return;
-    hapticSelection();
-    navigate(target.path);
-  };
-
-  // Drag constraints clamp the track to its valid x-range, with a small
-  // elastic overshoot for that rubber-band feel at the ends.
-  const dragMaxLeft = width ? -(pages.length - 1) * width : 0;
-  const dragEnabled = !navbarHidden;
-
-  /**
-   * Runs before framer's own pointerdown listener on the track, for two reasons.
-   *
-   * It ends any in-flight release first, because framer reads the drag origin
-   * from `x` — stale while the compositor owns the transform — and would snap the
-   * track back to the spot the last finger left.
-   *
-   * Then it starts the drag itself when the finger landed on a text field.
-   * Framer declines to in that case (its `isClickingTextInputChild` check), so
-   * that dragging inside a field selects text rather than dragging the parent.
-   * That trade is wrong for a full-screen carousel on touch: the swap screen's
-   * two amount fields are full-width and ~64px tall, so most of that screen
-   * silently refused to swipe. iOS selects text by long-press and double-tap,
-   * neither of which a pan session interferes with — framer's drag never calls
-   * `preventDefault`, and only claims the gesture once it passes a 3px
-   * threshold, so a tap still focuses the field and opens the keyboard.
-   *
-   * Mouse and pen keep framer's behaviour, where dragging across a field to
-   * select text is the expected thing. Nothing starts while `data-hide-navbar`
-   * is up, so a focused field with the keyboard open is untouched by this (#481).
-   */
-  const handlePointerDownCapture = (event: React.PointerEvent) => {
-    // A second finger landing mid-gesture is not a new gesture: without this the swipe in flight is
-    // downgraded to a tap and never commits. `=== false` rather than `!isPrimary`, because a
-    // synthesized pointerdown carries no `isPrimary` at all and must keep behaving as it does today.
-    if (event.isPrimary === false) return;
-    draggedRef.current = false;
-    const interruptingRelease = isReleaseRunning();
-    endRelease(true);
-    // A touch that lands mid-transition means "stop", and shouldn't also land on
-    // the control underneath: the fields are still moving, so which one the finger
-    // is over is accidental, and the keyboard it would raise interrupts the
-    // transition it just stopped. Cancelling the pointerdown suppresses the focus
-    // without affecting the pan session, which framer starts regardless.
-    if (interruptingRelease && isTextInput(event.target)) event.preventDefault();
-    if (dragEnabled && event.pointerType === 'touch' && isTextInput(event.target)) {
-      dragControls.start(event);
-    }
-  };
-
-  /**
-   * Lands the track on its page when a touch stopped a release without going on
-   * to drag.
-   *
-   * The route is committed the moment the finger lifts, so by the time a release
-   * is in flight nothing downstream is still waiting to move the track: framer
-   * starts no drag for a tap, and the resting-position effect won't re-run for an
-   * index that hasn't changed. Interrupting therefore used to leave the track
-   * wherever the compositor had got to — stranded between two pages, showing
-   * both at once.
-   *
-   * Deferred by a frame so framer's own release path has run first: if this
-   * gesture was a drag, `snapToPage` has started a release by then and there is
-   * nothing to recover. So has a tap framer "resumed" through `snapToPage`, which
-   * lands it on this same page. Phrased as "is the track off its resting position" rather
-   * than tracked with a flag, so it also catches a second tap interrupting this
-   * very animation, and any future path that leaves the track adrift.
-   */
-  /**
-   * Puts the track's transform back after framer resets it to measure layout.
-   *
-   * A draggable node is measured on every layout commit anywhere in the tree (the
-   * tab bars' sliding pill and icon pop, a SegmentedControl), and framer clears
-   * its transform to `none` to take the reading. It then re-renders the track only
-   * if that render isn't deduped against one already scheduled at the same frame
-   * timestamp — and when the measurement lands in the frame the slide last
-   * rendered, it is. The track then sat at `none`, which is Overview, under an
-   * action bar naming another page: for a frame mid-slide, or until the next
-   * route change when the slide had just settled.
-   *
-   * Restored in a microtask, so after every node has been measured untransformed
-   * and before the frame paints. Only a transform still at `none` is touched: if
-   * framer re-rendered the track itself, its value stands.
-   */
-  const restoreAfterLayoutMeasure = () => {
-    queueMicrotask(() => {
+    const onScroll = () => {
+      if (programmaticRef.current) return;
+      lastScrollAtRef.current = Date.now();
+      beginGesture();
+      if (!supportsScrollEnd) armIdle();
+    };
+    // Ignored while a finger is down: a finger held still mid-drag must never commit.
+    const onScrollEnd = () => {
+      if (programmaticRef.current || touchDown) return;
+      checkRest();
+    };
+    const onTouchStart = () => {
+      touchDown = true;
+      beginGesture();
+      const flip = flipRef.current;
       const track = trackRef.current;
-      const current = x.get();
-      if (!track || track.style.transform !== 'none' || current === 0) return;
-      track.style.transform = `translateX(${current}px)`;
-    });
-  };
+      if (!flip || !track) return;
+      // Catch the slide where it is on screen and hand it to the native scroll. Read before the
+      // cancel, which drops the animated value.
+      const tx = readTranslateX(track);
+      endFlip(flip, true);
+      const left = flip.targetLeft - tx;
+      scrollProgrammatically(s => {
+        s.scrollLeft = left;
+      });
+    };
+    // Also covers a touch that never scrolled (a tap on content), which fires no scrollend.
+    const onTouchEnd = (event: TouchEvent) => {
+      touchDown = event.touches.length > 0;
+      if (!touchDown) armIdle();
+    };
 
-  const landAfterInterruptedRelease = (event: React.PointerEvent) => {
-    // The same rule as the pointer-down guard above, at the carousel's other two capture-phase
-    // bindings: a second finger is not the gesture. Without it a second finger LIFTING mid-swipe
-    // lands the track on the current page while the first finger is still dragging. `=== false`
-    // rather than `!isPrimary`, because a synthesized pointerup carries no `isPrimary` at all and
-    // must keep behaving as it does today.
-    if (event.isPrimary === false) return;
-    requestAnimationFrame(() => {
-      if (isReleaseRunning() || !width) return;
-      const resting = -activeIdx * width;
-      if (Math.abs(x.get() - resting) < 0.5) return;
-      animate(x, resting, resolveTransition(reduceMotion, springs.standard));
-    });
-  };
+    const passive = { passive: true };
+    scroller.addEventListener('scroll', onScroll, passive);
+    scroller.addEventListener('scrollend', onScrollEnd, passive);
+    scroller.addEventListener('touchstart', onTouchStart, passive);
+    scroller.addEventListener('touchend', onTouchEnd, passive);
+    scroller.addEventListener('touchcancel', onTouchEnd, passive);
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      scroller.removeEventListener('scrollend', onScrollEnd);
+      scroller.removeEventListener('touchstart', onTouchStart);
+      scroller.removeEventListener('touchend', onTouchEnd);
+      scroller.removeEventListener('touchcancel', onTouchEnd);
+      clearTimeout(idleTimer);
+      const flip = flipRef.current;
+      if (flip) endFlip(flip, true);
+      finishGesture();
+    };
+  }, [endFlip, scrollProgrammatically]);
+
+  const share = `${100 / pages.length}%`;
 
   return (
     <div
-      ref={containerRef}
-      className="h-full w-full overflow-hidden touch-pan-y bg-app-bg"
-      onPointerDownCapture={handlePointerDownCapture}
-      onPointerUpCapture={landAfterInterruptedRelease}
-      onPointerCancelCapture={landAfterInterruptedRelease}
+      data-home-pager
+      ref={scrollerRef}
+      className="no-scrollbar h-full w-full bg-app-bg"
+      style={{
+        overflowX: navbarHidden ? 'hidden' : 'auto',
+        overflowY: 'hidden',
+        scrollSnapType: 'x mandatory',
+        overscrollBehaviorX: 'contain',
+        direction: 'ltr',
+        touchAction: 'pan-x pan-y'
+      }}
     >
-      <motion.div
-        ref={trackRef}
-        className="h-full flex"
-        // Pre-promote the track to its own compositor layer so a programmatic
-        // slide (tapping Send/Receive) doesn't pay for layer creation — a full
-        // repaint — on its first frame; a finger drag is already on a live
-        // layer, which is why it feels smoother. Intentionally ALWAYS-on:
-        // toggling `willChange` at tap time would create the layer on that
-        // first frame, defeating the purpose. Caveat: the non-`none` transform
-        // already makes this the containing block for `position: fixed`
-        // descendants, so any future home-page child needing viewport-fixed
-        // placement must portal out of the track (today's drawers/modals do).
-        style={{ x, width: `${pages.length * 100}%`, willChange: 'transform' }}
-        drag={dragEnabled ? 'x' : false}
-        // Only used by `handlePointerDownCapture`, for the gestures framer's own
-        // listener refuses to start. Everything else still goes through that
-        // listener, so passing this doesn't change the ordinary path.
-        dragControls={dragControls}
-        dragDirectionLock
-        dragConstraints={{ left: dragMaxLeft, right: 0 }}
-        dragElastic={0.15}
-        // Momentum stays ON purely so framer calls `modifyTarget` with a real
-        // release velocity; with it off the velocity arrives as zero. The actual
-        // snap is started from inside `snapToPage` and runs on the compositor.
-        dragMomentum
-        dragTransition={{ power: DRAG_POWER, modifyTarget: snapToPage }}
-        onDragStart={() => {
-          draggedRef.current = true;
-        }}
-        onDragEnd={handleDragEnd}
-        onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
-      >
+      <div data-home-track ref={trackRef} className="flex h-full" style={{ width: `${pages.length * 100}%` }}>
         {pages.map((page, index) => (
-          <div
+          <Pane
             key={page.id}
-            data-home-page={page.id}
-            className="h-full shrink-0"
-            style={{ width: `${100 / pages.length}%` }}
-          >
-            <PageActiveContext.Provider value={parentActive && index === activeIdx}>
-              {page.node}
-            </PageActiveContext.Provider>
-          </div>
+            id={page.id}
+            share={share}
+            active={parentActive && index === activeIdx}
+            inert={index !== activeIdx}
+            node={page.node}
+          />
         ))}
-      </motion.div>
+      </div>
     </div>
   );
 };
