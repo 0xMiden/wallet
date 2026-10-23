@@ -61,7 +61,8 @@ adb shell locksettings set-pin "$device_pin" >/dev/null
 # sys.boot_completed can precede a package manager that accepts installs ("Broken pipe" from the package service).
 for _ in $(seq 1 30); do adb shell pm path android >/dev/null 2>&1 && break; sleep 2; done
 for attempt in 1 2 3; do
-  if adb install -r "$RUNNER_TEMP/firefox.apk"; then break; fi
+  # The Android 37.0 image drops streamed installs of a large APK ("Broken pipe"); push it first instead.
+  if adb install -r --no-streaming "$RUNNER_TEMP/firefox.apk"; then break; fi
   [[ $attempt -eq 3 ]] && exit 1
   sleep 10
 done
