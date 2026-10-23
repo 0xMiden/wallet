@@ -7,6 +7,8 @@ import type { TokenBalanceData } from './balance';
 export interface ValuedBalanceTotal {
   /** The dollar value of every held token that can be priced. */
   totalFiat: number;
+  /** The same holdings at each quote's price 24 hours ago, for the card's change pill. */
+  previousFiat: number;
   /** Whether any counted token has a balance above zero. */
   holdsAnything: boolean;
   /** Whether any counted token with a balance could be priced. */
@@ -35,6 +37,7 @@ export function valuedBalanceTotal(
   skip: (tokenId: string) => boolean = () => false
 ): ValuedBalanceTotal {
   let totalFiat = 0;
+  let previousFiat = 0;
   let holdsAnything = false;
   let valuedAnything = false;
   for (const token of balances) {
@@ -46,6 +49,7 @@ export function valuedBalanceTotal(
     if (!quote) continue;
     valuedAnything = true;
     totalFiat += token.balance * quote.price;
+    previousFiat += token.balance * (quote.price - quote.change24h);
   }
-  return { totalFiat, holdsAnything, valuedAnything };
+  return { totalFiat, previousFiat, holdsAnything, valuedAnything };
 }

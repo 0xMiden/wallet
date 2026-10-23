@@ -3,7 +3,7 @@ import React, { FC, useEffect, useMemo, useState } from 'react';
 import { markReloadToRecover } from 'app/reload-to-recover';
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { BadgeIssuanceManager } from 'lib/badges/BadgeIssuanceManager';
-import { BADGE_STORAGE_KEY } from 'lib/badges/types';
+import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
@@ -48,7 +48,8 @@ const preloadedStorageKeys = () => [
   FIAT_CURRENCY_STORAGE_KEY,
   MidenSharedStorageKey.LastShownChangelogVersion,
   NETWORK_STORAGE_ID,
-  BADGE_STORAGE_KEY
+  BADGE_STORAGE_KEY,
+  BADGE_SEEN_STORAGE_KEY
 ];
 
 /**

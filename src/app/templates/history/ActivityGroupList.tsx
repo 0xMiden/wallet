@@ -62,7 +62,8 @@ function latestEvent(group: ActivityGroup, t: Translate): string {
   const amount = amountLabel(entry);
   const message = entry.message.trim();
   if (!message) return amount ?? t('activity');
-  return amount ? `${message} ${amount}` : message;
+  const label = message === 'Transaction failed' ? t('transactionFailedNotificationTitle') : message;
+  return amount ? `${label} ${amount}` : label;
 }
 
 function amountLabel(entry: IHistoryEntry): string | undefined {

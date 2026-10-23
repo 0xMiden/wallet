@@ -902,7 +902,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
 
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
-    const row = rowByTitle('Transaction failed');
+    const row = rowByTitle('transactionFailedNotificationTitle');
     expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
@@ -1010,7 +1010,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(rowByTitle('cancelled')).toHaveAttribute('data-status', 'cancelled');
     const failedRow = screen
       .getAllByTestId('activity-row')
-      .find(el => el.getAttribute('data-title') === 'Transaction failed')!;
+      .find(el => el.getAttribute('data-title') === 'transactionFailedNotificationTitle')!;
     expect(failedRow).toHaveAttribute('data-status', 'failed');
     expect(failedRow).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
@@ -1506,7 +1506,7 @@ describe('HistoryView infinite scroll wiring', () => {
 });
 
 describe('HistoryView Guardian ops', () => {
-  it('paints a device-key rotation row like a guardian switch: the slate its detail page uses, the Guardian glyph', () => {
+  it('paints a guardian switch with the Guardian avatar and the other Guardian ops with the Guardian glyph on the slate', () => {
     const entries = [
       makeEntry({ key: 'switch', txType: 'switch-guardian', message: 'Guardian switched' }),
       makeEntry({ key: 'rotation', txType: 'replace-hot-key', message: 'Device key rotated' }),
@@ -1516,7 +1516,11 @@ describe('HistoryView Guardian ops', () => {
 
     // TransactionIcon's slate (#777487) is the detail page's accent for all three.
     expect(getTransactionIconBackgroundColor(entries[1]!)).toBe('#777487');
-    for (const title of ['Guardian switched', 'Device key rotated', 'Account secured']) {
+    // A switch draws its full avatar as an image on the page surface, not a glyph on the slate.
+    const switchRow = rowByTitle('Guardian switched');
+    expect(switchRow).toHaveAttribute('data-iconbg', 'bg-page');
+    expect(switchRow.querySelector('img')).not.toBeNull();
+    for (const title of ['Device key rotated', 'Account secured']) {
       const row = rowByTitle(title);
       expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
       expect(iconNameIn(row)).toBe('Key');
@@ -1605,8 +1609,8 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(screen.getAllByTestId('activity-row')[2]).toHaveAttribute('data-status', 'confirmed');
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status', 'failed');
     for (const row of screen.getAllByTestId('activity-row').slice(0, 3)) {
-      expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
-      expect(iconNameIn(row)).toBe('Key');
+      expect(row).toHaveAttribute('data-iconbg', 'bg-page');
+      expect(row.querySelector('img')).not.toBeNull();
     }
     expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
@@ -1665,7 +1669,7 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(degraded).toHaveAttribute('data-status', 'confirmed');
     expect(queued).toHaveAttribute('data-title', 'Switching guardian');
     expect(queued).toHaveAttribute('data-status', 'pending');
-    expect(failed).toHaveAttribute('data-title', 'Transaction failed');
+    expect(failed).toHaveAttribute('data-title', 'transactionFailedNotificationTitle');
     expect(failed).toHaveAttribute('data-status', 'failed');
   });
 });

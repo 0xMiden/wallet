@@ -417,6 +417,8 @@ jest.mock('./transactionUtils', () => ({
 
 // ITransactionStatus.Completed === 2 (see lib/miden/db/types).
 const STATUS_COMPLETED = 2;
+const STATUS_FAILED = 3;
+const STATUS_UNCONFIRMED = 4;
 
 type Tx = Record<string, unknown>;
 
@@ -1183,6 +1185,16 @@ describe('HistoryDetails', () => {
   describe('Guardian change details', () => {
     const LAMBDA = 'https://miden-guardian.lambdaclass.com';
     const OZ = 'https://guardian-testnet.openzeppelin.com';
+    const switchRow = (extraInputs: Record<string, unknown> = {}, fields: Tx = {}): Tx => ({
+      ...baseSendTx,
+      ...fields,
+      type: 'switch-guardian',
+      displayIcon: 'DEFAULT',
+      amount: undefined,
+      faucetId: undefined,
+      outputNoteIds: undefined,
+      extraInputs: { newGuardianEndpoint: OZ, ...extraInputs }
+    });
 
     it('renders both providers on brand tiles, old to new, with status and no wallet destination rows', async () => {
       setMockRow({
@@ -1201,6 +1213,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('guardianSwitchedRowTitle');
       const summary = screen.getByTestId('guardian-change-summary');
       expect(summary).toHaveAttribute('data-kind', 'switch');
       // A logo tile per side, each resolved from its own endpoint.
@@ -1252,6 +1265,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('guardianSwitchSubmittedRowTitle');
       expect(screen.getByText('guardianSwitchSubmittedChip')).toBeInTheDocument();
       expect(screen.queryByTestId('status-pill')).toBeNull();
     });
@@ -1269,8 +1283,54 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('guardianSwitchedRowTitle');
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
       expect(screen.queryByText('guardianSwitchSubmittedChip')).toBeNull();
+    });
+
+    it.each([
+      [
+        'failed',
+        switchRow({}, { status: STATUS_FAILED, displayMessage: 'Guardian switch discarded' }),
+        'transactionFailedNotificationTitle'
+      ],
+      ['queued', switchRow({}, { status: 0, displayMessage: 'Switching guardian' }), 'Switching guardian'],
+      [
+        'cancelled',
+        switchRow(
+          {},
+          {
+            status: STATUS_FAILED,
+            displayMessage: 'Guardian switch cancelled',
+            error: USER_CANCELLED_TRANSACTION_REASON
+          }
+        ),
+        'cancelled'
+      ],
+      [
+        'outcome-unconfirmed',
+        switchRow({}, { status: STATUS_UNCONFIRMED, displayMessage: 'Guardian switch outcome unconfirmed' }),
+        'notConfirmed'
+      ],
+      [
+        'recovered',
+        switchRow(
+          {},
+          {
+            status: STATUS_COMPLETED,
+            displayMessage: 'Guardian switched',
+            recovered: true,
+            restoredFromBackup: true,
+            recovery: { reclaimed: false }
+          }
+        ),
+        'guardianHistoryGuardianChanged'
+      ]
+    ])('uses the %s outcome for the Guardian switch detail heading', async (_state, row, title) => {
+      setMockRow(row);
+      await renderAndLoad();
+
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(title);
     });
 
     it('draws the guardian the rotation ran under once, and puts the new key in the details', async () => {

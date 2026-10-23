@@ -122,6 +122,15 @@ describe('BridgeDeposit (#875)', () => {
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 
+  it('keeps the active bridge step number legible on the receive tint', () => {
+    render(<BridgeDeposit />);
+
+    const currentStep = screen.getByText('1').parentElement;
+    const nextStep = screen.getByText('2').parentElement;
+    expect(currentStep).toHaveClass('bg-accent-receive-tint', 'text-accent-receive-ink');
+    expect(nextStep).not.toHaveClass('bg-accent-receive-tint', 'text-accent-receive-ink');
+  });
+
   it('closes via the header, falling back to /receive with no onClose prop', () => {
     render(<BridgeDeposit />);
 
@@ -134,7 +143,7 @@ describe('BridgeDeposit (#875)', () => {
 
     const warning = screen.getByTestId('evm-connect-test-wallet-warning');
     expect(warning).toHaveAttribute('role', 'note');
-    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning).toHaveAttribute('data-tone', 'caution');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeConnectTestWalletBody');
   });
@@ -143,7 +152,8 @@ describe('BridgeDeposit (#875)', () => {
     mockEffectiveNetwork = 'mainnet';
     render(<BridgeDeposit />);
 
-    expect(screen.getByText('bridgeConnectWalletTitle')).toBeInTheDocument();
+    // The title heads the page and names step 1.
+    expect(screen.getAllByText('bridgeConnectWalletTitle')).toHaveLength(2);
     expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 
