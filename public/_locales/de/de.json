@@ -1608,5 +1608,12 @@
   "walletAccessUnavailableTitle": "Verfügbarkeit konnte nicht geprüft werden",
   "walletAccessUnavailableBody": "Prüfe deine Verbindung und versuche es erneut.",
   "runtimeUnsupportedTitle": "Dieser Browser oder dieses Gerät kann die Wallet nicht ausführen",
-  "runtimeUnsupportedBody": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser."
+  "runtimeUnsupportedBody": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser.",
+  "amountUsdUnavailable": "USD-Schätzung nicht verfügbar",
+  "amountUsdStale": "USD-Kurs abgelaufen. Preis wird aktualisiert…",
+  "amountInputUnit": "Betrag in $unit$",
+  "amountSwitchUnit": "$unit$ eingeben",
+  "amountUsdLoading": "USD-Preis wird geladen…",
+  "amountUsdError": "Der USD-Kurs konnte nicht aktualisiert werden",
+  "amountUsdEstimate": "USD-Schätzung"
 }

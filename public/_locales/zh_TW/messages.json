@@ -7288,16 +7288,16 @@
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
   "amountUsdUnavailable": {
-    "message": "USD estimate unavailable",
-    "englishSource": "(untranslated)"
+    "message": "無法提供美元估算值",
+    "englishSource": "USD estimate unavailable"
   },
   "amountUsdStale": {
-    "message": "USD quote expired. Refreshing price…",
-    "englishSource": "(untranslated)"
+    "message": "美元報價已過期。正在刷新價格……",
+    "englishSource": "USD quote expired. Refreshing price…"
   },
   "amountInputUnit": {
-    "message": "Amount in $unit$",
-    "englishSource": "(untranslated)",
+    "message": "金額以 $unit$ 計",
+    "englishSource": "Amount in $unit$",
     "placeholders": {
       "unit": {
         "content": "$1"
@@ -7305,8 +7305,8 @@
     }
   },
   "amountSwitchUnit": {
-    "message": "Enter $unit$",
-    "englishSource": "(untranslated)",
+    "message": "輸入 $unit$",
+    "englishSource": "Enter $unit$",
     "placeholders": {
       "unit": {
         "content": "$1"
@@ -7314,15 +7314,15 @@
     }
   },
   "amountUsdLoading": {
-    "message": "Loading USD price…",
-    "englishSource": "(untranslated)"
+    "message": "正在載入美元價格……",
+    "englishSource": "Loading USD price…"
   },
   "amountUsdError": {
-    "message": "USD price could not be refreshed",
-    "englishSource": "(untranslated)"
+    "message": "無法更新 USD 價格",
+    "englishSource": "USD price could not be refreshed"
   },
   "amountUsdEstimate": {
-    "message": "USD estimate",
-    "englishSource": "(untranslated)"
+    "message": "美元估算",
+    "englishSource": "USD estimate"
   }
 }

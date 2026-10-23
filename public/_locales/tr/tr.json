@@ -1608,5 +1608,12 @@
   "walletAccessUnavailableTitle": "Kullanılabilirlik kontrol edilemedi",
   "walletAccessUnavailableBody": "Bağlantınızı kontrol edip tekrar deneyin.",
   "runtimeUnsupportedTitle": "Bu tarayıcı veya cihaz cüzdanı çalıştıramıyor",
-  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın."
+  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
+  "amountUsdUnavailable": "USD tahmini mevcut değil",
+  "amountUsdStale": "USD fiyat teklifi süresi doldu. Fiyat yenileniyor…",
+  "amountInputUnit": "$unit$ cinsinden tutar",
+  "amountSwitchUnit": "$unit$ girin",
+  "amountUsdLoading": "USD fiyatı yükleniyor…",
+  "amountUsdError": "USD fiyatı yenilenemedi",
+  "amountUsdEstimate": "USD tahmini"
 }

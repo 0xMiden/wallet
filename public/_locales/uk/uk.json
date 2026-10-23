@@ -1608,5 +1608,12 @@
   "walletAccessUnavailableTitle": "Не вдалося перевірити доступність",
   "walletAccessUnavailableBody": "Перевірте з’єднання та спробуйте ще раз.",
   "runtimeUnsupportedTitle": "Цей браузер або пристрій не підтримує роботу гаманця",
-  "runtimeUnsupportedBody": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері."
+  "runtimeUnsupportedBody": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
+  "amountUsdUnavailable": "Оцінка в доларах США недоступна",
+  "amountUsdStale": "Термін дії котирування в USD закінчився. Оновлення ціни…",
+  "amountInputUnit": "Сума в $unit$",
+  "amountSwitchUnit": "Введіть $unit$",
+  "amountUsdLoading": "Завантаження ціни в доларах США…",
+  "amountUsdError": "Ціна в доларах США не може бути оновлена",
+  "amountUsdEstimate": "Оцінка в доларах США"
 }

@@ -1608,5 +1608,12 @@
   "walletAccessUnavailableTitle": "이용 가능 여부를 확인하지 못했습니다",
   "walletAccessUnavailableBody": "연결을 확인하고 다시 시도해 주세요.",
   "runtimeUnsupportedTitle": "이 브라우저나 기기에서는 지갑을 실행할 수 없습니다.",
-  "runtimeUnsupportedBody": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오."
+  "runtimeUnsupportedBody": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
+  "amountUsdUnavailable": "USD 추정치 없음",
+  "amountUsdStale": "USD 호가가 만료되었습니다. 가격을 새로 고침 중…",
+  "amountInputUnit": "$unit$ 단위의 금액",
+  "amountSwitchUnit": "$unit$ 입력",
+  "amountUsdLoading": "USD 가격 불러오는 중…",
+  "amountUsdError": "USD 가격이 갱신되지 않았습니다",
+  "amountUsdEstimate": "USD 추정치"
 }

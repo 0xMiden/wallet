@@ -1607,5 +1607,12 @@
   "walletAccessUnavailableTitle": "Nie udało się sprawdzić dostępności",
   "walletAccessUnavailableBody": "Sprawdź połączenie i spróbuj ponownie.",
   "runtimeUnsupportedTitle": "Ta przeglądarka lub to urządzenie nie obsługuje portfela",
-  "runtimeUnsupportedBody": "Portfel wymaga obsługi WebAssembly SIMD, której ta przeglądarka lub to urządzenie nie zapewnia. Otwórz portfel na innym urządzeniu lub w zaktualizowanej przeglądarce."
+  "runtimeUnsupportedBody": "Portfel wymaga obsługi WebAssembly SIMD, której ta przeglądarka lub to urządzenie nie zapewnia. Otwórz portfel na innym urządzeniu lub w zaktualizowanej przeglądarce.",
+  "amountUsdUnavailable": "Szacunkowa wartość w USD niedostępna",
+  "amountUsdStale": "Wycena w USD wygasła. Odświeżanie ceny…",
+  "amountInputUnit": "Kwota w $unit$",
+  "amountSwitchUnit": "Wprowadź $unit$",
+  "amountUsdLoading": "Ładowanie ceny w USD…",
+  "amountUsdError": "Nie można zaktualizować ceny w USD",
+  "amountUsdEstimate": "Szacunkowa wartość w USD"
 }

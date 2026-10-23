@@ -7288,16 +7288,16 @@
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
   "amountUsdUnavailable": {
-    "message": "USD estimate unavailable",
-    "englishSource": "(untranslated)"
+    "message": "USD 추정치 없음",
+    "englishSource": "USD estimate unavailable"
   },
   "amountUsdStale": {
-    "message": "USD quote expired. Refreshing price…",
-    "englishSource": "(untranslated)"
+    "message": "USD 호가가 만료되었습니다. 가격을 새로 고침 중…",
+    "englishSource": "USD quote expired. Refreshing price…"
   },
   "amountInputUnit": {
-    "message": "Amount in $unit$",
-    "englishSource": "(untranslated)",
+    "message": "$unit$ 단위의 금액",
+    "englishSource": "Amount in $unit$",
     "placeholders": {
       "unit": {
         "content": "$1"
@@ -7305,8 +7305,8 @@
     }
   },
   "amountSwitchUnit": {
-    "message": "Enter $unit$",
-    "englishSource": "(untranslated)",
+    "message": "$unit$ 입력",
+    "englishSource": "Enter $unit$",
     "placeholders": {
       "unit": {
         "content": "$1"
@@ -7314,15 +7314,15 @@
     }
   },
   "amountUsdLoading": {
-    "message": "Loading USD price…",
-    "englishSource": "(untranslated)"
+    "message": "USD 가격 불러오는 중…",
+    "englishSource": "Loading USD price…"
   },
   "amountUsdError": {
-    "message": "USD price could not be refreshed",
-    "englishSource": "(untranslated)"
+    "message": "USD 가격이 갱신되지 않았습니다",
+    "englishSource": "USD price could not be refreshed"
   },
   "amountUsdEstimate": {
-    "message": "USD estimate",
-    "englishSource": "(untranslated)"
+    "message": "USD 추정치",
+    "englishSource": "USD estimate"
   }
 }

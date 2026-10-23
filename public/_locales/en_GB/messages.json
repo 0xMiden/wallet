@@ -7289,15 +7289,15 @@
   },
   "amountUsdUnavailable": {
     "message": "USD estimate unavailable",
-    "englishSource": "(untranslated)"
+    "englishSource": "USD estimate unavailable"
   },
   "amountUsdStale": {
     "message": "USD quote expired. Refreshing price…",
-    "englishSource": "(untranslated)"
+    "englishSource": "USD quote expired. Refreshing price…"
   },
   "amountInputUnit": {
     "message": "Amount in $unit$",
-    "englishSource": "(untranslated)",
+    "englishSource": "Amount in $unit$",
     "placeholders": {
       "unit": {
         "content": "$1"
@@ -7306,7 +7306,7 @@
   },
   "amountSwitchUnit": {
     "message": "Enter $unit$",
-    "englishSource": "(untranslated)",
+    "englishSource": "Enter $unit$",
     "placeholders": {
       "unit": {
         "content": "$1"
@@ -7315,14 +7315,14 @@
   },
   "amountUsdLoading": {
     "message": "Loading USD price…",
-    "englishSource": "(untranslated)"
+    "englishSource": "Loading USD price…"
   },
   "amountUsdError": {
     "message": "USD price could not be refreshed",
-    "englishSource": "(untranslated)"
+    "englishSource": "USD price could not be refreshed"
   },
   "amountUsdEstimate": {
     "message": "USD estimate",
-    "englishSource": "(untranslated)"
+    "englishSource": "USD estimate"
   }
 }

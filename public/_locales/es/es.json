@@ -1608,5 +1608,12 @@
   "walletAccessUnavailableTitle": "No se pudo comprobar la disponibilidad",
   "walletAccessUnavailableBody": "Comprueba tu conexión e inténtalo de nuevo.",
   "runtimeUnsupportedTitle": "Este navegador o dispositivo no puede ejecutar la cartera",
-  "runtimeUnsupportedBody": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado."
+  "runtimeUnsupportedBody": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado.",
+  "amountUsdUnavailable": "Estimación en USD no disponible",
+  "amountUsdStale": "La cotización en USD ha caducado. Actualizando el precio…",
+  "amountInputUnit": "Importe en $unit$",
+  "amountSwitchUnit": "Introduce $unit$",
+  "amountUsdLoading": "Cargando el precio en USD…",
+  "amountUsdError": "No se ha podido actualizar el precio en USD",
+  "amountUsdEstimate": "Estimación en USD"
 }

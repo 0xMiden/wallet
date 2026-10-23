@@ -1608,5 +1608,12 @@
   "walletAccessUnavailableTitle": "无法检查可用性",
   "walletAccessUnavailableBody": "请检查网络连接后重试。",
   "runtimeUnsupportedTitle": "此浏览器或设备无法运行该钱包",
-  "runtimeUnsupportedBody": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。"
+  "runtimeUnsupportedBody": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
+  "amountUsdUnavailable": "无法提供美元估算值",
+  "amountUsdStale": "美元报价已过期。正在刷新价格……",
+  "amountInputUnit": "金额以$unit$为单位",
+  "amountSwitchUnit": "输入$unit$",
+  "amountUsdLoading": "正在加载美元价格……",
+  "amountUsdError": "无法刷新美元价格",
+  "amountUsdEstimate": "美元估算"
 }
