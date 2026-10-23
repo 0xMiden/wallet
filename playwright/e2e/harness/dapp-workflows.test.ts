@@ -142,16 +142,51 @@ describe('the mobile legs of the dApp E2E workflow', () => {
   it('stops the Auth Tab Gradle daemon after the Firefox probe and before Playwright', () => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
     const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
-    const stop = authTab.indexOf('name: Stop Gradle daemon');
-    const firefox = authTab.indexOf('name: Probe Firefox Custom Tab fallback capability');
-    const playwright = authTab.indexOf('yarn playwright test --config playwright.android.auth-tab.config.ts');
-    const nextStep = authTab.indexOf('\n      - name:', stop);
+    const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
+    const firefox = acceptance.indexOf('expectedProvider=org.mozilla.firefox');
+    const stop = acceptance.indexOf('./gradlew --stop');
+    const playwright = acceptance.indexOf('yarn playwright test --config playwright.android.auth-tab.config.ts');
 
+    expect(authTab).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');
+    expect(firefox).toBeGreaterThan(-1);
     expect(stop).toBeGreaterThan(firefox);
     expect(stop).toBeLessThan(playwright);
-    expect(authTab.match(/name: Stop Gradle daemon/g)).toHaveLength(1);
-    expect(authTab.slice(stop, nextStep)).toContain('working-directory: android');
-    expect(authTab.slice(stop, nextStep)).toContain('run: ./gradlew --stop');
+  });
+
+  it('runs the full Auth Tab acceptance inside the bounded shared Google Play emulator runner', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
+    const runner = authTab
+      .split('- name: Run Auth Tab acceptance on Google Play emulator')[1]
+      ?.split('\n      - name:')[0] ?? '';
+    const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
+    const prepare = [
+      authTab.indexOf('name: Download pinned Firefox provider'),
+      authTab.indexOf('name: Build debug APK'),
+      authTab.indexOf('name: Generate run-scoped fixture CA and TLS certificate')
+    ];
+    const runnerPosition = authTab.indexOf('name: Run Auth Tab acceptance on Google Play emulator');
+
+    expect(prepare.every(position => position >= 0 && position < runnerPosition)).toBe(true);
+    expect(runner).toContain('timeout-minutes: 80');
+    expect(runner).toContain('uses: reactivecircus/android-emulator-runner@v2');
+    expect(runner).toContain('target: google_apis_playstore');
+    expect(runner).toContain('emulator-boot-timeout: 600');
+    expect(runner).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');
+    expect(acceptance).toContain('adb shell locksettings set-pin 1234');
+    expect(acceptance).toContain('yarn playwright test --config playwright.android.auth-tab.config.ts');
+    expect(authTab).not.toContain('adb wait-for-device');
+  });
+
+  it('keeps Auth Tab evidence collection bounded when emulator boot or acceptance fails', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
+    const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
+    const evidence = authTab.match(/- name: Write acceptance evidence\n(?:(?!      - name: ).*\n)*/)?.[0];
+    expect(evidence).toMatch(/if: always\(\)\n\s+timeout-minutes: 2/);
+    expect(evidence).not.toContain('adb logcat');
+    expect(acceptance).toContain('trap write_acceptance_evidence EXIT');
+    expect(acceptance).toContain('timeout 15s adb logcat');
   });
 
   it('assigns every in-app browser spec to the mobile leg of its platform', () => {

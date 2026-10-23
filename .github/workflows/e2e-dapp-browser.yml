@@ -376,40 +376,10 @@ jobs:
           sdkmanager --install "platform-tools" "emulator" \
             "platforms;android-34" "system-images;android-34;google_apis_playstore;x86_64"
 
-      - name: Create and boot Google Play emulator
-        run: |
-          mkdir -p "$ANDROID_AVD_HOME"
-          echo no | avdmanager create avd \
-            --name Pixel_API_34_AuthTab \
-            --package "system-images;android-34;google_apis_playstore;x86_64" \
-            --device pixel_6 \
-            --force
-          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34_AuthTab'
-          mkdir -p test-results-auth-tab
-          nohup "$ANDROID_HOME/emulator/emulator" \
-            -avd Pixel_API_34_AuthTab \
-            -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
-            -accel on -cores 4 -memory 4096 -partition-size 4096 -no-snapshot -no-metrics \
-            > test-results-auth-tab/emulator.log 2>&1 &
-          adb wait-for-device
-          for _ in $(seq 1 300); do
-            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
-              break
-            fi
-            sleep 1
-          done
-          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
-          adb shell locksettings set-pin 1234 >/dev/null
-
       - name: Download pinned Firefox provider
         run: |
           curl --fail --location --retry 3 "$AUTH_TAB_FIREFOX_URL" --output "$RUNNER_TEMP/firefox.apk"
           echo "$AUTH_TAB_FIREFOX_SHA256  $RUNNER_TEMP/firefox.apk" | sha256sum --check
-          adb install -r "$RUNNER_TEMP/firefox.apk"
-          adb shell dumpsys package org.mozilla.firefox | grep -m1 'versionName=158.0.2'
 
       - name: Inject linked web-sdk PR
         id: inject-web-sdk
@@ -464,75 +434,50 @@ jobs:
           echo "AUTH_TAB_CERT_PATH=$AUTH_TAB_CERT_DIR/server.pem" >> "$GITHUB_ENV"
           echo "AUTH_TAB_KEY_PATH=$AUTH_TAB_CERT_DIR/server.key" >> "$GITHUB_ENV"
 
-      - name: Install fixture CA through Android Settings
-        run: |
-          adb shell mkdir -p /sdcard/Download
-          adb push "$RUNNER_TEMP/auth-tab-cert/auth-tab-root-ca.crt" /sdcard/Download/auth-tab-root-ca.crt
-          cd android
-          ./gradlew :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=com.miden.wallet.AuthTabCertificateSetupTest \
-            -Pandroid.testInstrumentationRunnerArguments.caSubject="$AUTH_TAB_CA_SUBJECT"
-          cd ..
-          grep -h 'tests="[1-9]' android/app/build/outputs/androidTest-results/connected/debug/TEST-com.miden.wallet.AuthTabCertificateSetupTest.xml
-          adb logcat -d -s AuthTabAcceptance:I '*:S' > test-results-auth-tab/certificate-setup.log
-          grep -F "fixtureCaInstalled=true subject=$AUTH_TAB_CA_SUBJECT" test-results-auth-tab/certificate-setup.log
-
-      - name: Probe Chrome Auth Tab capability
-        run: |
-          adb shell cmd role clear-role-holders --user 0 android.app.role.BROWSER
-          adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER com.android.chrome
-          adb logcat -c
-          cd android
-          ./gradlew :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=com.miden.wallet.AuthTabProviderAcceptanceTest \
-            -Pandroid.testInstrumentationRunnerArguments.expectedProvider=com.android.chrome
-          cd ..
-          grep -h 'tests="[1-9]' android/app/build/outputs/androidTest-results/connected/debug/TEST-com.miden.wallet.AuthTabProviderAcceptanceTest.xml
-          adb logcat -d -s AuthTabAcceptance:I '*:S' > test-results-auth-tab/chrome-capability.log
-          grep -F 'selectedProvider=com.android.chrome' test-results-auth-tab/chrome-capability.log
-          grep -F 'provider=com.android.chrome ' test-results-auth-tab/chrome-capability.log | grep -F 'authTabSupported=true'
-          grep -F 'provider=org.mozilla.firefox ' test-results-auth-tab/chrome-capability.log | grep -F 'authTabSupported=false'
-
-      - name: Probe Firefox Custom Tab fallback capability
-        run: |
-          adb shell cmd role clear-role-holders --user 0 android.app.role.BROWSER
-          adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER org.mozilla.firefox
-          adb logcat -c
-          cd android
-          ./gradlew :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=com.miden.wallet.AuthTabProviderAcceptanceTest \
-            -Pandroid.testInstrumentationRunnerArguments.expectedProvider=org.mozilla.firefox
-          cd ..
-          grep -h 'tests="[1-9]' android/app/build/outputs/androidTest-results/connected/debug/TEST-com.miden.wallet.AuthTabProviderAcceptanceTest.xml
-          adb logcat -d -s AuthTabAcceptance:I '*:S' > test-results-auth-tab/firefox-capability.log
-          grep -F 'selectedProvider=org.mozilla.firefox' test-results-auth-tab/firefox-capability.log
-          grep -F 'provider=org.mozilla.firefox ' test-results-auth-tab/firefox-capability.log | grep -F 'authTabSupported=false'
-
-      # Release org.gradle.jvmargs=-Xmx6144m before Playwright shares the runner with the -memory 4096 emulator.
-      - name: Stop Gradle daemon
-        working-directory: android
-        run: ./gradlew --stop
-
-      - name: Run Auth Tab browser acceptance
-        run: |
-          yarn playwright test --config playwright.android.auth-tab.config.ts
-          node -e "const r=require('./test-results-auth-tab/results.json'); if (!r.stats || r.stats.expected !== 1) { console.error('Expected one executed Auth Tab test, got', r.stats); process.exit(1); }"
+      - name: Run Auth Tab acceptance on Google Play emulator
+        id: auth-tab-emulator
+        timeout-minutes: 80
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_6
+          avd-name: Pixel_API_34_AuthTab
+          force-avd-creation: true
+          emulator-boot-timeout: 600
+          cores: 4
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics
+          script: bash .github/scripts/run-auth-tab-acceptance.sh
 
       - name: Write acceptance evidence
         if: always()
+        timeout-minutes: 2
         run: |
+          mkdir -p test-results-auth-tab
+          if [[ ! -f test-results-auth-tab/evidence.txt ]]; then
+            : > test-results-auth-tab/evidence.txt
+          fi
           {
             echo "source_sha=$GITHUB_SHA"
+            echo "emulator_step_outcome=${{ steps.auth-tab-emulator.outcome }}"
             echo 'emulator_image=android-34;google_apis_playstore;x86_64'
             echo 'emulator_avd=Pixel_API_34_AuthTab'
             echo 'firefox_package=org.mozilla.firefox version=158.0.2 authTabSupported=false'
-            grep -h 'provider=.*version=.*authTabSupported=' test-results-auth-tab/*-capability.log || true
-            grep -h 'fixtureCaInstalled=true' test-results-auth-tab/certificate-setup.log || true
             if [[ -f test-results-auth-tab/results.json ]]; then
-              node -e "const r=require('./test-results-auth-tab/results.json'); console.log('playwright_expected='+r.stats.expected+' playwright_unexpected='+r.stats.unexpected)"
+              if ! node <<'NODE'
+          const r = require('./test-results-auth-tab/results.json');
+          console.log('playwright_expected=' + r.stats.expected + ' playwright_unexpected=' + r.stats.unexpected);
+          NODE
+              then
+                echo 'playwright_results=unreadable'
+              fi
+            else
+              echo 'playwright_results=missing'
             fi
-          } > test-results-auth-tab/evidence.txt
-          adb logcat -d -s AuthTabAcceptance:I '*:S' > test-results-auth-tab/final-acceptance.log || true
+          } >> test-results-auth-tab/evidence.txt
 
       - name: Upload acceptance artifacts
         if: always()

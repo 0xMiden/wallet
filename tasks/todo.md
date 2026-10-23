@@ -396,6 +396,8 @@ Review: focused native review has no actionable source finding. First real OS re
 - [x] Serve the auth dApp and redirect fixture from the local emulator host over HTTPS with a test CA limited to the debug fixture host.
 - [x] Exercise Chrome Auth Tab success and cancellation, then a real unsupported Custom Tabs provider through the existing fallback.
 - [x] Fix workflow-lint findings from the first current-head CI run.
+- [ ] Run the full Auth Tab acceptance inside the bounded Android runner and preserve failure evidence.
+- Mutation predictions for the workflow harness checks: changing the emulator action, Play Store target, boot timeout, job timeout, preparation order, or script path must fail the runner contract test; removing PIN setup or the Playwright invocation from the script, or restoring `adb wait-for-device`, must fail that same test; removing Gradle shutdown or moving Playwright before the Firefox probe must fail the ordering test; adding ADB logcat to post-step evidence, removing its timeout, or removing the script's timed EXIT evidence must fail the evidence-bound test.
 - [x] RED: push regression tests in commit `63a6270`; CI confirms both TLS bypass assertions and the recreated-Activity pending-result assertion fail, with CodeQL flagging disabled certificate validation.
 - [x] Merge the latest `origin/main` after the frozen red run, then update the workflow harness tests for the main-only Guardian push and the Auth Tab dispatch job's 90-minute timeout and Play Store image.
 - [x] GREEN: enforce TLS verification and clear abandoned restored Activity results before a new Auth Tab request can register.
