@@ -1,0 +1,98 @@
+use miden::protocol::active_account
+use miden::protocol::native_account
+use miden::protocol::input_note
+use miden::protocol::output_note
+use miden::protocol::tx
+use miden::standards::auth::network_account
+use miden::standards::fees
+use miden::standards::fee
+use miden::core::math::u64
+pub use {estimate_note_fee,get_fee_asset_id,get_fee_policy,set_fee_policy,add_allowed_fee_policy,remove_allowed_fee_policy} from miden::standards::fees::fee_manager
+
+proc balance
+    exec.tx::get_fee_asset_id exec.active_account::get_asset
+    movdn.3 drop drop drop
+end
+
+# Locals0=N,1=reserve,2=totalB,3=i,4=F,5=quotient,6=remainder,7=postfeeclk,
+# 8=postfeeallowance,9=prepaybalance;32..1054=budgets;1080..1087=asset scratch.
+@locals(1100)
+@auth_script
+pub proc auth_distributor_transaction
+    dropw
+    exec.network_account::assert_transaction_allowed
+    exec.tx::get_num_input_notes dup neq.0 assert.err="funded transaction must consume claims"
+    dup u32lte.{MAX_CLAIMS} assert.err="claim output capacity"
+    dup loc_store.0 exec.tx::get_num_output_notes assert_eq.err="one receipt per input"
+    push.0 exec.input_note::get_script_root push.{DEPOSIT_ROOT} eqw movdn.8 dropw dropw loc_store.10
+    push.0 loc_store.2 push.0 loc_store.3
+    loc_load.3 loc_load.0 lt
+    while.true
+        loc_load.10
+        if.true
+            loc_load.3 exec.input_note::get_script_root push.{DEPOSIT_ROOT} assert_eqw.err="mixed batch forbidden"
+            loc_load.3 locaddr.1080 exec.input_note::get_initial_assets eq.2 assert.err="two deposit assets"
+            padw loc_loadw_le.1080 exec.tx::get_fee_asset_id eqw movdn.8 dropw dropw
+            if.true loc_load.1084
+            else
+                padw loc_loadw_le.1088 exec.tx::get_fee_asset_id assert_eqw.err="deposit native budget required"
+                loc_load.1092
+            end
+        else
+            loc_load.3 exec.input_note::get_script_root push.{CLAIM_ROOT} assert_eqw.err="mixed batch forbidden"
+            loc_load.3 locaddr.1080 exec.input_note::get_initial_assets eq.1 assert.err="one native budget"
+            padw loc_loadw_le.1080 exec.tx::get_fee_asset_id assert_eqw.err="native budgets only"
+            loc_load.1084
+        end
+        dup loc_load.3 locaddr.32 add mem_store
+        loc_load.2 add loc_store.2
+        loc_load.3 add.1 loc_store.3
+        loc_load.3 loc_load.0 lt
+    end
+    exec.balance dup loc_store.9 loc_load.2 sub loc_store.1
+    # Preserve canonical effect/sponsorship checks. Input count establishes the effect.
+    exec.network_account::get_sponsor_at_most_collected_fees assert.err="bounded sponsorship required"
+    exec.tx::get_fee_asset_id exec.fees::collect_sponsored_fees eq.0 assert.err="no companion sponsorship"
+    # Post-payment allowance scales with actual batch size. Settlement asserts this bound below.
+    loc_load.0 mul.16384 add.4096 dup loc_store.8
+    exec.fee::native_conversion_info movup.4
+    exec.tx::get_reference_block_number movdn.5
+    exec.fee::pay_fee eq.0 assert.err="no outgoing network sponsorship"
+    clk loc_store.7
+    exec.balance loc_load.9 swap sub loc_store.4
+    # Withdraw aggregate change once. The per-input split below must still cover each share.
+    loc_load.2 loc_load.4 gte assert.err="budgets below actual network fee"
+    loc_load.2 loc_load.4 sub dup neq.0
+    if.true
+        push.0.0.0 movup.3 exec.tx::get_fee_asset_id
+        exec.native_account::remove_asset dropw
+    else
+        drop
+    end
+    # F / N, quotient and remainder, supporting full u64 fee amounts.
+    loc_load.4 u32split push.0 loc_load.0 exec.u64::divmod
+    swap assertz loc_store.6
+    swap mul.4294967296 add loc_store.5
+    push.0 loc_store.3
+    loc_load.3 loc_load.0 lt
+    while.true
+        loc_load.5 loc_load.3 loc_load.6 lt add
+        loc_load.3 locaddr.32 add mem_load
+        dup dup.2 gte assert.err="claim budget below own fee share"
+        swap sub
+        loc_load.10 if.true dup neq.0 assert.err="deposit requires positive native refund" end
+        dup neq.0
+        if.true
+            # Fund each existing receipt from the aggregate withdrawal.
+            push.0.0.0 movup.3 exec.tx::get_fee_asset_id
+            loc_load.3 movdn.8 exec.output_note::add_asset
+        else
+            drop
+        end
+        loc_load.3 add.1 loc_store.3
+        loc_load.3 loc_load.0 lt
+    end
+    exec.balance loc_load.1 assert_eq.err="distributor native reserve changed"
+    exec.native_account::incr_nonce drop
+    clk loc_load.7 sub loc_load.8 lte assert.err="postfee settlement cycle bound exceeded"
+end

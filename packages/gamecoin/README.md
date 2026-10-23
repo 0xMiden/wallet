@@ -1,3 +1,7 @@
+# GC protocol package
+
+Canonical GC distribution v2 is specified in [DISTRIBUTOR.md](DISTRIBUTOR.md). It spends held canonical GC through a separate distributor; it does not mint. Its offline builders, bootstrap/refill path and construction vectors are separate from all experimental deployed issuers below.
+
 # Funded GC claims (replacement protocol, offline proof)
 
 `funded::funded_issuer_builder` builds a **new issuer** with atomic actual-fee refunds. A replacement issuer from commit `13ba2a1f3601b64fd37829c4d7923dab6bc100d1` is deployed on Testnet; CLI receipt/refund and failed-request reclaim are confirmed. Native automatic-claim acceptance remains separate. The older canonical-MINT probe below is retained as a comparison; its retained-surplus limitation does not describe the funded module.

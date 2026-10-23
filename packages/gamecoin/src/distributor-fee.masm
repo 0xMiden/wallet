@@ -1,0 +1,18 @@
+use miden::core::sys
+use miden::standards::note
+use miden::protocol::active_note
+use miden::standards::fees::fee_manager
+@account_procedure
+pub proc compute_note_fee
+    exec.note::get_recipient_preimage
+    dupw push.{CLAIM_ROOT} eqw movdn.8 dropw dropw
+    if.true dropw
+    else push.{DEPOSIT_ROOT} assert_eqw.err="unsupported distributor root" end
+    push.2000 movdn.4 push.36 movdn.4
+    exec.active_note::write_storage_to_memory
+    mem_load.2029 eq.2 assert.err="distribution ABI version"
+    dropw dropw dropw
+    padw padw padw
+    exec.fee_manager::read_fee_asset_id
+    exec.sys::truncate_stack
+end

@@ -101,3 +101,5 @@ fn fee_policy() -> anyhow::Result<miden_standards::account::fees::FeePolicy> {
 }
 
 pub mod funded;
+
+pub mod distributor;

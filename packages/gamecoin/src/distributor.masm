@@ -1,0 +1,71 @@
+use miden::core::word
+use miden::protocol::active_note
+use miden::protocol::active_account
+use miden::protocol::native_account
+use miden::protocol::tx
+use miden::protocol::note
+use miden::standards::note::note_target
+use miden::standards::wallets::basic as wallet
+const NETWORK=word("bread::gc::network")
+const CLAIMS=word("bread::gc::distributor::weekly_claims")
+const GC=word("bread::gc::distributor::asset")
+const CLAIM_ROOT=word("bread::gc::distributor::claim_root")
+const DEPOSIT_ROOT=word("bread::gc::distributor::deposit_root")
+
+proc validate
+    push.36.1000 exec.active_note::get_bounded_storage eq.36 assert.err="distribution layout"
+    mem_load.1029 eq.2 assert.err="distribution ABI version"
+    padw mem_loadw_le.1000 push.{P2ID_ROOT} assert_eqw.err="P2ID receipt required"
+    exec.active_account::get_id mem_load.1030 assert_eq.err="wrong distributor suffix" mem_load.1031 assert_eq.err="wrong distributor prefix"
+    exec.active_note::get_metadata drop drop drop eq.0
+    if.true exec.active_account::get_nonce eq.0 assert.err="unrouted deposit only at creation"
+    else exec.note_target::assert_active_account_is_network_target_account end
+    push.NETWORK[0..2] exec.active_account::get_item padw mem_loadw_le.1032 assert_eqw.err="wrong network domain"
+    push.GC[0..2] exec.active_account::get_item padw mem_loadw_le.1008 assert_eqw.err="wrong GC faucet"
+end
+
+proc receipt
+    padw mem_loadw_le.1000
+    padw mem_loadw_le.1004
+    push.4.1020 exec.note::compute_and_store_recipient
+    push.1 mem_load.1016
+    exec.wallet::create_note
+end
+
+@locals(4)
+@account_procedure
+pub proc claim
+    exec.active_note::get_script_root push.CLAIM_ROOT[0..2] exec.active_account::get_item assert_eqw.err="checked claim root"
+    exec.validate
+    exec.note_target::assert_active_account_is_network_target_account
+    exec.active_note::get_sender mem_load.1020 assert_eq.err="claim recipient suffix" mem_load.1021 assert_eq.err="claim recipient prefix"
+    exec.tx::get_block_timestamp
+    dup mem_load.1023 lte assert.err="claim approval expired"
+    add.259200 u32div.604800 mem_load.1022 assert_eq.err="approval week mismatch"
+    mem_load.1012 eq.10000000 assert.err="ten GC allocation required"
+    push.0 mem_load.1022 exec.active_note::get_sender
+    loc_storew_le.0 dropw
+    padw loc_loadw_le.0 push.CLAIMS[0..2] exec.active_account::get_map_item
+    exec.word::testz assert.err="already claimed this week" dropw
+    push.0.0.0.1 padw loc_loadw_le.0 push.CLAIMS[0..2] exec.native_account::set_map_item dropw
+    exec.receipt
+    padw mem_loadw_le.1012 padw mem_loadw_le.1008
+    exec.wallet::move_asset_to_note
+end
+
+@account_procedure
+pub proc deposit
+    exec.active_note::get_script_root push.DEPOSIT_ROOT[0..2] exec.active_account::get_item assert_eqw.err="checked deposit root"
+    exec.validate
+    push.1100 exec.active_note::get_initial_assets eq.2 assert.err="two deposit assets"
+    padw mem_loadw_le.1100 padw mem_loadw_le.1008 eqw movdn.8 dropw dropw
+    if.true
+        padw mem_loadw_le.1104 padw mem_loadw_le.1012 assert_eqw.err="deposit amount mismatch"
+        padw mem_loadw_le.1108 exec.tx::get_fee_asset_id assert_eqw.err="deposit native budget required"
+    else
+        padw mem_loadw_le.1108 padw mem_loadw_le.1008 assert_eqw.err="deposit canonical GC required"
+        padw mem_loadw_le.1112 padw mem_loadw_le.1012 assert_eqw.err="deposit amount mismatch"
+        padw mem_loadw_le.1100 exec.tx::get_fee_asset_id assert_eqw.err="deposit native budget required"
+    end
+    exec.receipt drop
+end
