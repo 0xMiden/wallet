@@ -64,12 +64,12 @@ jest.mock('lib/store', () => {
 // The SWR config is where the #777 gate lives (`isPaused`), so the mock has to keep it
 // rather than swallow it — a mock that only calls the fetcher makes the gate untestable.
 const swrConfigSeen: any[] = [];
+// One stable mutate, so a test can see whether a refresh revalidated.
+const mockSwrMutate = jest.fn();
 
 jest.mock('lib/swr', () => ({
   useRetryableSWR: jest.fn((_key: any, fetcher: any, config: any) => {
     swrConfigSeen.push(config);
-    // One stable mutate, so a test can see whether a refresh revalidated.
-    const mutate = ((globalThis as any).__cnMutate ??= jest.fn());
     if (!fetcher) return { data: undefined, mutate: jest.fn(), isLoading: false, isValidating: false };
     // Run the fetcher and expose its settlement promise so tests can await it.
     // On rejection, drive the onError callback like real SWR would.
@@ -89,7 +89,7 @@ jest.mock('lib/swr', () => ({
       // settled it wins for its own key, which is what SWR does on revalidation.
       const settled = (globalThis as any).__cnTest.liveDataByKey[JSON.stringify(_key)];
       const data = settled ?? config?.fallbackData;
-      return { data, mutate, isLoading: data === undefined, isValidating: false };
+      return { data, mutate: mockSwrMutate, isLoading: data === undefined, isValidating: false };
     }
     return { data: result, mutate: jest.fn(), isLoading: false, isValidating: false };
   })
@@ -1672,7 +1672,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
 });
 
 describe('useClaimableNotes note refresh while the pager moves', () => {
-  const mutate = () => _g.__cnMutate as jest.Mock;
+  const mutate = () => mockSwrMutate;
   const setup = () => {
     jest.useFakeTimers();
     _resetInteractionPriorityForTest();
