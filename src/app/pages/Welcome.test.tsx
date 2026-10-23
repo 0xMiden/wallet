@@ -3948,10 +3948,11 @@ describe('Welcome — registration holds preparation', () => {
       if (pending) await pending;
     });
     await waitFor(() => expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(false));
-    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   }
 
   it('marks a confirmation tap active until registration resolves', async () => {
+    // The assertions live in `held.during` and `finishHeld`.
+    expect.hasAssertions();
     await reachConfirmationTap();
     const held = holdRegister();
     let pending!: Promise<unknown>;
@@ -3962,9 +3963,11 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('clears a confirmation tap when registration rejects', async () => {
+    expect.hasAssertions();
     await reachConfirmationTap();
     const held = holdRegister();
     let pending!: Promise<unknown>;
@@ -3975,9 +3978,11 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending, new Error('boom'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('marks a side-panel auto-register active until registration resolves', async () => {
+    expect.hasAssertions();
     mockCanHandoff = true;
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
@@ -3987,9 +3992,11 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('clears a side-panel auto-register when registration rejects', async () => {
+    expect.hasAssertions();
     mockCanHandoff = true;
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
@@ -3999,6 +4006,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, undefined, new Error('creation failed'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 });
 

@@ -1,0 +1,1 @@
+These are historical UI fixture captures retained from the original Arcade PR. Rankings and other superseded screens are not current product acceptance. See docs/arcade/gc-integration.md for the current Coins flow.

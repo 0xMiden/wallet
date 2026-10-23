@@ -1,3 +1,20 @@
+# Follow-up to #1790: describe wallet-file contents accurately
+
+## Plan
+
+- [x] Verify wallet-file export and restore behavior against the current implementation and #1617's accepted choice.
+- [x] Align the Terms, Privacy Policy, and Support FAQ with conditional phrase inclusion, imported-account secrets, and operator state-loss recovery.
+- [x] Add the changelog entry without changing the Terms version or effective date.
+- [x] Inspect the final diff and run the applicable lightweight documentation checks.
+- [ ] Review the open PR with Review Council 0.7.8; replace incomplete Luna proof with Sol, then fix actionable P0-P2 findings.
+- [ ] Push the final reviewed head, watch its CI, and merge only after the wallet PR gate passes.
+
+## Review
+
+- `git diff --check` passed through `ci-local run`; wallet-file claims were cross-checked against the current exporter/parser and existing backup tests.
+- Prettier passes for the edited Privacy Policy paragraph. The Terms, Support FAQ, changelog, and task plan also fail on the unmodified `origin/main` baselines, so I left their existing Markdown formatting intact.
+- Review Council and current-head CI: pending.
+
 # Fee faucet discovery and USDCX value
 
 - [x] Read discovery, repository rules, and decision profile; inspect all sync and pricing paths.

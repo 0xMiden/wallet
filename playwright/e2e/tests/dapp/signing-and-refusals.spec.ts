@@ -688,7 +688,8 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx
         );
         const { noteId } = unwrap(imported.result, 'import of a note addressed to B', ctx);
-        const refused = await expectNoPrompt(
+        // A P2ID note addressed to another account is refused before any sheet opens (#1764).
+        const result = await expectNoPrompt(
           dapp,
           () =>
             callDapp(
@@ -703,9 +704,10 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
               },
               ctx.deadline
             ),
-          ctx
+          ctx,
+          { refusal: true }
         );
-        expect(refused).toEqual(
+        expect(result).toEqual(
           refusal(
             'WalletTransactionError',
             'INVALID_PARAMS: Error: This account can never consume this note - refusing it',

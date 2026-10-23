@@ -342,7 +342,7 @@ const OVERRIDE_ENDPOINT_FIELDS = [
 ] as const;
 
 // What `buildNetworkChoiceOverride` stores: a network, with no endpoint and no developer option of its own.
-const isNetworkChoice = (override: EndpointOverride) =>
+export const isNetworkChoiceOverride = (override: EndpointOverride) =>
   OVERRIDE_ENDPOINT_FIELDS.every(field => !override[field]) && !override.allowNoGuardian && !override.feeFaucetId;
 
 /**
@@ -353,5 +353,5 @@ export async function isEndpointOverrideActive(): Promise<boolean> {
   const items = await getStorageProvider().get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
   const stored = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
   if (stored == null) return false;
-  return !isEndpointOverride(stored) || !isNetworkChoice(stored);
+  return !isEndpointOverride(stored) || !isNetworkChoiceOverride(stored);
 }
