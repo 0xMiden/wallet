@@ -3,7 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { usdEstimateText } from 'lib/prices/amount';
+import { quoteExpiryMs, usdEstimateText } from 'lib/prices/amount';
 import type { TokenPriceInfo } from 'lib/prices/binance';
 import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { useWalletStore } from 'lib/store';
@@ -18,7 +18,7 @@ export interface UsdValueProps {
 
 export const UsdValue: React.FC<UsdValueProps> = ({ amount, decimals, quote, className }) => {
   const { t } = useTranslation();
-  useQuoteClock();
+  useQuoteClock(quoteExpiryMs(quote));
   const value = usdEstimateText(amount, quote, decimals);
   return value ? (
     <span className={className ?? 'text-caption text-muted'}>{t('approxFiatValue', { value })}</span>

@@ -8,16 +8,23 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { SelectAmount, SelectAmountProps } from './SelectAmount';
 import { UIToken } from './types';
 const mockQuotePrices: Record<string, number> = {};
+let mockQuoteObservedAt: number | undefined;
 jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: (_prices: unknown, id: string) =>
     (mockQuotePrices[id] ?? 0) > 0
-      ? { price: mockQuotePrices[id], observedAt: Date.now(), change24h: 0, percentageChange24h: 0 }
+      ? {
+          price: mockQuotePrices[id],
+          observedAt: mockQuoteObservedAt ?? Date.now(),
+          change24h: 0,
+          percentageChange24h: 0
+        }
       : undefined
 }));
 
@@ -192,6 +199,7 @@ const renderComponent = (props: Partial<SelectAmountProps> = {}) => {
 describe('SelectAmount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockQuoteObservedAt = undefined;
     (isMobile as jest.Mock).mockReturnValue(false);
   });
 
@@ -203,6 +211,25 @@ describe('SelectAmount', () => {
     expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
     expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 USDC');
     expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+  });
+
+  it('expires the available-balance USD estimate without a store update', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    mockQuotePrices.t1 = 0.2;
+    mockQuoteObservedAt = Date.now();
+    try {
+      renderComponent();
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+
+      act(() => jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS));
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+      act(() => jest.advanceTimersByTime(1));
+
+      expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   describe('page variant', () => {

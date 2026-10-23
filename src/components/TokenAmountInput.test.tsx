@@ -474,12 +474,38 @@ describe('TokenAmountInput', () => {
   it('expires an active quote, invalidates the parent amount and permits escape to token mode', () => {
     render(<Owner />);
     fireEvent.click(toggle());
-    act(() => jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS + 15_000));
+    act(() => jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS));
+    expect(field()).not.toBeDisabled();
+    act(() => jest.advanceTimersByTime(1));
     expect(field()).toBeDisabled();
     expect(changed).toHaveBeenLastCalledWith('');
     expect(toggle()).not.toBeDisabled();
     fireEvent.click(toggle());
     expect(field()).not.toBeDisabled();
+  });
+
+  it('does not convert a USD edit when the quote expired since the last clock update', () => {
+    render(<Owner />);
+    fireEvent.click(toggle());
+
+    act(() => jest.setSystemTime(Date.now() + USD_QUOTE_MAX_AGE_MS + 1));
+    expect(field()).not.toBeDisabled();
+    fireEvent.change(field(), { target: { value: '6' } });
+
+    expect(changed).not.toHaveBeenCalledWith('2');
+    expect(changed).toHaveBeenLastCalledWith('');
+    expect(screen.getByTestId('canonical')).toHaveTextContent('');
+    expect(field()).toBeDisabled();
+  });
+
+  it('does not switch into USD mode when the quote expired since the last clock update', () => {
+    render(<Owner initial="2" />);
+
+    act(() => jest.setSystemTime(Date.now() + USD_QUOTE_MAX_AGE_MS + 1));
+    fireEvent.click(toggle());
+
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    expect(field()).toHaveValue('2');
   });
 
   it('does not trust a supplied external quote unless external asset resolution was requested', () => {

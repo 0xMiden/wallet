@@ -15,7 +15,8 @@ import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { usdQuoteStatus } from 'lib/prices/amount';
+import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
@@ -142,7 +143,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const accentClasses = ACCENT_CLASSES[accent];
 
   const prices = useWalletStore(state => state.tokenPrices);
-  const quote = token && tokenQuote(prices, token.id, token.name);
+  const quote = token ? tokenQuote(prices, token.id, token.name) : undefined;
+  useQuoteClock(quoteExpiryMs(quote));
   const price = usdQuoteStatus(quote) === 'ready' ? quote?.price : undefined;
   const availableFiat = token && token.balance !== null && price ? token.balance * price : null;
   const formatAvailableFiat = adaptiveFormatterFor(availableFiat ?? 0);

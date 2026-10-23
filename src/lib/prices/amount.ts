@@ -15,6 +15,14 @@ export function usdQuoteStatus(quote: TokenPriceInfo | undefined, now = Date.now
   return quote.observedAt > now || now - quote.observedAt > USD_QUOTE_MAX_AGE_MS ? 'stale' : 'ready';
 }
 
+/** First millisecond a ready market quote is stale. Fixed quotes do not wake the clock. */
+export function quoteExpiryMs(quote: TokenPriceInfo | undefined, now = Date.now()): number | undefined {
+  if (usdQuoteStatus(quote, now) !== 'ready' || isFixedQuote(quote)) return undefined;
+  const observedAt = quote?.observedAt;
+  if (observedAt === undefined || !Number.isFinite(observedAt)) return undefined;
+  return observedAt + USD_QUOTE_MAX_AGE_MS + 1;
+}
+
 /** Exact decimal arithmetic. Only an edited USD amount is quantized to the asset's base units. */
 export function usdToToken(value: string, price: number, decimals: number): string {
   if (!/^\d*(?:\.\d*)?$/.test(value) || !value || value === '.' || !(price > 0) || !Number.isFinite(price)) return '';

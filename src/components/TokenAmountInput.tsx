@@ -6,7 +6,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput, type AmountInputProps } from 'components/AmountInput';
 import { TextAction } from 'components/ui/TextAction';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { tokenToUsd, usdEstimateText, usdQuoteStatus, usdToToken } from 'lib/prices/amount';
+import { quoteExpiryMs, tokenToUsd, usdEstimateText, usdQuoteStatus, usdToToken } from 'lib/prices/amount';
 import type { TokenPriceInfo } from 'lib/prices/binance';
 import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { useWalletStore } from 'lib/store';
@@ -51,7 +51,7 @@ const DenominatedAmountInput: React.FC<TokenAmountInputProps> = ({
   const prices = useWalletStore(state => state.tokenPrices);
   const priceState = useWalletStore(state => state.tokenPricesStatus);
   const quote = externalAsset ? suppliedQuote : tokenQuote(prices, assetId, symbol);
-  useQuoteClock();
+  useQuoteClock(quoteExpiryMs(quote));
   const status = scaleIsKnown ? usdQuoteStatus(quote, Date.now()) : 'unavailable';
   const ready = status === 'ready' && !!quote;
   const price = ready ? quote.price : undefined;
@@ -160,7 +160,10 @@ const DenominatedAmountInput: React.FC<TokenAmountInputProps> = ({
           tokenIntent.current = false;
           setTokenSource('usd');
           setUsdText(text);
-          const tokens = price === undefined ? '' : usdToToken(text, price, decimals);
+          const tokens =
+            scaleIsKnown && usdQuoteStatus(quote, Date.now()) === 'ready' && quote
+              ? usdToToken(text, quote.price, decimals)
+              : '';
           exactToken.current = tokens;
           change(tokens);
         } else {
@@ -182,7 +185,12 @@ const DenominatedAmountInput: React.FC<TokenAmountInputProps> = ({
               if (usdMode) {
                 setUsdMode(false);
                 if (emitted.current !== exactToken.current) change(exactToken.current);
-              } else if (price !== undefined) {
+              } else if (
+                scaleIsKnown &&
+                usdQuoteStatus(quote, Date.now()) === 'ready' &&
+                quote &&
+                price !== undefined
+              ) {
                 exactToken.current = value;
                 enteredPrice.current = price;
                 setUsdText(value ? tokenToUsd(value, price) : '');
