@@ -1,4 +1,10 @@
 {
+  "swapBalanceUnavailable": "No se ha podido verificar tu saldo disponible. Inténtalo de nuevo.",
+  "swapPendingSpend": "Espera a que finalice tu transacción pendiente antes de realizar el intercambio.",
+  "swapApproxAmount": "≈ $amount$",
+  "swapExactPayAmount": "Importe exacto del pago",
+  "swapReceiveTargetNote": "Pago estimado para tu destino de recepción. Una ejecución completa puede suponer un pago mayor; las ejecuciones parciales pueden dejarte con menos al vencimiento.",
+  "swapReceiveSlippageNote": "El «slippage» ajusta el importe de pago calculado, mientras que el importe de recepción solicitado permanece fijo.",
   "bridgeRouteEpoch": "Rápido · Epoch",
   "bridgeRouteAgglayer": "Lento · Agglayer",
   "bridgeRouteUnavailableBody": "Esta ruta no está disponible para esta transferencia. Puede continuar con otra ruta disponible. No se ha enviado ninguna transacción desde esta pantalla.",

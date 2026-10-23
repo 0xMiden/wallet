@@ -1,4 +1,10 @@
 {
+  "swapBalanceUnavailable": "Nie udało się zweryfikować salda dostępnego do wydania. Spróbuj ponownie.",
+  "swapPendingSpend": "Przed dokonaniem wymiany poczekaj, aż zakończy się Twoja oczekująca transakcja.",
+  "swapApproxAmount": "≈ $amount$",
+  "swapExactPayAmount": "Dokładna kwota wypłaty",
+  "swapReceiveTargetNote": "Szacowana wypłata dla Twojego odbiorcy. Pełne zrealizowanie zlecenia może zapewnić wyższą wypłatę; częściowe zrealizowanie może skutkować mniejszą kwotą w momencie wygaśnięcia.",
+  "swapReceiveSlippageNote": "Poślizg koryguje obliczoną kwotę wypłaty, podczas gdy żądana kwota odbioru pozostaje stała.",
   "bridgeRouteEpoch": "Fast · Epoch",
   "bridgeRouteAgglayer": "Slow · Agglayer",
   "bridgeRouteUnavailableBody": "Ta trasa jest niedostępna dla tego przelewu. Możesz kontynuować, wybierając inną dostępną trasę. Z tego ekranu nie została przesłana żadna transakcja.",
