@@ -17,6 +17,7 @@ const mockHapticSelection = jest.fn();
 const mockBoostRefreshRate = jest.fn();
 const mockUseHideNavbarWhileOpen = useHideNavbarWhileOpen;
 const mockSwapReview = { open: false };
+const mockReceiveRenders = { count: 0 };
 
 jest.mock('framer-motion', () => ({
   ...jest.requireActual('framer-motion'),
@@ -41,7 +42,8 @@ jest.mock('lib/feature-flags', () => ({
 }));
 
 // Child pages pull in the full wallet stack; each marker reports the page-active value it renders under.
-function MockPage(props: React.ComponentProps<'div'>) {
+function MockPage({ renders, ...props }: React.ComponentProps<'div'> & { renders?: { count: number } }) {
+  if (renders) renders.count += 1;
   return <div {...props} data-page-active={String(usePageActive())} />;
 }
 jest.mock('app/pages/Explore', () => ({
@@ -54,7 +56,7 @@ jest.mock('app/pages/Earn', () => ({
 }));
 jest.mock('app/pages/Receive', () => ({
   __esModule: true,
-  Receive: () => <MockPage data-testid="page-receive" />
+  Receive: () => <MockPage data-testid="page-receive" renders={mockReceiveRenders} />
 }));
 jest.mock('screens/send-flow/SendManager', () => ({
   __esModule: true,
@@ -291,6 +293,23 @@ describe('HomeSwipeContainer', () => {
       expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
     });
 
+    // A navigation that is refused or redirected leaves the route where it was, so the next rest is
+    // judged against the route, not against the page that was asked for.
+    it('judges each rest against the route even after a navigation that did not land', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      settleAt(scroller, W);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      settleAt(scroller, 0);
+
+      expect(mockNavigate.mock.calls).toEqual([['/send']]);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+    });
+
     it('commits a rest once, however many times the engine reports it', () => {
       const { scroller } = mount();
       measure(W);
@@ -441,7 +460,7 @@ describe('HomeSwipeContainer', () => {
 
       route(rerender, '/earn');
 
-      expect(mockScrollTo).toHaveBeenLastCalledWith({ left: 3 * W, behavior: 'instant' });
+      expect(mockScrollTo).toHaveBeenLastCalledWith({ left: 3 * W, behavior: 'auto' });
       expect(mockAnimations).toHaveLength(1);
       expect(lastAnimation().keyframes).toEqual([{ transform: `translateX(${3 * W}px)` }, { transform: 'none' }]);
       expect(lastAnimation().options).toEqual({ duration: pagerTapDurationMs(3), easing: pagerMotion.tapEasing });
@@ -472,6 +491,9 @@ describe('HomeSwipeContainer', () => {
       fire(scroller, 'scroll');
 
       route(rerender, '/receive');
+      expect(scroller.style.overflowX).toBe('hidden');
+      // Restored only after the frame that painted it hidden, so the compositor sees the stop.
+      frame();
       expect(scroller.style.overflowX).toBe('hidden');
       frame();
       expect(scroller.style.overflowX).toBe('auto');
@@ -555,6 +577,54 @@ describe('HomeSwipeContainer', () => {
       expect(track.style.willChange).toBe('');
       // Still a gesture: the finger is down.
       expect(isInteracting()).toBe(true);
+    });
+
+    // A mandatory snap container re-snaps a programmatic scroll, which would jump the caught slide to
+    // a page edge, so snapping is off from the catch until the finger lifts.
+    it('suspends snapping from the catch until the finger lifts', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+
+      fire(scroller, 'touchstart', 1);
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      fire(scroller, 'touchend', 0);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('restores snapping when the catching touch is cancelled', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+      fire(scroller, 'touchstart', 1);
+
+      fire(scroller, 'touchcancel', 0);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('leaves snapping alone for a touch that catches no slide', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('restores snapping on unmount mid-catch', () => {
+      const { scroller, track, rerender, unmount } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+      fire(scroller, 'touchstart', 1);
+
+      unmount();
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
     });
 
     it('lands on a page when the touch lifts without dragging', () => {
@@ -756,6 +826,20 @@ describe('HomeSwipeContainer', () => {
       for (const id of ['explore', 'send', 'receive', 'earn', 'swap']) {
         expect(getByTestId(`page-${id}`)).toBeInTheDocument();
       }
+    });
+
+    it('re-renders only the panes whose flags a route change flips', () => {
+      const { getByTestId, rerender } = mount();
+      measure(W);
+      const before = mockReceiveRenders.count;
+
+      tapTo(rerender, '/send');
+
+      expect(getByTestId('page-send')).toHaveAttribute('data-page-active', 'true');
+      expect(mockReceiveRenders.count).toBe(before);
+
+      tapTo(rerender, '/receive');
+      expect(mockReceiveRenders.count).toBe(before + 1);
     });
 
     it('passes isLoading={false} to the SendFlow', () => {

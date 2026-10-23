@@ -114,7 +114,7 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
   __esModule: true,
   default: () => {
     homeSwipeRenders.count += 1;
-    return <div data-testid="home-swipe" />;
+    return <div data-testid="home-swipe" data-home-pager="" />;
   }
 }));
 
@@ -624,6 +624,27 @@ describe('TabLayout — the bar hides while scrolling down on mobile', () => {
     expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
 
     expect(homeSwipeRenders.count).toBe(before);
+  });
+
+  // The Home pager scrolls sideways every frame of a swipe; its events are no vertical scroll and
+  // must not cost the bar any work, so they neither keep it hidden nor re-arm its idle timer.
+  it("ignores the Home pager's horizontal scroll events", () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    renderLayout();
+    scrollTo(0);
+    scrollTo(40);
+    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
+
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+    fireEvent.scroll(screen.getByTestId('home-swipe'));
+    act(() => {
+      jest.advanceTimersByTime(100);
+    });
+
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
   });
 
   it('never hides the floating pill off-mobile', () => {

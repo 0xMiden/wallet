@@ -50,6 +50,8 @@ function buildPages(swapEnabled: boolean): HomePage[] {
 // jumping, or the momentum carries on from the new position.
 const MOMENTUM_WINDOW_MS = 50;
 
+const SNAP_TYPE = 'x mandatory';
+
 const TEXT_INPUT_TAGS = new Set(['INPUT', 'SELECT', 'TEXTAREA']);
 
 function isTextInput(target: EventTarget | null): boolean {
@@ -146,7 +148,8 @@ const HomeSwipeContainer: FC = () => {
   const pagesRef = useRef(pages);
   const lockedRef = useRef(navbarHidden);
   // The page the route is on, or the one a settle has just navigated to, so a second settle report
-  // for the same rest (scrollend plus the idle check) never buzzes or navigates twice.
+  // for the same rest (scrollend plus the idle check) never buzzes or navigates twice. Re-read from
+  // the route on every commit, so a navigation that was refused or redirected cannot leave it stale.
   const committedIdxRef = useRef(activeIdx);
   const placedWidthRef = useRef(0);
   const flipRef = useRef<Flip | null>(null);
@@ -157,6 +160,7 @@ const HomeSwipeContainer: FC = () => {
     widthRef.current = width;
     pagesRef.current = pages;
     lockedRef.current = navbarHidden;
+    committedIdxRef.current = activeIdx;
   });
 
   // A page can keep its focused input after it moves out of view because the pager keeps every page
@@ -202,7 +206,7 @@ const HomeSwipeContainer: FC = () => {
   }, []);
 
   const scrollInstantly = useCallback(
-    (left: number) => scrollProgrammatically(s => s.scrollTo({ left, behavior: 'instant' })),
+    (left: number) => scrollProgrammatically(s => s.scrollTo({ left, behavior: 'auto' })),
     [scrollProgrammatically]
   );
 
@@ -229,9 +233,13 @@ const HomeSwipeContainer: FC = () => {
       const endInteraction = beginInteraction();
       if (Date.now() - lastScrollAtRef.current < MOMENTUM_WINDOW_MS) {
         scroller.style.overflowX = 'hidden';
-        requestAnimationFrame(() => {
-          scroller.style.overflowX = lockedRef.current ? 'hidden' : 'auto';
-        });
+        // Two frames: a callback of the next frame runs before that frame's style and commit, so a
+        // single one would undo the stop before the compositor ever saw it.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            scroller.style.overflowX = lockedRef.current ? 'hidden' : 'auto';
+          })
+        );
       }
       scrollInstantly(targetLeft);
       const duration = pagerTapDurationMs(Math.round(Math.abs(targetLeft - currentLeft) / pageWidth));
@@ -255,7 +263,6 @@ const HomeSwipeContainer: FC = () => {
   // Route-driven moves. A settle's own navigate lands here too, already aligned, and does nothing.
   useLayoutEffect(() => {
     if (onHome) lastHomeIdxRef.current = activeIdx;
-    committedIdxRef.current = activeIdx;
     const scroller = scrollerRef.current;
     const track = trackRef.current;
     if (!scroller || !track || !width) return;
@@ -291,6 +298,12 @@ const HomeSwipeContainer: FC = () => {
     let endGesture: (() => void) | null = null;
     let touchDown = false;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let snapSuspended = false;
+    const resumeSnap = () => {
+      if (!snapSuspended) return;
+      snapSuspended = false;
+      scroller.style.scrollSnapType = SNAP_TYPE;
+    };
 
     const beginGesture = () => {
       if (!endGesture) endGesture = beginInteraction();
@@ -364,6 +377,10 @@ const HomeSwipeContainer: FC = () => {
       const tx = readTranslateX(track);
       endFlip(flip, true);
       const left = flip.targetLeft - tx;
+      // A mandatory snap container re-snaps a programmatic scroll, which would jump the caught slide
+      // to a page edge. Snapping resumes when the finger lifts, which lands it on the nearest page.
+      snapSuspended = true;
+      scroller.style.scrollSnapType = 'none';
       scrollProgrammatically(s => {
         s.scrollLeft = left;
       });
@@ -371,7 +388,9 @@ const HomeSwipeContainer: FC = () => {
     // Also covers a touch that never scrolled (a tap on content), which fires no scrollend.
     const onTouchEnd = (event: TouchEvent) => {
       touchDown = event.touches.length > 0;
-      if (!touchDown) armIdle();
+      if (touchDown) return;
+      resumeSnap();
+      armIdle();
     };
 
     const passive = { passive: true };
@@ -389,6 +408,7 @@ const HomeSwipeContainer: FC = () => {
       clearTimeout(idleTimer);
       const flip = flipRef.current;
       if (flip) endFlip(flip, true);
+      resumeSnap();
       finishGesture();
     };
   }, [endFlip, scrollProgrammatically]);
@@ -403,7 +423,7 @@ const HomeSwipeContainer: FC = () => {
       style={{
         overflowX: navbarHidden ? 'hidden' : 'auto',
         overflowY: 'hidden',
-        scrollSnapType: 'x mandatory',
+        scrollSnapType: SNAP_TYPE,
         overscrollBehaviorX: 'contain',
         direction: 'ltr',
         touchAction: 'pan-x pan-y'
