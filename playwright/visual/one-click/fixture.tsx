@@ -22,6 +22,7 @@ export const whenEndpointOverridesLoaded = (): Promise<void> => Promise.resolve(
 export const loadEndpointOverrides = async (): Promise<void> => undefined;
 export const setFeeFaucetIdForTest = async (_id: string): Promise<void> => undefined;
 export const getActiveOverride = (): null => null;
+export const hasCustomEndpointOverride = (): boolean => false;
 export const isNoteTransportConfigured = (): boolean => true;
 export const ENDPOINT_OVERRIDE_STORAGE_KEY = 'endpoint_overrides';
 export const hapticLight = () => undefined;
