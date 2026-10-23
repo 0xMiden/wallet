@@ -3952,6 +3952,8 @@ describe('Welcome — registration holds preparation', () => {
   }
 
   it('marks a confirmation tap active until registration resolves', async () => {
+    // The assertions live in `held.during` and `finishHeld`.
+    expect.hasAssertions();
     await reachConfirmationTap();
     const held = holdRegister();
     let pending!: Promise<unknown>;
@@ -3965,6 +3967,7 @@ describe('Welcome — registration holds preparation', () => {
   });
 
   it('clears a confirmation tap when registration rejects', async () => {
+    expect.hasAssertions();
     await reachConfirmationTap();
     const held = holdRegister();
     let pending!: Promise<unknown>;
@@ -3978,6 +3981,7 @@ describe('Welcome — registration holds preparation', () => {
   });
 
   it('marks a side-panel auto-register active until registration resolves', async () => {
+    expect.hasAssertions();
     mockCanHandoff = true;
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
@@ -3990,6 +3994,7 @@ describe('Welcome — registration holds preparation', () => {
   });
 
   it('clears a side-panel auto-register when registration rejects', async () => {
+    expect.hasAssertions();
     mockCanHandoff = true;
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
