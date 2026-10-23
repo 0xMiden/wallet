@@ -3555,6 +3555,27 @@
     "message": "Şifrelenmiş Cüzdan Dosyamı, Bread dahil olmak üzere kimseyle paylaşmayacağım.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "$accountNames$ hesabının durumu bu dosyada yer almaktadır",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Dosya, kurtarma ifadenizi ve Guardian operatörünüzün sizin için sakladığı hesap durumunu içerir; bu nedenle dosyaya ve şifresine sahip olan herkes her ikisini de okuyabilir. Dosyada günlük anahtar bulunmaz: geri yüklemeden sonra cüzdan, Guardian operatörünüz aracılığıyla anahtarı yeniler veya siz kaydedilmiş bir günlük anahtar çifti kullanabilirsiniz (Ayarlar → Anahtarlar → Özel Anahtarı Göster). Bu dosya bir anlık görüntüdür: para gönderdikten veya aldıktan sonra yeni bir dosya kaydedin; çünkü eski bir dosya, o andan sonra gerçekleşen işlemleri geri yükleyemez.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Bir rotasyon hâlâ devam ediyor. Bitmesini bekleyin, ardından tekrar deneyin.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Kaydedilmiş günlük anahtar çiftimi kullan",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Bu dosyadan geri yüklenmedi: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",

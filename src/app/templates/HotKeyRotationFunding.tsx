@@ -239,6 +239,8 @@ interface PanelProps {
   noteScan?: string | null;
   onRetryClaim: () => void;
   onCheckAgain: () => void;
+  /** Takes a saved everyday key pair instead of a funded rotation, which that key needs neither fee nor operator for. */
+  onUseKeyPair?: () => void;
 }
 
 /**
@@ -257,7 +259,8 @@ export const RotationFundingPanel: FC<PanelProps> = ({
   claimUnconfirmed,
   noteScan,
   onRetryClaim,
-  onCheckAgain
+  onCheckAgain,
+  onUseKeyPair
 }) => {
   const { t } = useTranslation();
   useUserVisibleError(status === 'claim-failed' ? errorId : null, 'status_screen');
@@ -317,6 +320,11 @@ export const RotationFundingPanel: FC<PanelProps> = ({
       >
         {t('hotKeyRotationFundingCheckAgain')}
       </Button>
+      {onUseKeyPair && (
+        <Button data-testid="hot-key-rotation-use-key-pair" variant={ButtonVariant.Secondary} onClick={onUseKeyPair}>
+          {t('hotKeyRotationUseKeyPair')}
+        </Button>
+      )}
     </div>
   );
 };
