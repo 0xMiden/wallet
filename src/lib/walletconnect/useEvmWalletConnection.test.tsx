@@ -31,8 +31,6 @@ function deps(): StartupReconnectDeps & { settle: (status: string) => void } {
       return () => listeners.delete(listener);
     },
     subscribeModalOpen: () => () => {},
-    forgetSession: jest.fn(),
-    disconnect: jest.fn(async () => {}),
     settle: status => listeners.forEach(listener => listener(status))
   };
 }

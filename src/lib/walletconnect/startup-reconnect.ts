@@ -8,8 +8,8 @@
  * installs are hit.
  *
  * Elapsed time has no proof the peer is stale, so the ten-second bound only frees Connect. `fire` keeps the guard
- * `settled || modalOpen || status !== 'connecting'`, calls `publish(true)`, and returns. It does not call
- * `forgetSession` or `disconnect`, it does not warn, and it does not set `settled`. The first status other than
+ * `settled || modalOpen || status !== 'connecting'`, calls `publish(true)`, and returns. It does not touch AppKit's
+ * storage or connection, it does not warn, and it does not set `settled`. The first status other than
  * `connecting`, including a `connected` that arrives after the bound, sets `settled`, stops the timer, and calls
  * `publish(false)`. That path does not clear storage or disconnect, so the connection status, connector id, and
  * namespace stay, and `modal.disconnect` is not asked. A restore that reports `connected` after the bound clears the
@@ -34,10 +34,6 @@ export interface StartupReconnectDeps {
   subscribeStatus: (listener: (status: string | undefined) => void) => () => void;
   /** Whether AppKit's modal is open, on every change. */
   subscribeModalOpen: (listener: (open: boolean) => void) => () => void;
-  /** The bound must not call this. Elapsed time does not forget the stored session. */
-  forgetSession: () => void;
-  /** The bound must not call this. Elapsed time does not ask AppKit to disconnect. */
-  disconnect: () => Promise<void>;
 }
 
 let timedOut = false;

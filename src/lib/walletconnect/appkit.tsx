@@ -126,13 +126,7 @@ try {
   boundStartupReconnect({
     storedStatus: () => StorageUtil.getConnectionStatus(),
     subscribeStatus: listener => modal.subscribeAccount(account => listener(account.status), 'eip155'),
-    subscribeModalOpen: listener => modal.subscribeState(state => listener(state.open)),
-    forgetSession: () => {
-      StorageUtil.setConnectionStatus('disconnected');
-      StorageUtil.deleteConnectedConnectorId('eip155');
-      StorageUtil.removeConnectedNamespace('eip155');
-    },
-    disconnect: () => modal.disconnect('eip155')
+    subscribeModalOpen: listener => modal.subscribeState(state => listener(state.open))
   });
 } catch {
   // The bound cannot keep AppKit from starting.
