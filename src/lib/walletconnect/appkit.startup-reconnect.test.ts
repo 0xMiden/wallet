@@ -73,17 +73,25 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-it('forgets a stored session AppKit is still restoring at the bound and asks AppKit to disconnect', async () => {
+it('keeps a stored session that connects after the bound', async () => {
   const loaded = await load('connected');
   expect(loaded.modal.subscribeAccount).toHaveBeenCalledWith(expect.any(Function), 'eip155');
 
   jest.advanceTimersByTime(STARTUP_RECONNECT_BOUND_MS);
 
   expect(loaded.timedOut()).toBe(true);
-  expect(loaded.storage.setConnectionStatus).toHaveBeenCalledWith('disconnected');
-  expect(loaded.storage.deleteConnectedConnectorId).toHaveBeenCalledWith('eip155');
-  expect(loaded.storage.removeConnectedNamespace).toHaveBeenCalledWith('eip155');
-  expect(loaded.modal.disconnect).toHaveBeenCalledWith('eip155');
+  expect(loaded.storage.setConnectionStatus).not.toHaveBeenCalled();
+  expect(loaded.storage.deleteConnectedConnectorId).not.toHaveBeenCalled();
+  expect(loaded.storage.removeConnectedNamespace).not.toHaveBeenCalled();
+  expect(loaded.modal.disconnect).not.toHaveBeenCalled();
+
+  loaded.account('connected');
+
+  expect(loaded.timedOut()).toBe(false);
+  expect(loaded.storage.setConnectionStatus).not.toHaveBeenCalled();
+  expect(loaded.storage.deleteConnectedConnectorId).not.toHaveBeenCalled();
+  expect(loaded.storage.removeConnectedNamespace).not.toHaveBeenCalled();
+  expect(loaded.modal.disconnect).not.toHaveBeenCalled();
 });
 
 it('leaves a session that AppKit restored in time', async () => {

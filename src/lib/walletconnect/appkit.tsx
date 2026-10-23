@@ -120,8 +120,8 @@ try {
   // Crash diagnostics cannot keep AppKit from starting.
 }
 
-// AppKit restores a stored session at startup and reports `connecting` until that settles, which a stale session
-// never does. The bound forgets the session and frees the connect button (see `startup-reconnect.ts`).
+// AppKit restores a stored session at startup and reports `connecting` until that settles. The bound frees Connect
+// after ten seconds and leaves the stored session in place (see `startup-reconnect.ts`).
 try {
   boundStartupReconnect({
     storedStatus: () => StorageUtil.getConnectionStatus(),

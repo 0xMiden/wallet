@@ -9,7 +9,7 @@ export function useEvmWalletConnection() {
   const { address, isConnected, status } = useAppKitAccount({ namespace: 'eip155' });
   const nativeReown = useNativeReown();
   const useNativeReownWallet = nativeReown.available;
-  // A startup restore past its bound reads as disconnected, so the connect button is not held by a stale session.
+  // A startup restore past its bound reads as disconnected, so Connect is freed and the stored session stays.
   useSyncExternalStore(subscribeStartupReconnect, startupReconnectTimedOut);
 
   return {

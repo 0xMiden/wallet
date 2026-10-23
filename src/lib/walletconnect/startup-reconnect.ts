@@ -3,18 +3,25 @@
  *
  * When a page loads, AppKit reads the connection status it stored on the last connect. On `connected` it sets the
  * EVM account status to `connecting` before any user action and restores the old WalletConnect session through the
- * relay. The status moves on only when that restore settles. A stale session (its peer gone, its pairing expired)
- * can keep the restore open for the life of the page, and the wallet then shows "Preparing connection…" with its
- * connect button disabled, so the user can neither finish nor start a connection. A fresh install has no stored
- * status, which is why only old installs are hit.
+ * relay. The status moves on only when that restore settles. A restore that never leaves `connecting` can keep the
+ * page on "Preparing connection…" with Connect disabled. A fresh install has no stored status, which is why only old
+ * installs are hit.
  *
- * So the restore is given `STARTUP_RECONNECT_BOUND_MS`, counted only while the connect modal is closed. When it is
- * still `connecting` at the bound, the stored session is forgotten, so the next page load starts `disconnected`, a
- * disconnect is asked of AppKit, and the hook reads `connecting` as `disconnected`, because the disconnect itself
- * can wait on the same stuck provider. Opening the modal is the user taking over: it pauses the bound and lifts that
- * override, so their own attempt shows its progress. Closing the modal while the restore has still not settled
- * starts a fresh bound. The first status other than `connecting` settles the restore for good. Import-free, so it
- * can be tested without AppKit.
+ * Elapsed time has no proof the peer is stale, so the ten-second bound only frees Connect. `fire` keeps the guard
+ * `settled || modalOpen || status !== 'connecting'`, calls `publish(true)`, and returns. It does not call
+ * `forgetSession` or `disconnect`, it does not warn, and it does not set `settled`. The first status other than
+ * `connecting`, including a `connected` that arrives after the bound, sets `settled`, stops the timer, and calls
+ * `publish(false)`. That path does not clear storage or disconnect, so the connection status, connector id, and
+ * namespace stay, and `modal.disconnect` is not asked. A restore that reports `connected` after the bound clears the
+ * override, and the session kept is the one AppKit restored.
+ *
+ * A restore that never leaves `connecting` stays stored, so the next page load waits ten seconds again before
+ * Connect is freed. That repeated wait is the cost of keeping a session the bound cannot prove is dead. On this
+ * page, while the override is set, `effectiveAppKitStatus('connecting')` is `disconnected`, so Connect is not held
+ * by the restore. Opening the modal pauses the timer and clears the override. Closing the modal starts a display
+ * bound whose expiry does not forget or disconnect a pairing that is still `connecting`; the same `fire` only
+ * publishes the override, and a later `connected` clears it and keeps the pairing. Import-free, so it can be tested
+ * without AppKit.
  */
 import type { ConnectionStatus } from '@reown/appkit-controllers';
 
@@ -27,9 +34,9 @@ export interface StartupReconnectDeps {
   subscribeStatus: (listener: (status: string | undefined) => void) => () => void;
   /** Whether AppKit's modal is open, on every change. */
   subscribeModalOpen: (listener: (open: boolean) => void) => () => void;
-  /** Forget the stored session, so the next page load starts disconnected. */
+  /** The bound must not call this. Elapsed time does not forget the stored session. */
   forgetSession: () => void;
-  /** Ask AppKit to end the restore. May never settle. */
+  /** The bound must not call this. Elapsed time does not ask AppKit to disconnect. */
   disconnect: () => Promise<void>;
 }
 
@@ -42,7 +49,7 @@ function publish(next: boolean): void {
   listeners.forEach(listener => listener());
 }
 
-/** True while an unsettled startup restore has passed its bound and the connect modal has not been opened since. */
+/** The display override is on. A later close can set it again. It does not mean the session was removed. */
 export function startupReconnectTimedOut(): boolean {
   return timedOut;
 }
@@ -54,7 +61,10 @@ export function subscribeStartupReconnect(listener: () => void): () => void {
   };
 }
 
-/** The status the wallet shows for AppKit's: a timed-out startup `connecting` reads as `disconnected`. */
+/**
+ * The status the wallet shows for AppKit's: a timed-out startup `connecting` reads as `disconnected`. That reading
+ * does not clear storage or disconnect.
+ */
 export function effectiveAppKitStatus(status: string | undefined): string | undefined {
   return timedOut && status === 'connecting' ? 'disconnected' : status;
 }
@@ -78,12 +88,6 @@ export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
     timer = undefined;
     if (settled || modalOpen || status !== 'connecting') return;
     publish(true);
-    try {
-      deps.forgetSession();
-    } catch (error) {
-      console.warn('[walletconnect] could not forget the stored session', error);
-    }
-    deps.disconnect().catch(error => console.warn('[walletconnect] startup reconnect disconnect failed', error));
   };
   // A running clock keeps its deadline; `fire` never re-arms.
   const arm = () => {
@@ -102,7 +106,7 @@ export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
   });
   const unsubscribeModal = deps.subscribeModalOpen(open => {
     if (open) {
-      // The user took over: show their attempt's own `connecting`, even with an earlier disconnect still pending.
+      // The user took over: pause the bound and clear the display override, without settling the restore.
       modalOpen = true;
       stopTimer();
       publish(false);
@@ -110,6 +114,7 @@ export function boundStartupReconnect(deps: StartupReconnectDeps): () => void {
     }
     if (!modalOpen) return;
     modalOpen = false;
+    // Closing starts a display bound. Its expiry does not forget or disconnect a pairing that is still connecting.
     arm();
   });
   arm();
