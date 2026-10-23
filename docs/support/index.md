@@ -38,7 +38,7 @@ Open **Settings → Security → Recovery Phrase → Remove recovery phrase**. W
 
 Daily transactions still use the stored signing keys. When you change the Guardian, replace the everyday key, or change a procedure threshold, enter your recovery phrase to continue. The wallet checks that it belongs to the account and uses the recovery key only for that action. It does not save the phrase again. If an action waits for the recovery phrase, open it in Activity and select **Enter your recovery phrase**.
 
-Removal affects this local wallet. It does not delete backups that you previously made. Account creation without a stored recovery phrase is not yet supported. Wallet export changes are planned separately.
+Removal affects this local wallet. It does not delete backups that you previously made. Account creation without a stored recovery phrase is not yet supported. If no account depends on a phrase-derived key, you can still export an Encrypted Wallet File for eligible imported accounts.
 
 ## More
 
