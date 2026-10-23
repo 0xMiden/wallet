@@ -53,6 +53,7 @@ import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
@@ -2303,9 +2304,12 @@ const proposeRebased = async (
 ): Promise<Proposal> => {
   const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
   transaction.requestBytes = rebased.requestBytes;
-  await Repo.transactions.where({ id: transaction.id }).modify(t => {
-    t.requestBytes = rebased.requestBytes;
-  });
+  // The proposal exists by now: a failure here never means none was made.
+  await withProposalStep('rebased_request_persist', () =>
+    Repo.transactions.where({ id: transaction.id }).modify(t => {
+      t.requestBytes = rebased.requestBytes;
+    })
+  );
   return rebased.proposal;
 };
 
@@ -2355,7 +2359,9 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  _chainAnchorB64?: string
+  _chainAnchorB64?: string,
+  oneClickDeadline?: string,
+  oneClickRequired = false
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
@@ -2491,6 +2497,7 @@ const runGuardianPipeline = async (
       evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
     });
     assertStillHoldingLock(hold, 'before submit');
+    if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
     // does, so a failed local apply is retried in this hold while that is safe, and one that
@@ -3721,68 +3728,74 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
-        // Resolved BEFORE the lock: the reads drive their own RpcClient through the
-        // WASM module and re-entering it under the client lock traps.
-        const swapFeeSalt = randomFeeSalt();
         const requestBytes = await swapStep('request_build', () =>
-          withWasmClientLock(async hold => {
-            // The offered asset has to carry the vault key of the slot it is
-            // actually held in — the callback flag is part of that key, and the
-            // PSWAP builder always produces the Disabled variant. Read the vault
-            // through the proxy, like every other path that does this, so under the
-            // offscreen client the key comes from the realm that will EXECUTE the
-            // request. The proxy read is unlocked by design and this scope already
-            // holds the client lock, which is what that contract requires.
-            const creatorAccount = await midenClientProxy.getAccount(walletAccountIdToSdk(swapTx.accountId).toString());
-            // An eviction during the read ABANDONS this callback without stopping
-            // it: the creator Account is a borrow of a client a successor now
-            // owns, and reaching for the realm's reader below would queue this dead
-            // flow on the reader its successor uses. Pre-proposal throughout, so
-            // stopping costs one retry.
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
-            // The realm's reader client (see `getRealmReaderClient`), not a per-call
-            // client: 0.16 can release neither, so a client per swap build leaked.
-            // Its first build is the long parking await here (a genesis fetch on a
-            // fresh store), hence the re-check after it.
-            const client = await getRealmReaderClient();
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
-            const tr = await client.newPswapCreateTransactionRequest(
-              walletAccountIdToSdk(swapTx.accountId),
-              accountRefToSdk(swapTx.faucetId),
-              swapTx.amount,
-              accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
-              swapTx.extraInputs.requestedAmount,
-              NoteType.Public,
-              NoteType.Public
-            );
-            // `buildPswapCreateRequest` reads the creator Account - the SHARED
-            // client's borrow, not the reader's - so the request build needs its
-            // own re-check after the await above.
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
-            const baseBuilder = await feeAwareRequestBuilder(
-              (await getMidenClient()).client,
-              walletAccountIdToSdk(swapTx.accountId).toString(),
-              swapFeeSalt
-            );
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
-            // Built once and rewritten once, in the same scope: each builder call
-            // draws a fresh serial number, which IS the order id. See
-            // `buildPswapCreateRequest`.
-            return buildPswapCreateRequest(
-              creatorAccount ?? undefined,
-              tr,
-              swapTx.faucetId,
-              BigInt(swapTx.amount),
-              GUARDIAN_EXPIRATION_DELTA_BLOCKS,
-              baseBuilder
-            ).serialize();
+          withProposalStep('swap_request_build', () => {
+            // Resolved BEFORE the lock: the reads drive their own RpcClient through the
+            // WASM module and re-entering it under the client lock traps.
+            const swapFeeSalt = randomFeeSalt();
+            return withWasmClientLock(async hold => {
+              // The offered asset has to carry the vault key of the slot it is
+              // actually held in — the callback flag is part of that key, and the
+              // PSWAP builder always produces the Disabled variant. Read the vault
+              // through the proxy, like every other path that does this, so under the
+              // offscreen client the key comes from the realm that will EXECUTE the
+              // request. The proxy read is unlocked by design and this scope already
+              // holds the client lock, which is what that contract requires.
+              const creatorAccount = await midenClientProxy.getAccount(
+                walletAccountIdToSdk(swapTx.accountId).toString()
+              );
+              // An eviction during the read ABANDONS this callback without stopping
+              // it: the creator Account is a borrow of a client a successor now
+              // owns, and reaching for the realm's reader below would queue this dead
+              // flow on the reader its successor uses. Pre-proposal throughout, so
+              // stopping costs one retry.
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
+              // The realm's reader client (see `getRealmReaderClient`), not a per-call
+              // client: 0.16 can release neither, so a client per swap build leaked.
+              // Its first build is the long parking await here (a genesis fetch on a
+              // fresh store), hence the re-check after it.
+              const client = await getRealmReaderClient();
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
+              const tr = await client.newPswapCreateTransactionRequest(
+                walletAccountIdToSdk(swapTx.accountId),
+                accountRefToSdk(swapTx.faucetId),
+                swapTx.amount,
+                accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
+                swapTx.extraInputs.requestedAmount,
+                NoteType.Public,
+                NoteType.Public
+              );
+              // `buildPswapCreateRequest` reads the creator Account - the SHARED
+              // client's borrow, not the reader's - so the request build needs its
+              // own re-check after the await above.
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
+              const baseBuilder = await feeAwareRequestBuilder(
+                (await getMidenClient()).client,
+                walletAccountIdToSdk(swapTx.accountId).toString(),
+                swapFeeSalt
+              );
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
+              // Built once and rewritten once, in the same scope: each builder call
+              // draws a fresh serial number, which IS the order id. See
+              // `buildPswapCreateRequest`.
+              return buildPswapCreateRequest(
+                creatorAccount ?? undefined,
+                tr,
+                swapTx.faucetId,
+                BigInt(swapTx.amount),
+                GUARDIAN_EXPIRATION_DELTA_BLOCKS,
+                baseBuilder
+              ).serialize();
+            });
           })
         );
         transaction.requestBytes = requestBytes;
         await swapStep('request_persist', () =>
-          Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = requestBytes;
-          })
+          withProposalStep('swap_request_persist', () =>
+            Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = requestBytes;
+            })
+          )
         );
       }
       // OUTSIDE the build branch, unlike everything else in it. The five other annotation sites
@@ -4064,6 +4077,15 @@ const generateGuardianTransaction = async (
     guardianCoSignReturned = true;
 
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
+    const oneClick = transaction.type === 'send' ? transaction.extraInputs?.oneClick : undefined;
+    const oneClickDeadline = oneClick
+      ? assertOneClickFundingDeadlineMatches(
+          oneClick.fundingDeadline,
+          oneClick.request.deadline,
+          oneClick.quote.quote.deadline
+        )
+      : undefined;
+    const oneClickRequired = oneClick !== undefined;
 
     await requireBridgeSubmitClaim(transaction);
     await setTransactionStage(transaction.id, 'sending');
@@ -4121,7 +4143,9 @@ const generateGuardianTransaction = async (
           signCallback,
           stampStage,
           chainAnchorB64,
-          submitGate.gate
+          submitGate.gate,
+          oneClickDeadline,
+          oneClickRequired
         )
       );
     } else {
@@ -4130,7 +4154,9 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         stampAttemptStage,
-        chainAnchorB64
+        chainAnchorB64,
+        oneClickDeadline,
+        oneClickRequired
       );
     }
   } catch (error) {
@@ -4167,7 +4193,9 @@ const generateGuardianTransaction = async (
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
       !gateShut &&
-      (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
+      (isKilledPipeline(error) ||
+        (submitCrossed && !hasErrorBeforeSubmit(error)) ||
+        (offscreenDispatched && !hasErrorBeforeSubmit(error)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
       // it, and the release dates it and abandons its nonce only while the record is still this attempt's

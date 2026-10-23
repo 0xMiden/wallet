@@ -122,6 +122,15 @@ describe('BridgeDeposit (#875)', () => {
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 
+  it('keeps the active bridge step number legible on the receive tint', () => {
+    render(<BridgeDeposit />);
+
+    const currentStep = screen.getByText('1').parentElement;
+    const nextStep = screen.getByText('2').parentElement;
+    expect(currentStep).toHaveClass('bg-accent-receive-tint', 'text-accent-receive-ink');
+    expect(nextStep).not.toHaveClass('bg-accent-receive-tint', 'text-accent-receive-ink');
+  });
+
   it('closes via the header, falling back to /receive with no onClose prop', () => {
     render(<BridgeDeposit />);
 

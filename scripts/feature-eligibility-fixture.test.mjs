@@ -13,6 +13,17 @@ const document = (network = 'testnet', version = 13) => ({
   features: { earn: true },
   swap: { etaUrl: 'https://quotes.test' }
 });
+const oneClick = {
+  serviceUrl: 'https://one-click.example/api',
+  midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }]
+};
+const nearIntentsDocument = (network = 'testnet', version = 13, serviceUrl = oneClick.serviceUrl) => ({
+  network,
+  version,
+  features: { earn: false, nearIntents: true },
+  swap: { oneClick: { ...oneClick, serviceUrl } },
+  geo: { wallet: {} }
+});
 async function start(options = {}) {
   const fixture = await createEligibilityFixture({
     networks: ['testnet'],
@@ -77,11 +88,10 @@ test('lazy source starts before the upstream and follows intentional policy vers
 
 test('config overrides update both realms and strict decisions together', async () => {
   const fixture = await start();
-  const updated = document('testnet', 14);
-  updated.features.earn = false;
+  const updated = nearIntentsDocument('testnet', 14);
   const response = await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(updated) });
   assert.equal(response.status, 200);
-  assert.equal((await (await fetch(`${fixture.url}/testnet.json`)).json()).version, 14);
+  assert.deepEqual(await (await fetch(`${fixture.url}/testnet.json`)).json(), { ...updated, geo: { wallet: {} } });
   assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json(), {
     network: 'testnet',
     version: 14,
@@ -89,8 +99,102 @@ test('config overrides update both realms and strict decisions together', async 
   });
 });
 
+test('oneClick-only swap capability is eligible only with nearIntents and a valid Miden mapping', async () => {
+  const oneClickDocument = {
+    network: 'testnet',
+    version: 13,
+    features: { earn: false, nearIntents: true },
+    swap: {
+      oneClick: {
+        serviceUrl: 'https://oneclick.example',
+        midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'11'.repeat(15)}`, decimals: 6 }]
+      }
+    }
+  };
+  const fixture = await start({ fetchImpl: async () => new Response(JSON.stringify(oneClickDocument)) });
+  const eligible = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
+  assert.deepEqual((await eligible.json()).allowed, { wallet: true, earn: false, swap: true });
+
+  const nearIntentsOff = { ...oneClickDocument, version: 14, features: { earn: false, nearIntents: false } };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(nearIntentsOff) });
+  const disabled = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
+  assert.deepEqual((await disabled.json()).allowed, { wallet: true, earn: false, swap: false });
+
+  const missingMapping = {
+    ...oneClickDocument,
+    version: 15,
+    swap: { oneClick: { serviceUrl: 'https://oneclick.example', midenAssets: [] } }
+  };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(missingMapping) });
+  const unusable = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
+  assert.deepEqual((await unusable.json()).allowed, { wallet: true, earn: false, swap: false });
+});
+
+test('HTTP eligibility follows OneClick-only Near Intents policy and validates mappings and service URLs', async () => {
+  const networks = ['mainnet', 'testnet', 'devnet', 'localnet'];
+  const fixture = await start({
+    networks,
+    fetchImpl: async url => {
+      const network = new URL(url).pathname.split('/').at(-1).replace('.json', '');
+      return new Response(JSON.stringify(nearIntentsDocument(network)));
+    }
+  });
+  const update = async (network, config) => {
+    const response = await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(config) });
+    assert.equal(response.status, 200);
+    return (await fetch(`${fixture.url}/v1/eligibility?network=${network}`)).json();
+  };
+  for (const network of ['mainnet', 'testnet', 'devnet']) {
+    assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=${network}`)).json(), {
+      network,
+      version: 13,
+      allowed: { wallet: true, earn: false, swap: true }
+    });
+  }
+  assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=localnet`)).json(), {
+    network: 'localnet',
+    version: 1,
+    allowed: { wallet: true, earn: false, swap: false }
+  });
+
+  for (const network of ['mainnet', 'testnet', 'devnet']) {
+    for (const [version, serviceUrl] of [[14, 'http://localhost:8551'], [15, 'http://127.0.0.1:8551'], [16, 'http://[::1]:8551']]) {
+      const result = await update(network, nearIntentsDocument(network, version, serviceUrl));
+      assert.equal(result.version, version);
+      assert.equal(result.allowed.swap, false, `${network} must reject HTTP OneClick service URLs`);
+    }
+  }
+
+  for (const [version, serviceUrl] of [[2, 'http://localhost:8551'], [3, 'http://127.0.0.1:8551'], [4, 'http://[::1]:8551']]) {
+    const result = await update('localnet', nearIntentsDocument('localnet', version, serviceUrl));
+    assert.equal(result.allowed.swap, true, `${serviceUrl} is a permitted localnet loopback`);
+  }
+  for (const [version, serviceUrl] of [[5, 'http://one-click.example'], [6, 'http://192.168.1.4:8551']]) {
+    const result = await update('localnet', nearIntentsDocument('localnet', version, serviceUrl));
+    assert.equal(result.allowed.swap, false, `${serviceUrl} is not an allowed localnet loopback`);
+  }
+
+  for (const config of [
+    { ...nearIntentsDocument('testnet', 16), features: { earn: false } },
+    { ...nearIntentsDocument('testnet', 17), features: { nearIntents: false } },
+    { ...nearIntentsDocument('testnet', 18), swap: { oneClick: { ...oneClick, midenAssets: [] } } },
+    { ...nearIntentsDocument('testnet', 19), swap: { oneClick: { ...oneClick, midenAssets: [{ ...oneClick.midenAssets[0], assetId: '' }] } } },
+    { ...nearIntentsDocument('testnet', 20), swap: { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }] } } },
+    { ...nearIntentsDocument('testnet', 21), swap: { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }] } } }
+  ]) {
+    const result = await update('testnet', config);
+    assert.equal(result.allowed.swap, false);
+  }
+});
+
 test('explicit restricted and failed modes fail closed', async () => {
   const fixture = await start();
+  const configured = await fetch(`${fixture.url}/_fixture/config`, {
+    method: 'POST',
+    body: JSON.stringify(nearIntentsDocument('testnet', 14))
+  });
+  assert.equal(configured.status, 200);
+  assert.equal((await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json()).allowed.swap, true);
   const set = state => fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state }) });
   await set('restricted');
   assert.deepEqual((await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json()).allowed, {
@@ -109,14 +213,19 @@ test('loading waits for a state change before allowing wallet access', { timeout
     onRequestWaiting = resolve;
   });
   const fixture = await start({ onRequestWaiting });
+  const configured = await fetch(`${fixture.url}/_fixture/config`, {
+    method: 'POST',
+    body: JSON.stringify(nearIntentsDocument('testnet', 14))
+  });
+  assert.equal(configured.status, 200);
   const set = state => fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state }) });
   await set('loading');
   let settled = false;
-  const pending = fetch(`${fixture.url}/v1/eligibility?network=testnet`, { signal: AbortSignal.timeout(5_000) }).finally(
-    () => {
-      settled = true;
-    }
-  );
+  const pending = fetch(`${fixture.url}/v1/eligibility?network=testnet`, {
+    signal: AbortSignal.timeout(5_000)
+  }).finally(() => {
+    settled = true;
+  });
   const first = await Promise.race([
     enteredWaiting.then(() => 'waiting'),
     pending.then(
@@ -131,8 +240,8 @@ test('loading waits for a state change before allowing wallet access', { timeout
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     network: 'testnet',
-    version: 13,
-    allowed: { wallet: true, earn: true, swap: true }
+    version: 14,
+    allowed: { wallet: true, earn: false, swap: true }
   });
 });
 

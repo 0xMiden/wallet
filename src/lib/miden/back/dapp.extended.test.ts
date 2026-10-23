@@ -290,7 +290,8 @@ beforeEach(() => {
       senderAccountId: 'sender-1',
       nullifier: 'nf-1',
       state: 0,
-      assets: [{ faucetId: 'faucet-1', amount: '50' }]
+      assets: [{ faucetId: 'faucet-1', amount: '50' }],
+      nonFungibleAssets: []
     }
   ]);
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
@@ -1396,7 +1397,7 @@ describe('approved non-extension custom carried-note failures (#1378)', () => {
     sdkNote.deserialize = (bytes: Uint8Array) => ({
       id: () => ({ toString: () => Array.from(bytes, byte => String.fromCharCode(byte)).join('') }),
       metadata: () => undefined,
-      assets: () => ({ fungibleAssets: () => [] })
+      assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
     });
   });
   afterEach(() => {
@@ -1630,7 +1631,8 @@ describe('requestConsumeTransaction', () => {
         nullifier: 'nf1',
         state: 1,
         // What the note REALLY holds: 7 units of another faucet.
-        assets: [{ faucetId: 'real-faucet', amount: '7' }]
+        assets: [{ faucetId: 'real-faucet', amount: '7' }],
+        nonFungibleAssets: []
       }
     ]);
 
@@ -1668,7 +1670,8 @@ describe('requestConsumeTransaction', () => {
         senderAccountId: 's1',
         nullifier: 'nf1',
         state: 1,
-        assets: [{ faucetId: 'real-faucet', amount: '7' }]
+        assets: [{ faucetId: 'real-faucet', amount: '7' }],
+        nonFungibleAssets: []
       }
     ]);
     await dapp.requestConsumeTransaction('https://miden.xyz', {
@@ -1709,7 +1712,7 @@ describe('requestConsumeTransaction', () => {
     sdk.Note.deserialize = jest.fn(() => ({
       id: () => ({ toString: () => 'some-other-note' }),
       metadata: () => ({ noteType: () => 'Private' }),
-      assets: () => ({ fungibleAssets: () => [] })
+      assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
     }));
 
     try {

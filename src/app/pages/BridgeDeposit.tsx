@@ -40,7 +40,7 @@ interface ConnectStepProps {
 const ConnectStep: React.FC<ConnectStepProps> = ({ number, title, body, current = false, last = false }) => (
   <li className="relative flex gap-3 pb-4 last:pb-0">
     {!last && <span aria-hidden="true" className="absolute bottom-0 left-4 top-8 w-0.5 -translate-x-1/2 bg-fill" />}
-    <IconCircle className={current ? 'bg-accent-receive text-pure-white' : 'text-muted'}>
+    <IconCircle className={current ? 'bg-accent-receive-tint text-accent-receive-ink' : 'text-muted'}>
       <span className="text-caption-heading font-black">{number}</span>
     </IconCircle>
     <span className="min-w-0 pt-1">

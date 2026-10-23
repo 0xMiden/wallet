@@ -302,6 +302,12 @@ describe('HistoryView empty state', () => {
     expect(screen.getByTestId('activity-spinner')).toBeInTheDocument();
   });
 
+  it("swaps the generic card for a filter's own empty state", () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState emptyState={<p>custom empty</p>} />);
+    expect(screen.getByText('custom empty')).toBeInTheDocument();
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+  });
+
   it('renders the Activity-tab empty state flush under the filters, not vertically centered', () => {
     const { container } = render(<HistoryView {...baseProps} entries={[]} centerEmptyState />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
@@ -896,7 +902,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
 
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
-    const row = rowByTitle('Transaction failed');
+    const row = rowByTitle('transactionFailedNotificationTitle');
     expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
@@ -1004,7 +1010,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(rowByTitle('cancelled')).toHaveAttribute('data-status', 'cancelled');
     const failedRow = screen
       .getAllByTestId('activity-row')
-      .find(el => el.getAttribute('data-title') === 'Transaction failed')!;
+      .find(el => el.getAttribute('data-title') === 'transactionFailedNotificationTitle')!;
     expect(failedRow).toHaveAttribute('data-status', 'failed');
     expect(failedRow).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
@@ -1663,7 +1669,7 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(degraded).toHaveAttribute('data-status', 'confirmed');
     expect(queued).toHaveAttribute('data-title', 'Switching guardian');
     expect(queued).toHaveAttribute('data-status', 'pending');
-    expect(failed).toHaveAttribute('data-title', 'Transaction failed');
+    expect(failed).toHaveAttribute('data-title', 'transactionFailedNotificationTitle');
     expect(failed).toHaveAttribute('data-status', 'failed');
   });
 });
@@ -1722,6 +1728,21 @@ describe('HistoryView swap settlement status', () => {
     });
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', status);
+  });
+
+  it('reads a stuck payout claim as paybackStuck ahead of its pending settlement (#1644)', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'MDN',
+      requestedToken: 'ETH',
+      requestedAmount: '0.5',
+      amount: '10',
+      message: 'swap settled',
+      swapSettlement: 'pending',
+      paybackClaimStuck: { failedClaimId: 'payback-claim-1', reason: 'fee' }
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'paybackStuck');
   });
 });
 

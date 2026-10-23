@@ -60,7 +60,12 @@ jest.mock('lib/store', () => ({
 // The collateral the receipt falls back to comes from the bridge config.
 let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
+// The vault the document lists for the row's market, if any: none unless a test names one.
+let mockListedVault: { name: string } | null = null;
+jest.mock('lib/remote-config/values', () => ({
+  selectMidenUsdc: () => mockCollateral,
+  selectEarnVault: () => mockListedVault
+}));
 
 // Captures the last props handed to the shared layout. `mock`-prefixed so
 // jest's factory-hoisting allows the out-of-scope reference.
@@ -149,7 +154,7 @@ describe('EarnSuccess', () => {
 
     expect(screen.getByTestId('title')).toHaveTextContent("You're Earning!");
     expect(mockLastPill?.lhs).toBe('10000000 USDC');
-    expect(mockLastPill?.rhs).toBe('DUMMY-LENDING');
+    expect(mockLastPill?.rhs).toBe('Dummy Lending');
     expect(mockLastPill?.separator).toBeTruthy();
   });
 
@@ -176,9 +181,21 @@ describe('EarnSuccess', () => {
     // so never went through the hook that resolved the fee.
     // `t` is the identity function here, so the fee row asserts on its key.
     expect(labels).toEqual(['Market', 'Total Deposited', 'networkFee', 'Transaction ID']);
-    expect(mockLastRows?.[0]?.value).toBe('DUMMY-LENDING');
+    expect(mockLastRows?.[0]?.value).toBe('Dummy Lending');
     expect(mockLastRows?.[1]?.value).toBe('10000000 USDC');
     expect(mockLastRows?.[2]?.value).toBe('0.17 MIDEN');
+  });
+
+  it('names the market as the document lists its vault, when it lists one', () => {
+    mockListedVault = { name: 'Dummy Lending USDC' };
+    try {
+      render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+      expect(mockLastRows?.[0]?.value).toBe('Dummy Lending USDC');
+      expect(mockLastPill?.rhs).toBe('Dummy Lending USDC');
+    } finally {
+      mockListedVault = null;
+    }
   });
 
   it('draws its receipt on the outline surface, like the rest of the earn flow', () => {

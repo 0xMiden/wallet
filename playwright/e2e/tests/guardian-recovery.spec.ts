@@ -201,7 +201,7 @@ test.describe('Guardian recovery - real UI journey', () => {
         };
 
         await walletB.claimAllNotes(120_000);
-        await walletB.refreshBalances();
+        await walletB.refreshBalancesLanded(120_000);
 
         // The consume must move the note's value into the VAULT and out of the
         // pending list: the rotated [new-hot, cold] signer set actually co-signed
@@ -377,7 +377,7 @@ test.describe('Guardian recovery - real UI journey', () => {
         };
 
         await walletB.claimAllNotes(120_000);
-        await walletB.refreshBalances();
+        await walletB.refreshBalancesLanded(120_000);
 
         await assertClaimed(
           { page: walletB.page, label: 'B' },

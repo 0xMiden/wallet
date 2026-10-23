@@ -12,10 +12,18 @@ on:
         value: ${{ jobs.deploy.outputs.endpoint }}
   workflow_dispatch:
     inputs:
+      deployment_source:
+        description: Source revision to deploy
+        type: choice
+        options:
+          - published-release
+          - main
+        default: published-release
+        required: true
       release_tag:
         description: Published wallet release tag to deploy
         type: string
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -32,7 +40,24 @@ jobs:
     outputs:
       endpoint: ${{ steps.readiness.outputs.endpoint }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve deployment source
+        id: source
+        env:
+          DEPLOYMENT_SOURCE: ${{ inputs.deployment_source || 'published-release' }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DEPLOY_EVENT_NAME: ${{ github.event_name }}
+          DEPLOY_WORKFLOW_REF: ${{ github.ref }}
+          DEPLOY_WORKFLOW_SHA: ${{ github.sha }}
+        run: node scripts/feature-eligibility-deploy-source.mjs
+
       - name: Require a published release
+        if: steps.source.outputs.mode == 'published-release'
         uses: actions/github-script@v7
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
@@ -47,15 +72,19 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ inputs.release_tag }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+          ref: ${{ steps.source.outputs.ref }}
       - name: Resolve deployment revision
         id: revision
+        env:
+          DEPLOYMENT_SOURCE: ${{ steps.source.outputs.mode }}
+          DEPLOYMENT_SHA: ${{ github.sha }}
         shell: bash
         run: |
           revision=$(git rev-parse HEAD)
+          if [[ "$DEPLOYMENT_SOURCE" == main && "$revision" != "$DEPLOYMENT_SHA" ]]; then
+            echo 'Main deployment checkout does not match the workflow commit' >&2
+            exit 1
+          fi
           if [[ "$GITHUB_EVENT_NAME" == release && "$revision" != "$GITHUB_SHA" ]]; then
             echo 'Release tag moved after the publication event' >&2
             exit 1
@@ -111,12 +140,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_SEND_METRICS: 'false'
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          DEPLOYMENT_MESSAGE: ${{ steps.source.outputs.message }}
         run: >-
           npx --yes wrangler@4.151.3 deploy
           --config "$RUNNER_TEMP/feature-eligibility-release.json"
           --secrets-file "$RUNNER_TEMP/feature-eligibility-secrets.json"
-          --message "Wallet release $RELEASE_TAG"
+          --message "$DEPLOYMENT_MESSAGE"
 
       - name: Verify deployment and feature decisions
         id: readiness

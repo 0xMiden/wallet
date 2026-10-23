@@ -37,6 +37,8 @@ export interface ReviewLayoutProps {
   secondary?: ReviewAction;
   /** Optional message shown just above the CTAs — e.g. a failed bridge submit. */
   error?: React.ReactNode;
+  /** Advisory content shown directly above the action buttons. */
+  beforeActions?: React.ReactNode;
 }
 
 /**
@@ -55,7 +57,8 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   primary,
   secondary,
   error,
-  errorId
+  errorId,
+  beforeActions
 }) => {
   useUserVisibleError(error ? errorId : null, 'review');
   // Hide the bottom tab navbar while this review screen is mounted (no-op on
@@ -74,6 +77,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
 
         <div className="shrink-0 pt-6 flex flex-col gap-y-2">
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
+          {beforeActions}
           <Button
             type={primary.type ?? 'button'}
             title={primary.label}

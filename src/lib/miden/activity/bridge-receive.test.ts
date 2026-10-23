@@ -104,6 +104,23 @@ beforeEach(() => {
 const WEEK_AGO_SEC = Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60;
 
 describe('reconcileBridgedReceives', () => {
+  it('leaves 1Click rows to their dedicated reconciler', async () => {
+    rows.push({
+      id: 'one-click-row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: { provider: 'near-intents', phase: 'submitting', oneClick: { direction: 'evm-to-miden' } }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(fetchDeposits).not.toHaveBeenCalled();
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(registerBridgeIn).not.toHaveBeenCalled();
+  });
+
   it('resumes an AggLayer receipt read when a hash was persisted', async () => {
     rows.push({
       id: 'agg-row',
@@ -310,16 +327,19 @@ describe('reconcileBridgedReceives', () => {
       'failed',
       expect.objectContaining({
         error: expect.stringContaining('interrupted'),
-        failure: { step: 'submission_interrupted' }
+        failure: { step: 'submission_interrupted', orphanCheck: 'realm_idle' }
       })
     );
   });
 
   // A USDCx row closes like its Agglayer sibling: with no hash and no flow left to write one, it can never progress.
   it.each([
-    ['the direct route', {}],
-    ['the executor route', { sourceChainId: 84532 }]
-  ])('fails an interrupted USDCx row on %s that never recorded a hash', async (_route, extra) => {
+    ['the direct route', {}, 'unrecorded'],
+    ['the executor route', { sourceChainId: 84532 }, 'unrecorded'],
+    ['a recorded direct route', { usdcxSource: { route: 'xreserve' } }, 'xreserve'],
+    ['a recorded executor route', { usdcxSource: { route: 'cctp-executor' } }, 'cctp_executor'],
+    ['a recorded route the wallet does not define', { usdcxSource: { route: '0xdeadbeef' } }, 'unrecorded']
+  ])('fails an interrupted USDCx row on %s that never recorded a hash', async (_route, extra, sourceRoute) => {
     rows.push({
       id: 'usdcx-interrupted',
       type: 'bridged-receive',
@@ -331,7 +351,7 @@ describe('reconcileBridgedReceives', () => {
 
     expect(updatePhase).toHaveBeenCalledWith('usdcx-interrupted', 'failed', {
       error: 'Bridge submission was interrupted before a transaction hash was recorded.',
-      failure: { step: 'submission_interrupted' }
+      failure: { step: 'submission_interrupted', orphanCheck: 'realm_idle', sourceRoute }
     });
     expect(fetchAttestations).not.toHaveBeenCalled();
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
@@ -507,7 +527,10 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith(
       'epoch-interrupted',
       'failed',
-      expect.objectContaining({ error: expect.stringContaining('intent'), failure: { step: 'submission_interrupted' } })
+      expect.objectContaining({
+        error: expect.stringContaining('intent'),
+        failure: { step: 'submission_interrupted', orphanCheck: 'realm_idle' }
+      })
     );
     expect(registerBridgeIn).not.toHaveBeenCalled();
   });
@@ -802,10 +825,14 @@ describe('deposit submissions', () => {
       signing.resolve();
       await settle();
       await watcherPage.reconcile();
+      // The origin-wide lock, not this realm's count, said no page still owned the row.
       expect(updatePhase).toHaveBeenCalledWith(
         'live',
         'failed',
-        expect.objectContaining({ error: expect.stringContaining('interrupted') })
+        expect.objectContaining({
+          error: expect.stringContaining('interrupted'),
+          failure: { step: 'submission_interrupted', orphanCheck: 'origin_lock' }
+        })
       );
     }
   );

@@ -1,6 +1,7 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
+  IOneClickTrackingData,
   IBridgedReceivePhase,
   IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
@@ -13,6 +14,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
+import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
 import type { SubmissionMessageKey } from 'lib/miden/transaction/submission-feedback';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
@@ -49,6 +51,8 @@ export interface IHistoryEntry {
   txType: ITransactionType;
 
   // Optional properties
+  /** Recorded request origins; display classification only, not proof of a valid game result. */
+  dappOrigins?: string[];
   /** Raw transaction status; set by the detail page for the status pill. */
   status?: ITransactionStatus;
   /** Failure reason (`tx.error`); set for failed transactions. */
@@ -115,6 +119,8 @@ export interface IHistoryEntry {
    * manual-claim orders.
    */
   swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  /** Swap only: a failed payout claim's notes are still unclaimed and no payout claim is live (`getPaybackClaimStates`). */
+  paybackClaimStuck?: { failedClaimId: string; reason: PaybackClaimStuckReason };
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;
@@ -187,6 +193,7 @@ export interface IHistoryEntry {
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
+  oneClickTracking?: IOneClickTrackingData;
   bridgeInSourceAddress?: string;
   bridgeInSourceChainId?: number;
   bridgeInSourceConfig?: UsdcxSourceChain;

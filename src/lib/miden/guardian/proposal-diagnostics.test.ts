@@ -15,15 +15,31 @@ const mockRetireTrap = jest.fn();
 const mockBuildReclaim = jest.fn(async (..._args: unknown[]) => new Uint8Array([3, 4]));
 const mockConsumeProposal = jest.fn(async (..._args: unknown[]) => ({ id: 'private-proposal', nonce: 7 }));
 const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({ id: 'private-reclaim-proposal', nonce: 8 }));
+const mockSignProposal = jest.fn(async (..._args: unknown[]) => ({ metadata: { proposalType: 'consume_notes' } }));
 const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   accountId: 'private-account',
+  signProposal: (...args: unknown[]) => mockSignProposal(...args),
+  createTransactionProposalRequest: async () => 'private-request',
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
   createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args)
 }));
 
+const mockRequestDeserialize = jest.fn((_bytes: Uint8Array) => ({ expectedOutputOwnNotes: () => [] }));
+const mockRebasedSerialize = jest.fn(() => new Uint8Array([5, 6]));
+const mockFeeBuilder = jest.fn(async (..._args: unknown[]) => ({
+  withOwnOutputNotes: () => ({ build: () => ({ serialize: () => mockRebasedSerialize() }) })
+}));
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-  Account: { deserialize: () => ({ id: () => ({ toString: () => 'private-account' }) }) }
+  Account: { deserialize: () => ({ id: () => ({ toString: () => 'private-account' }) }) },
+  TransactionRequest: { deserialize: (bytes: Uint8Array) => mockRequestDeserialize(bytes) },
+  NoteArray: class {}
+}));
+jest.mock('../sdk/helpers', () => ({
+  ...jest.requireActual('../sdk/helpers'),
+  feeAwareRequestBuilder: (...args: unknown[]) => mockFeeBuilder(...args),
+  randomFeeSalt: () => ({})
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
@@ -132,6 +148,47 @@ it.each([
   expect(mockReclaimProposal).not.toHaveBeenCalled();
 });
 
+it('names the signer facts beside the step on a Guardian authentication refusal, and only on one', async () => {
+  const facts = { guardianSignerInSet: 'no', guardianSigningKey: 'hot', hotKeyRotationPending: 'yes' } as const;
+  const refusal = Object.assign(privateFailure(), {
+    name: 'GuardianHttpError',
+    status: 401,
+    code: 'authentication_failed'
+  });
+  mockConsumeProposal.mockRejectedValueOnce(refusal);
+  const loaded = await service();
+  loaded.authFacts = facts;
+  await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(refusal);
+  expect(snapshotCrashDiagnostics(refusal)).toEqual({ proposalStep: 'proposal_create', ...facts });
+  const other = privateFailure();
+  mockConsumeProposal.mockRejectedValueOnce(other);
+  await expect(loaded.createConsumeNotesProposal(['private-note'])).rejects.toBe(other);
+  expect(snapshotCrashDiagnostics(other)).toEqual({ proposalStep: 'proposal_create' });
+});
+
+it('names the signer facts on a Guardian authentication refusal while signing, for either signing path', async () => {
+  const facts = { guardianSignerInSet: 'yes', guardianSigningKey: 'cold', hotKeyRotationPending: 'no' } as const;
+  const loaded = await service();
+  loaded.authFacts = facts;
+  for (const sign of [
+    () => loaded.signProposal('private-proposal'),
+    () => loaded.signAndCreateTransactionRequest('private-proposal')
+  ]) {
+    const refusal = Object.assign(privateFailure(), {
+      name: 'GuardianHttpError',
+      status: 401,
+      code: 'authentication_failed'
+    });
+    mockSignProposal.mockRejectedValueOnce(refusal);
+    await expect(sign()).rejects.toBe(refusal);
+    expect(snapshotCrashDiagnostics(refusal)).toEqual(facts);
+  }
+  const other = privateFailure();
+  mockSignProposal.mockRejectedValueOnce(other);
+  await expect(loaded.signProposal('private-proposal')).rejects.toBe(other);
+  expect(snapshotCrashDiagnostics(other)).toEqual({});
+});
+
 it('names the consume proposal rejection without wrapping the original Error', async () => {
   const error = privateFailure();
   mockConsumeProposal.mockRejectedValueOnce(error);
@@ -194,4 +251,62 @@ it('returns successful ordinary and reclaim proposals with unchanged request byt
   ).toEqual({ id: 'private-reclaim-proposal', nonce: 8 });
   expect(persisted).toEqual([new Uint8Array([3, 4])]);
   expect(mockReclaimProposal).toHaveBeenCalledWith(new Uint8Array([3, 4]), 'custom_transaction');
+});
+
+describe('a rebased custom proposal (Sentry BREAD-WALLET-35)', () => {
+  it.each([
+    {
+      boundary: 'request read',
+      fail: (error: Error) =>
+        mockRequestDeserialize.mockImplementationOnce(() => {
+          throw error;
+        })
+    },
+    { boundary: 'fee builder', fail: (error: Error) => mockFeeBuilder.mockRejectedValueOnce(error) },
+    {
+      boundary: 'request rebuild',
+      fail: (error: Error) =>
+        mockRebasedSerialize.mockImplementationOnce(() => {
+          throw error;
+        })
+    }
+  ])('names a failed $boundary as the rebase build, before any proposal', async ({ fail }) => {
+    const error = privateFailure();
+    fail(error);
+    const loaded = await service();
+    await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).rejects.toBe(error);
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'rebase_build' });
+    expect(mockReclaimProposal).not.toHaveBeenCalled();
+  });
+
+  it('keeps a lost hold after the rebuild unlabelled', async () => {
+    const error = privateFailure();
+    const loaded = await service();
+    mockAssertHold.mockImplementation((_hold, label) => {
+      if (label.includes('after the fee-aware builder')) throw error;
+    });
+    try {
+      await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).rejects.toBe(error);
+    } finally {
+      mockAssertHold.mockImplementation(() => {});
+    }
+    expect(snapshotCrashDiagnostics(error)).toEqual({});
+  });
+
+  it('names the guardian rejecting the rebuilt request as proposal creation, not the rebuild', async () => {
+    const error = privateFailure();
+    mockReclaimProposal.mockRejectedValueOnce(error);
+    const loaded = await service();
+    await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).rejects.toBe(error);
+    expect(mockReclaimProposal).toHaveBeenCalledWith(new Uint8Array([5, 6]), 'swap');
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+  });
+
+  it('returns the proposal and the bytes it was made from', async () => {
+    const loaded = await service();
+    await expect(loaded.createRebasedCustomProposal(new Uint8Array([1]), 'swap')).resolves.toEqual({
+      proposal: { id: 'private-reclaim-proposal', nonce: 8 },
+      requestBytes: new Uint8Array([5, 6])
+    });
+  });
 });

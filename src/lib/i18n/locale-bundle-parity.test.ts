@@ -83,6 +83,10 @@ const msg = (bundle: Record<string, Entry>, key: string): string => {
 };
 
 describe('runtime locale bundles (the files src/i18n.ts actually renders from)', () => {
+  it('keeps the ordinary Japanese amount label translated', () => {
+    expect(loadFlat('ja').amount).toBe('金額');
+  });
+
   it('names the Earn catalog Available Vaults (#1322)', () => {
     expect(enSource['earnVaultsTitle']).toBe('Available Vaults');
   });
@@ -149,6 +153,26 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     // Stale and rejected keys stay out of the flat bundle for English fallback. Rejected keys wait
     // for their English to change or their entry to be deleted; other stale entries are queued.
     expect(missing.sort()).toEqual(staleKeys(locale).sort());
+  });
+
+  it.each(RUNTIME_LOCALES)('%s keeps the bridge source hint aligned with the disconnected-wallet label', locale => {
+    const flat = loadFlat(locale);
+    const messages = loadMessages(locale);
+    expect(flat.bridgeConnectSourceHint).toBe(flat.guardianNotConnectedLabel);
+    expect(msg(messages, 'bridgeConnectSourceHint')).toBe(msg(messages, 'guardianNotConnectedLabel'));
+  });
+
+  it.each([
+    ['de', 'Nach Miden'],
+    ['fr', 'Vers Miden'],
+    ['ja', 'ミデンへ'],
+    ['pl', 'Do Miden'],
+    ['pt', 'Para Miden'],
+    ['zh_CN', '转入 Miden'],
+    ['zh_TW', '轉入 Miden']
+  ])('%s translates the home deposit hint', (locale, expected) => {
+    expect(loadFlat(locale).homeDepositHint).toBe(expected);
+    expect(msg(loadMessages(locale), 'homeDepositHint')).toBe(expected);
   });
 
   it.each(['en', ...DERIVED_LOCALES])('%s uses $-delimited placeholders, never {{…}}', locale => {

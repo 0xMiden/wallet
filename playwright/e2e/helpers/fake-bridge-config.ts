@@ -1,7 +1,7 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
-import { AGGLAYER_BRIDGE_ADDRESS, MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
 import { getUsdcxXReserveSource, USDCX_REMOTE_DOMAIN } from './usdcx-config';
+import { AGGLAYER_BRIDGE_ADDRESS, MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
 
 /**
  * Serves the wallet's remote Epoch and Agglayer config document (`/<network>.json`, the shape
@@ -48,7 +48,19 @@ export function localnetEpochDocument(): BridgeConfigDocument {
         }
       }
     },
-    features: { earn: true }
+    features: { earn: true, nearIntents: false },
+    // Earn on needs the vaults it offers: the dummy lender's market of the mock USDC, which the positions fake serves.
+    earn: {
+      vaults: [
+        {
+          id: 'dummy-lending-sepolia-usdc',
+          marketUid: `DUMMY_LENDING:${SEPOLIA_CHAIN_ID}:${MOCK_USDC_ADDRESS.toLowerCase()}`,
+          name: 'Dummy Lending USDC',
+          protocol: 'dummy-lending',
+          depositsEnabled: true
+        }
+      ]
+    }
   };
 }
 

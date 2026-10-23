@@ -13,7 +13,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
-import type { TokenPrices } from 'lib/prices';
+import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerDepositToken } from 'lib/remote-config/values';
@@ -167,6 +167,8 @@ let mockBridgeInCapUsd: number | null = null;
 // The ERC-20s the document lists for the AggLayer chain, as the derivation verified them.
 let mockDepositTokens: AgglayerDepositToken[] = [];
 jest.mock('lib/remote-config/values', () => ({
+  // These synthetic ETH fixtures do not describe a priced delivery faucet.
+  selectNativeEthFaucet: () => undefined,
   selectAgglayerRecoveryConfig: () =>
     mockAgglayerChainId === null
       ? null
@@ -393,13 +395,13 @@ jest.mock('./EvmBridgeDepositReview', () => {
     ...jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview'),
     EvmBridgeDepositReview: ({
       amount,
-      fiat,
+      sourceQuote,
       outputAmount,
       label,
       onConfirm
     }: {
       amount: string;
-      fiat?: number;
+      sourceQuote?: TokenPriceInfo;
       outputAmount?: string;
       label?: string;
       onConfirm: () => void;
@@ -409,7 +411,7 @@ jest.mock('./EvmBridgeDepositReview', () => {
         <div>
           <span data-testid="review-label">{label}</span>
           <span data-testid="review-amount">{amount}</span>
-          <span data-testid="review-fiat">{fiat}</span>
+          <span data-testid="review-price">{sourceQuote?.price}</span>
           <span data-testid="review-output">{outputAmount}</span>
           <button data-testid="confirm-deposit" onClick={onConfirm}>
             confirm
@@ -533,10 +535,20 @@ const balanceTooLow = (balance: string, token: string) =>
   `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
 
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
+// A balance the check refused for its amount, or could not read; every other failure carries no balance check.
+const BALANCE_CHECK_OF: Record<string, string> = {
+  bridgeDepositBalanceTooLow: 'too_low',
+  usdcxDepositFeeAboveBalance: 'too_low',
+  bridgeDepositBalanceReadFailed: 'read_failed'
+};
 const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
   error,
   errorId,
-  failure: { step, cause: expect.any(Error) }
+  failure: {
+    step,
+    cause: expect.any(Error),
+    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] })
+  }
 });
 /** The library error the crash report names for the cause the last failure write handed it. */
 const reportedEvmError = (): string =>
@@ -800,23 +812,23 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
   });
 
-  it('prices the Fast-route deposit on the Review at the rounded-up figure it shows', async () => {
+  it('keeps the Fast-route review amount without inventing a nominal USD quote', async () => {
     quoteFast();
     renderScreen();
 
     await reachFastReview();
 
     expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.66$/);
-    expect(screen.getByTestId('review-fiat')).toHaveTextContent(/^10\.66$/);
+    expect(screen.getByTestId('review-price')).toBeEmptyDOMElement();
   });
 
-  it('prices a Slow-route USDC deposit on the Review at the typed amount it shows', async () => {
+  it('keeps the Slow-route USDC review amount without inventing a nominal USD quote', async () => {
     renderScreen();
 
     await reachSlowUsdcReview();
 
     expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.6512$/);
-    expect(screen.getByTestId('review-fiat')).toHaveTextContent(/^10\.6512$/);
+    expect(screen.getByTestId('review-price')).toBeEmptyDOMElement();
   });
 
   it('shows the Fast "you receive" as the typed minTokenOut, not the quote', async () => {

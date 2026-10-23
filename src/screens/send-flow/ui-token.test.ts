@@ -122,6 +122,29 @@ describe('uiTokenFromBalance', () => {
   });
 });
 
+describe('uiTokenFromBalance quote expiry', () => {
+  it('records when a market quote goes stale, and none for a quote with no age', () => {
+    const observedAt = Date.now();
+    const quote = { price: 3, observedAt };
+    expect(
+      uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), { USDC: quote } as any)
+        .fiatPriceExpiresAt
+    ).toBe(observedAt + 10 * 60_000 + 1);
+    expect(
+      uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), { USDC: { price: 3 } } as any)
+    ).not.toHaveProperty('fiatPriceExpiresAt');
+  });
+
+  it('reads an expired market quote as no price', () => {
+    const stale = { price: 3, observedAt: Date.now() - 10 * 60_000 - 1 };
+    const token = uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), {
+      USDC: stale
+    } as any);
+    expect(token.fiatPrice).toBe(0);
+    expect(token).not.toHaveProperty('fiatPriceExpiresAt');
+  });
+});
+
 describe('sameUIToken', () => {
   const base: UIToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 5, fiatPrice: 3, scaleIsKnown: true };
 
@@ -136,7 +159,8 @@ describe('sameUIToken', () => {
     ['balance', 6],
     ['fiatPrice', 4],
     ['scaleIsKnown', false],
-    ['fiatPriceIsNominal', true]
+    ['fiatPriceIsNominal', true],
+    ['fiatPriceExpiresAt', 1_000]
   ])('is false when only %s differs', (field, value) => {
     expect(sameUIToken(base, { ...base, [field]: value })).toBe(false);
   });

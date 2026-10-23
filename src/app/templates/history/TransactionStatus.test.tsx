@@ -154,6 +154,22 @@ describe('StatusPill', () => {
     expect(pill(container)).toHaveClass('text-negative-tint-ink');
   });
 
+  it('reports a swap whose payout claim is stuck ahead of its settlement, in the negative tone (#1644)', () => {
+    const { container } = render(
+      <StatusPill status={ITransactionStatus.Completed} swapSettlement="pending" paybackClaimStuck />
+    );
+
+    expect(pill(container)).toHaveTextContent('t:swapPaybackStuck');
+    expect(pill(container)).toHaveClass('text-negative-tint-ink');
+  });
+
+  it('lets failure and cancellation outrank a stuck payout claim', () => {
+    expect(transactionStatusOf({ status: ITransactionStatus.Failed, paybackClaimStuck: true })).toBe('failed');
+    expect(transactionStatusOf({ status: ITransactionStatus.Failed, isCancelled: true, paybackClaimStuck: true })).toBe(
+      'cancelled'
+    );
+  });
+
   it('renders the failed variant as a negative-toned pill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 

@@ -174,25 +174,32 @@ jest.mock('lib/platform', () => ({
 let mockUsdcxDepositAvailable = false;
 let mockCrossChain: FeatureAvailability = { state: 'available' };
 const mockAnyFeatureAvailability = jest.fn(
-  (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
-    features.join() === 'fastBridgeIn,bridgeIn,usdcxDeposit'
-      ? mockUsdcxDepositAvailable
-        ? { state: 'available' }
-        : mockCrossChain
-      : { state: 'loading' }
+  (
+    features: readonly string[],
+    _options?: { hold?: boolean | ((availability: FeatureAvailability) => boolean) }
+  ): FeatureAvailability =>
+    (mockLastFeatureAvailability =
+      features.join() === 'fastBridgeIn,bridgeIn,usdcxDeposit'
+        ? mockUsdcxDepositAvailable
+          ? { state: 'available' }
+          : mockCrossChain
+        : { state: 'loading' })
 );
+let mockLastFeatureAvailability: FeatureAvailability = { state: 'available' };
 // The accepted document, null for none. Receive reads only whether there is one.
 const ACCEPTED_DOCUMENT: BridgeConfig = {
   network: 'testnet',
   version: 1,
   'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
   supportedEvmChains: {},
-  features: { earn: false }
+  features: { earn: false, nearIntents: false }
 };
 let mockBridgeConfig: BridgeConfig | null = ACCEPTED_DOCUMENT;
 jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
-    mockAnyFeatureAvailability(features, options),
+  useAnyFeatureAvailability: (
+    features: readonly string[],
+    options?: { hold?: boolean | ((availability: FeatureAvailability) => boolean) }
+  ) => mockAnyFeatureAvailability(features, options),
   useBridgeConfigSnapshot: (): BridgeConfigSnapshot => ({
     network: 'testnet',
     status: 'ready',
@@ -201,6 +208,13 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
     lastFetch: null
   })
 }));
+
+const expectBridgeInHold = (expected: boolean) => {
+  const call = mockAnyFeatureAvailability.mock.calls[mockAnyFeatureAvailability.mock.calls.length - 1];
+  const hold = call?.[1]?.hold;
+  expect(hold).toEqual(expect.any(Function));
+  if (typeof hold === 'function') expect(hold(mockLastFeatureAvailability)).toBe(expected);
+};
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -400,8 +414,9 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeEnabled();
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
     expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
-      hold: true
+      hold: expect.any(Function)
     });
+    expectBridgeInHold(true);
   });
 
   // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
@@ -416,6 +431,7 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
       'bridgeFeatureUnavailableBody'
     );
+    expectBridgeInHold(true);
     await act(async () => {
       fireEvent.click(crossChain);
     });
@@ -432,6 +448,7 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeNull();
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
     expect(container.querySelector('[data-testid="receive-share"]')).not.toBeNull();
+    expectBridgeInHold(false);
   });
 
   // With no accepted document nothing says what the network configures: a config outage keeps the greyed tile.
@@ -450,6 +467,7 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
       'bridgeFeatureUnavailableBody'
     );
+    expectBridgeInHold(true);
   });
 
   // Every platform draws Cross Chain, the extension included (its relay socket closed only because
@@ -466,8 +484,9 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
     // The hold applies on every platform.
     expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
-      hold: true
+      hold: expect.any(Function)
     });
+    expectBridgeInHold(true);
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

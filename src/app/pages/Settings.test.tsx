@@ -15,7 +15,7 @@ import Settings from './Settings';
 // Mutable state used by the store / platform / motion mocks. Names are
 // `mock`-prefixed so jest allows them inside the (hoisted) mock factories.
 // ---------------------------------------------------------------------------
-type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
+type MockAccount = { type?: string; hotPublicKey?: string; hdIndex?: number } | undefined;
 const mockWalletState: {
   currentAccount: MockAccount;
   accounts: NonNullable<MockAccount>[];
@@ -814,6 +814,13 @@ describe('Settings page — guardian account', () => {
     expect(row).toHaveAttribute('data-external', 'false');
   });
 
+  it('offers the encrypted wallet file to a wallet of seed-derived Guardian accounts only', () => {
+    setAccount({ type: 'guardian', hdIndex: 0 });
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
+  });
+
   it('shows the guardian settings entry for guardian accounts', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug={null} />);
@@ -1150,8 +1157,8 @@ describe('Settings page — encrypted wallet file gate', () => {
     );
   });
 
-  it('offers neither the row nor the route when every account is a Guardian account', () => {
-    setAccount({ type: 'guardian' });
+  it('offers neither the row nor the route when every account is a key-imported Guardian account', () => {
+    setAccount({ type: 'guardian', hdIndex: -1 });
     const view = render(<Settings tabSlug={null} />);
     expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
 
@@ -1161,8 +1168,8 @@ describe('Settings page — encrypted wallet file gate', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
   });
 
-  it('offers the row as soon as the wallet gains a non-Guardian account', () => {
-    setAccount({ type: 'guardian' });
+  it('offers the row as soon as the wallet gains an account the file restores', () => {
+    setAccount({ type: 'guardian', hdIndex: -1 });
     const view = render(<Settings tabSlug={null} />);
     expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
 

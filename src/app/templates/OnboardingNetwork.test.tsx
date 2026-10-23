@@ -7,6 +7,7 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
 import { WelcomeScreen } from 'screens/onboarding/common/Welcome';
 
+import { setOnboardingRegistrationActive } from './onboarding-registration';
 import { OnboardingNetwork } from './OnboardingNetwork';
 
 let mockRequired = true;
@@ -20,7 +21,10 @@ const mockFollow = jest.fn();
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({ selectInviteOnlyOnboarding: () => mockRequired }));
+jest.mock('lib/remote-config/use-mainnet-launch', () => ({
+  ...jest.requireActual('lib/remote-config/use-mainnet-launch'),
+  useMainnetLaunched: () => mockRequired
+}));
 jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: () => mockFollow() }));
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { status: WalletStatus }) => WalletStatus) => select({ status: mockStatus })
@@ -68,6 +72,7 @@ const page = () => <OnboardingNetwork>{content}</OnboardingNetwork>;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  setOnboardingRegistrationActive(false);
   mockRequired = true;
   mockStatus = WalletStatus.Idle;
   mockExtension = true;
@@ -85,6 +90,126 @@ it('prepares mainnet and the service worker before onboarding', async () => {
   expect(mockFollow).toHaveBeenCalledTimes(1);
 });
 
+it('keeps an active Welcome state while launch preparation is pending', async () => {
+  mockRequired = false;
+  let finishApply!: () => void;
+  mockApply.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        finishApply = resolve;
+      })
+  );
+  const StatefulFlow = ({ inviteOnly }: { inviteOnly: boolean }) => {
+    const [value, setValue] = React.useState('');
+    return (
+      <div>
+        <input aria-label="flow state" value={value} onChange={event => setValue(event.currentTarget.value)} />
+        <span data-testid="invite-only">{String(inviteOnly)}</span>
+      </div>
+    );
+  };
+  const statefulPage = () => (
+    <OnboardingNetwork>{inviteOnly => <StatefulFlow inviteOnly={inviteOnly} />}</OnboardingNetwork>
+  );
+  const view = render(statefulPage());
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'flow state' }), { target: { value: 'preserved state' } });
+  mockRequired = true;
+  view.rerender(statefulPage());
+  await waitFor(() => expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE));
+
+  const flowState = view.container.querySelector<HTMLInputElement>('[aria-label="flow state"]');
+  expect(flowState).toHaveValue('preserved state');
+  expect(flowState?.parentElement?.parentElement).toHaveProperty('inert', true);
+  expect(screen.getByTestId('invite-only')).toHaveTextContent('true');
+
+  await act(async () => finishApply());
+});
+
+function mountHeldRegistration() {
+  mockRequired = false;
+  const StatefulFlow = ({ inviteOnly }: { inviteOnly: boolean }) => {
+    const [value, setValue] = React.useState('');
+    return (
+      <div>
+        <input aria-label="flow state" value={value} onChange={event => setValue(event.currentTarget.value)} />
+        <span data-testid="invite-only">{String(inviteOnly)}</span>
+      </div>
+    );
+  };
+  const statefulPage = () => (
+    <OnboardingNetwork>{inviteOnly => <StatefulFlow inviteOnly={inviteOnly} />}</OnboardingNetwork>
+  );
+  const view = render(statefulPage());
+  fireEvent.change(screen.getByRole('textbox', { name: 'flow state' }), { target: { value: 'preserved state' } });
+  act(() => {
+    setOnboardingRegistrationActive(true);
+  });
+  mockRequired = true;
+  view.rerender(statefulPage());
+  return { view, statefulPage };
+}
+
+it('holds mainnet preparation while a registration attempt is in flight', () => {
+  const { view } = mountHeldRegistration();
+  const flowState = view.container.querySelector<HTMLInputElement>('[aria-label="flow state"]');
+
+  expect(flowState).toHaveValue('preserved state');
+  expect(mockApply).not.toHaveBeenCalled();
+  expect(screen.getByTestId('invite-only')).toHaveTextContent('true');
+  expect(flowState?.parentElement?.parentElement).toHaveProperty('inert', false);
+});
+
+it('rechecks registration after a child starts it in the same commit', () => {
+  mockRequired = false;
+  const LaunchRegistration = ({ inviteOnly }: { inviteOnly: boolean }) => {
+    React.useEffect(() => {
+      if (!inviteOnly) return;
+      setOnboardingRegistrationActive(true);
+      return () => setOnboardingRegistrationActive(false);
+    }, [inviteOnly]);
+    return <div data-testid="launch-registration">{String(inviteOnly)}</div>;
+  };
+  const statefulPage = () => (
+    <OnboardingNetwork>{inviteOnly => <LaunchRegistration inviteOnly={inviteOnly} />}</OnboardingNetwork>
+  );
+  const view = render(statefulPage());
+
+  mockRequired = true;
+  view.rerender(statefulPage());
+
+  expect(screen.getByTestId('launch-registration')).toHaveTextContent('true');
+  expect(mockApply).not.toHaveBeenCalled();
+});
+
+it('prepares mainnet once a registration attempt ends with the wallet still idle', async () => {
+  mountHeldRegistration();
+  expect(mockApply).not.toHaveBeenCalled();
+
+  act(() => {
+    setOnboardingRegistrationActive(false);
+  });
+
+  await waitFor(() => expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE));
+  await waitFor(() => expect(mockFollow).toHaveBeenCalledTimes(1));
+});
+
+it('does not prepare when a registration attempt ends as the wallet leaves idle', async () => {
+  const { view, statefulPage } = mountHeldRegistration();
+  expect(mockApply).not.toHaveBeenCalled();
+  expect(screen.getByTestId('invite-only')).toHaveTextContent('true');
+
+  await act(async () => {
+    mockStatus = WalletStatus.Ready;
+    setOnboardingRegistrationActive(false);
+    view.rerender(statefulPage());
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(mockApply).not.toHaveBeenCalled();
+});
+
 it.each([WalletStatus.Locked, WalletStatus.Ready])('keeps an existing wallet on its network (%s)', status => {
   mockStatus = status;
   render(page());
@@ -97,6 +222,15 @@ it('keeps general onboarding when invite-only mode is off', () => {
   mockRequired = false;
   render(page());
   expect(screen.getByTestId('flow')).toHaveTextContent('false');
+  expect(mockApply).not.toHaveBeenCalled();
+});
+
+it('requires invite-only mode when the effective network is mainnet before launch', () => {
+  mockRequired = false;
+  mockStatus = WalletStatus.Ready;
+  mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+  render(page());
+  expect(screen.getByTestId('flow')).toHaveTextContent('true');
   expect(mockApply).not.toHaveBeenCalled();
 });
 

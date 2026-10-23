@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
+import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily } from 'lib/epoch/pools';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -14,7 +15,7 @@ import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectMidenUsdc } from 'lib/remote-config/values';
+import { selectEarnVault, selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
@@ -288,15 +289,29 @@ export const formatConsumeAssetParts = (
   nativeFaucetId: string | null
 ): string[] => consumeAssetBreakdown(bridgeConfig, transaction, assetsMetadata, nativeFaucetId).map(part => part.label);
 
+const MARKET_ID_HEX = /^[0-9a-f]{64}$/i;
+
 /**
- * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
- * the lender key itself, hyphenated (e.g. `DUMMY_LENDING` → "DUMMY-LENDING").
- * No hardcoded aliases: the badge shows the real market name.
+ * The label of an Epoch `marketUid` (`LENDER:chainId:token`): the name the bridge-config document lists the vault
+ * under (`earn.vaults`), shown as written. A market the document does not list (a row of a vault it has since
+ * dropped) is named from its lender key: the lender family's display name ("Morpho", "Compound V3"), followed by
+ * what the key adds to the family. A Morpho Blue key carries the market id, a 32-byte hex, which shows shortened
+ * ("Morpho d752…6e41d"); a Compound key its token ("Compound V3 USDC"). A key outside the known families shows
+ * itself, hyphenated (`DUMMY_LENDING` → "DUMMY-LENDING").
  */
-export const earnMarketLabel = (marketUid: string): string | undefined => {
+export const earnMarketLabel = (bridgeConfig: BridgeConfigSnapshot, marketUid: string): string | undefined => {
+  const listed = selectEarnVault(bridgeConfig, marketUid);
+  if (listed) return listed.name;
   const lenderKey = marketUid.split(':')[0];
   if (!lenderKey) return undefined;
-  return lenderKey.replaceAll('_', '-');
+  const family = earnLenderFamily(lenderKey);
+  if (!family) return lenderKey.replaceAll('_', '-');
+  const rest = lenderKey.slice(family.length).replace(/^_/, '');
+  if (!rest) return EARN_LENDER_FAMILY_NAMES[family];
+  const detail = MARKET_ID_HEX.test(rest)
+    ? `${rest.slice(0, 4).toLowerCase()}…${rest.slice(-5).toLowerCase()}`
+    : rest.replaceAll('_', ' ');
+  return `${EARN_LENDER_FAMILY_NAMES[family]} ${detail}`;
 };
 
 /**
@@ -359,13 +374,19 @@ export const useTransactionSummaryBadgeContent = (
       const amount =
         transaction.amount !== undefined && scale ? formatAmount(transaction.amount, scale.decimals) : undefined;
       const marketUid: unknown = transaction.extraInputs?.marketUid;
-      const rhs = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
+      const rhs = typeof marketUid === 'string' ? earnMarketLabel(bridgeConfig, marketUid) : undefined;
 
       if (transaction.amount === undefined || !rhs || !symbol) return undefined;
 
       return {
         lhs: amount ? `${amount} ${symbol}` : symbol,
-        rhs,
+        // A market label is one line: a Morpho market id the label shortens still needs the pill to clip, never
+        // to spill out of its rounded frame.
+        rhs: (
+          <span className="min-w-0 truncate" title={rhs}>
+            {rhs}
+          </span>
+        ),
         separator: <EarnDepositArrowGlyph />
       };
     }
