@@ -150,12 +150,7 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
   assertWithdrawalReviewContext(quote);
   if (normalizeMidenIdToHex(await getNativeAssetId()) !== normalizeMidenIdToHex(quote.destinationFaucetId))
     throw new Error('earnWithdrawRefresh');
-  // No catalogue read: a withdrawal needs only the position, and a failed catalogue read must not stop it.
-  const fresh = await fetchEarnPositions({
-    accountId: quote.accountId,
-    owners: [quote.position.owner],
-    skipCatalog: true
-  });
+  const fresh = await fetchEarnPositions({ accountId: quote.accountId, owners: [quote.position.owner] });
   const position = fresh.positions.find(
     p =>
       p.owner.toLowerCase() === quote.position.owner.toLowerCase() &&

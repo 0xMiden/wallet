@@ -1,3 +1,5 @@
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
+
 import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig, Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import type { BridgeConfig } from './schema';
@@ -15,6 +17,55 @@ const MARKET: EarnMarket = {
   protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
   underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
   chainId: 11155111
+};
+const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+// A vault the positions fallback gives: no optional field.
+const DUMMY_VAULT: EarnVaultInfo = {
+  marketUid: MARKET.marketUid,
+  lenderKey: 'DUMMY_LENDING',
+  lenderFamily: 'DUMMY_LENDING',
+  lenderName: 'Dummy Lending',
+  marketName: 'Dummy Lending',
+  logoUri: '',
+  chainId: '11155111',
+  underlying: { address: MARKET.underlying, symbol: 'USDC', decimals: 18 },
+  depositApr: 2,
+  aprTotal: 2,
+  canOpen: true,
+  listing: {
+    id: 'dummy-lending-sepolia-usdc',
+    marketUid: MARKET.marketUid.toLowerCase(),
+    name: 'Dummy Lending USDC',
+    protocol: 'dummy-lending',
+    depositsEnabled: true
+  }
+};
+// A `/pools` vault with every optional field, of a lender the wallet has no family for.
+const EULER_VAULT: EarnVaultInfo = {
+  marketUid: `EULER_V2:8453:${BASE_USDC.toLowerCase()}`,
+  lenderKey: 'EULER_V2',
+  lenderName: 'Euler V2',
+  marketName: 'EVK Vault eUSDC-49',
+  logoUri: 'https://icons.example/euler_v2.webp',
+  chainId: '8453',
+  underlying: { address: BASE_USDC, symbol: 'USDC', decimals: 6 },
+  depositApr: 6.34826539,
+  aprTotal: 6.5,
+  totalDepositsUsd: 604586.8095256061,
+  totalLiquidityUsd: 138395.8522450287,
+  utilization: 0.7710901890935693,
+  risk: { score: 4, label: 'medium' },
+  canOpen: false,
+  about: 'Withdrawals are instant, up to the liquidity available in the market.',
+  listing: {
+    id: 'euler-v2-base-usdc',
+    marketUid: `euler_v2:8453:${BASE_USDC.toLowerCase()}`,
+    name: 'Euler USDC',
+    protocol: '1delta',
+    about: 'An Euler vault.',
+    risk: 'medium',
+    depositsEnabled: false
+  }
 };
 const sepolia = (): DerivedChainConfig => ({
   agglayer: {
@@ -58,7 +109,8 @@ const whole = (): DerivedBridgeConfig => ({
   epoch: {
     allocator: { state: 'error', message: 'HTTP 502' },
     market: { state: 'ok', value: MARKET },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
+    vaults: { state: 'ok', value: [DUMMY_VAULT, EULER_VAULT] }
   },
   swap: {
     pairs: {
@@ -259,8 +311,63 @@ it('reads a derivation that threw as every check failed, on every configured cha
     derivedAt: 7,
     chains: { 11155111: reads, 84532: reads },
     agglayer: { indexer: error },
-    epoch: { allocator: error, market: error, midenUsdcFaucet: error },
+    epoch: { allocator: error, market: error, midenUsdcFaucet: error, vaults: error },
     swap: { pairs: error }
+  });
+});
+
+describe('the Earn vault catalogue', () => {
+  const withVaults = (vaults: unknown) => provider('epoch', 'vaults', vaults);
+  const vault = (fields: Record<string, unknown>) => ok([DUMMY_VAULT, { ...EULER_VAULT, ...fields }]);
+  const listing = (fields: Record<string, unknown>) => vault({ listing: { ...EULER_VAULT.listing, ...fields } });
+  const MALFORMED = { state: 'error', message: 'The stored Earn vault catalogue is malformed' };
+
+  it('reads a copy with no catalogue, as a build before it stored it, as missing', () => {
+    expect(parseStoredDerived(stored(withVaults(undefined)), 'testnet', 4)).toBeNull();
+  });
+
+  it.each([
+    ['skipped', SKIPPED],
+    ['failed', { state: 'error', message: 'Failed to fetch' }],
+    ['empty', ok([])]
+  ])('reads back a catalogue read that was %s', (_label, vaults) => {
+    const value = withVaults(vaults);
+    expect(parseStoredDerived(stored(value), 'testnet', 4)).toStrictEqual(value);
+  });
+
+  // One vault that does not read back fails the whole catalogue, never a partial list, and keeps the rest of the copy.
+  it.each([
+    ['a probe that is not an object', 'ok'],
+    ['an unknown state', { state: 'pending', value: [] }],
+    ['a catalogue that is not a list', ok({})],
+    ['a vault that is not an object', ok([DUMMY_VAULT, null])],
+    ['a uid naming another token', vault({ marketUid: `EULER_V2:8453:${MARKET.underlying.toLowerCase()}` })],
+    ['a uid in another case than its lender key', vault({ marketUid: EULER_VAULT.listing.marketUid })],
+    ['a uid the listing does not name', vault({ listing: DUMMY_VAULT.listing })],
+    ['a chain id that is not a number', vault({ chainId: 'base' })],
+    [
+      'an underlying in lower case',
+      vault({ underlying: { ...EULER_VAULT.underlying, address: BASE_USDC.toLowerCase() } })
+    ],
+    ['decimals past a byte', vault({ underlying: { ...EULER_VAULT.underlying, decimals: 256 } })],
+    ['an APR written as text', vault({ depositApr: '6.3' })],
+    ['an APR that JSON wrote as null', vault({ aprTotal: Number.NaN })],
+    ['a total that JSON wrote as null', vault({ totalDepositsUsd: Number.POSITIVE_INFINITY })],
+    ['a risk with no label', vault({ risk: { score: 4 } })],
+    ['an about that is not text', vault({ about: 7 })],
+    ['a deposit switch that is not a boolean', vault({ canOpen: 'yes' })],
+    ['a lender family its lender key does not give', vault({ lenderFamily: 'AAVE_V3' })],
+    ['a lender family missing from a known lender', ok([{ ...DUMMY_VAULT, lenderFamily: undefined }])],
+    ['no listing', vault({ listing: undefined })],
+    ['a listing with an unknown protocol', listing({ protocol: 'aave' })],
+    ['a listing with an unknown risk', listing({ risk: 'none' })],
+    ['a listing name past 64 characters', listing({ name: 'x'.repeat(65) })],
+    ['a listing with an empty about', listing({ about: '' })],
+    ['a listing id in upper case', listing({ id: 'Euler' })],
+    ['a listing with no deposit switch', listing({ depositsEnabled: undefined })]
+  ])('reads a catalogue with %s as a failed read', (_label, vaults) => {
+    const parsed = parseStoredDerived(stored(withVaults(vaults)), 'testnet', 4);
+    expect(parsed).toStrictEqual({ ...whole(), epoch: { ...whole().epoch, vaults: MALFORMED } });
   });
 });
 

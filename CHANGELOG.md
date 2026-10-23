@@ -12,6 +12,8 @@
 
 ### Changes
 
+- [CHANGE][all] Earn opens at once: the positions read keys on the wallet-config document only, no longer waiting on the derived market, and the last read is stored so a cold open (every extension popup) shows it, marked stale, while the live read runs.
+- [CHANGE][all] Earn reads the vault catalogue once per bridge-config document version and shares it between realms (`derived.epoch.vaults`); the positions poll no longer reads `/pools` every 30 s.
 - [FIX][all] Earn history links the position owner and the EVM transaction to the explorer of the market's own chain (Base, Arbitrum, Ethereum), no longer Sepolia; a chain the wallet does not know shows the value with no link.
 - [FIX][all] Earn positions are read on every Epoch route the document names at once (Base, Arbitrum, Ethereum on mainnet), not only the default market's chain, and a position in a market the document does not list stays shown and withdrawable; the list gates deposits only. The default market follows the document's vault order across every route, no longer the chain order of `supportedEvmChains`.
 - [CHANGE][all] The wallet-config document's `earn.vaults` list decides which Earn vaults the wallet offers, in which order, under which name, with which protocol hash, and whether each takes deposits (a stopped vault shows a disabled Deposit and a notice); the compiled lender allowlist and protocol strings are gone, a document with Earn on must list at least one vault on an Epoch route, and a deposit's market label uses the listed name.

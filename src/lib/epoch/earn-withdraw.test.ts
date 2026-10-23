@@ -919,7 +919,6 @@ describe('resubmitEarnWithdrawal', () => {
     jest.mocked(fetchEarnPositions).mockResolvedValue({
       positions: [retryPosition],
       owners: [EVM_OWNER],
-      vaults: [],
       totalDepositsUSD: 20,
       errors: []
     });

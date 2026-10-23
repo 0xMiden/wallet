@@ -1,18 +1,19 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
-import {
-  carryForward,
-  EARN_CATALOG_ERROR_OWNER,
-  type EarnPositionsResult,
-  fetchEarnPositions,
-  getEarnDepositEvmAddresses
-} from 'lib/epoch';
+import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { BridgeConfigUnavailableError, selectEarnMarket, selectEarnVaults } from 'lib/remote-config/values';
+import {
+  BridgeConfigUnavailableError,
+  selectEarnVaultCatalog,
+  selectEarnVaults,
+  selectEpochRoutes
+} from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 
@@ -23,6 +24,22 @@ import type { EarnPosition, EarnSummary, EarnVault } from './types';
 // allows 10 requests per minute, and each read sends one request for each owner.
 const READ_INTERVAL_MS = 30_000;
 
+/**
+ * The prefix of the storage key that holds the last successful read of one SWR key: the prefix, then the key as JSON.
+ * A change to the stored shape takes a new version. A wallet reset removes it with every other unkept key.
+ */
+export const EARN_POSITIONS_STORAGE_PREFIX = 'earn_positions_v1:';
+
+// A stored read larger than this is not stored, and the older copy is removed. Positions are small: one is about
+// 400 characters.
+const MAX_STORED_CHARS = 32_768;
+
+/** The last successful read of one key: when it began, and its result with no errors. */
+interface StoredEarnPositions {
+  at: number;
+  result: EarnPositionsResult;
+}
+
 interface KeyReads {
   /** When the key's last read began, whoever started it. */
   at?: number;
@@ -32,11 +49,20 @@ interface KeyReads {
 // Per SWR cache, so a test's fresh cache starts with none.
 const keyReads = new WeakMap<object, Map<string, KeyReads>>();
 
-// The failure a read would report for a config that names no positions host or Earn market, as the getters phrase it,
-// named from the snapshot the hook keys on: the getters read the realm's, which can differ.
-function unconfiguredError(positionsUrl: string | undefined, marketUid: string | undefined): string | undefined {
+const NO_STORED_READ: Promise<StoredEarnPositions | undefined> = Promise.resolve(undefined);
+
+const ignoreFailedWrite = () => {};
+
+// The failure a read would report for a document that names no positions host, no Epoch route or no Earn vault, as
+// the getters phrase it, named from the snapshot the hook keys on: the getters read the realm's, which can differ.
+function unconfiguredError(
+  positionsUrl: string | undefined,
+  chainIds: string,
+  listedCount: number
+): string | undefined {
   if (!positionsUrl) return new BridgeConfigUnavailableError('epoch.positionsUrl').message;
-  if (!marketUid) return new BridgeConfigUnavailableError('Earn market').message;
+  if (chainIds === '') return new BridgeConfigUnavailableError('Epoch route').message;
+  if (listedCount === 0) return new BridgeConfigUnavailableError('Earn vault').message;
   return undefined;
 }
 
@@ -49,6 +75,25 @@ function readsOf(cache: object, id: string): KeyReads {
   const reads = byKey.get(id) ?? { rearms: new Set<() => void>() };
   byKey.set(id, reads);
   return reads;
+}
+
+/** The stored read of `storageKey`, or undefined when there is none, it has another shape or the read fails. */
+async function readStoredPositions(storageKey: string): Promise<StoredEarnPositions | undefined> {
+  try {
+    const stored = await fetchFromStorage<StoredEarnPositions>(storageKey);
+    if (!stored || typeof stored.at !== 'number' || !Array.isArray(stored.result?.positions)) return undefined;
+    return { at: stored.at, result: { ...stored.result, errors: [] } };
+  } catch (error) {
+    console.warn('[earn] stored positions unreadable', error);
+    return undefined;
+  }
+}
+
+/** Stores a successful read of `storageKey` without its errors, or removes the older copy when the read is too large. */
+function storePositions(storageKey: string, at: number, result: EarnPositionsResult): Promise<void> {
+  const stored: StoredEarnPositions = { at, result: { ...result, errors: [] } };
+  if (JSON.stringify(stored).length > MAX_STORED_CHARS) return getStorageProvider().remove([storageKey]);
+  return putToStorage(storageKey, stored);
 }
 
 /**
@@ -78,33 +123,41 @@ export function earnItemLoadState(
  * is off screen (another tab, a page above it, or another Home page), the document is hidden or the device is
  * offline, and reconnect and focus never read. A Retry is the one read outside that, and the next poll waits 30 s
  * after it too.
+ *
+ * The key needs only the document: the account, the positions host and the Epoch routes it names, never a derived
+ * value, so a cold open reads at once. Each successful read is stored under `EARN_POSITIONS_STORAGE_PREFIX` and the
+ * key, so a mount in a fresh realm (every extension popup open) shows the last read at once, every position stale,
+ * while its own read runs. The stored copy is shown only until this hook sees a live read of the key, and the copy of
+ * a key the hook leaves (another account, network or document) is removed. The vaults are the derivation's catalogue
+ * (`selectEarnVaultCatalog`), not this read's.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
   /**
-   * Each `stale` when the latest read did not load it: the read failed and SWR kept an earlier read's data, or its
-   * owner failed and it was carried from an earlier read. A stale position arms no withdrawal.
+   * Each `stale` when the latest read did not load it: the read failed and SWR kept an earlier read's data, its
+   * owner failed and it was carried from an earlier read, or it is the stored copy of an earlier session's read. A
+   * stale position arms no withdrawal.
    */
   positions: EarnPosition[];
+  /** The listed vaults the derivation's catalogue serves, in the document's order. Empty until a derivation holds it. */
   vaults: EarnVault[];
   /**
-   * No data and no error, live or kept, including while the page is covered. A retry after a failure keeps the
-   * error and reports false.
+   * No data and no error, live, kept or stored, including while the page is covered. A retry after a failure keeps
+   * the error and reports false.
    */
   isLoading: boolean;
-  /** Any failure: the request's, one owner's positions, or the vault catalogue's. What the positions surfaces report. */
+  /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;
   /**
-   * The failure of the vault read: the request's, or the vault catalogue's (reported under EARN_CATALOG_ERROR_OWNER).
-   * What the vault surfaces report. Vaults carried from an earlier load may show beside it. A failed owner does not
-   * set it: the catalogue does not come from the owners, so their failure says nothing about a vault.
+   * The failure of the request itself (the owner lookup, or a document that names no Earn). What the vault surfaces
+   * report. A failed owner does not set it, and neither does the vault catalogue, which the config derivation reads.
    */
   loadError?: string;
   /**
-   * The network configures no Earn at all: its document (mainnet's) names no positions host or no Epoch route.
-   * `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not on this
-   * network. A market read that failed is a configured Earn that is down, and is not this; nor is a snapshot with no
-   * accepted document, which says nothing about the network and keeps its load error and Retry.
+   * The network configures no Earn at all: its document (mainnet's) names no positions host, no Epoch route or no
+   * Earn vault. `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not
+   * on this network. It reads the document only, never the derivation; a snapshot with no accepted document says
+   * nothing about the network and keeps its load error and Retry.
    */
   notOnNetwork: boolean;
   /**
@@ -118,40 +171,83 @@ export function useEarnPositions(): {
   const { cache } = useSWRConfig();
   const config = useBridgeConfigSnapshot();
   const positionsUrl = config.config?.['bridge-providers'].epoch.positionsUrl;
-  const marketUid = selectEarnMarket(config)?.marketUid;
+  const chainIds = selectEpochRoutes(config)
+    .map(route => route.chainId)
+    .join(',');
   const listed = selectEarnVaults(config);
-  // Only a loading snapshot is a wait: a loaded one that names neither settles at once, as the read would have failed.
-  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, marketUid) : undefined;
-  const notOnNetwork =
-    config.status === 'ready' &&
-    config.config !== null &&
-    (!positionsUrl || config.derived?.epoch.market.state === 'skipped');
+  const catalog = selectEarnVaultCatalog(config);
+  const configured = Boolean(positionsUrl) && chainIds !== '' && listed.length > 0;
+  // Only a loading snapshot is a wait: a loaded one that names none settles at once, as the read would have failed.
+  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, chainIds, listed.length) : undefined;
+  const notOnNetwork = config.status === 'ready' && config.config !== null && unconfigured !== undefined;
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
   // mounts, so a key with data reads again then only once its last read is 30 s old. The read goes to the configured
-  // host and market, so the key names them: none reads nothing, and a config that lands or moves them reads anew.
-  const key = ['earn-positions', account.publicKey, account.evmAddress, positionsUrl, marketUid];
+  // host and routes of the network, so the key names them: none reads nothing, and a document that moves them reads
+  // anew. The account stays second: a receipt invalidates every key of its account by it.
+  const key = ['earn-positions', account.publicKey, account.evmAddress, config.network, positionsUrl, chainIds];
   const id = JSON.stringify(key);
+  const storageKey = EARN_POSITIONS_STORAGE_PREFIX + id;
   const lastRead = keyReads.get(cache)?.get(id)?.at;
   const due = lastRead === undefined || Date.now() - lastRead >= READ_INTERVAL_MS;
+
+  // The stored copy is read once per key the hook mounts with, and only for a key that can read.
+  const storedRead = useMemo(
+    () => (configured ? readStoredPositions(storageKey) : NO_STORED_READ),
+    [configured, storageKey]
+  );
+  const [stored, setStored] = useState<{ storageKey: string; value: StoredEarnPositions }>();
+  useEffect(() => {
+    let current = true;
+    storedRead.then(value => {
+      if (current && value) setStored({ storageKey, value });
+    });
+    return () => {
+      current = false;
+    };
+  }, [storedRead, storageKey]);
+
+  // The key this render shows, so a read that lands after the key moved stores nothing; and the key whose live read
+  // this hook has seen, after which the stored copy never shows again (a receipt that clears the key's data must not
+  // bring back what it cleared).
+  const currentStorageKey = useRef(storageKey);
+  currentStorageKey.current = storageKey;
+  const liveSeen = useRef<string | null>(null);
+
+  // The stored copy of a key the hook leaves (another account, network or document) is removed.
+  const previousStorageKey = useRef(storageKey);
+  useEffect(() => {
+    const previous = previousStorageKey.current;
+    previousStorageKey.current = storageKey;
+    if (previous !== storageKey) getStorageProvider().remove([previous]).catch(ignoreFailedWrite);
+  }, [storageKey]);
+
   const {
     data: liveData,
     error: swrError,
     isValidating,
     mutate
   } = useRetryableSWR(
-    onScreen && positionsUrl && marketUid ? key : null,
+    onScreen && configured ? key : null,
     async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
-      reads.at = Date.now();
+      const startedAt = Date.now();
+      reads.at = startedAt;
       reads.rearms.forEach(rearm => rearm());
       const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
       const walletAddress = account.evmAddress?.toLowerCase();
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
+      const next = await fetchEarnPositions({ accountId: account.publicKey, owners });
       // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
-      // SWR calls the fetcher of the last render.
-      return carryForward(data, await fetchEarnPositions({ accountId: account.publicKey, owners }));
+      // SWR calls the fetcher of the last render. On a cold mount that is the stored copy, which may land after the
+      // render that started this read.
+      const previous = data ?? (liveSeen.current === id ? undefined : (await storedRead)?.result);
+      const result = carryForward(previous, next);
+      if (currentStorageKey.current === storageKey) {
+        storePositions(storageKey, startedAt, result).catch(ignoreFailedWrite);
+      }
+      return result;
     },
     {
       revalidateIfStale: due,
@@ -164,6 +260,7 @@ export function useEarnPositions(): {
       shouldRetryOnError: false
     }
   );
+  if (liveData !== undefined) liveSeen.current = id;
 
   // One timer per on-screen hook, for its current key: it fires 30 s after the key's last read began, re-arming from
   // every read that begins meanwhile. A read that fails is retried by it too, which SWR's poll never does while the
@@ -198,29 +295,39 @@ export function useEarnPositions(): {
     onScreen,
     liveData !== undefined || swrError !== undefined ? { data: liveData, error: swrError } : undefined
   );
-  const data = shown?.data;
+  // The stored copy stands in only for a key with no live or kept data that this hook has not seen loaded.
+  const fromStore =
+    shown?.data === undefined && liveSeen.current !== id && stored?.storageKey === storageKey
+      ? stored.value.result
+      : undefined;
+  const data = shown?.data ?? fromStore;
   const readError = shown?.error ?? unconfigured;
-  // No data and no error (live or kept): a page mounted covered reads as loading, not empty.
+  // No data and no error (live, kept or stored): a page mounted covered reads as loading, not empty.
   const isLoading = data === undefined && !readError;
+  const fundingAsset = config.network === 'testnet' ? 'USDCx' : undefined;
+
+  // The document decides which vaults show, in which order and under which entry; the catalogue is already in its
+  // order, so each listing takes its own vault.
+  const vaults = useMemo(
+    () =>
+      listed.flatMap(listing => {
+        const vault = catalog?.find(item => item.marketUid.toLowerCase() === listing.marketUid);
+        return vault ? [mapEarnVault({ ...vault, listing }, fundingAsset)] : [];
+      }),
+    [catalog, listed, fundingAsset]
+  );
 
   return useMemo(() => {
-    // Owner and catalogue queries never reject: each failure resolves in `errors`, while what loaded before may still
-    // show. An owner's failure is positions-only; the catalogue's failure is the vaults'.
+    // Owner queries never reject: each failure resolves in `errors`, while what loaded before may still show.
     const failedOwners = new Set(data?.errors.map(({ owner }) => owner));
-    const catalogError = data?.errors.find(({ owner }) => owner === EARN_CATALOG_ERROR_OWNER)?.error;
-    const loadError = readError ? errorText(readError) : catalogError;
-    // The document decides which vaults show, in which order and under which entry, also for a vault carried from an
-    // earlier read or read before the document changed.
-    const vaults = listed.flatMap(listing => {
-      const vault = data?.vaults.find(item => item.marketUid.toLowerCase() === listing.marketUid);
-      return vault ? [{ ...vault, listing }] : [];
-    });
+    const loadError = readError ? errorText(readError) : undefined;
+    const stale = Boolean(readError) || fromStore !== undefined;
     return {
       positions: (data?.positions ?? []).map(position => ({
         ...mapEarnPosition(position, listed),
-        stale: Boolean(readError) || failedOwners.has(position.owner)
+        stale: stale || failedOwners.has(position.owner)
       })),
-      vaults: vaults.map(vault => mapEarnVault(vault, config.network === 'testnet' ? 'USDCx' : undefined)),
+      vaults,
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,
       // Surface a load failure so the UI can show "couldn't load - retry" instead
@@ -235,5 +342,5 @@ export function useEarnPositions(): {
         if (!isValidating) void mutate();
       }
     };
-  }, [data, listed, isLoading, readError, notOnNetwork, isValidating, mutate, config.network]);
+  }, [data, fromStore, listed, vaults, isLoading, readError, notOnNetwork, isValidating, mutate]);
 }

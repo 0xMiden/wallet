@@ -1,5 +1,6 @@
 import { getAddress } from 'viem';
 
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import type { AgglayerDepositToken, BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
@@ -114,6 +115,14 @@ export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsd
 /** Read the market returned by the Epoch positions service. */
 export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
   return okValue(s.derived?.epoch.market);
+}
+
+/**
+ * The Earn vault catalogue the derivation read (`derived.epoch.vaults`): the listed vaults the service serves, in the
+ * document's order. Null while no derivation holds one, or while its read failed or was skipped.
+ */
+export function selectEarnVaultCatalog(s: BridgeConfigSnapshot): EarnVaultInfo[] | null {
+  return okValue(s.derived?.epoch.vaults);
 }
 
 const NO_EARN_VAULTS: readonly EarnVaultConfig[] = [];

@@ -1,3 +1,5 @@
+import { TEST_EARN_VAULT_INFO } from 'lib/epoch/testing/bridge-config';
+
 import type { DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
@@ -23,6 +25,7 @@ import {
   getMidenUsdc,
   selectEarnMarket,
   selectEarnVault,
+  selectEarnVaultCatalog,
   selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
@@ -129,7 +132,8 @@ const DERIVED: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
+    vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] }
   }
 };
 const RECOVERY = {
@@ -205,12 +209,18 @@ describe('selectors', () => {
     });
   });
 
+  it('select the Earn vault catalogue the derivation read', () => {
+    expect(selectEarnVaultCatalog(snapshot())).toEqual([TEST_EARN_VAULT_INFO]);
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'ok', value: [] } } }))).toEqual([]);
+  });
+
   it('select nothing without an accepted document', () => {
     for (const select of [
       selectMidenUsdc,
       selectMidenUsdcFaucetId,
       selectEvmUsdc,
       selectEarnMarket,
+      selectEarnVaultCatalog,
       selectNativeEthFaucet,
       selectNativeEthToken
     ]) {
@@ -220,6 +230,8 @@ describe('selectors', () => {
 
   it('select nothing whose read did not succeed, but still name the configured faucet', () => {
     const failed = withDerived({ epoch: { midenUsdcFaucet: ERROR, evmUsdc: { state: 'absent' } } });
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: ERROR } }))).toBeNull();
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'skipped' } } }))).toBeNull();
     expect(selectMidenUsdc(failed)).toBeNull();
     expect(selectMidenUsdcFaucetId(failed)).toBe('0x537c15a622074e91188aa894456c52');
     expect(selectEvmUsdc(failed)).toBeNull();

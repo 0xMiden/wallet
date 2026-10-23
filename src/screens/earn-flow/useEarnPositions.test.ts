@@ -5,11 +5,15 @@ import { SWRConfig, useSWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
-import { EARN_CATALOG_ERROR_OWNER, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import { fetchFromStorage } from 'lib/miden/front/storage';
+import { clearStorage } from 'lib/miden/reset';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
+import type { Probe } from 'lib/remote-config/derive';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
 
-import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
+import { EARN_POSITIONS_STORAGE_PREFIX, earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const mockAccount: { publicKey: string; evmAddress?: string } = {
   publicKey: 'miden-account',
@@ -21,12 +25,25 @@ jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
 }));
 
+// The desktop store: localStorage, which a wallet reset wipes in this realm.
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual<typeof import('lib/platform')>('lib/platform'),
+  isMobile: () => false,
+  isDesktop: () => true,
+  isExtension: () => false
+}));
+
+// A wallet reset rediscovers the native asset over RPC.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  resetNativeAssetCache: jest.fn(async () => {}),
+  primeNativeAssetId: jest.fn()
+}));
+
 jest.mock('lib/epoch', () => {
   const positions = jest.requireActual<typeof import('lib/epoch/positions')>('lib/epoch/positions');
   const pools = jest.requireActual<typeof import('lib/epoch/pools-read')>('lib/epoch/pools-read');
   return {
     carryForward: positions.carryForward,
-    EARN_CATALOG_ERROR_OWNER: positions.EARN_CATALOG_ERROR_OWNER,
     EARN_LENDER_FAMILY_NAMES: pools.EARN_LENDER_FAMILY_NAMES,
     earnLenderFamily: pools.earnLenderFamily,
     earnVaultTakesDeposits: pools.earnVaultTakesDeposits,
@@ -64,11 +81,40 @@ const LISTING: EarnVaultConfig = {
   protocol: 'dummy-lending',
   depositsEnabled: true
 };
+
+// The catalogue's vault of the same market as the position.
+const vault: EarnVaultInfo = {
+  marketUid: 'DUMMY_LENDING:11155111:0xasset',
+  lenderKey: 'DUMMY_LENDING',
+  lenderFamily: 'DUMMY_LENDING',
+  lenderName: 'Dummy Lending',
+  marketName: 'Dummy Lending',
+  logoUri: '',
+  chainId: '11155111',
+  underlying: { address: '0xasset', symbol: 'USDC', decimals: 6 },
+  depositApr: 5,
+  aprTotal: 5,
+  canOpen: true,
+  listing: LISTING
+};
+
+const SEPOLIA_ROUTE: BridgeConfig['supportedEvmChains'] = {
+  sepolia: {
+    chainId: 11155111,
+    bridges: {
+      epoch: {
+        depositEnabled: true,
+        withdrawalEnabled: true,
+        tokens: { USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs: [] } }
+      }
+    }
+  }
+};
 const READY_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
   'bridge-providers': { epoch: { positionsUrl: POSITIONS_URL }, agglayer: {}, usdcx: {} },
-  supportedEvmChains: {},
+  supportedEvmChains: SEPOLIA_ROUTE,
   features: { earn: true },
   earn: { vaults: [LISTING] }
 };
@@ -93,7 +139,8 @@ const READY: BridgeConfigSnapshot = {
           underlying: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
           chainId: 11155111
         }
-      }
+      },
+      vaults: { state: 'ok', value: [vault] }
     }
   },
   lastFetch: null
@@ -105,6 +152,11 @@ const LOADING: BridgeConfigSnapshot = {
   derived: null,
   lastFetch: null
 };
+/** READY, with the derivation's vault catalogue answered as `vaults`. */
+function withCatalog(vaults: Probe<EarnVaultInfo[]>): BridgeConfigSnapshot {
+  if (!READY.derived) throw new Error('READY carries a derivation');
+  return { ...READY, derived: { ...READY.derived, epoch: { ...READY.derived.epoch, vaults } } };
+}
 /** READY, with the Earn market read answered as `market`. */
 function withMarketRead(market: NonNullable<BridgeConfigSnapshot['derived']>['epoch']['market']): BridgeConfigSnapshot {
   if (!READY.derived) throw new Error('READY carries a derivation');
@@ -143,33 +195,25 @@ const position = {
   priceUsd: 1
 };
 
-// The fallback catalogue's vault of the same market as the position.
-const vault: EarnVaultInfo = {
-  marketUid: 'DUMMY_LENDING:11155111:0xasset',
-  lenderKey: 'DUMMY_LENDING',
-  lenderFamily: 'DUMMY_LENDING',
-  lenderName: 'Dummy Lending',
-  marketName: 'Dummy Lending',
-  logoUri: '',
-  chainId: '11155111',
-  underlying: { address: '0xasset', symbol: 'USDC', decimals: 6 },
-  depositApr: 5,
-  aprTotal: 5,
-  canOpen: true,
-  listing: LISTING
-};
-
-const liveResult: EarnPositionsResult = {
+// No type: the hook no longer reads a result's `vaults`, and the empty list here only keeps it assignable while
+// `fetchEarnPositions` still returns the field.
+const liveResult = {
   positions: [position],
-  vaults: [vault],
+  vaults: [],
   totalDepositsUSD: 10,
   owners: ['0xabcdef'],
   errors: [{ owner: '0xother', error: 'owner unavailable' }]
 };
 
+// The SWR key of the fixtures' account on READY, and the storage key of its stored copy.
+const KEY = ['earn-positions', 'miden-account', '0xABCDEF', 'testnet', POSITIONS_URL, '11155111'];
+const STORAGE_KEY = EARN_POSITIONS_STORAGE_PREFIX + JSON.stringify(KEY);
+const readStored = () => fetchFromStorage<{ at: number; result: EarnPositionsResult }>(STORAGE_KEY);
+
 describe('useEarnPositions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
     mockAccount.publicKey = 'miden-account';
     mockAccount.evmAddress = '0xABCDEF';
     mockConfigSnapshot = READY;
@@ -218,13 +262,10 @@ describe('useEarnPositions', () => {
     const unlisted: EarnVaultInfo = { ...vault, marketUid: 'EULER_V2:11155111:0xasset', lenderKey: 'EULER_V2' };
     const renamed = { ...LISTING, name: 'Dummy Lending (renamed)' };
     mockConfigSnapshot = {
-      ...READY,
+      ...withCatalog({ state: 'ok', value: [vault, unlisted, other] }),
       config: { ...READY_CONFIG, earn: { vaults: [other.listing, renamed] } }
     };
-    mockUseRetryableSWR.mockReturnValue({
-      data: { ...liveResult, vaults: [vault, unlisted, other] },
-      isLoading: false
-    });
+    mockUseRetryableSWR.mockReturnValue({ data: liveResult, isLoading: false });
 
     const { result } = renderHook(() => useEarnPositions());
 
@@ -232,6 +273,30 @@ describe('useEarnPositions', () => {
       ['aave-v3-sepolia-usdc', 'Aave'],
       ['dummy-lending-sepolia-usdc', 'Dummy Lending (renamed)']
     ]);
+  });
+
+  it("shows the derivation's vaults before any positions read lands", () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined, isLoading: true });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.vaults.map(item => item.id)).toEqual(['dummy-lending-sepolia-usdc']);
+  });
+
+  it.each<[string, BridgeConfigSnapshot]>([
+    ['failed', withCatalog({ state: 'error', message: 'Epoch pools page 2 failed' })],
+    ['not derived yet', { ...READY, derived: null }]
+  ])('shows no vault and no load failure when the catalogue is %s', (_case, snapshot) => {
+    mockConfigSnapshot = snapshot;
+    mockUseRetryableSWR.mockReturnValue({ data: { ...liveResult, errors: [] }, isLoading: false });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.vaults).toEqual([]);
+    expect(result.current.positions).toHaveLength(1);
+    expect(result.current.loadError).toBeUndefined();
+    expect(result.current.error).toBeUndefined();
   });
 
   it('reports a per-owner positions error as error only, never as a request failure', () => {
@@ -245,46 +310,16 @@ describe('useEarnPositions', () => {
     expect(result.current).toHaveProperty('loadError', undefined);
   });
 
-  it('reports a failed vault catalogue read as a failed load, with no owner to query', () => {
-    mockUseRetryableSWR.mockReturnValue({
-      data: {
-        ...liveResult,
-        positions: [],
-        vaults: [],
-        totalDepositsUSD: 0,
-        owners: [],
-        errors: [{ owner: EARN_CATALOG_ERROR_OWNER, error: 'Epoch pools page 2 failed' }]
-      },
-      isLoading: false
-    });
-
-    const { result } = renderHook(() => useEarnPositions());
-
-    expect(result.current.loadError).toBe('Epoch pools page 2 failed');
-    expect(result.current.error).toBe('Epoch pools page 2 failed');
-  });
-
-  it('reports a failed load for a failed catalogue read only, never for failed owners', () => {
+  it('reports no failed load when every owner failed', () => {
     const twoOwners = { ...liveResult, owners: ['0xabcdef', '0xother'] };
     const bothFailed = [...liveResult.errors, { owner: '0xabcdef', error: 'positions request failed (429)' }];
     mockUseRetryableSWR.mockReturnValue({ data: { ...twoOwners, errors: bothFailed }, isLoading: false });
-    const { result, rerender } = renderHook(() => useEarnPositions());
+    const { result } = renderHook(() => useEarnPositions());
 
-    // Every owner failed, but the catalogue loaded: the vaults are current, and the positions report the failure.
+    // The catalogue does not come from the owners: the vaults are current, and the positions report the failure.
     expect(result.current.vaults).toHaveLength(1);
     expect(result.current.loadError).toBeUndefined();
     expect(result.current.error).toBe('owner unavailable');
-
-    const catalogFailed = [{ owner: EARN_CATALOG_ERROR_OWNER, error: 'vault catalogue request threw' }];
-    mockUseRetryableSWR.mockReturnValue({
-      data: { ...twoOwners, vaults: [], errors: catalogFailed },
-      isLoading: false
-    });
-    rerender();
-
-    expect(result.current.loadError).toBe('vault catalogue request threw');
-    // A catalogue failure marks no position stale: it names no owner.
-    expect(result.current.positions[0]?.stale).toBe(false);
   });
 
   it('reports a request failure as both loadError and error', () => {
@@ -302,7 +337,6 @@ describe('useEarnPositions', () => {
     const { result } = renderHook(() => useEarnPositions());
 
     expect(result.current.positions).toEqual([]);
-    expect(result.current.vaults).toEqual([]);
     // Not zeros: a zero is a value, and the summary would count up from it when the read lands.
     expect(result.current.summary).toEqual({
       totalRewardsUsd: null,
@@ -317,7 +351,7 @@ describe('useEarnPositions', () => {
 
   it('reports zeros once a completed read finds no positions', () => {
     mockUseRetryableSWR.mockReturnValue({
-      data: { positions: [], vaults: [], totalDepositsUSD: 0, owners: [], errors: [] },
+      data: { positions: [], totalDepositsUSD: 0, owners: [], errors: [] },
       isLoading: false
     });
 
@@ -361,7 +395,7 @@ describe('useEarnPositions', () => {
     if (!loadPositions) throw new Error('positions fetcher was not registered');
     await loadPositions();
 
-    expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF', POSITIONS_URL, MARKET_UID]);
+    expect(receivedKey).toEqual(KEY);
     expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
@@ -374,6 +408,8 @@ describe('useEarnPositions', () => {
         React.createElement(PageActiveContext.Provider, { value: false }, children)
     });
     expect(receivedKey).toBeNull();
+    // The read above stored its result, which this mount shows once its storage read lands.
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)));
   });
 
   it('uses only historical owners when the wallet has no derived EVM address', async () => {
@@ -431,13 +467,21 @@ describe('useEarnPositions', () => {
         { ...READY_CONFIG, 'bridge-providers': { ...READY_CONFIG['bridge-providers'], epoch: {} } },
         'The bridge config has no usable epoch.positionsUrl.'
       ],
-      ['names the positions host but no Earn market', READY_CONFIG, 'The bridge config has no usable Earn market.']
+      [
+        'names the positions host but no Epoch route',
+        { ...READY_CONFIG, supportedEvmChains: {} },
+        'The bridge config has no usable Epoch route.'
+      ],
+      [
+        'names an Epoch route but lists no Earn vault',
+        { ...READY_CONFIG, features: { earn: false }, earn: undefined },
+        'The bridge config has no usable Earn vault.'
+      ]
     ])(
       'settles at once as a failed load, reading nothing, when a loaded snapshot %s',
       async (_case, config, message) => {
         mockUseRetryableSWR.mockImplementation(realSWR);
-        const derived = _case === 'names the positions host but no Earn market' ? null : READY.derived;
-        publishConfig({ ...READY, config, derived });
+        publishConfig({ ...READY, config });
         const { result } = renderHook(() => useEarnPositions(), { wrapper });
         await act(async () => {
           await new Promise(resolve => setTimeout(resolve, 0));
@@ -450,8 +494,8 @@ describe('useEarnPositions', () => {
       }
     );
 
-    // A market read that failed is a configured Earn whose service is down, and keeps the error and its Retry; so is a
-    // snapshot with no accepted document, since only a document says what the network configures.
+    // Only the document says what the network configures: a snapshot with no accepted document keeps the error and its
+    // Retry, and no derived value (a market read skipped or failed, no derivation at all) decides it.
     it.each<[string, BridgeConfigSnapshot, boolean]>([
       ['no accepted document, a config outage', { ...READY, config: null, derived: null }, false],
       [
@@ -462,9 +506,16 @@ describe('useEarnPositions', () => {
         },
         true
       ],
-      ['a document with no Epoch route, so the market read was skipped', withMarketRead({ state: 'skipped' }), true],
+      ['a document with no Epoch route', { ...READY, config: { ...READY_CONFIG, supportedEvmChains: {} } }, true],
+      [
+        'a document that lists no Earn vault',
+        { ...READY, config: { ...READY_CONFIG, features: { earn: false }, earn: undefined } },
+        true
+      ],
+      ['a configured document with no derivation yet', { ...READY, derived: null }, false],
+      ['a configured document whose market read was skipped', withMarketRead({ state: 'skipped' }), false],
       ['a market read that failed', withMarketRead({ state: 'error', message: 'positions 503' }), false],
-      ['a configured market', READY, false],
+      ['a configured document', READY, false],
       ['a snapshot still loading', LOADING, false]
     ])(
       'reports Earn as not on this network only when its document configures none: %s',
@@ -494,6 +545,25 @@ describe('useEarnPositions', () => {
       act(() => publishConfig({ ...READY, config: moved }));
       await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
     });
+
+    it('reads from the document alone, before any derivation lands', async () => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      publishConfig({ ...READY, derived: null });
+      const { result } = renderHook(() => useEarnPositions(), { wrapper });
+
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+      expect(result.current.notOnNetwork).toBe(false);
+      // The vaults wait for the derivation's catalogue; the positions do not.
+      expect(result.current.vaults).toEqual([]);
+
+      act(() => publishConfig(READY));
+      expect(result.current.vaults).toHaveLength(1);
+      // The key names no derived value, so the derivation landing reads nothing again.
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('across an account switch, with the real SWR', () => {
@@ -519,7 +589,7 @@ describe('useEarnPositions', () => {
       rerender();
 
       expect(result.current.positions).toEqual([]);
-      expect(result.current.vaults).toEqual([]);
+      expect(result.current.isLoading).toBe(true);
     });
   });
 
@@ -969,21 +1039,17 @@ describe('useEarnPositions', () => {
       expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps what its sole owner and the catalogue last loaded when a Retry finds both failed, stale until a read loads it', async () => {
+    it('keeps what its sole owner last loaded when a Retry finds it failed, stale until a read loads it', async () => {
       jest
         .mocked(fetchEarnPositions)
         .mockResolvedValueOnce(liveResult)
         .mockResolvedValueOnce({
+          ...liveResult,
           positions: [],
-          vaults: [],
           totalDepositsUSD: 0,
-          owners: ['0xabcdef'],
-          errors: [
-            { owner: '0xabcdef', error: 'positions request failed (429)' },
-            { owner: EARN_CATALOG_ERROR_OWNER, error: 'Epoch pools page 1 failed (429)' }
-          ]
+          errors: [{ owner: '0xabcdef', error: 'positions request failed (429)' }]
         })
-        .mockResolvedValueOnce(liveResult);
+        .mockResolvedValueOnce({ ...liveResult, errors: [] });
       const { result } = renderInCache();
       await waitFor(() => expect(result.current.positions).toHaveLength(1));
 
@@ -991,12 +1057,11 @@ describe('useEarnPositions', () => {
       await waitFor(() => expect(result.current.error).toBe('positions request failed (429)'));
 
       expect(result.current.positions).toHaveLength(1);
-      expect(result.current.vaults).toHaveLength(1);
-      expect(result.current.loadError).toBe('Epoch pools page 1 failed (429)');
+      expect(result.current.loadError).toBeUndefined();
       expect(result.current.positions[0]?.stale).toBe(true);
 
       await act(async () => result.current.refetch());
-      await waitFor(() => expect(result.current.loadError).toBeUndefined());
+      await waitFor(() => expect(result.current.error).toBeUndefined());
       expect(result.current.positions[0]?.stale).toBe(false);
     });
 
@@ -1015,6 +1080,122 @@ describe('useEarnPositions', () => {
       await act(async () => result.current.refetch());
       await waitFor(() => expect(result.current.loadError).toBeUndefined());
       expect(result.current.positions[0]?.stale).toBe(false);
+    });
+  });
+
+  describe('the stored copy of the last read, with the real SWR', () => {
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+    // A fresh cache per mount: a new realm, as every extension popup open is.
+    const renderCold = () => {
+      const cache = new Map();
+      return renderHook(() => useEarnPositions(), {
+        wrapper: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(SWRConfig, { value: { provider: () => cache } }, children)
+      });
+    };
+    const storedResult = { ...liveResult, errors: [] };
+    const laterResult = { ...liveResult, positions: [{ ...position, withdrawable: '7.25' }], errors: [] };
+    // A read the test settles.
+    const pendingRead = () => {
+      let settle: (result: EarnPositionsResult) => void = () => undefined;
+      jest.mocked(fetchEarnPositions).mockReturnValueOnce(
+        new Promise(resolve => {
+          settle = resolve;
+        })
+      );
+      return (result: EarnPositionsResult) => settle(result);
+    };
+
+    beforeEach(() => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+    });
+
+    it('paints the stored read at once on a cold mount, every position stale, and reads at once', async () => {
+      await getStorageProvider().set({ [STORAGE_KEY]: { at: Date.now(), result: storedResult } });
+      const settleRead = pendingRead();
+
+      const { result } = renderCold();
+
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.positions[0]).toMatchObject({ withdrawable: '9.5', stale: true });
+      expect(result.current.summary.totalDepositedUsd).toBe(10);
+      expect(result.current.error).toBeUndefined();
+      // Its read began at mount, although the stored copy is less than 30 s old.
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      await act(async () => settleRead(laterResult));
+      await waitFor(() => expect(result.current.positions[0]?.withdrawable).toBe('7.25'));
+      expect(result.current.positions[0]?.stale).toBe(false);
+    });
+
+    it('replaces the stored copy on every successful read, without its errors', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValueOnce(liveResult);
+      const { result } = renderCold();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      await waitFor(async () => expect((await readStored())?.result.positions[0]?.withdrawable).toBe('9.5'));
+      expect((await readStored())?.result.errors).toEqual([]);
+
+      jest.mocked(fetchEarnPositions).mockResolvedValueOnce(laterResult);
+      await act(async () => result.current.refetch());
+      await waitFor(async () => expect((await readStored())?.result.positions[0]?.withdrawable).toBe('7.25'));
+    });
+
+    it('keeps the stored copy when a read fails, and shows it stale beside the failure', async () => {
+      const stored = { at: 1, result: storedResult };
+      await getStorageProvider().set({ [STORAGE_KEY]: stored });
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+
+      const { result } = renderCold();
+
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(result.current.positions[0]?.stale).toBe(true);
+      expect(await readStored()).toEqual(stored);
+    });
+
+    it("carries a failed owner's positions from the stored copy on a cold mount", async () => {
+      await getStorageProvider().set({ [STORAGE_KEY]: { at: 1, result: storedResult } });
+      const settleRead = pendingRead();
+      const { result } = renderCold();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      await act(async () =>
+        settleRead({ ...liveResult, positions: [], errors: [{ owner: '0xabcdef', error: 'positions 429' }] })
+      );
+
+      await waitFor(() => expect(result.current.error).toBe('positions 429'));
+      expect(result.current.positions).toHaveLength(1);
+      expect(result.current.positions[0]?.stale).toBe(true);
+    });
+
+    it("never shows another account's stored copy, and removes the copy of the key it leaves", async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValueOnce(liveResult);
+      const { result, rerender } = renderCold();
+      await waitFor(async () => expect(await readStored()).not.toBeNull());
+
+      jest.mocked(fetchEarnPositions).mockReturnValueOnce(new Promise(() => undefined));
+      mockAccount.publicKey = 'another-account';
+      mockAccount.evmAddress = '0x123456';
+      rerender();
+
+      expect(result.current.positions).toEqual([]);
+      expect(result.current.isLoading).toBe(true);
+      await waitFor(async () => expect(await readStored()).toBeNull());
+    });
+
+    it('is removed by a wallet reset, so the next mount shows nothing stored', async () => {
+      await getStorageProvider().set({ [STORAGE_KEY]: { at: 1, result: storedResult } });
+
+      await clearStorage(false);
+
+      expect(await readStored()).toBeNull();
+      jest.mocked(fetchEarnPositions).mockReturnValueOnce(new Promise(() => undefined));
+      const { result } = renderCold();
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+      expect(result.current.positions).toEqual([]);
+      expect(result.current.isLoading).toBe(true);
     });
   });
 });

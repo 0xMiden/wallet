@@ -1,5 +1,6 @@
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import { TEST_SWAP_PAIRS, TEST_SWAP_SECTION } from 'lib/miden/swap/testing/registry';
-import type { DerivedBridgeConfig, DerivedChainConfig } from 'lib/remote-config/derive';
+import type { DerivedBridgeConfig, DerivedChainConfig, Probe } from 'lib/remote-config/derive';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
@@ -32,6 +33,26 @@ export const TEST_EARN_VAULT: EarnVaultConfig = {
   depositsEnabled: true
 };
 export const TEST_EARN_VAULTS: readonly EarnVaultConfig[] = [TEST_EARN_VAULT];
+/**
+ * That vault as the derivation reads it from the testnet host, which has no `/pools` route: the positions fallback
+ * names the dummy lender, and the route's USDC read gives its token.
+ */
+export const TEST_EARN_VAULT_INFO: EarnVaultInfo = {
+  marketUid: TEST_EARN_MARKET.marketUid,
+  lenderKey: 'DUMMY_LENDING',
+  lenderFamily: 'DUMMY_LENDING',
+  lenderName: 'Dummy Lending',
+  marketName: 'Dummy Lending',
+  logoUri: '',
+  chainId: String(TEST_EVM_CHAIN_ID),
+  underlying: { address: TEST_EVM_USDC.address, symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals },
+  depositApr: 2,
+  aprTotal: 2,
+  canOpen: true,
+  listing: TEST_EARN_VAULT
+};
+/** The vault catalogue of the test document (`derived.epoch.vaults`, read by `selectEarnVaultCatalog`). */
+export const TEST_EARN_VAULT_CATALOG: readonly EarnVaultInfo[] = [TEST_EARN_VAULT_INFO];
 export const TEST_MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
 export const TEST_MIDEN_USDC: MidenUsdc = { faucetId: TEST_MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
 /** The testnet bridge registry's native-ETH faucet: it mints bridged ETH and sends its deliveries. */
@@ -126,12 +147,16 @@ const TEST_DERIVED: DerivedBridgeConfig = {
   epoch: {
     market: { state: 'ok', value: TEST_EARN_MARKET },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
+    vaults: { state: 'ok', value: [...TEST_EARN_VAULT_CATALOG] }
   },
   swap: { pairs: { state: 'ok', value: TEST_SWAP_PAIRS } }
 };
 
-/** That document as this realm holds it once loaded, with both USDC tokens and the solver's pairs (`TEST_SWAP_PAIRS`) read. */
+/**
+ * That document as this realm holds it once loaded, with both USDC tokens, the Earn vault catalogue
+ * (`TEST_EARN_VAULT_CATALOG`) and the solver's pairs (`TEST_SWAP_PAIRS`) read.
+ */
 export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
   network: 'testnet',
   status: 'ready',
@@ -144,6 +169,12 @@ export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
 export const testSnapshotWithSwapPairs = (pairs: SwapPairs): BridgeConfigSnapshot => ({
   ...TEST_BRIDGE_CONFIG_SNAPSHOT,
   derived: { ...TEST_DERIVED, swap: { pairs: { state: 'ok', value: pairs } } }
+});
+
+/** `TEST_BRIDGE_CONFIG_SNAPSHOT` with the Earn vault catalogue read as `vaults` instead. */
+export const testSnapshotWithEarnVaults = (vaults: Probe<EarnVaultInfo[]>): BridgeConfigSnapshot => ({
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  derived: { ...TEST_DERIVED, epoch: { ...TEST_DERIVED.epoch, vaults } }
 });
 
 const mockRuntimeListeners = new Set<() => void>();

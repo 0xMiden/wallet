@@ -1,17 +1,9 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import type { EarnVaultConfig } from 'lib/remote-config/schema';
-import {
-  type EpochRoute,
-  findEvmUsdc,
-  getEarnVaults,
-  getEpochPositionsUrl,
-  getEpochRoutes
-} from 'lib/remote-config/values';
+import { type EpochRoute, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
-import { type EarnVaultsResult, fetchEarnVaults } from './pools';
 import type { EarnVaultInfo } from './pools-read';
 
 export type { EarnVaultInfo };
@@ -23,7 +15,8 @@ export type { EarnVaultInfo };
  * collateral and the solver opens an EVM lending position owned by the typed EVM
  * address. This module READS those positions back from Epoch's read-only positions
  * service (the bridge config's `epoch.positionsUrl`), keyed by that EVM owner address.
- * It also reads the vault catalogue (`./pools`), the vaults a deposit can go to.
+ * It does not read the vault catalogue: the bridge-config derivation reads it once per
+ * document version (`selectEarnVaultCatalog` in `lib/remote-config/values`).
  *
  * The wallet has no single "my EVM address" (each deposit names its own owner), so
  * we collect every distinct `evmRecipient` the user has deposited to from the
@@ -116,62 +109,32 @@ export interface EarnPosition {
   priceUsd: number;
 }
 
-/** The `owner` under which `errors` reports a failed vault catalogue read. It is never an EVM address. */
-export const EARN_CATALOG_ERROR_OWNER = 'catalog';
-
 export interface EarnPositionsResult {
   /** Non-zero positions across every queried owner address that loaded. */
   positions: EarnPosition[];
-  /**
-   * The listed vaults the catalogue serves (`fetchEarnVaults`), in the document's order. Empty when its read failed or
-   * was skipped.
-   */
-  vaults: EarnVaultInfo[];
   /** Sum of `depositsUSD` across all positions. */
   totalDepositsUSD: number;
   /** EVM owner addresses that were queried. */
   owners: string[];
   /**
    * Per-address failures (network / non-2xx / unsuccessful body / an unreadable payload). A failed owner has no
-   * positions in this result: carrying what it loaded before is the caller's (see `carryForward`). A failed vault
-   * catalogue read is reported here too, under the owner EARN_CATALOG_ERROR_OWNER.
+   * positions in this result: carrying what it loaded before is the caller's (see `carryForward`).
    */
   errors: { owner: string; error: string }[];
-  /** The lowercase market uid of each listed vault that could not be read or is not served, and was dropped. */
-  droppedVaultKeys?: string[];
-  /** Set when a dropped catalogue item has no market uid, so no key names it. */
-  vaultDroppedUnkeyed?: boolean;
 }
 
-const vaultKey = ({ marketUid }: EarnVaultInfo): string => marketUid.toLowerCase();
-
 /**
- * `next` with what its failures hid: `previous`'s positions of every owner in `next.errors`, and the vaults `next`
- * lacks from `previous`: every one when the catalogue read failed or a dropped vault had no key, otherwise only those
- * `next.droppedVaultKeys` names. Owners and errors stay `next`'s, so the failure is still reported. With no failure
- * and no dropped vault, or nothing loaded before, it is `next` itself.
+ * `next` with what its failures hid: `previous`'s positions of every owner in `next.errors`. Owners and errors stay
+ * `next`'s, so the failure is still reported. With no failed owner, or nothing loaded before, it is `next` itself.
  */
 export function carryForward(
   previous: EarnPositionsResult | undefined,
   next: EarnPositionsResult
 ): EarnPositionsResult {
-  const catalogFailed = next.errors.some(({ owner }) => owner === EARN_CATALOG_ERROR_OWNER);
-  const ownerFailed = next.errors.some(({ owner }) => owner !== EARN_CATALOG_ERROR_OWNER);
-  const carryEveryVault = catalogFailed || next.vaultDroppedUnkeyed === true;
-  if (!previous || (!ownerFailed && !carryEveryVault && !next.droppedVaultKeys?.length)) return next;
+  if (!previous || next.errors.length === 0) return next;
   const failed = new Set(next.errors.map(({ owner }) => owner));
   const positions = [...next.positions, ...previous.positions.filter(({ owner }) => failed.has(owner))];
-  const loaded = new Set(next.vaults.map(vaultKey));
-  const dropped = new Set(next.droppedVaultKeys);
-  const carried = previous.vaults.filter(
-    vault => !loaded.has(vaultKey(vault)) && (carryEveryVault || dropped.has(vaultKey(vault)))
-  );
-  // Both reads are in the document's order, so the earlier read's places put a vault it brings back where it was; a
-  // vault only `next` has keeps its place among the others after them. The screens order by the document anyway.
-  const rank = new Map(previous.vaults.map((vault, index) => [vaultKey(vault), index]));
-  const place = (vault: EarnVaultInfo): number => rank.get(vaultKey(vault)) ?? Number.MAX_SAFE_INTEGER;
-  const vaults = carried.length > 0 ? [...next.vaults, ...carried].sort((a, b) => place(a) - place(b)) : next.vaults;
-  return { ...next, positions, vaults, totalDepositsUSD: positions.reduce((sum, p) => sum + p.depositsUSD, 0) };
+  return { ...next, positions, totalDepositsUSD: positions.reduce((sum, p) => sum + p.depositsUSD, 0) };
 }
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -253,39 +216,6 @@ function isRouteMarket(marketUid: string, routes: readonly EpochRoute[]): boolea
   return routes.some(route => chainId === String(route.chainId) && token?.toLowerCase() === route.usdc.toLowerCase());
 }
 
-/** The catalogues of every route, merged in the document's vault order, with each route's drops and the first error. */
-async function readCatalogs(
-  positionsUrl: string,
-  routes: readonly EpochRoute[],
-  listed: readonly EarnVaultConfig[]
-): Promise<EarnVaultsResult> {
-  const reads = await Promise.all(
-    routes.map(route => {
-      const usdc = findEvmUsdc(route.chainId);
-      return fetchEarnVaults({
-        positionsUrl,
-        chainId: route.chainId,
-        underlying: route.usdc,
-        listed,
-        ...(usdc && usdc.chainId === route.chainId
-          ? { fallbackUnderlying: { symbol: usdc.symbol, decimals: usdc.decimals } }
-          : {})
-      });
-    })
-  );
-  const order = new Map(listed.map((vault, index) => [vault.marketUid, index]));
-  const rank = (vault: EarnVaultInfo): number => order.get(vault.marketUid.toLowerCase()) ?? listed.length;
-  const vaults = reads.flatMap(read => read.vaults).sort((a, b) => rank(a) - rank(b));
-  const droppedMarketUids = reads.flatMap(read => read.droppedMarketUids ?? []);
-  const error = reads.find(read => read.error)?.error;
-  return {
-    vaults,
-    ...(error === undefined ? {} : { error }),
-    ...(droppedMarketUids.length > 0 ? { droppedMarketUids } : {}),
-    ...(reads.some(read => read.droppedUnkeyed) ? { droppedUnkeyed: true } : {})
-  };
-}
-
 /** Flatten one chain item's nested `data[].positions[]` into the non-zero `EarnPosition`s of the markets `keeps` names. */
 function flattenChainItem(
   owner: string,
@@ -339,37 +269,27 @@ export interface FetchEarnPositionsArgs {
   owners?: string[];
   /** Chains to query (defaults to every Epoch route the document names). */
   chains?: number[];
-  /**
-   * Do not read the vault catalogue. `vaults` is then empty, and positions are kept by lender family, chain and token
-   * alone. A withdrawal check uses it, so a failed catalogue read never stops a withdrawal.
-   */
-  skipCatalog?: boolean;
 }
 
 /**
- * Fetch every open lending position for the wallet, and the vault catalogue. Collects the distinct EVM owner
- * addresses from `earn-deposit` activity and queries the positions service for all of them at once, together with
- * one catalogue read (`fetchEarnVaults`) that does not depend on the owners. With no owner, it makes no positions
+ * Fetch every open lending position for the wallet. Collects the distinct EVM owner addresses from `earn-deposit`
+ * activity and queries the positions service once for each of them, all at once. With no owner, it makes no
  * request. Per-address failures are isolated (see `fetchPositionsForOwner`) and surfaced in `errors`, and so is a
- * payload that cannot be read or has a copied field of the wrong type, with none of that owner's positions kept. A
- * failed catalogue read is in `errors` under EARN_CATALOG_ERROR_OWNER.
+ * payload that cannot be read or has a copied field of the wrong type, with none of that owner's positions kept.
  *
  * Positions are asked for on every Epoch route the document names at once (`chains=8453,42161,1`), and a position is
  * kept when its uid names a market on one of those routes in that route's USDC, whether or not the document lists the
- * market or the catalogue loaded: the vault list gates deposits only, and a position in an unlisted market must stay
- * withdrawable. The catalogue is read per route and merged in the document's order. It rejects only when the owner
- * lookup fails or the bridge config names no positions host or no Epoch route, before any request.
+ * market: the vault list gates deposits only, and a position in an unlisted market must stay withdrawable. The vault
+ * catalogue is not read here (`selectEarnVaultCatalog`). It rejects only when the owner lookup fails or the bridge
+ * config names no positions host or no Epoch route, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const [positionsUrl, routes, listed] = [getEpochPositionsUrl(), getEpochRoutes(), getEarnVaults()];
+  const [positionsUrl, routes] = [getEpochPositionsUrl(), getEpochRoutes()];
   if (routes.length === 0) throw new Error('The bridge config names no Epoch route');
   const chains = args.chains ?? routes.map(route => route.chainId);
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
-  const [catalog, results] = await Promise.all([
-    args.skipCatalog ? undefined : readCatalogs(positionsUrl, routes, listed),
-    Promise.all(owners.map(owner => fetchPositionsForOwner(positionsUrl, owner, chains)))
-  ]);
+  const results = await Promise.all(owners.map(owner => fetchPositionsForOwner(positionsUrl, owner, chains)));
 
   const keeps = (marketUid: string): boolean => isRouteMarket(marketUid, routes);
 
@@ -389,18 +309,7 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
       errors.push({ owner: result.owner, error: 'positions response unreadable' });
     }
   }
-  if (catalog?.error) {
-    errors.push({ owner: EARN_CATALOG_ERROR_OWNER, error: catalog.error });
-  }
 
   const totalDepositsUSD = positions.reduce((sum, p) => sum + p.depositsUSD, 0);
-  return {
-    positions,
-    vaults: catalog?.vaults ?? [],
-    totalDepositsUSD,
-    owners,
-    errors,
-    ...(catalog?.droppedMarketUids ? { droppedVaultKeys: catalog.droppedMarketUids } : {}),
-    ...(catalog?.droppedUnkeyed ? { vaultDroppedUnkeyed: true } : {})
-  };
+  return { positions, totalDepositsUSD, owners, errors };
 }

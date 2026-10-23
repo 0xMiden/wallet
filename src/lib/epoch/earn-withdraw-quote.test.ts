@@ -65,7 +65,6 @@ beforeEach(() => {
       }
     ],
     owners: [token],
-    vaults: [],
     totalDepositsUSD: 10,
     errors: []
   });
@@ -135,16 +134,15 @@ it('requires refresh on expiry, a malformed reviewed amount, payout identity or 
   jest.mocked(fetchEarnPositions).mockResolvedValueOnce({
     positions: [],
     owners: [token],
-    vaults: [],
     totalDepositsUSD: 0,
     errors: [{ owner: token, error: 'offline' }]
   });
   await expect(assertWithdrawalReviewCurrent(q)).rejects.toThrow('earnWithdrawRefresh');
 });
-it('reads the fresh position without the vault catalogue', async () => {
+it("reads the fresh position of the quote's owner alone", async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
   await assertWithdrawalReviewCurrent(q);
-  expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden', owners: [token], skipCatalog: true });
+  expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden', owners: [token] });
 });
 it("accepts a position in any market on the route's chain, and refuses one on another chain", async () => {
   // A market of another lender than the default market, on the default market's chain.
@@ -164,7 +162,6 @@ it("accepts a position in any market on the route's chain, and refuses one on an
       }
     ],
     owners: [token],
-    vaults: [],
     totalDepositsUSD: 10,
     errors: []
   });
