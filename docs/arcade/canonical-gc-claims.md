@@ -77,9 +77,8 @@ mobile/iOS build and extension background/UI builds passed. Native evidence is i
 interactive claim acceptance and local Android are not established by these build checks. Android local
 setup was explicitly skipped. CI retains the repository coverage threshold.
 
-The initial 10-GC distributor inventory is exhausted by this acceptance claim. Further payouts require
-replenishment using the protocol's funded deposit path; a fresh weekly ledger does not create token
-supply. This is a deployment funding requirement, separate from the confirmed wallet flows above.
+The initial 10-GC distributor inventory was exhausted by this acceptance claim. The replenishment
+acceptance below restored it using existing tokens; a fresh weekly ledger does not create token supply.
 
 ## Inventory preflight
 
@@ -93,3 +92,22 @@ it does not reserve tokens against another claimant between review and network i
 The live SDK query at block 474848 returned an empty vault and `inventoryAvailable: false` after the
 acceptance claim. The generic unavailable message covers both unconfigured networks and temporary
 claim unavailability without incorrectly saying that a known GC balance is unconfigured.
+
+## Replenishment acceptance
+
+The same native Bread build sent another 9 GC to the owned receiving account, committed in block
+475005 as note `0x4c8760a7bd4141ca76a8c21b42b51ff66828e577342614588b51b41942620cfa`.
+That account combined the exact 9-GC input with its previously received 1 GC to fund the same distributor.
+No tokens were minted, and the unrelated 9-GC asset remained separate.
+
+- Funding transaction `0x33f6919e644457b22297b06359434efb2f99dd9e21f98ed88b7b3b592ae7a5a1` committed at block 475177, creating the bound 10-GC deposit with a 210-unit native budget. Sender fee: 119 native units.
+- The network automatically consumed deposit `0x2b26c64951ed5720ea69235c976ddb966f99df05fae3107c7ef103795ff017c8` at block 475179. No manual distributor transaction was needed. Distributor nonce advanced from 2 to 3, GC inventory from 0 to 10 GC, and native reserve remained 0.
+- Native-only refund `0x12246b4582ed01e707b925110b8441a675ff19d362387b84f067ea4f52454dde` returned 98 of the 210 units, with 112 used for execution. Its sender, recipient, asset and serial binding to the deposit were checked before collection.
+- Refund collection `0x66adbab4cda817caf9cd84dfcfbeb96dbd392540280ca01f85cb7a95916242e4` committed at block 475197. It received 98 native units and paid 119 as its own receive fee.
+- A real SDK vault query at block 475184 returned `gcUnits: 10000000` and `inventoryAvailable: true`, complementing the earlier empty-inventory query. Bread retained 10 GC and still displayed “Claimed this week”; replenishing inventory did not grant the same wallet another weekly allocation.
+
+![Native balance and completed weekly claim after replenishment](../superpowers/evidence/2026-10-23-gc/v2-replenished-claimed-10gc.png)
+
+The inventory child passed 173 focused tests, TypeScript, changed-file lint, locale consistency,
+mobile/iOS compilation and extension background/UI builds. Native acceptance remains specific to iOS;
+extension interactive acceptance and local Android are not implied by successful builds.
