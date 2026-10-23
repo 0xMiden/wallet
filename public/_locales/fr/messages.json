@@ -4060,6 +4060,18 @@
     "message": "Variations d'actifs",
     "englishSource": "Asset changes"
   },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Cette transaction implique également le transfert d’un actif que le portefeuille ne peut pas répertorier, tel qu’un NFT. Ne poursuivez que si vous faites confiance à cette opération.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
+  },
   "unknown": {
     "message": "Inconnu",
     "englishSource": "Unknown"

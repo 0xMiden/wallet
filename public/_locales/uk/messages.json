@@ -4060,6 +4060,18 @@
     "message": "Зміни в активах",
     "englishSource": "Asset changes"
   },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Ця транзакція також передбачає переміщення активу, який гаманець не може відобразити, наприклад, NFT. Продовжуйте лише в тому випадку, якщо ви довіряєте цій операції.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
+  },
   "unknown": {
     "message": "Невідомо",
     "englishSource": "Unknown"

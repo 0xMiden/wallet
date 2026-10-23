@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][all] Importing a recovery phrase that has no Guardian backup says so and offers a new account with that phrase after a reused-phrase warning, instead of failing or silently creating one; a lookup that could not reach every Guardian offers a retry and is never treated as not found; a pasted phrase longer than 12 words is rejected instead of cut to 12 (#882, #1298).
+- [FIX][all] Approval screens list each NFT that leaves or enters the account by its faucet and a short asset id, warn when a transaction changes assets the wallet cannot list instead of saying no assets move, and no longer describe a note that carries only an NFT as carrying no assets (#1600).
 - [FEATURE][all] A wallet of Guardian accounts offers the Encrypted Wallet File in Settings, and restoring it rebuilds each Guardian account from the file and its recovery phrase without asking the Guardian operator; the account then replaces its everyday key, or takes a saved everyday key pair from the failed-rotation screen. The export names the accounts whose state the file holds, and the support and privacy pages describe it (#1617).
 - [FIX][all] A swap whose payout claim keeps failing now says so on its Activity row and receipt, with the reason and a Retry, instead of showing nothing while the daily retry runs (#1644).
 - [FIX][all] A dApp request to consume a P2ID note addressed to another account is refused before the approval sheet, instead of failing after approval (BREAD-WALLET-5D).
