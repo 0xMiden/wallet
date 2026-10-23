@@ -370,19 +370,33 @@ describe('resetStorageDestructive', () => {
     expect(mockBrowserStorageSet).not.toHaveBeenCalled();
   });
 
-  it('drops the developer network choice from the kept override once the wipe is done', async () => {
+  it('strips the developer marker before the key-value clear and the database delete', async () => {
     jest.mocked(isExtension).mockReturnValue(true);
     mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
 
     await resetStorageDestructive();
 
     expect(mockForgetDeveloperNetworkChoice).toHaveBeenCalledTimes(1);
-    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeGreaterThan(
+    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeLessThan(
       mockBrowserStorageRemove.mock.invocationCallOrder[0]!
     );
-    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeGreaterThan(
-      mockDbOpen.mock.invocationCallOrder[0]!
+    expect(mockForgetDeveloperNetworkChoice.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockDbDelete.mock.invocationCallOrder[0]!
     );
+  });
+
+  it('does not wipe when stripping the developer marker rejects', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
+    const stripError = new Error('marker write failed');
+    mockForgetDeveloperNetworkChoice.mockRejectedValueOnce(stripError);
+    jest.mocked(resetNativeAssetCache).mockClear();
+
+    await expect(resetStorageDestructive()).rejects.toBe(stripError);
+
+    expect(mockDbDelete).not.toHaveBeenCalled();
+    expect(mockBrowserStorageRemove).not.toHaveBeenCalled();
+    expect(jest.mocked(resetNativeAssetCache)).not.toHaveBeenCalled();
   });
 
   it('leaves the developer network choice alone when the override goes with the wipe', async () => {

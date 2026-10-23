@@ -160,29 +160,22 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
+  // A reset wallet must not stay on the developer's network choice, so the kept override loses it before anything
+  // is wiped: a failure here leaves the wallet as it was, and no later failure can leave the choice behind.
+  if (keepEndpointOverride) await forgetDeveloperNetworkChoice();
   // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
   // key-value clear empties localStorage, and the extension's service worker has none.
   if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
   await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
-  let dbError: unknown;
-  let dbFailed = false;
   try {
     await Repo.db.delete();
     await Repo.db.open();
   } catch (err) {
-    dbFailed = true;
-    dbError = err;
     await Repo.db.open().catch(() => {});
     await Repo.transactions.clear().catch(() => {});
     await Repo.spendingLimits.clear().catch(() => {});
+    throw err;
   }
-  // A reset wallet must not stay on the developer's network choice, so this runs even when the database step
-  // failed; the database error is the one that propagates.
-  if (keepEndpointOverride) {
-    if (dbFailed) await forgetDeveloperNetworkChoice().catch(() => {});
-    else await forgetDeveloperNetworkChoice();
-  }
-  if (dbFailed) throw dbError;
   await resetNativeAssetCache();
 }
 
