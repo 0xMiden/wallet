@@ -1,6 +1,7 @@
 import { BridgedReceiveTransaction, IOneClickTrackingData } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { fetchOneClickStatus } from 'lib/one-click/client';
+
 import {
   claimOneClickEvmDepositAttempt,
   OneClickEvmDepositAlreadyAttemptedError,
