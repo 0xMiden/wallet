@@ -21,7 +21,19 @@ const sepolia = (): DerivedChainConfig => ({
     rollupId: { state: 'ok', value: 86 },
     tokens: { state: 'ok', value: [NATIVE_ETH] },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    depositTokens: {
+      state: 'ok',
+      value: [
+        {
+          symbol: 'USDC',
+          contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+          decimals: 18,
+          midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e',
+          scale: 10
+        }
+      ]
+    }
   },
   epoch: { evmUsdc: SKIPPED }
 });
@@ -32,7 +44,13 @@ const whole = (): DerivedBridgeConfig => ({
   chains: {
     11155111: sepolia(),
     84532: {
-      agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED },
+      agglayer: {
+        rollupId: SKIPPED,
+        tokens: SKIPPED,
+        evmNetworkId: SKIPPED,
+        l1BridgeCode: SKIPPED,
+        depositTokens: SKIPPED
+      },
       epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } }
     }
   },
@@ -127,6 +145,7 @@ it.each([
   ['agglayer', 'tokens', { state: 'pending', value: [] }],
   ['agglayer', 'evmNetworkId', { state: 'pending', value: 0 }],
   ['agglayer', 'l1BridgeCode', { state: 'pending', value: true }],
+  ['agglayer', 'depositTokens', { state: 'pending', value: [] }],
   ['epoch', 'evmUsdc', { state: 'pending', value: { symbol: 'USDC', decimals: 18 } }]
 ] as const)('rejects a snapshot whose chain %s.%s probe is in an unknown state', (section, probe, value) => {
   expect(parseStoredDerived(chain(section, probe, value), 'testnet', 4)).toBeNull();
@@ -158,6 +177,48 @@ it.each([
   ['an origin network written as text', 'agglayer', 'tokens', token({ originNetwork: '0' })],
   ['a negative scale', 'agglayer', 'tokens', token({ scale: -1 })],
   ['code reported as false', 'agglayer', 'l1BridgeCode', ok(false)],
+  [
+    'a deposit token at a checksummed address',
+    'agglayer',
+    'depositTokens',
+    ok([
+      {
+        symbol: 'USDC',
+        contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+        decimals: 18,
+        midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e',
+        scale: 10
+      }
+    ])
+  ],
+  [
+    'a deposit token with no symbol',
+    'agglayer',
+    'depositTokens',
+    ok([
+      {
+        symbol: '',
+        contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+        decimals: 18,
+        midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e',
+        scale: 10
+      }
+    ])
+  ],
+  [
+    'a deposit token whose scale is not a count',
+    'agglayer',
+    'depositTokens',
+    ok([
+      {
+        symbol: 'USDC',
+        contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+        decimals: 18,
+        midenFaucetId: '0x36bb3163d7ef0ad102f35bf507c61e',
+        scale: -1
+      }
+    ])
+  ],
   ['a symbol that is not text', 'epoch', 'evmUsdc', ok({ symbol: 6, decimals: 18 })]
 ] as const)('rejects a chain with %s', (_label, section, probe, value) => {
   expect(parseStoredDerived(chain(section, probe, value), 'testnet', 4)).toBeNull();
@@ -189,7 +250,7 @@ it('reads a derivation that threw as every check failed, on every configured cha
   };
   const error = { state: 'error', message: 'wasm init failed' };
   const reads = {
-    agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error },
+    agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, depositTokens: error },
     epoch: { evmUsdc: error }
   };
   expect(failedDerivation(config, 'wasm init failed', 7)).toStrictEqual({

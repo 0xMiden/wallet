@@ -108,7 +108,7 @@ import {
   MidenRequest
 } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
@@ -117,7 +117,12 @@ import { commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
-import type { ConfirmationHandlerState } from 'lib/telemetry/crash-diagnostics';
+import {
+  backgroundAgeOf,
+  type ConfirmationHandlerState,
+  type ConfirmationRegistryState,
+  type ConfirmationRequestShape
+} from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
@@ -142,7 +147,6 @@ import {
 } from './dapp-locked';
 import { isFieldWord } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
-import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
@@ -3086,6 +3090,7 @@ const isConfirmationOf = (req: MidenRequest, id: string): boolean =>
 type ConfirmationState = Exclude<ConfirmationHandlerState, 'unknown'>;
 const CONFIRMATION_STATES_KEPT = 64;
 const confirmationStates = new Map<string, ConfirmationState>();
+let confirmationStatesPruned = false;
 
 function recordConfirmationState(id: string, state: ConfirmationState): void {
   confirmationStates.delete(id);
@@ -3093,16 +3098,34 @@ function recordConfirmationState(id: string, state: ConfirmationState): void {
   for (const oldest of confirmationStates.keys()) {
     if (confirmationStates.size <= CONFIRMATION_STATES_KEPT) return;
     confirmationStates.delete(oldest);
+    confirmationStatesPruned = true;
   }
 }
 
-/** The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached. */
+function requestShapeOf(req: unknown): ConfirmationRequestShape {
+  if (typeof req !== 'object' || req === null || !('id' in req)) return 'missing';
+  const sent: unknown = req.id;
+  if (typeof sent === 'string') return 'string';
+  if (Array.isArray(sent)) return typeof sent[0] === 'string' ? 'array_with_string' : 'array_without_string';
+  return 'other';
+}
+
+function registryState(): ConfirmationRegistryState {
+  if (confirmationStatesPruned) return 'pruned';
+  return confirmationStates.size === 0 ? 'empty' : 'holding';
+}
+
+/**
+ * The "Not Found" for a confirmation request no handler answered, coded with the state its approval reached, the
+ * shape of the id the request carried, what this worker remembers of recent approvals and how long it has run.
+ */
 export function confirmationNotFound(req: unknown): Error & { code: string } {
   const sent: unknown = typeof req === 'object' && req !== null && 'id' in req ? req.id : undefined;
   // The payload request sends the popup's SWR key, an array holding the id.
   const id: unknown = Array.isArray(sent) ? sent[0] : sent;
   const state = typeof id === 'string' ? confirmationStates.get(id) : undefined;
-  return Object.assign(new Error('Not Found'), { code: `confirmation_${state ?? 'unknown'}` });
+  const labels = [requestShapeOf(req), registryState(), backgroundAgeOf(performance.now())];
+  return Object.assign(new Error('Not Found'), { code: [`confirmation_${state ?? 'unknown'}`, ...labels].join(':') });
 }
 
 async function requestConfirm({
@@ -3316,15 +3339,12 @@ async function createConfirmWindow(
 }
 
 export async function getNetworkRPC(net: string | undefined) {
-  // dApp didn't specify a network — fall back to the wallet's currently
-  // selected one. Prevents an immediate connect() failure for dApps that
-  // (legitimately) just want to use whatever the user is on.
+  // When the dApp names no network, use the RPC of the network that the wallet
+  // runs on. This is the effective network (the endpoint override, else the
+  // build default), not the legacy stored network id: Mainnet invitation
+  // onboarding writes only the override (#1655).
   if (!net) {
-    const current = await getCurrentMidenNetwork();
-    if (!current) {
-      throw new Error(MidenDAppErrorType.NetworkNotGranted);
-    }
-    return current.rpcBaseURL;
+    return getEffectiveRpcUrl();
   }
   // Only a mainnet wallet takes a mainnet claim. A test-network claim still reaches a mainnet wallet, whose
   // connect sheet warns, because the adapter cannot name mainnet yet.
@@ -3578,8 +3598,9 @@ async function formatConsumeTransactionPreview(
   accountId: string
 ): Promise<ConsumePreview> {
   const { noteId, assets, noteType, restriction } = carried ?? (await resolveConsumeNote(transaction, accountId));
-  // Refused here, before the sheet: once approved, the consume would fail at execution with ERR_RECLAIM_DISABLED, and
-  // nothing before execution asks whether the account can consume the note.
+  // Refused here, before the sheet: once approved, the consume would fail at execution with
+  // ERR_NOTE_ACTIVE_ACCOUNT_IS_NOT_TARGET_ACCOUNT or ERR_RECLAIM_DISABLED, and nothing before execution asks whether the
+  // account can consume the note.
   if (!mayConsume(restriction, () => accountRefToSdk(accountId))) {
     throw new Error('This account can never consume this note - refusing it');
   }

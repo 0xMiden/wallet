@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "Dieser Weg ist für diese Überweisung nicht verfügbar. Sie können mit einem anderen verfügbaren Weg fortfahren. Von diesem Bildschirm aus wurde keine Transaktion übermittelt.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "Dieser Weg ist für diese Überweisung nicht verfügbar, und derzeit steht kein anderer Weg zur Verfügung. Von diesem Bildschirm aus wurde keine Transaktion übermittelt.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Weiter über Agglayer",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Weiter bei Epoch",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "USDCx verbrennen",
     "englishSource": "Burn USDCx"
@@ -86,16 +110,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "Der Betrag liegt unter dem Mindestbetrag für die Verbrennung gemäß dem „faucet“.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "Das Burn-Skript der Wallet stimmt nicht mit dem USDCx-faucet überein.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "Senden Sie mindestens $amount$ USDCx.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "Die Verbrennungsrichtlinie des USDCx-faucets kann nicht gelesen werden. Überprüfen Sie den Antrag erneut, um es noch einmal zu versuchen.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "Der USDCx-faucet ist noch nicht bekannt. Überprüfen Sie den Antrag erneut, um es noch einmal zu versuchen.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "Senden Sie mehr als $amount$ USDCx an $network$: Die Gebühr von Circle wird von der Auszahlung abgezogen.",
@@ -708,9 +733,33 @@
     "message": "Die privaten Meilensteine deiner Wallet.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "Verdient",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "Gesperrt",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "In Kürze verfügbar",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "Abzeichensammlung",
-    "englishSource": "Badge collection"
+    "message": "Alle Badges",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Nur im Mainnet",
@@ -721,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "Abzeichen werden im Mainnet freigeschaltet. Testaktivitäten zählen nicht.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "Badges werden im Mainnet freigeschaltet. Testaktivitäten zählen nicht.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, erhalten",
@@ -907,6 +956,22 @@
   "transactionRestoredHint": {
     "message": "Dies wurde aus einem Backup wiederhergestellt, daher kann die Wallet nicht überprüfen, ob der Vorgang erfolgreich war, und ihn nicht wiederholen. Überprüfen Sie die Wallet, bevor Sie den Vorgang wiederholen.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
+  },
+  "submissionInterrupted": {
+    "message": "Die Verbindung wurde während der Übermittlung unterbrochen. Die Wallet kann nicht bestätigen, ob die Übermittlung erfolgreich war. Der Vorgang wird möglicherweise noch abgeschlossen; überprüfen Sie dies daher, bevor Sie es erneut versuchen.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "Ihr „Guardian“ hat diesen Eintrag abgelehnt. Versuchen Sie es erneut.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "Das Netzwerk hat diesen Beitrag abgelehnt. Versuchen Sie es erneut.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "Auf diese Übermittlung ging keine Antwort ein. Die Wallet kann nicht bestätigen, ob sie erfolgreich übermittelt wurde. Möglicherweise wird der Vorgang noch abgeschlossen; überprüfen Sie dies daher, bevor Sie es erneut versuchen.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
   },
   "showFullError": {
     "message": "Vollständigen Fehler anzeigen",
@@ -1817,6 +1882,10 @@
   "other": {
     "message": "Sonstiges",
     "englishSource": "Other"
+  },
+  "others": {
+    "message": "Sonstiges",
+    "englishSource": "Others"
   },
   "thousandFormat": {
     "message": "$thousand$ k",
@@ -3257,6 +3326,26 @@
     "message": "Sie können Ihren Guardian jederzeit wieder rotieren – bewahren Sie Ihre Wiederherstellungsphrase sicher auf, da Sie diese dafür benötigen.",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "Ihr neuer „Guardian“ unterzeichnet mit",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "Der neue „Guardian“ leistet nach Bestätigung die Mitunterzeichnung",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "Nichts wurde verschoben",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "Halten Sie es erreichbar",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "Sie können jederzeit erneut wechseln",
+    "englishSource": "Switch again anytime"
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "Authentifizieren Sie sich, um diesen Wechsel zu „Guardian“ zu genehmigen.",
     "englishSource": "Authenticate to approve this Guardian switch."
@@ -3320,6 +3409,18 @@
   "hotKeyRotationFailedGeneric": {
     "message": "Beim Rotieren Ihres Alltagsschlüssels ist ein Fehler aufgetreten. Ihr Guthaben ist sicher, und Sie können es jetzt erneut versuchen.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationStartOver": {
+    "message": "Von vorne beginnen",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "Diese Wallet entfernen und von vorne beginnen?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "Dadurch wird die Wallet von diesem Gerät entfernt, sodass Sie sie wiederherstellen können, beispielsweise mit einer anderen „guardian“-URL. Ihr Guthaben verbleibt im Netzwerk. Zur Wiederherstellung der Wallet benötigen Sie Ihre Wiederherstellungsphrase.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Tägliche Schlüsselrotation nicht bestätigt",
@@ -3821,6 +3922,15 @@
     "message": "Wir konnten Ihre „guardian“ nicht automatisch erkennen. Wählen Sie die von Ihnen verwendete aus oder geben Sie deren URL ein.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
+  "guardianStateBehindChain": {
+    "message": "$name$ kennt dieses Konto, verfügt jedoch nicht über den aktuellen Status des Kontos. Wenn Sie das Konto auf einen anderen guardian übertragen haben, geben Sie die URL dieses guardians ein.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianProbePartialFailure": {
     "message": "$count$ Die guardian(s) konnten nicht erreicht werden, daher ist die Erkennung möglicherweise unvollständig.",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
@@ -4039,6 +4149,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "Dieser externe Dienst ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "Swap ist in diesem Netzwerk nicht verfügbar",
@@ -4864,6 +4982,30 @@
     "message": "Rückgabe von Geldern",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "Auszahlung blockiert",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Die Auszahlung aus diesem Swap schlägt immer wieder fehl, da dieses Konto die Netzwerkgebühr nicht bezahlen kann, um sie einzufordern. Die Wallet versucht es einmal täglich erneut, oder du kannst es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Die Auszahlung aus diesem Swap schlägt bei Ihrem „Guardian“ immer wieder fehl. Die Wallet versucht es einmal täglich erneut, oder Sie können es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Die Auszahlung aus diesem Swap schlägt immer wieder fehl, da das Netzwerk nicht erreichbar war. Die Wallet versucht es einmal täglich erneut, oder Sie können es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Die Auszahlung aus diesem Swap schlägt immer wieder fehl. Die Wallet versucht es einmal täglich erneut, oder Sie können es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Auszahlung erneut versuchen",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "Zurückgegeben · $time$",
     "englishSource": "Returned · $time$",
@@ -5158,6 +5300,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "Dieses Konto kann maximal $cap$ USD enthalten. Es enthält $held$ USD, und diese Einzahlung fügt $deposit$ USD hinzu. Geben Sie einen geringeren Betrag ein.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "Dieses Konto kann maximal $cap$ USD enthalten, und $token$ hat derzeit keinen Preis, sodass die Einzahlung nicht dagegen abgeglichen werden kann. Versuchen Sie es später erneut.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Brücke initiiert!",
     "englishSource": "Bridge initiated!"
@@ -5250,8 +5419,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "~20 Min.",
-    "englishSource": "~20 min"
+    "message": "~2 Min.",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1 Min.",
@@ -6811,6 +6980,14 @@
     "message": "Bridge in",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "Die Token-Liste der Bridge konnte nicht geladen werden, daher fehlen möglicherweise einige Token. Bitte versuchen Sie es später erneut.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "Die Bridge listet diesen Token nicht in diesem Netzwerk.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "Verbinden Sie Ihre Wallet",
     "englishSource": "Connect your wallet"
@@ -7044,5 +7221,37 @@
   "webViewStartFailedAction": {
     "message": "Versuchen Sie es erneut",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "Verfügbarkeit wird geprüft",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "Bitte warte, während wir prüfen, ob die Wallet in deiner Region verfügbar ist.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "Wallet in deiner Region nicht verfügbar",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "Die Wallet ist an deinem aktuellen Standort nicht verfügbar.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "Verfügbarkeit konnte nicht geprüft werden",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "Prüfe deine Verbindung und versuche es erneut.",
+    "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "Dieser Browser oder dieses Gerät kann die Wallet nicht ausführen",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

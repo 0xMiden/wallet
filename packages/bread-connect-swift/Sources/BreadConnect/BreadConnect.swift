@@ -12,6 +12,10 @@ public protocol BreadOpener {
     @MainActor func open(_ link: URL) async -> Bool
 }
 
+protocol GateAwareBreadOpener: BreadOpener {
+    @MainActor func open(_ link: URL, gate: OpenGate) async -> Bool
+}
+
 public struct BreadConnectError: Error, Equatable, Sendable {
     public enum Code: Equatable, Sendable {
         /// Bread's own answer.
@@ -38,6 +42,32 @@ public struct StoredSession: Equatable, Sendable {
     public let permission: JSONObject
 }
 
+/// Serializes cancellation, which can run off the main actor, with each synchronous native handoff.
+final class OpenGate: @unchecked Sendable {
+    private let lock = NSRecursiveLock()
+    private var stopped = false
+
+    func stop() {
+        lock.lock()
+        stopped = true
+        lock.unlock()
+    }
+
+    var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    func run(_ start: () -> Void) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopped else { return false }
+        start()
+        return true
+    }
+}
+
 /// Carries requests to Bread and its answers back through app switches, one request at a time: a new request
 /// replaces the one still waiting. The session and the waiting request are stored, so an answer that relaunches
 /// the app after the system stopped it still completes a connection and records a transaction's outcome.
@@ -57,11 +87,14 @@ public final class BreadConnect {
     private let opener: BreadOpener
     private let now: () -> Date
     private var waiter: Waiter?
+    /// Invoked on the opener's task before it decides to open. Nil outside tests.
+    var beforeOpen: (@MainActor () -> Void)?
     /// The last request this client settled: a record of it left in storage takes no answer until a relaunch.
     private var settledID: String?
 
     private struct Waiter {
         let token: UUID
+        let gate: OpenGate
         let pending: Pending
         let continuation: CheckedContinuation<JSONObject, Error>
         let timeout: Task<Void, Never>
@@ -140,6 +173,37 @@ public final class BreadConnect {
         return try await exchange(.request(id: id, session: session.session.session, sentAt: sentAt), link: link)
     }
 
+    /// The account's login key for the callback's domain, as Bread's own provider returns it.
+    public func requestLoginKey() async throws -> Data {
+        let response = try await request(["type": "LOGIN_KEY_REQUEST", "sourceAccountId": .string(try connectedAccountId())])
+        return try standardBase64(response, type: "LOGIN_KEY_RESPONSE", field: "loginKey")
+    }
+
+    /// A signature by that key over the login message for `data`. The kind is only `word`.
+    public func signLoginBytes(_ data: Data) async throws -> Data {
+        let response = try await request([
+            "type": "LOGIN_SIGN_REQUEST", "sourceAccountId": .string(try connectedAccountId()),
+            "payload": .string(data.base64EncodedString()), "kind": "word"
+        ])
+        return try standardBase64(response, type: "LOGIN_SIGN_RESPONSE", field: "signature")
+    }
+
+    private func connectedAccountId() throws -> String {
+        guard let accountId = session?.permission["accountId"]?.stringValue else {
+            throw BreadConnectError(.bread(.notGranted), "The app is not connected to Bread")
+        }
+        return accountId
+    }
+
+    private func standardBase64(_ response: JSONObject, type: String, field: String) throws -> Data {
+        guard response["type"]?.stringValue == type, let text = response[field]?.stringValue,
+            let data = Data(base64Encoded: text)
+        else {
+            throw BreadConnectError(.bread(.internalError), "Bread's answer has no well-formed \(field)")
+        }
+        return data
+    }
+
     /// Stops waiting for the answer to the request in flight.
     public func cancelPending() {
         settle(.failure(BreadConnectError(.cancelled, "The request to Bread was cancelled")))
@@ -202,6 +266,7 @@ public final class BreadConnect {
         }
         try storage.write(Self.pendingKey, Self.encodePending(pending))
         let token = UUID()
+        let gate = OpenGate()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let timeout = Task { @MainActor [weak self] in
@@ -209,19 +274,29 @@ public final class BreadConnect {
                     guard !Task.isCancelled else { return }
                     self?.settle(token: token, .failure(BreadConnectError(.timeout, "Bread did not answer in time")))
                 }
-                // Settling cancels this, so a request superseded or cancelled before it runs never opens Bread.
+                // Settling cancels this. The gate is set at the cancel itself, because this task can already be
+                // queued ahead of the task that settles.
                 let opening = Task { @MainActor [weak self, opener = self.opener] in
-                    guard !Task.isCancelled else { return }
-                    if await !opener.open(url) {
+                    self?.beforeOpen?()
+                    guard !Task.isCancelled, !gate.isStopped else { return }
+                    let opened: Bool
+                    if let opener = opener as? GateAwareBreadOpener {
+                        opened = await opener.open(url, gate: gate)
+                    } else {
+                        opened = await opener.open(url)
+                    }
+                    if !opened {
                         self?.settle(
                             token: token,
                             .failure(BreadConnectError(.notInstalled, "Bread is not installed; its store page is open")))
                     }
                 }
                 waiter = Waiter(
-                    token: token, pending: pending, continuation: continuation, timeout: timeout, opening: opening)
+                    token: token, gate: gate, pending: pending, continuation: continuation,
+                    timeout: timeout, opening: opening)
             }
         } onCancel: {
+            gate.stop()
             Task { @MainActor [weak self] in
                 self?.settle(token: token, .failure(BreadConnectError(.cancelled, "The request to Bread was cancelled")))
             }
@@ -231,6 +306,7 @@ public final class BreadConnect {
     /// Ends the waiting request, if any, and forgets it; with a token, only when that request is still waiting.
     private func settle(token: UUID? = nil, _ result: Result<JSONObject, Error>) {
         if let token, waiter?.token != token { return }
+        waiter?.gate.stop()
         // Left behind, the record only lets a late answer to its request land after a relaunch.
         try? storage.write(Self.pendingKey, nil)
         guard let waiter else { return }

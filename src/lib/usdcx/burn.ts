@@ -26,27 +26,32 @@ import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import {
   getUsdcxDestination,
-  USDCX_ALLOWED_NOTE_SCRIPTS_SLOT,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
+  USDCX_MIN_BURN,
   USDCX_MIN_BURN_SLOT
 } from './constant';
 import { readUsdcxDestinationSnapshot } from './destination-status';
 import { readWithOwnRpcClient } from './rpc-client';
 import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
-/** Read faucet storage through a separate RPC client and return the minimum burn amount. */
+/**
+ * The minimum burn: the faucet's `min_burn_amount` when it is larger than `USDCX_MIN_BURN`, else `USDCX_MIN_BURN`.
+ * The read asks for an account proof, not the full account: the faucet's nonce map has grown past what the node
+ * serves through `getAccountDetails`. A failed read gives `USDCX_MIN_BURN`, so it never blocks a burn.
+ */
 export async function readUsdcxMinimumBurn(): Promise<bigint> {
-  const fetched = await withRpcTimeout(
-    () => readWithOwnRpcClient(rpc => rpc.getAccountDetails(accountRefToSdk(requireUsdcxFaucetId()))),
-    'usdcx minimum burn'
-  );
-  const storage = fetched.account()?.storage();
-  const allowed = storage?.getMapItem(USDCX_ALLOWED_NOTE_SCRIPTS_SLOT, NoteScript.burn().root())?.toFelts()[0]?.asInt();
-  if (allowed !== 1n) throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
-  const minimum = storage?.getItem(USDCX_MIN_BURN_SLOT)?.toFelts()[0]?.asInt();
-  if (minimum === undefined) throw new UsdcxBurnError('usdcxFaucetUnavailable');
-  return minimum;
+  try {
+    const proof = await withRpcTimeout(
+      () => readWithOwnRpcClient(rpc => rpc.getAccountProof(accountRefToSdk(requireUsdcxFaucetId()))),
+      'usdcx minimum burn'
+    );
+    const onChain = proof.getStorageSlotValue(USDCX_MIN_BURN_SLOT)?.toFelts()[0]?.asInt();
+    return onChain !== undefined && onChain > USDCX_MIN_BURN ? onChain : USDCX_MIN_BURN;
+  } catch (error) {
+    console.warn('USDCx minimum burn read failed, using the wallet minimum', error);
+    return USDCX_MIN_BURN;
+  }
 }
 
 /** Build a burn request from local SDK objects, following the `XReserveBurnNote` factory of miden-usdcx 0.17.1. */
@@ -92,10 +97,8 @@ export async function initiateUsdcxBurn(args: {
   const destination = getUsdcxDestination(destinationChainId);
   // Resolve the native asset so the checks below read a known faucet id.
   await getNativeAssetId();
-  validateUsdcxWithdrawal(faucetId, destinationChainId, amount);
+  validateUsdcxWithdrawal(faucetId, destinationChainId, amount, await readUsdcxMinimumBurn());
   const { domain } = destination;
-  const minimum = await readUsdcxMinimumBurn();
-  if (amount < minimum) throw new UsdcxBurnError('usdcxBelowMinimumBurn');
   const built = {
     ...buildUsdcxBurnRequest(senderPublicKey, amount, destinationAddress, domain),
     destinationDomain: domain,

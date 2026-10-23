@@ -51,10 +51,13 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
         eta={t(usdcxArrivalKey(sourceChainId))}
         testId="bridge-route-usdcx"
         accent="receive"
+        describedBy="bridge-route-usdcx-notice"
+        description={
+          <Notice variant="inline" id="bridge-route-usdcx-notice">
+            {notice ?? t('usdcxRouteNotice')}
+          </Notice>
+        }
       />
-      <Notice variant="inline" className="mt-4">
-        {notice ?? t('usdcxRouteNotice')}
-      </Notice>
     </HomeGroupPaneBody>
   );
 };

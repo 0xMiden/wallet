@@ -60,12 +60,15 @@ import {
   bytesToB64,
   encodeArg,
   type GuardianPipelineArgs,
+  type OffscreenDeadlineTimer,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
   type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignRequest,
-  type OffscreenSignResponse
+  type OffscreenSignResponse,
+  type OffscreenSubmitGateRequest,
+  type OffscreenSubmitGateResponse
 } from './offscreen-codec';
 import {
   decrementCriticalOp,
@@ -230,9 +233,17 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * (design §4), the same risk profile as today's eviction, now time-bounded.
  *
  * Overridable by the build ONLY so the E2E stack can retune it (#718). Every
- * shipping bundle leaves it at 90s: raising the shipping default on the strength
- * of a CI timing would trade a visible CI failure for an invisible production
- * hang, which is the one thing this knob exists to prevent.
+ * shipping bundle leaves it at 180s. It was 90s, sized when a local prove could
+ * not finish at all (below), and that was shorter than the slowest write the
+ * wallet itself allows: a delegated prove may take `DELEGATED_PROVE_TIMEOUT_MS`
+ * (120s) and then still has to submit and apply. Once local proving ran in the
+ * prove worker (#945), a legitimate on-device proof of a multi-note claim ran
+ * past 90s too, and each cut-off kept a Guardian proposal that blocked the
+ * account (#1644). 180s covers the delegated timeout with margin, and the claim
+ * cap (`MAX_NOTES_PER_UNATTENDED_CLAIM`) bounds what one local prove is asked to
+ * do. The cost is 90s more realm time per genuine wedge. Raising it further on
+ * the strength of a CI timing would trade a visible CI failure for an invisible
+ * production hang, which is the one thing this knob exists to prevent.
  *
  * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
  *
@@ -260,7 +271,7 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * the healthy case untouched either way — delegated consumes that completed on the
  * same 2-core runner took 12.1s and 9.9s end to end.
  */
-const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
+const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '180000');
 
 /**
  * Dispatch-time BACKSTOP deadline (ms) for a whole-op offscreen WRITE (issue #260
@@ -277,11 +288,11 @@ const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000')
  * CANNOT false-kill a write merely queued behind slow ops — the exact bug arm-on-start
  * fixed — yet is bounded so a dropped-start op is eventually reclaimed instead of
  * hanging forever. The worst-case contiguous mutex-hold by other ops is a full
- * `syncState` (~45s) plus a write (~90s) ≈ 135s; the commit-wait, though its own
+ * `syncState` (~45s) plus a write (~180s) ≈ 225s; the commit-wait, though its own
  * ceiling is now 150s, YIELDS the mutex during its inter-poll sleeps (follow-up #1),
  * so a queued write runs DURING those sleeps rather than waiting the whole poll — it
- * does not dominate queue-wait. 5min keeps ample headroom above 135s.
- * Normal path: dispatch → backstop(5min) → start → real(~90s). Dropped start:
+ * does not dominate queue-wait. 5min keeps headroom above 225s.
+ * Normal path: dispatch → backstop(5min) → start → real(~180s). Dropped start:
  * dispatch → backstop(5min) fires → op killed (bounded, not hung).
  */
 const CRITICAL_DISPATCH_BACKSTOP_MS = 300_000;
@@ -327,6 +338,10 @@ interface InFlightOp {
   /** True while a reverse-IPC sign round-trip is outstanding for this op — its
    * deadline timer is cleared and re-armed on the sign response (design §2.5). */
   paused: boolean;
+  /** Which timer is armed now, so a deadline abort can say which one fired. */
+  timerPhase: OffscreenDeadlineTimer;
+  /** True once the offscreen doc reported the op won its WASM mutex. */
+  started: boolean;
 }
 
 /**
@@ -393,6 +408,16 @@ const opSignReasons = new Map<string, SignCallbackReason>();
  */
 const opStageCallbacks = new Map<string, StageCallback>();
 
+/**
+ * Records a Guardian leaf's submit crossing before its offscreen realm may submit (#1644), and says whether it may:
+ * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
+ * happen.
+ */
+export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
+
+/** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
+const opSubmitGates = new Map<string, SubmitGate>();
+
 function newOpId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c?.randomUUID) return c.randomUUID();
@@ -417,7 +442,7 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
   const op = takeInFlight(op_id);
   if (!op) return;
   if (resp === undefined) {
-    op.reject(new OperationAbortedError(op_id, 'doc-closed'));
+    op.reject(new OperationAbortedError(op_id, 'doc-closed', { started: op.started }));
     return;
   }
   if (resp.ok) op.resolveResult(resp.resultB64);
@@ -488,16 +513,24 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
 function finishOpError(op_id: string, err: unknown): void {
   const op = takeInFlight(op_id);
   if (!op) return;
-  const aborted = new OperationAbortedError(op_id, 'transport');
+  const aborted = new OperationAbortedError(op_id, 'transport', { started: op.started });
   aborted.cause = err;
   op.reject(aborted);
 }
 
-/** Reject every still-in-flight op with a fresh abort error (its own op_id). */
-function rejectAllInFlight(reason: string): void {
+/** Reject every still-in-flight op with a deadline abort naming the op whose deadline closed the document. */
+function rejectAllInFlight(
+  killerId: string,
+  deadline: { timer: OffscreenDeadlineTimer; killer: 'write' | 'read' }
+): void {
   for (const op_id of Array.from(inFlight.keys())) {
     const op = takeInFlight(op_id);
-    op?.reject(new OperationAbortedError(op_id, reason));
+    op?.reject(
+      new OperationAbortedError(op_id, 'deadline', {
+        started: op.started,
+        deadline: { ...deadline, owner: op_id === killerId ? 'own' : 'collateral' }
+      })
+    );
   }
 }
 
@@ -520,12 +553,19 @@ async function onDeadline(op_id: string): Promise<void> {
     // A cheap read's deadline while a value-moving critical op owns the doc.
     // Fail only this read — never tear down the realm running the write
     // (design §3.3). The offscreen op keeps running; its result is dropped.
-    takeInFlight(op_id)?.reject(new OperationAbortedError(op_id, 'deadline-no-kill'));
+    takeInFlight(op_id)?.reject(
+      new OperationAbortedError(op_id, 'deadline-no-kill', {
+        started: op.started,
+        deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
+      })
+    );
     return;
   }
 
   // Either this IS the critical op whose own deadline fired (kill the wedge), or
   // a read deadline with no critical op in flight (kill + reopen).
+  // Read before the close: a start signal or sign resume during it re-arms this op's timer.
+  const deadline = { timer: op.timerPhase, killer: op.critical ? 'write' : 'read' } as const;
   const closed = await forceCloseOffscreenDocument();
   // Closing the doc killed every concurrent op's realm — reject them all.
   // TODO(slice 4): there is a small window where an op whose sendMessage is
@@ -533,7 +573,7 @@ async function onDeadline(op_id: string): Promise<void> {
   // collateral 'deadline' abort. Harmless for idempotent reads; slice 4 must
   // weigh this against the write kill-window taxonomy (design §5) before routing
   // writes through here.
-  rejectAllInFlight('deadline');
+  rejectAllInFlight(op_id, deadline);
   if (closed) {
     // Reopen eagerly so the next call doesn't pay the cold start on its own
     // critical path. Best-effort: the next call's ensureOffscreenDocument()
@@ -595,7 +635,17 @@ async function dispatchOp(
             critical ? CRITICAL_DISPATCH_BACKSTOP_MS : deadlineMs
           )
         : null;
-    inFlight.set(op_id, { resolveResult: resolve, reject, timer, method, deadlineMs, critical, paused: false });
+    inFlight.set(op_id, {
+      resolveResult: resolve,
+      reject,
+      timer,
+      method,
+      deadlineMs,
+      critical,
+      paused: false,
+      timerPhase: critical ? 'backstop' : 'dispatch',
+      started: false
+    });
 
     const envelope: OffscreenCallRequest = {
       target: OFFSCREEN_TARGET,
@@ -648,6 +698,7 @@ function resumeDeadline(op_id: string): void {
   const op = inFlight.get(op_id);
   if (!op || !op.paused) return;
   op.paused = false;
+  op.timerPhase = 'resumed';
   if (op.deadlineMs != null) {
     op.timer = setTimeout(() => {
       void onDeadline(op_id);
@@ -674,6 +725,8 @@ export function markOpStarted(op_id: string): void {
   if (!op) return;
   if (op.timer) clearTimeout(op.timer);
   op.paused = false;
+  op.started = true;
+  op.timerPhase = 'started';
   op.timer =
     op.deadlineMs != null
       ? setTimeout(() => {
@@ -718,6 +771,24 @@ export async function handleOffscreenSignRequest(
   } finally {
     resumeDeadline(op_id);
   }
+}
+
+/**
+ * Answer the Guardian leaf's submit gate (#1644). Opens only for an op this worker still runs and whose leaf records
+ * the crossing: an op a kill, a lost reply or its own settle took out of `inFlight` is refused, so the offscreen leaf
+ * of an op whose outcome this worker already decided never submits. Its deadline keeps running: a kill that lands
+ * while the crossing is written finds it recorded, which only keeps the candidate.
+ */
+export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest): Promise<OffscreenSubmitGateResponse> {
+  const { op_id } = msg;
+  const gate = opSubmitGates.get(op_id);
+  if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
+  try {
+    if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
+  } catch (err) {
+    return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
+  }
+  return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while recording its submit` };
 }
 
 /**
@@ -861,7 +932,7 @@ type OffscreenSwapDto = {
  * `sendTransaction`/`swapTransaction`/`newTransaction` (slice 5b) — so each runs
  * on the SAME proven machinery: an op-scoped reverse-IPC sign callback (§2.7),
  * the op-keyed locked-reason tag (§2.6, issue #313), `criticalOpCount`
- * bracketing (§3), and the sign-paused 90s `WRITE_DEADLINE_MS` kill (§3.4). The
+ * bracketing (§3), and the sign-paused 180s `WRITE_DEADLINE_MS` kill (§3.4). The
  * ONLY per-method variation is the `method` name and the DTO/bytes `args`.
  *
  * The SW WASM lock is deliberately NOT held: the write serializes inside the
@@ -879,7 +950,8 @@ async function dispatchOffscreenWrite(
   method: string,
   args: unknown[],
   signCallback: RawSignCallback,
-  onStage?: StageCallback
+  onStage?: StageCallback,
+  submitGate?: SubmitGate
 ): Promise<TransactionResult> {
   const op_id = newOpId();
   // Register BEFORE dispatch so a sign request (which can only arrive AFTER the
@@ -891,6 +963,7 @@ async function dispatchOffscreenWrite(
   // arrive after this dispatch, from inside the offscreen execute.
   opSignCallbacks.set(op_id, signCallback);
   if (onStage) opStageCallbacks.set(op_id, onStage);
+  if (submitGate) opSubmitGates.set(op_id, submitGate);
   incrementCriticalOp();
   try {
     const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
@@ -916,6 +989,7 @@ async function dispatchOffscreenWrite(
     // Same lifetime as the sign callback: the op is over, so a stamp that lands
     // from here on has nowhere to go and is dropped by `handleOffscreenStageEvent`.
     opStageCallbacks.delete(op_id);
+    opSubmitGates.delete(op_id);
   }
 }
 
@@ -929,7 +1003,7 @@ async function dispatchOffscreenWrite(
  * — the identical op-shape as every non-guardian write — so this delegates to the
  * SAME `dispatchOffscreenWrite` machinery: the op-scoped reverse-IPC sign callback
  * (the executeRequest keystore sign, over the EXISTING OFFSCREEN_SIGN_REQUEST
- * channel), `criticalOp` bracketing, the sign-paused 90s `WRITE_DEADLINE_MS` kill,
+ * channel), `criticalOp` bracketing, the sign-paused 180s `WRITE_DEADLINE_MS` kill,
  * and `finishOp`'s `errorCode` re-attach (so a round-tripped
  * `ApplyTransactionAfterSubmitFailed` reaches the SW GUARDIAN classifier intact).
  * `trBytes` is `tr.serialize()`; it crosses as raw bytes (`encodeArg`), never JSON.
@@ -955,12 +1029,14 @@ export function dispatchGuardianPipeline(
   // #784: the proposal metadata's base64 anchor. It still fills the 4th slot, for
   // wire compatibility only: the offscreen leaf reads nothing from it and executes
   // at the tip against the block the request's auth args bind.
-  chainAnchorB64?: string
+  chainAnchorB64?: string,
+  // The leaf's submit gate (#1644): the offscreen leaf submits only once it opened.
+  submitGate?: SubmitGate
 ): Promise<TransactionResult> {
   // Typed against the shared wire contract so a dropped or reordered slot is a
   // compile error here rather than an argument the offscreen leaf silently misreads.
   const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
-  return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage);
+  return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage, submitGate);
 }
 
 /**
@@ -1753,7 +1829,7 @@ export const __test = {
   /**
    * Dispatch a CRITICAL op with a caller-chosen deadline — a test hook that
    * exercises the real `dispatchOp` + `onDeadline` critical path (own-deadline
-   * kill, sign-pause) without waiting the production 90s `WRITE_DEADLINE_MS`.
+   * kill, sign-pause) without waiting the production 180s `WRITE_DEADLINE_MS`.
    * Mirrors the `criticalOp` bracketing `dispatchOffscreenConsume` performs.
    */
   dispatchCritical: (method: string, args: unknown[], deadlineMs: number | null) => {

@@ -147,7 +147,7 @@ beforeEach(() => {
   mockPartial = false;
   mockAttachment = [];
   mockRoot = 'p2id';
-  mockStorage = [11n, 22n];
+  mockStorage = [11n, 22n, 33n, 44n];
 });
 
 it('decodes P2ID recipients, input assets and the separate fee', async () => {

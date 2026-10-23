@@ -92,9 +92,11 @@ export async function openFixtureDapp(context: BrowserContext, timeoutMs = 30_00
 
   // contentScript.js runs at document_start and appends addToWindow.js, which
   // defines window.midenWallet asynchronously.
-  await page.waitForFunction(() => typeof (window as unknown as { midenWallet?: unknown }).midenWallet === 'object', {
-    timeout: timeoutMs
-  });
+  await page.waitForFunction(
+    () => typeof (window as unknown as { midenWallet?: unknown }).midenWallet === 'object',
+    undefined,
+    { timeout: timeoutMs }
+  );
 
   return page;
 }

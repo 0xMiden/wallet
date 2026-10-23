@@ -42,6 +42,7 @@ describe('StatusBadge', () => {
     ['partiallyFilledReclaimed', 'orderStatusPartiallyFilledReclaimed', 'neutral'],
     ['orderReclaimed', 'orderStatusReclaimed', 'neutral'],
     ['reclaiming', 'swapReclaiming', 'pending'],
+    ['paybackStuck', 'swapPaybackStuck', 'negative'],
     ['loading', 'loading', 'neutral'],
     ['unavailable', 'trackingUnavailable', 'neutral'],
     ['guardianSwitchSubmitted', 'guardianSwitchSubmittedChip', 'pending'],
@@ -59,7 +60,7 @@ describe('StatusBadge', () => {
   });
 
   it('covers every status in the table above', () => {
-    expect(STATUSES).toHaveLength(30);
+    expect(STATUSES).toHaveLength(31);
   });
 
   it.each(STATUSES)('labels %s with a key that exists in the English catalog', status => {

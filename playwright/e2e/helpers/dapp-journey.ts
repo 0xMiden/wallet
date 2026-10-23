@@ -166,6 +166,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     return holder.journey;
   };
   const runner = new DappCellRunner<Partial<DappCellState>>({
+    surface: 'extension',
     part: PART,
     axis: axis.label,
     journey,

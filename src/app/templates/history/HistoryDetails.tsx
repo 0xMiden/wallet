@@ -41,9 +41,11 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
+import { stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
+import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -54,6 +56,8 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
@@ -88,6 +92,7 @@ import {
   labelHistoryEntry,
   swapSettlementOf
 } from './transactionUtils';
+import { usePaybackClaimState } from './usePaybackClaimState';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
 import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
@@ -269,6 +274,11 @@ const AccountDisplay: FC<{
   return <AddressChip address={address} className="ml-2" displayName={getDisplayName(address)} />;
 });
 
+const HistoryError: FC<React.ComponentProps<'p'> & { errorId: UserErrorId | null }> = ({ errorId, ...props }) => {
+  useUserVisibleError(errorId, 'inline');
+  return <p {...props} />;
+};
+
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
   // This page draws its own header instead of PageLayout's toolbar, so it opts out of the
@@ -289,15 +299,24 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
   const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
+  // Live on its own: the payout claims are other rows, which the swap row's subscription never sees.
+  const paybackState = usePaybackClaimState(row);
   // Labelled at render, so the page follows a config publish without deriving the row again.
   const entry = useMemo(
-    () => (derivedEntry ? labelHistoryEntry(bridgeConfig, derivedEntry) : null),
-    [bridgeConfig, derivedEntry]
+    () =>
+      derivedEntry
+        ? labelHistoryEntry(bridgeConfig, {
+            ...derivedEntry,
+            paybackClaimStuck: stuckPaybackClaim(paybackState ?? undefined)
+          })
+        : null,
+    [bridgeConfig, derivedEntry, paybackState]
   );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const usdcxDestinationTxHash = useUsdcxDestinationTransaction(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
+  const [deriveErrorId, setDeriveErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
@@ -341,6 +360,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const derive = async () => {
       try {
         setDeriveError(null);
+        setDeriveErrorId(null);
         const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
         const tokenMetadata = !offeredSwapToken && tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
         if (cancelled) return;
@@ -373,6 +393,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
         const hotKeyExtra = tx.type === 'replace-hot-key' ? tx.extraInputs : undefined;
+        const submission = submissionFeedback(tx);
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
@@ -420,11 +441,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           guardianSwitchVerdict: rotationVerdict(tx)?.kind,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
-          errorMessage: tx.error,
-          rawErrorMessage: tx.rawError,
+          errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
+          rawErrorMessage: submission?.details ?? tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
-          isUnconfirmed: isOutcomeUnconfirmed(tx),
-          notConfirmedHint: notConfirmedHintKey(tx),
+          isUnconfirmed:
+            submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx),
+          notConfirmedHint:
+            submission !== undefined && submission.kind !== 'rejected'
+              ? submission.messageKey
+              : notConfirmedHintKey(tx),
           noteDelivery: tx.noteDelivery,
           // The sweep stamps the flag only on a pass that visits the row, which a send past
           // the receipt window may never get, and it never pushes a restored row: a send past
@@ -458,6 +483,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInSourceConfig: bridgeReceive?.usdcxSource,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
           bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
+          bridgeInSourceToken: bridgeReceive?.agglayerDelivery?.originToken ?? consumedBridge?.sourceToken,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
           bridgeInPhase: bridgeReceive?.phase,
           bridgeInCctp: bridgeReceive?.cctp,
@@ -502,6 +528,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         console.error('[HistoryDetails] Failed to derive transaction view:', { transactionId, error });
         if (!cancelled) {
           setDeriveError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
+          setDeriveErrorId({
+            id: error instanceof Error ? 'raw_history_details_load_failed' : 'historyDetailsLoadError',
+            transactionId
+          });
         }
       }
     };
@@ -707,7 +737,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
-            <p className="text-text-muted text-sm text-center select-text">{loadError}</p>
+            <HistoryError
+              errorId={
+                deriveError
+                  ? deriveErrorId?.transactionId === transactionId
+                    ? deriveErrorId.id
+                    : null
+                  : 'historyDetailsLoadError'
+              }
+              className="text-text-muted text-sm text-center select-text"
+            >
+              {loadError}
+            </HistoryError>
             <p className="text-text-muted text-xs text-center mt-2 select-text">
               {t('historyDetailsIdLabel', { id: transactionId })}
             </p>
@@ -743,7 +784,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             offerCancelOrder={receipt.offerCancel}
             isCancellingOrder={actions.isCancellingOrder}
             cancelOrderError={actions.cancelOrderError}
+            cancelOrderErrorId={actions.cancelOrderErrorId}
             onCancelOrder={actions.onCancelOrder}
+            isRetryingPayback={actions.isRetryingPayback}
+            paybackRetryError={actions.paybackRetryError}
+            paybackRetryErrorId={actions.paybackRetryErrorId}
+            onRetryPayback={actions.onRetryPayback}
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
@@ -1254,7 +1300,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
             {actions.cancelError && (
-              <p className="mb-2 text-center text-sm text-status-negative">{actions.cancelError}</p>
+              <HistoryError errorId={actions.cancelErrorId} className="mb-2 text-center text-sm text-status-negative">
+                {actions.cancelError}
+              </HistoryError>
             )}
             <Button
               data-testid="history-cancel-button"
@@ -1277,9 +1325,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
             {actions.retryError && (
-              <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
+              <HistoryError
+                errorId={actions.retryErrorId}
+                data-testid="history-retry-error"
+                className="mb-2 text-center text-sm text-status-negative"
+              >
                 {actions.retryError}
-              </p>
+              </HistoryError>
             )}
             {maxNetworkFee && !isEarnWithdraw && (
               // Requeues as a NEW transaction paying a NEW fee, on one tap with no

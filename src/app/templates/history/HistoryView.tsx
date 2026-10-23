@@ -20,6 +20,7 @@ import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/r
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
@@ -216,7 +217,7 @@ function buildRowProps(
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-[#CC5D5D]';
   } else if (isGuardianOp(entry.txType)) {
-    iconNode = <SwapIcon className="w-5 h-5" />;
+    iconNode = <Icon name={IconName.Key} size="sm" fill="currentColor" className="text-pure-white" />;
     iconBg = 'bg-[#777487]';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
@@ -426,6 +427,9 @@ function buildRowProps(
     // AFTER cancelled/failed/pending so a Miden-side
     // failure always wins over the lending leg's state.
     status = earnDepositSettlementOf(entry);
+  } else if (isSwap && entry.paybackClaimStuck) {
+    // The payout claim keeps failing while the order reads unsettled: its claims are hidden, so the swap says so.
+    status = 'paybackStuck';
   } else if (isSwap && entry.swapSettlement === 'pending') {
     // A completed swap row is the single trace of the whole order (its
     // settlement consumes are suppressed) — the chip reflects settlement.
@@ -452,6 +456,7 @@ export const HistoryLoadErrorCard: React.FC<{ surface?: 'fill' | 'dashed'; onRet
   onRetry
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError('tokenActivityLoadError', 'inline');
   return (
     <EmptyState
       role="alert"
@@ -470,6 +475,7 @@ export const HistoryLoadErrorCard: React.FC<{ surface?: 'fill' | 'dashed'; onRet
 /** A failed history read under rows already on screen: they are not the whole history. */
 export const HistoryLoadErrorNotice: React.FC<{ onRetry?: () => void }> = ({ onRetry }) => {
   const { t } = useTranslation();
+  useUserVisibleError('tokenActivityLoadError', 'inline');
   return (
     <div
       role="alert"

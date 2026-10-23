@@ -3,26 +3,15 @@ name: E2E USDCx Bridge-IN (live)
 # Runs the live USDCx E2E on iOS against the LIVE networks (Arc Testnet, Base
 # Sepolia, Arbitrum Sepolia, Ethereum Sepolia and Miden testnet). Nothing on the
 # path is a double.
-#   Arc job (usdcx-live-deposit.ios.spec.ts):
-#   1. Bridge-IN: the deposit goes to Circle's real xReserve contract, Circle's
-#      attestation service signs it, the deposit relayer submits the mint note to
-#      the USDCx faucet, and the Guardian wallet claims the minted note.
-#   2. Burn, only once the deposit leg passed: the same wallet takes USDCx from the
-#      public faucet and burns 1 USDCx through Send back to the deposit key's Arc
-#      address. The run fails unless Circle pays that key within 10 minutes of the
-#      faucet consuming the burn and the wallet's own History then reads Confirmed.
-#      The payout, about 0.98 USDC, refills what the deposit and its gas spent, so
-#      the key funds itself on Arc.
-#   Executor jobs (usdcx-live-executor-deposit.ios.spec.ts), after the Arc job, one
-#   per source chain the wallet routes through Circle's executor (Base Sepolia,
-#   Arbitrum Sepolia, Ethereum Sepolia), in parallel:
-#   1. Bridge-IN: the same key deposits 0.001 USDC plus Circle's forward fee
-#      through the deposit screen and a Reown pairing; Circle attests the burn and
-#      forwards it to Arc, its executor deposits into xReserve, the relayer mints
-#      and the wallet claims.
-#   2. Burn USDCx back to the key's address on that chain (2 USDCx to Ethereum
-#      Sepolia, 1 elsewhere), with the same payout and wallet gates, which refills
-#      the key's USDC there.
+#   Each job deposits 5.2 USDC through the wallet UI and verifies the mint and claim.
+#   It then tries one public faucet grant for up to 30 seconds. If the faucet is
+#   unavailable, the deposit funds a 5 USDCx return burn. A verified and consumed
+#   grant raises the burn to 6 USDCx. Both paths require Circle's payout and the
+#   wallet's Confirmed status. Grant failures are recorded in the test evidence.
+#   Arc deposits go through xReserve. Base, Arbitrum, and Ethereum Sepolia
+#   deposits go through Circle's executor. Each return burn pays the source key
+#   on the same chain. Failed grants mean the key loses the fee reserve and
+#   payout fees over repeated runs; check its balance before each deposit.
 #
 # By default the DEPLOYED relayer mints: the faucet does not look at who sent a mint
 # note, so the jobs need no relayer of their own and only the EVM key. To test a
@@ -31,13 +20,14 @@ name: E2E USDCx Bridge-IN (live)
 # starts it as a local process.
 #
 # E2E Bridge-IN (e2e-bridge-in.yml) covers the AggLayer deposit UI and the Reown
-# pairing hermetically on every push to main. These jobs cover what that suite cannot:
+# pairing hermetically in Release E2E. These jobs cover what that suite cannot:
 # Circle's real contracts, its attestation and forward, and the mint.
 #
 # It spends real Arc Testnet USDC, USDC and ETH on the three source chains, and
 # public faucet USDCx on each run, and it depends on Circle's service, the relayer
-# and the faucet, so it runs after every push to main, nightly and on demand, and
-# is never a per-PR gate.
+# and the faucet, so it runs nightly on its own cron (Release E2E's nightly leaves
+# it to that cron), on demand and in Release E2E's release runs, and is never a
+# per-PR gate.
 #
 # Required configuration:
 #   secrets.USDCX_LIVE_EVM_PRIVATE_KEY        the deposit key: USDC on Arc Testnet (its gas token too), and
@@ -55,17 +45,14 @@ name: E2E USDCx Bridge-IN (live)
 # download and set USDCX_RELAYER_BIN.
 
 on:
-  push:
-    branches:
-      - main
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       deposit_amount:
-        description: Arc deposit amount in USDC
+        description: Arc deposit amount in USDC (at least 5.2)
         required: false
-        default: '0.01'
+        default: '5.2'
       legs:
         description: Which legs run (all, arc, or one executor source chain)
         required: false
@@ -108,10 +95,8 @@ jobs:
       # Anvil, and this job needs the real Arc Testnet RPC.
       # NO USDCX_LIVE_EVM_PRIVATE_KEY here either: every step sees a job variable, the dependency install and the app
       # build among them, so the key is set only on the two steps that read it.
-      # 0.01 USDC: Circle takes no deposit fee, a testnet claim's fee is about 0.0002 USDCx, and Arc gas for the
-      # approve and the deposit is about 0.006 USDC, so a run spends about 0.016 USDC of the key. The burn half refills
-      # it: Circle pays about 0.98 USDC for the 1 USDCx burn back to that key, so it needs no top-up while runs pass.
-      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '0.01' }}
+      # The deposit covers a 5 USDCx return burn plus claim and burn fee reserves.
+      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '5.2' }}
       USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
       USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
       USDCX_CIRCLE_ATTESTER_PUBLIC_KEY: ${{ vars.USDCX_CIRCLE_ATTESTER_PUBLIC_KEY }}
@@ -293,6 +278,9 @@ jobs:
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build iOS app
         # Self-heal the recurring GitHub macOS-runner SwiftPM cache corruption:
         # on a failed build, wipe the SwiftPM cache + derived data and retry once.
@@ -470,6 +458,9 @@ jobs:
           ensure_bootable "$UDID_A"
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
 
       - name: Build iOS app
         # Self-heal the recurring GitHub macOS-runner SwiftPM cache corruption:

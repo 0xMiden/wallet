@@ -13,6 +13,8 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
+import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
+import type { SubmissionMessageKey } from 'lib/miden/transaction/submission-feedback';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
@@ -59,7 +61,7 @@ export interface IHistoryEntry {
   /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
   isUnconfirmed?: boolean;
   /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
-  notConfirmedHint?: NotConfirmedHintKey;
+  notConfirmedHint?: NotConfirmedHintKey | SubmissionMessageKey;
   /**
    * `tx.noteDelivery` - whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
@@ -114,6 +116,8 @@ export interface IHistoryEntry {
    * manual-claim orders.
    */
   swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  /** Swap only: a failed payout claim's notes are still unclaimed and no payout claim is live (`getPaybackClaimStates`). */
+  paybackClaimStuck?: { failedClaimId: string; reason: PaybackClaimStuckReason };
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;
@@ -191,6 +195,8 @@ export interface IHistoryEntry {
   bridgeInSourceConfig?: UsdcxSourceChain;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
+  /** agglayer: the deposited ERC-20's address, lowercase; absent on ETH and older rows. */
+  bridgeInSourceToken?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
   /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */

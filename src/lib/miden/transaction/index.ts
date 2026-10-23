@@ -57,6 +57,19 @@ import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { classifyError } from 'lib/telemetry/classify';
+import {
+  annotateCrash,
+  withProposalStep,
+  type ProposalGuard,
+  type ProposalStep
+} from 'lib/telemetry/crash-diagnostics';
+import {
+  logOperationStep,
+  withOperationStep,
+  type DiagnosticStep,
+  type DiagnosticStepOutcome
+} from 'lib/telemetry/diagnostic-log';
 import { reportProve } from 'lib/telemetry/report-operation';
 import type { ConsumeDeferralCause } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
@@ -119,7 +132,7 @@ import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/conn
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
-import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
+import { dispatchGuardianPipeline, midenClientProxy, type SubmitGate } from '../back/miden-client-proxy';
 import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
@@ -560,6 +573,31 @@ const stageStampFor =
       console.warn(`Stage stamp '${stage}' for transaction ${txId} failed; ignoring`, err);
     }
   };
+
+/**
+ * The offscreen Guardian leaf's submit gate (#1644), for one attempt. The leaf submits only once this answers yes, and
+ * it answers yes only after the reliable 'submitting' stamp recorded the crossing (a stamp that throws leaves it shut)
+ * and while the attempt has not settled, so an attempt it never answered yes for never called submit. `settle` is
+ * called first thing when the attempt's outcome is decided; a gate still recording then answers no.
+ */
+const offscreenSubmitGate = (stamp: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>) => {
+  let opened = false;
+  let settled = false;
+  const gate: SubmitGate = async evidence => {
+    if (settled) return false;
+    await stamp('submitting', { evidence });
+    if (settled) return false;
+    opened = true;
+    return true;
+  };
+  return {
+    gate,
+    opened: () => opened,
+    settle: () => {
+      settled = true;
+    }
+  };
+};
 
 /** Pending liveness wakes, keyed by transaction id, so each row has at most one. */
 const requeueWakes = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1394,7 +1432,7 @@ const generateTransactionWithProvider = async (
   });
 
   // Route Guardian accounts through Guardian service
-  if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
+  if (await withProposalStep('service_select', () => isGuardianAccount(transaction.accountId, guardianProvider))) {
     try {
       // Serialize guardian transactions per account: the guardian co-signs one
       // delta per account at a time, and concurrent same-account txs make its
@@ -1994,18 +2032,41 @@ const generateTransactionWithProvider = async (
  */
 const buildColdServiceForAccount = async (
   accountId: string,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  { forProposal = false }: { forProposal?: boolean } = {}
 ): Promise<MultisigService> => {
-  const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
+  // Only a proposal's preparation names its steps; abandoning or releasing a candidate is not one.
+  const step = forProposal ? withProposalStep : <T>(_step: ProposalStep, operation: () => Promise<T>) => operation();
+  const walletAccount = (await step('service_select', () => guardianProvider.getAccounts())).find(a =>
+    sameWalletAccountId(a.publicKey, accountId)
+  );
   if (!walletAccount) {
-    throw new Error(`Guardian account ${accountId} not found in provider`);
+    throw atProposalStep(new Error(`Guardian account ${accountId} not found in provider`), forProposal, {
+      proposalStep: 'service_select',
+      proposalGuard: 'account_not_guardian'
+    });
   }
-  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
+  const sdkAccount = await step('service_account_read', () =>
+    withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
+  );
   if (!sdkAccount) {
-    throw new Error(`Guardian account ${accountId} not found in local client`);
+    throw atProposalStep(new Error(`Guardian account ${accountId} not found in local client`), forProposal, {
+      proposalStep: 'service_account_read'
+    });
   }
-  return MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+  return step('service_load', () =>
+    MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+  );
 };
+
+function atProposalStep(
+  error: Error,
+  forProposal: boolean,
+  diagnostics: { proposalStep: ProposalStep; proposalGuard?: ProposalGuard }
+): Error {
+  if (forProposal) annotateCrash(error, diagnostics);
+  return error;
+}
 
 /**
  * The generation-time half of the gate claim's native-only rule (#805): every note the
@@ -2063,13 +2124,14 @@ const consumeServiceFor = async (
   noteIds: string[],
   guardianProvider: GuardianAccountProvider
 ): Promise<MultisigService> => {
-  const account = (await guardianProvider.getAccounts()).find(a =>
+  const account = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
     sameWalletAccountId(a.publicKey, transaction.accountId)
   );
   const rotationPending = account?.requiresHotKeyRotation === true && !account.hotPublicKey;
   if (transaction.rotationFunding === true) {
     await assertRotationFundingNotesNative(transaction.accountId, noteIds);
-    if (rotationPending) return buildColdServiceForAccount(transaction.accountId, guardianProvider);
+    if (rotationPending)
+      return buildColdServiceForAccount(transaction.accountId, guardianProvider, { forProposal: true });
   } else if (rotationPending) {
     throw new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR);
   }
@@ -2241,9 +2303,12 @@ const proposeRebased = async (
 ): Promise<Proposal> => {
   const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
   transaction.requestBytes = rebased.requestBytes;
-  await Repo.transactions.where({ id: transaction.id }).modify(t => {
-    t.requestBytes = rebased.requestBytes;
-  });
+  // The proposal exists by now: a failure here never means none was made.
+  await withProposalStep('rebased_request_persist', () =>
+    Repo.transactions.where({ id: transaction.id }).modify(t => {
+      t.requestBytes = rebased.requestBytes;
+    })
+  );
   return rebased.proposal;
 };
 
@@ -2298,7 +2363,7 @@ const runGuardianPipeline = async (
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
   return withWasmClientLock(async hold => {
-    const midenClient = await getMidenClient();
+    const midenClient = await withProposalStep('client_build', () => getMidenClient());
     // The client build can be the LONGEST parking await in this hold - a first
     // build's genesis fetch goes to the same node everything else here is waiting
     // on. The offscreen copy of this pipeline checks the hold right after its own
@@ -2822,15 +2887,23 @@ const generateDirectSwitchGuardianTransaction = async (
   if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
     // Serialized outside the leaf: a request that cannot serialize never crossed, so it leaves no entry.
     const requestBytes = tr.serialize();
-    result = await runWriteLeaf(transaction.id, attempt, true, () =>
-      dispatchGuardianPipeline(
-        transaction.accountId,
-        requestBytes,
-        transaction.delegateTransaction,
-        signCallback,
-        stageStampFor(transaction.id, attempt)
-      )
-    );
+    const stamp = stageStampFor(transaction.id, attempt);
+    const submitGate = offscreenSubmitGate(stamp);
+    try {
+      result = await runWriteLeaf(transaction.id, attempt, true, () =>
+        dispatchGuardianPipeline(
+          transaction.accountId,
+          requestBytes,
+          transaction.delegateTransaction,
+          signCallback,
+          stamp,
+          undefined,
+          submitGate.gate
+        )
+      );
+    } finally {
+      submitGate.settle();
+    }
   } else {
     result = await runGuardianPipeline(
       transaction.accountId,
@@ -2922,6 +2995,29 @@ const generateDirectSwitchGuardianTransaction = async (
  * the same verdict one step earlier and shares the one rebuild: it refuses before writing
  * a candidate, and the push runs only after the key is persisted and stamped on the row.
  */
+/** How a failed swap step is recorded, read from the error on the device; none of its text is sent. */
+const swapStepOutcome = (error: unknown): DiagnosticStepOutcome => {
+  if (isLockedError(error)) return 'locked';
+  if (isKilledPipeline(error)) return 'aborted';
+  return classifyError(error) === 'timeout' ? 'timeout' : 'failed';
+};
+
+const swapStep = <T>(step: DiagnosticStep, run: () => Promise<T>): Promise<T> =>
+  withOperationStep('swap', step, run, swapStepOutcome);
+
+// When this attempt's swap proposal was created, so the steps after it are recorded as one when the attempt ends.
+const swapProposalCreatedAt = new WeakMap<ITransaction, number>();
+
+const endSwapAttempt = (transaction: ITransaction, error?: unknown): void => {
+  if (transaction.type !== 'swap') return;
+  const createdAt = swapProposalCreatedAt.get(transaction);
+  swapProposalCreatedAt.delete(transaction);
+  if (createdAt !== undefined) {
+    const outcome = error === undefined ? 'ok' : swapStepOutcome(error);
+    logOperationStep('swap', 'proposal_execute', outcome, performance.now() - createdAt);
+  }
+};
+
 const generateGuardianTransactionOnFreshState = async (
   transaction: ITransaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
@@ -2929,7 +3025,9 @@ const generateGuardianTransactionOnFreshState = async (
 ): Promise<void> => {
   try {
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+    endSwapAttempt(transaction);
   } catch (error) {
+    endSwapAttempt(transaction, error);
     const guardianRefused = isGuardianCommitmentMismatch(error);
     if (transaction.type !== 'replace-hot-key' || !(isStaleInitialCommitmentError(error) || guardianRefused)) {
       throw error;
@@ -2978,7 +3076,7 @@ const proposalAgeMs = (stamps: ProposalStamps): number =>
 
 /**
  * Retry, before the account's next proposal, the abandon a failed Guardian write could not get through (#1317): until
- * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
+ * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about eighteen minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
  * quarantine; refused for any reason, it stays for the next attempt and the proposal goes ahead. A record from another
  * Guardian (a switch since) is dropped unasked. A mark whose candidate is ABANDON_RETRY_WINDOW_MS old turns plain
@@ -3064,6 +3162,51 @@ const recordLeftCandidate = (
     ...proposalStamps,
     ...(attemptId === undefined ? {} : { attemptId })
   });
+
+/**
+ * Keep the candidate this attempt's proposal leaves on its Guardian on the row too (#1666), for the startup sweep:
+ * the record that would abandon it after a failure lives in this process, and a process killed before its submit left
+ * the account held for the Guardian's whole hold. Best-effort like a stage stamp: a lost write only waits that out.
+ */
+const persistGuardianCandidate = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  if (attemptId === undefined) return;
+  const candidate = {
+    endpoint: service.guardianEndpoint,
+    nonce: proposal.nonce,
+    proposedAt: proposalStamps.proposedAt,
+    attemptId
+  };
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      tx.guardianCandidate = candidate;
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not keep candidate ${proposal.nonce} on transaction ${transaction.id}:`, error);
+  }
+};
+
+/**
+ * Drop the candidate this attempt kept on its row before its abandon goes out (#1666): once the Guardian takes it, a
+ * later process's startup sweep must not send it again, since that nonce may by then be another write's. A death
+ * between the two only waits the hold out.
+ */
+const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      const kept = tx.guardianCandidate;
+      if (kept !== undefined && kept.attemptId === attemptId && kept.nonce === nonce) delete tx.guardianCandidate;
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not drop candidate ${nonce} from transaction ${transaction.id}:`, error);
+  }
+};
 
 /**
  * Remember a candidate whose transaction never landed and whose best-effort abandon failed, so the account's next
@@ -3190,11 +3333,16 @@ const generateGuardianTransaction = async (
   // and never route through this function, so exempting switch-guardian here only
   // affects the deliberate Settings-driven switch flow, not account recovery.
   if (transaction.type !== 'switch-guardian') {
-    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+    const walletAccount = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
       sameWalletAccountId(a.publicKey, transaction.accountId)
     );
     if (walletAccount) {
-      assertGuardianInSync(walletAccount);
+      try {
+        assertGuardianInSync(walletAccount);
+      } catch (error) {
+        annotateCrash(error, { proposalStep: 'service_select', proposalGuard: 'guardian_out_of_sync' });
+        throw error;
+      }
     }
   }
 
@@ -3408,17 +3556,26 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'replace-hot-key': {
-      const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+      const walletAccount = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
         sameWalletAccountId(a.publicKey, transaction.accountId)
       );
       if (!walletAccount) {
-        throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
+        throw atProposalStep(new Error(`Guardian account ${transaction.accountId} not found in provider`), true, {
+          proposalStep: 'service_select',
+          proposalGuard: 'account_not_guardian'
+        });
       }
-      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
+      const sdkAccount = await withProposalStep('service_account_read', () =>
+        withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
+      );
       if (!sdkAccount) {
-        throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
+        throw atProposalStep(new Error(`Guardian account ${transaction.accountId} not found in local client`), true, {
+          proposalStep: 'service_account_read'
+        });
       }
-      service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      service = await withProposalStep('service_load', () =>
+        MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+      );
       // Stamp the guardian this rotation runs under before anything below can fail: a switch that
       // completed after initiation moved the account's endpoint, and the row must name this one.
       const rTx = transaction as ReplaceHotKeyTransaction;
@@ -3551,9 +3708,13 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'swap': {
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      await releaseUnabandonedCandidate(transaction, service);
-      await assertPriorCandidateSettled(transaction, service);
+      const swapService = await swapStep('service_prepare', async () => {
+        const prepared = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, prepared);
+        await assertPriorCandidateSettled(transaction, prepared);
+        return prepared;
+      });
+      service = swapService;
       const swapTx = transaction as SwapTransaction;
       // PSWAP notes carry a randomly-generated serial number, so the request
       // must be built ONCE and the exact same bytes reused for BOTH
@@ -3563,65 +3724,75 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
-        // Resolved BEFORE the lock: the reads drive their own RpcClient through the
-        // WASM module and re-entering it under the client lock traps.
-        const swapFeeSalt = randomFeeSalt();
-        const requestBytes = await withWasmClientLock(async hold => {
-          // The offered asset has to carry the vault key of the slot it is
-          // actually held in — the callback flag is part of that key, and the
-          // PSWAP builder always produces the Disabled variant. Read the vault
-          // through the proxy, like every other path that does this, so under the
-          // offscreen client the key comes from the realm that will EXECUTE the
-          // request. The proxy read is unlocked by design and this scope already
-          // holds the client lock, which is what that contract requires.
-          const creatorAccount = await midenClientProxy.getAccount(walletAccountIdToSdk(swapTx.accountId).toString());
-          // An eviction during the read ABANDONS this callback without stopping
-          // it: the creator Account is a borrow of a client a successor now
-          // owns, and reaching for the realm's reader below would queue this dead
-          // flow on the reader its successor uses. Pre-proposal throughout, so
-          // stopping costs one retry.
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
-          // The realm's reader client (see `getRealmReaderClient`), not a per-call
-          // client: 0.16 can release neither, so a client per swap build leaked.
-          // Its first build is the long parking await here (a genesis fetch on a
-          // fresh store), hence the re-check after it.
-          const client = await getRealmReaderClient();
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
-          const tr = await client.newPswapCreateTransactionRequest(
-            walletAccountIdToSdk(swapTx.accountId),
-            accountRefToSdk(swapTx.faucetId),
-            swapTx.amount,
-            accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
-            swapTx.extraInputs.requestedAmount,
-            NoteType.Public,
-            NoteType.Public
-          );
-          // `buildPswapCreateRequest` reads the creator Account - the SHARED
-          // client's borrow, not the reader's - so the request build needs its
-          // own re-check after the await above.
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
-          const baseBuilder = await feeAwareRequestBuilder(
-            (await getMidenClient()).client,
-            walletAccountIdToSdk(swapTx.accountId).toString(),
-            swapFeeSalt
-          );
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
-          // Built once and rewritten once, in the same scope: each builder call
-          // draws a fresh serial number, which IS the order id. See
-          // `buildPswapCreateRequest`.
-          return buildPswapCreateRequest(
-            creatorAccount ?? undefined,
-            tr,
-            swapTx.faucetId,
-            BigInt(swapTx.amount),
-            GUARDIAN_EXPIRATION_DELTA_BLOCKS,
-            baseBuilder
-          ).serialize();
-        });
+        const requestBytes = await swapStep('request_build', () =>
+          withProposalStep('swap_request_build', () => {
+            // Resolved BEFORE the lock: the reads drive their own RpcClient through the
+            // WASM module and re-entering it under the client lock traps.
+            const swapFeeSalt = randomFeeSalt();
+            return withWasmClientLock(async hold => {
+              // The offered asset has to carry the vault key of the slot it is
+              // actually held in — the callback flag is part of that key, and the
+              // PSWAP builder always produces the Disabled variant. Read the vault
+              // through the proxy, like every other path that does this, so under the
+              // offscreen client the key comes from the realm that will EXECUTE the
+              // request. The proxy read is unlocked by design and this scope already
+              // holds the client lock, which is what that contract requires.
+              const creatorAccount = await midenClientProxy.getAccount(
+                walletAccountIdToSdk(swapTx.accountId).toString()
+              );
+              // An eviction during the read ABANDONS this callback without stopping
+              // it: the creator Account is a borrow of a client a successor now
+              // owns, and reaching for the realm's reader below would queue this dead
+              // flow on the reader its successor uses. Pre-proposal throughout, so
+              // stopping costs one retry.
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
+              // The realm's reader client (see `getRealmReaderClient`), not a per-call
+              // client: 0.16 can release neither, so a client per swap build leaked.
+              // Its first build is the long parking await here (a genesis fetch on a
+              // fresh store), hence the re-check after it.
+              const client = await getRealmReaderClient();
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
+              const tr = await client.newPswapCreateTransactionRequest(
+                walletAccountIdToSdk(swapTx.accountId),
+                accountRefToSdk(swapTx.faucetId),
+                swapTx.amount,
+                accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
+                swapTx.extraInputs.requestedAmount,
+                NoteType.Public,
+                NoteType.Public
+              );
+              // `buildPswapCreateRequest` reads the creator Account - the SHARED
+              // client's borrow, not the reader's - so the request build needs its
+              // own re-check after the await above.
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
+              const baseBuilder = await feeAwareRequestBuilder(
+                (await getMidenClient()).client,
+                walletAccountIdToSdk(swapTx.accountId).toString(),
+                swapFeeSalt
+              );
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
+              // Built once and rewritten once, in the same scope: each builder call
+              // draws a fresh serial number, which IS the order id. See
+              // `buildPswapCreateRequest`.
+              return buildPswapCreateRequest(
+                creatorAccount ?? undefined,
+                tr,
+                swapTx.faucetId,
+                BigInt(swapTx.amount),
+                GUARDIAN_EXPIRATION_DELTA_BLOCKS,
+                baseBuilder
+              ).serialize();
+            });
+          })
+        );
         transaction.requestBytes = requestBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = requestBytes;
-        });
+        await swapStep('request_persist', () =>
+          withProposalStep('swap_request_persist', () =>
+            Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = requestBytes;
+            })
+          )
+        );
       }
       // OUTSIDE the build branch, unlike everything else in it. The five other annotation sites
       // run on whatever bytes they are about to use; this one used to sit inside the `if`, so a
@@ -3640,14 +3811,17 @@ const generateGuardianTransaction = async (
           t.requestBytes = swapBytes;
         });
       }
-      proposalResult = await proposeRebased(service, transaction, swapBytes, 'swap', GUARDIAN_EXPIRATION_DELTA_BLOCKS);
+      proposalResult = await swapStep('proposal_create', () =>
+        proposeRebased(swapService, transaction, swapBytes, 'swap', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+      );
+      swapProposalCreatedAt.set(transaction, performance.now());
       break;
     }
     case 'update-procedure-threshold': {
       // Cold-routed structural change (same class as switch-guardian /
       // replace-hot-key): cold + guardian satisfies it on-chain.
       const uptTx = transaction as UpdateProcedureThresholdTransaction;
-      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
+      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider, { forProposal: true });
       await releaseUnabandonedCandidate(transaction, service);
       proposalResult = await withGuardianConflictRetry(() =>
         service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
@@ -3706,8 +3880,9 @@ const generateGuardianTransaction = async (
     }
   }
 
-  // Sign and execute the proposal
-  await setTransactionStage(transaction.id, 'signing-proposal');
+  // Sign and execute the proposal. The proposal already exists if this write fails.
+  await withProposalStep('signing_stage_write', () => setTransactionStage(transaction.id, 'signing-proposal'));
+  await persistGuardianCandidate(transaction, service, proposalResult, proposalStamps);
 
   // switch_guardian is on-chain threshold-2 (set at create time via
   // procedureThresholds). Hot's signAndCreateTransactionRequest below
@@ -3789,6 +3964,7 @@ const generateGuardianTransaction = async (
       // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
       // A cleanup step must not be able to cost more than the thing it cleans up.
       try {
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the pending delta on the outgoing guardian'
@@ -3849,6 +4025,9 @@ const generateGuardianTransaction = async (
     await stampStage(stage, detail);
     if (stage === 'submitting') submitCrossed = true;
   };
+  // An offscreen attempt whose gate never answered yes never called submit, whatever ended it, a kill included, so
+  // its candidate is abandoned instead of held for the Guardian's grace (#1644).
+  const submitGate = offscreenSubmitGate(stampStage);
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
     // 30s outgoing deadline precisely because a silent operator wedges the row at
@@ -3938,9 +4117,9 @@ const generateGuardianTransaction = async (
       // vault-slot rejection included. A guardian send with no recall window
       // takes `createSendProposal` and caches nothing, so it is left alone.
       // Serialized before the pin and the flag: a request that cannot serialize never reached the leaf.
-      const requestBytes = tr.serialize();
+      const requestBytes = await withProposalStep('submit_serialize', async () => tr.serialize());
       if (transaction.requestBytes !== undefined) {
-        await pinGuardianCrossing(transaction.id, attempt);
+        await withProposalStep('submit_pin', () => pinGuardianCrossing(transaction.id, attempt));
       }
       offscreenDispatched = true;
       result = await runWriteLeaf(transaction.id, attempt, true, () =>
@@ -3950,7 +4129,8 @@ const generateGuardianTransaction = async (
           transaction.delegateTransaction,
           signCallback,
           stampStage,
-          chainAnchorB64
+          chainAnchorB64,
+          submitGate.gate
         )
       );
     } else {
@@ -3963,6 +4143,7 @@ const generateGuardianTransaction = async (
       );
     }
   } catch (error) {
+    submitGate.settle();
     // The message goes in the FORMAT STRING, not only in the object. Chrome
     // truncates strings nested inside a logged object's preview (~100 chars),
     // and a guardian write's whole diagnostic value is the executor's reason,
@@ -3979,7 +4160,8 @@ const generateGuardianTransaction = async (
     );
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
     // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
-    if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
+    const gateShut = offscreenDispatched && !submitGate.opened();
+    if ((hasErrorBeforeSubmit(error) || gateShut) && transaction.attemptId !== undefined) {
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
     // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
@@ -3993,6 +4175,7 @@ const generateGuardianTransaction = async (
     const keptForVerdict =
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
+      !gateShut &&
       (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
@@ -4056,6 +4239,7 @@ const generateGuardianTransaction = async (
         // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
         // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
         // the same loop) down with it, so the row is not even reaped.
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
           'abandoning the guardian candidate after a failed submission'
@@ -4070,13 +4254,13 @@ const generateGuardianTransaction = async (
         // here surfaces as one), and so may an inline attempt that reported
         // 'submitting'; each keeps this one abandon and leaves no mark. The
         // offscreen leaf's stamps can be lost, so an attempt dispatched offscreen
-        // never marks, and the retry never adds an abandon to a write the chain
-        // may still consume.
+        // marks only when its submit gate never opened (#1644), and the retry never
+        // adds an abandon to a write the chain may still consume.
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed) {
+        if (gateShut || (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed)) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
         }
       }

@@ -26,6 +26,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { HOST_MODAL_LAYER, useImperativeModalFocus } from 'lib/ui/host-modal';
 import { truncateAddress } from 'utils/string';
 
@@ -79,10 +80,22 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   // Kept with the request whose prompt failed and shown only while that request is on screen, so a
   // rejection that lands after a replacement never reads as the new request's failure.
-  const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
+  const [approvalError, setApprovalError] = useState<{
+    requestId: string;
+    message: string;
+    errorId: UserErrorId;
+  } | null>(null);
   const previousAttemptError =
     request.previousAttemptError === undefined ? undefined : request.previousAttemptError || t('smthWentWrong');
   const shownError = approvalError?.requestId === request.id ? approvalError.message : previousAttemptError;
+  const shownErrorId: UserErrorId | undefined =
+    approvalError?.requestId === request.id
+      ? approvalError.errorId
+      : previousAttemptError !== undefined
+        ? request.previousAttemptError
+          ? 'raw_dapp_approval_failed'
+          : 'smthWentWrong'
+        : undefined;
   const resolvedRef = useRef(false);
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
@@ -189,6 +202,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           pendingApprovalRef.current = false;
           setApprovalError({
             requestId,
+            errorId: error instanceof Error && error.message ? 'raw_dapp_approval_failed' : 'smthWentWrong',
             message: error instanceof Error && error.message ? error.message : t('smthWentWrong')
           });
         }
@@ -271,6 +285,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                     {transactionMessages.map((msg, i) => (
                       <div
                         key={i}
+                        data-testid="dapp-confirmation-message"
                         className="border-b border-border-light py-1 text-xs text-text-muted last:border-b-0 last:pb-0 first:pt-0"
                       >
                         {msg}
@@ -330,7 +345,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 )}
 
                 {shownError !== undefined && (
-                  <ErrorLine data-testid="dapp-approval-error" className="mt-3">
+                  <ErrorLine errorId={shownErrorId} data-testid="dapp-approval-error" className="mt-3">
                     {shownError}
                   </ErrorLine>
                 )}
@@ -340,6 +355,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               <div className="flex shrink-0 gap-3 border-t border-border-light px-6 py-5">
                 <button
                   type="button"
+                  data-testid="dapp-confirmation-deny"
                   onClick={handleDeny}
                   className="flex-1 rounded-full border-2 border-orange-500 bg-surface-solid px-6 py-3 text-sm font-semibold text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10"
                 >
@@ -347,6 +363,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 </button>
                 <button
                   ref={approveButtonRef}
+                  data-testid="dapp-confirmation-approve"
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove}

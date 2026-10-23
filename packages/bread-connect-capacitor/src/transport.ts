@@ -39,6 +39,11 @@ export interface TransportOptions {
   now?: () => number;
 }
 
+interface ManagedTransportOptions extends Omit<TransportOptions, 'openWallet'> {
+  openWallet?: never;
+  managedOpener: (link: string, signal: AbortSignal) => Promise<boolean>;
+}
+
 /** A connected session, with the permission request it answered and Bread's answer. */
 export interface StoredSession extends AppSession {
   request: DAppMessage;
@@ -56,6 +61,7 @@ interface Waiter {
   resolve: (answer: DAppMessage) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  controller: AbortController;
 }
 
 export type BreadConnectErrorCode = ProtocolError['code'] | 'NOT_INSTALLED' | 'SUPERSEDED' | 'CANCELLED' | 'TIMEOUT';
@@ -84,8 +90,16 @@ export class AppSwitchTransport {
   private unsubscribe: (() => void) | null = null;
   /** Every cancel so far: one that comes while a connect or request awaits `start` finds no waiter to settle. */
   private cancellations = 0;
+  private readonly openWallet: (link: string, signal: AbortSignal) => Promise<boolean>;
 
-  constructor(private readonly options: TransportOptions) {}
+  constructor(private readonly options: TransportOptions | ManagedTransportOptions) {
+    if ('managedOpener' in options) {
+      this.openWallet = options.managedOpener;
+    } else {
+      const openWallet = options.openWallet;
+      this.openWallet = link => openWallet.call(options, link);
+    }
+  }
 
   /** Listens for Bread's answers and reads the link the app was launched with. */
   start(): Promise<void> {
@@ -242,15 +256,17 @@ export class AppSwitchTransport {
   private exchange(pending: Pending, link: string): Promise<DAppMessage> {
     this.settle(new BreadConnectError('SUPERSEDED', 'A newer request to Bread replaced this one'));
     writeJson(this.options.storage, PENDING_KEY, pending);
+    const controller = new AbortController();
     const answer = new Promise<DAppMessage>((resolve, reject) => {
       const timer = setTimeout(
         () => this.settle(new BreadConnectError('TIMEOUT', 'Bread did not answer in time')),
         ANSWER_WAIT_MS
       );
-      this.waiter = { pending, resolve, reject, timer };
+      this.waiter = { pending, resolve, reject, timer, controller };
     });
     const waiter = this.waiter;
-    this.options.openWallet(link).then(
+    const opening = this.openWallet(link, controller.signal);
+    opening.then(
       opened => {
         if (!opened && this.waiter === waiter) {
           this.settle(new BreadConnectError('NOT_INSTALLED', 'Bread is not installed; its store page is open'));
@@ -275,6 +291,7 @@ export class AppSwitchTransport {
     const waiter = this.waiter;
     if (!waiter) return;
     this.waiter = null;
+    waiter.controller.abort();
     this.settledId = pendingId(waiter.pending);
     clearTimeout(waiter.timer);
     if (outcome instanceof BreadConnectError) waiter.reject(outcome);

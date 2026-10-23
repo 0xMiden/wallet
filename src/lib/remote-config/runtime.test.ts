@@ -4,6 +4,7 @@ import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 import type { FeatureAvailability, UnavailableReason } from './availability';
 import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { failedDerivation } from './derived-snapshot';
+import type { FeatureEligibility } from './geo';
 import {
   _resetBridgeConfigRuntimeForTest,
   type BridgeConfigSnapshot,
@@ -14,6 +15,7 @@ import {
   HEALTHY_POLL_MS,
   holdFastPoll,
   initBridgeConfig,
+  initFeatureEligibility,
   _refreshBridgeConfigForTest,
   subscribeBridgeConfig
 } from './runtime';
@@ -67,6 +69,11 @@ jest.mock('./derive', () => ({
   }
 }));
 
+const mockLookup = jest.fn<Promise<FeatureEligibility | null>, [string, number]>();
+jest.mock('./geo-lookup', () => ({
+  lookupFeatureEligibility: (network: string, version: number) => mockLookup(network, version)
+}));
+
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 let mockAvailability: Partial<Record<string, FeatureAvailability>> = {};
 const mockFeatureAvailability = jest.fn(
@@ -110,7 +117,8 @@ const SEPOLIA_SKIPPED: DerivedChainConfig = {
     rollupId: { state: 'skipped' },
     tokens: { state: 'skipped' },
     evmNetworkId: { state: 'skipped' },
-    l1BridgeCode: { state: 'skipped' }
+    l1BridgeCode: { state: 'skipped' },
+    depositTokens: { state: 'skipped' }
   },
   epoch: { evmUsdc: { state: 'skipped' } }
 };
@@ -183,6 +191,11 @@ beforeEach(() => {
   jest.useFakeTimers({ now: NOW });
   mockNetwork = 'testnet';
   mockStorage.clear();
+  mockLookup.mockReset().mockImplementation(async (network, version) => ({
+    network,
+    version,
+    allowed: { wallet: true, earn: false, swap: true }
+  }));
   mockAvailability = {};
   visibility = 'visible';
   mockGet.mockReset().mockImplementation(async key => mockStorage.get(key) ?? null);
@@ -1249,5 +1262,123 @@ describe('the Guardian operators', () => {
     await initBridgeConfig();
     expect(ids('devnet')).toEqual(['kodax']);
     expect(ids('testnet')).toEqual(['new-one']);
+  });
+});
+
+describe('startup eligibility', () => {
+  it('does not check eligibility during ordinary config initialization or refresh', async () => {
+    seed(13);
+    serve(14);
+    await initBridgeConfig();
+    await _refreshBridgeConfigForTest();
+    setVisibility('hidden');
+    setVisibility('visible');
+    await flush();
+    expect(mockLookup).not.toHaveBeenCalled();
+    expect(getBridgeConfigSnapshot().geo).toBeUndefined();
+  });
+
+  it('coalesces simultaneous startup calls into one request against the accepted startup document', async () => {
+    seed(13);
+    const pending = gate();
+    mockLookup.mockImplementationOnce(async (network, version) => {
+      await pending.opened;
+      return { network, version, allowed: { wallet: true, earn: false, swap: true } };
+    });
+    const first = initFeatureEligibility();
+    const second = initFeatureEligibility();
+    expect(second).toBe(first);
+    await flush();
+    expect(mockLookup).toHaveBeenCalledTimes(1);
+    expect(mockLookup).toHaveBeenCalledWith('testnet', 13);
+    expect(getBridgeConfigSnapshot().geo).toEqual({ state: 'loading' });
+    pending.release();
+    const result = await first;
+    expect(result).toEqual({
+      state: 'ready',
+      network: 'testnet',
+      version: 13,
+      allowed: { wallet: true, earn: false, swap: true }
+    });
+    expect(getBridgeConfigSnapshot().geo).toBe(result);
+  });
+
+  it.each([
+    { wallet: true, earn: false, swap: true },
+    { wallet: false, earn: true, swap: false }
+  ])('retains the independent startup feature decisions $wallet/$earn/$swap', async allowed => {
+    seed(13);
+    mockLookup.mockResolvedValueOnce({ network: 'testnet', version: 13, allowed });
+    const result = await initFeatureEligibility();
+    expect(result).toEqual({ state: 'ready', network: 'testnet', version: 13, allowed });
+    expect(await initFeatureEligibility()).toBe(result);
+    expect(mockLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it('never rechecks after time, foreground, document changes, storage clearing or recovery initialization', async () => {
+    seed(13);
+    serve(14);
+    const result = await initFeatureEligibility();
+    const first = getBridgeConfigSnapshot();
+    await _refreshBridgeConfigForTest();
+    expect(getBridgeConfigSnapshot().config?.version).toBe(14);
+    expect(getBridgeConfigSnapshot().geo).toBe(result);
+    expect(getBridgeConfigSnapshot()).not.toBe(first);
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS * 2);
+    setVisibility('hidden');
+    setVisibility('visible');
+    await flush();
+    mockStorage.clear();
+    fireChange(CACHE);
+    fireChange(DERIVED);
+    await flush();
+    await rereadAfterWipe();
+    await initBridgeConfig();
+    expect(await initFeatureEligibility()).toBe(result);
+    expect(getBridgeConfigSnapshot().geo).toBe(result);
+    expect(mockLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the startup decision when the page later changes its effective network', async () => {
+    seed(13);
+    seed(4, { network: 'devnet' });
+    const result = await initFeatureEligibility();
+    mockNetwork = 'devnet';
+    followEffectiveNetwork();
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot().network).toBe('devnet');
+    expect(getBridgeConfigSnapshot().geo).toBe(result);
+    expect(await initFeatureEligibility()).toBe(result);
+    expect(mockLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unavailable startup result without retrying when later initialization recovers', async () => {
+    seed(13);
+    mockLookup.mockResolvedValueOnce(null);
+    const result = await initFeatureEligibility();
+    await initBridgeConfig();
+    expect(result).toEqual({ state: 'failed' });
+    expect(await initFeatureEligibility()).toBe(result);
+    expect(mockLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when startup has no accepted document without sending an unversioned lookup', async () => {
+    failFetch();
+    const result = await initFeatureEligibility();
+    expect(result).toEqual({ state: 'failed' });
+    expect(mockLookup).not.toHaveBeenCalled();
+    serve(13);
+    await _refreshBridgeConfigForTest();
+    expect(await initFeatureEligibility()).toBe(result);
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it('settles a rejected startup lookup as unavailable once', async () => {
+    seed(13);
+    mockLookup.mockRejectedValueOnce(new Error('network unavailable'));
+    expect(await initFeatureEligibility()).toEqual({ state: 'failed' });
+    expect(await initFeatureEligibility()).toEqual({ state: 'failed' });
+    expect(mockLookup).toHaveBeenCalledTimes(1);
   });
 });

@@ -4,6 +4,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
 
 import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
 
 const walletBuildIdentity = readWalletBuildIdentity(__dirname);
 
@@ -436,6 +437,8 @@ export default defineConfig({
     'process.env.WALLET_BUILD_TARGET': JSON.stringify('background'),
     'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
     'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
-    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? '')
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : '')
   }
 });

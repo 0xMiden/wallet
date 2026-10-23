@@ -47,7 +47,8 @@ function ready(): BridgeConfigSnapshot {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    depositTokens: { state: 'skipped' }
   };
   derived.agglayer = { indexer: { state: 'ok', value: true } };
   return snapshot;
@@ -256,5 +257,50 @@ describe('the E2E collateral faucet', () => {
       if (saved === undefined) delete process.env.MIDEN_E2E_TEST;
       else process.env.MIDEN_E2E_TEST = saved;
     }
+  });
+});
+
+describe('startup feature eligibility', () => {
+  function withDecision(geo: BridgeConfigSnapshot['geo']) {
+    return { ...ready(), geo };
+  }
+  const decision = (earn: boolean): BridgeConfigSnapshot['geo'] => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn, swap: true }
+  });
+
+  it('keeps legacy availability when the backend snapshot has no startup decision', () => {
+    expect(featureAvailability('earnDeposit', withDecision(undefined))).toEqual(AVAILABLE);
+  });
+
+  it('waits for the startup decision and reports a failed lookup', () => {
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'loading' }))).toEqual({ state: 'loading' });
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'failed' }))).toMatchObject({
+      reason: 'service-down'
+    });
+  });
+
+  it('uses the startup Earn boolean without requiring local block rules', () => {
+    const denied = withDecision(decision(false));
+    expect(denied.config?.geo).toBeUndefined();
+    expect(featureAvailability('earnDeposit', denied)).toMatchObject({ reason: 'restricted' });
+    expect(featureAvailability('earnDeposit', withDecision(decision(true)))).toEqual(AVAILABLE);
+  });
+
+  it('keeps the startup decision when the accepted config version changes', () => {
+    const snapshot = withDecision(decision(false));
+    if (!snapshot.config || !snapshot.derived) throw new Error('Missing test configuration');
+    snapshot.config.version += 1;
+    snapshot.derived.version = snapshot.config.version;
+    expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'restricted' });
+    snapshot.geo = decision(true);
+    expect(featureAvailability('earnDeposit', snapshot)).toEqual(AVAILABLE);
+  });
+
+  it('does not apply the Earn decision to withdrawals or other features', () => {
+    expect(featureAvailability('fastBridgeOut', withDecision(decision(false)))).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeOut', withDecision({ state: 'failed' }))).toEqual(AVAILABLE);
   });
 });

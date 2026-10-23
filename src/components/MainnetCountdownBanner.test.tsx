@@ -86,6 +86,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 }));
 
 let mockInviteOnly = false;
+let mockWipeFailure = false;
 const mockConfirm = jest.fn<Promise<boolean>, [object]>();
 const mockAlert = jest.fn<Promise<void>, [object]>();
 const mockReset = jest.fn<Promise<void>, [MIDEN_NETWORK_NAME, string | undefined]>();
@@ -98,8 +99,9 @@ jest.mock('lib/ui/dialog', () => ({
   useAlert: () => mockAlert
 }));
 jest.mock('lib/miden/reset-and-reload', () => ({
-  resetWalletAndReload: (_onError: () => Promise<void>, network: MIDEN_NETWORK_NAME, code?: string) => {
+  resetWalletAndReload: async (onError: () => Promise<void>, network: MIDEN_NETWORK_NAME, code?: string) => {
     mockSteps.push('reset');
+    if (mockWipeFailure) await onError();
     return mockReset(network, code);
   }
 }));
@@ -147,6 +149,7 @@ describe('MainnetCountdownBanner', () => {
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
     mockNetworkKey = 'testnet';
     mockInviteOnly = false;
+    mockWipeFailure = false;
     mockConfirm.mockResolvedValue(false);
     mockAlert.mockResolvedValue(undefined);
     mockReset.mockResolvedValue(undefined);
@@ -262,7 +265,41 @@ describe('MainnetCountdownBanner', () => {
     mockReset.mockRejectedValueOnce(new Error('Reset failed'));
     render(<MainnetCountdownBanner />);
     await submitCode();
-    expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+    expect(mockAlert).toHaveBeenCalledWith({
+      title: 'error',
+      children: 'resetDidNotFinish',
+      errorId: 'resetDidNotFinish'
+    });
+    expect(screen.getByTestId('mainnet-switch-submit')).toBeEnabled();
+  });
+
+  it('forwards resetDidNotFinish from the actual mainnet wipe-error callback', async () => {
+    mockInviteOnly = true;
+    mockConfirm.mockResolvedValue(true);
+    mockWipeFailure = true;
+    render(<MainnetCountdownBanner />);
+
+    await submitCode();
+
+    expect(mockReset).toHaveBeenCalledWith(MIDEN_NETWORK_NAME.MAINNET, CODE);
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: 'resetDidNotFinish', errorId: 'resetDidNotFinish' }]
+    ]);
+    expect(screen.getByTestId('mainnet-switch-submit')).toBeEnabled();
+  });
+
+  it('forwards resetDidNotFinish from the actual mainnet reset outer catch', async () => {
+    mockInviteOnly = true;
+    mockConfirm.mockResolvedValue(true);
+    mockReset.mockRejectedValueOnce(new Error('prepare or reload refused'));
+    render(<MainnetCountdownBanner />);
+
+    await submitCode();
+
+    expect(mockReset).toHaveBeenCalledWith(MIDEN_NETWORK_NAME.MAINNET, CODE);
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: 'error', children: 'resetDidNotFinish', errorId: 'resetDidNotFinish' }]
+    ]);
     expect(screen.getByTestId('mainnet-switch-submit')).toBeEnabled();
   });
 

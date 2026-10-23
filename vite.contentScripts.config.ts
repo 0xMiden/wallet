@@ -12,6 +12,8 @@
  *   CS_ENTRY=addToWindow  vite build --config vite.contentScripts.config.ts
  */
 import { resolve } from 'path';
+
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
 import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
@@ -122,6 +124,8 @@ export default defineConfig({
     'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : ''),
     'process.browser': 'true',
     global: 'globalThis'
   }

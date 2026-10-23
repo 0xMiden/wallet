@@ -1,6 +1,8 @@
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from 'lib/epoch/intent-status';
 import { getEpochReadOnlySdk } from 'lib/epoch/sdk';
 import * as Repo from 'lib/miden/repo';
+import { EVM_CHAIN_DEFINITIONS } from 'lib/walletconnect/config';
+import { EvmTransactionRevertedError } from 'lib/walletconnect/receipt';
 
 import { BridgeReceiveLockManager, createBridgeReceiveReconciler, reconcileBridgedReceives } from './bridge-receive';
 
@@ -54,6 +56,7 @@ jest.mock('lib/usdcx/cctp', () => ({
 }));
 const readOutcome = jest.fn();
 jest.mock('lib/walletconnect/receipt', () => ({
+  ...jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt'),
   waitForEvmReceipt: (...args: unknown[]) => waitForReceipt(...args),
   readEvmReceiptOutcome: (...args: unknown[]) => readOutcome(...args)
 }));
@@ -101,7 +104,7 @@ beforeEach(() => {
 const WEEK_AGO_SEC = Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60;
 
 describe('reconcileBridgedReceives', () => {
-  it('resumes an AggLayer receipt wait when a hash was persisted', async () => {
+  it('resumes an AggLayer receipt read when a hash was persisted', async () => {
     rows.push({
       id: 'agg-row',
       type: 'bridged-receive',
@@ -114,14 +117,17 @@ describe('reconcileBridgedReceives', () => {
       }
     });
 
+    readOutcome.mockResolvedValue('success');
+
     await reconcileBridgedReceives();
 
-    expect(waitForReceipt).toHaveBeenCalledWith(`0x${'1'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
+    expect(readOutcome).toHaveBeenCalledWith(`0x${'1'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
+    expect(waitForReceipt).not.toHaveBeenCalled();
     expect(updatePhase).toHaveBeenCalledWith('agg-row', 'delivering');
     expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, undefined);
   });
 
-  it('waits for an AggLayer receipt on the chain the row saved', async () => {
+  it('reads an AggLayer receipt on the chain the row saved', async () => {
     const hash = `0x${'5'.repeat(64)}`;
     const agglayerRoute = {
       chainId: 84532,
@@ -139,9 +145,11 @@ describe('reconcileBridgedReceives', () => {
       extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: hash, agglayerRoute }
     });
 
+    readOutcome.mockResolvedValue('success');
+
     await reconcileBridgedReceives();
 
-    expect(waitForReceipt).toHaveBeenCalledWith(hash, expect.objectContaining({ id: 84532 }));
+    expect(readOutcome).toHaveBeenCalledWith(hash, expect.objectContaining({ id: 84532 }));
     expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, agglayerRoute);
   });
 
@@ -249,6 +257,7 @@ describe('reconcileBridgedReceives', () => {
       await reconcileBridgedReceives();
 
       expect(waitForReceipt).not.toHaveBeenCalled();
+      expect(readOutcome).not.toHaveBeenCalled();
       expect(fetchDeposits).not.toHaveBeenCalled();
       expect(updatePhase).toHaveBeenCalledWith(
         'agg-restored',
@@ -301,16 +310,19 @@ describe('reconcileBridgedReceives', () => {
       'failed',
       expect.objectContaining({
         error: expect.stringContaining('interrupted'),
-        failure: { step: 'submission_interrupted' }
+        failure: { step: 'submission_interrupted', orphanCheck: 'realm_idle' }
       })
     );
   });
 
   // A USDCx row closes like its Agglayer sibling: with no hash and no flow left to write one, it can never progress.
   it.each([
-    ['the direct route', {}],
-    ['the executor route', { sourceChainId: 84532 }]
-  ])('fails an interrupted USDCx row on %s that never recorded a hash', async (_route, extra) => {
+    ['the direct route', {}, 'unrecorded'],
+    ['the executor route', { sourceChainId: 84532 }, 'unrecorded'],
+    ['a recorded direct route', { usdcxSource: { route: 'xreserve' } }, 'xreserve'],
+    ['a recorded executor route', { usdcxSource: { route: 'cctp-executor' } }, 'cctp_executor'],
+    ['a recorded route the wallet does not define', { usdcxSource: { route: '0xdeadbeef' } }, 'unrecorded']
+  ])('fails an interrupted USDCx row on %s that never recorded a hash', async (_route, extra, sourceRoute) => {
     rows.push({
       id: 'usdcx-interrupted',
       type: 'bridged-receive',
@@ -322,7 +334,7 @@ describe('reconcileBridgedReceives', () => {
 
     expect(updatePhase).toHaveBeenCalledWith('usdcx-interrupted', 'failed', {
       error: 'Bridge submission was interrupted before a transaction hash was recorded.',
-      failure: { step: 'submission_interrupted' }
+      failure: { step: 'submission_interrupted', orphanCheck: 'realm_idle', sourceRoute }
     });
     expect(fetchAttestations).not.toHaveBeenCalled();
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
@@ -381,23 +393,93 @@ describe('reconcileBridgedReceives', () => {
     expect(registerBridgeIn).not.toHaveBeenCalled();
   });
 
-  it('fails an AggLayer row whose receipt wait rejects', async () => {
-    waitForReceipt.mockRejectedValue(new Error('reverted on L1'));
-    rows.push({
-      id: 'agg-reverted',
-      type: 'bridged-receive',
-      accountId: 'miden-account',
-      initiatedAt: Math.floor(Date.now() / 1000),
-      extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: `0x${'e'.repeat(64)}` }
-    });
+  const submittingAggRow = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: `0x${'e'.repeat(64)}`, ...extra }
+  });
+
+  it('fails an AggLayer row whose receipt reverted', async () => {
+    readOutcome.mockResolvedValue('reverted');
+    rows.push(submittingAggRow('agg-reverted'));
+    const chainName = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === 11155111)!.name;
 
     await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledWith('agg-reverted', 'failed', {
-      error: 'reverted on L1',
-      failure: { step: 'reconciler_receipt', cause: new Error('reverted on L1') }
+      error: new EvmTransactionRevertedError(chainName).message,
+      failure: { step: 'reconciler_receipt', cause: expect.any(EvmTransactionRevertedError) }
     });
     expect(fetchDeposits).not.toHaveBeenCalled();
+  });
+
+  it('keeps an AggLayer row submitting while its receipt is pending', async () => {
+    readOutcome.mockResolvedValue('pending');
+    rows.push(submittingAggRow('agg-pending'));
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).toHaveBeenCalledTimes(1);
+    expect(readOutcome).toHaveBeenCalledWith(`0x${'e'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(fetchDeposits).not.toHaveBeenCalled();
+  });
+
+  it.each([new Error('timeout'), new Error('Sepolia RPC is not configured')])(
+    'keeps an AggLayer row submitting when its receipt cannot be read (%s)',
+    async error => {
+      readOutcome.mockRejectedValue(error);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      rows.push(submittingAggRow('agg-unreadable'));
+
+      await reconcileBridgedReceives();
+
+      expect(updatePhase).not.toHaveBeenCalled();
+      expect(fetchDeposits).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith('[bridge-receive] AggLayer receipt read failed', 'agg-unreadable', error);
+      warn.mockRestore();
+    }
+  );
+
+  it('keeps an AggLayer row submitting whose chain is not configured', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    rows.push(submittingAggRow('agg-no-chain', { agglayerRoute: { chainId: 999999 } }));
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(fetchDeposits).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[bridge-receive] AggLayer receipt not readable', 'agg-no-chain');
+    warn.mockRestore();
+  });
+
+  it('keeps an AggLayer row submitting whose saved hash is not a transaction hash', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    rows.push(submittingAggRow('agg-bad-hash', { evmTxHash: '0x1234' }));
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[bridge-receive] AggLayer receipt not readable', 'agg-bad-hash');
+    warn.mockRestore();
+  });
+
+  // A receipt that never settles leaves the row submitting, so the delivery window is what ends it.
+  it('times out a submitting AggLayer row older than the tracking age without reading its receipt', async () => {
+    rows.push({ ...submittingAggRow('agg-stale-submitting'), initiatedAt: WEEK_AGO_SEC });
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(updatePhase).toHaveBeenCalledWith('agg-stale-submitting', 'failed', {
+      error: 'Bridge delivery timed out.',
+      failure: { step: 'delivery_timed_out' }
+    });
   });
 
   it('leaves an AggLayer row pending when the indexer is unreachable', async () => {
@@ -428,7 +510,10 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith(
       'epoch-interrupted',
       'failed',
-      expect.objectContaining({ error: expect.stringContaining('intent'), failure: { step: 'submission_interrupted' } })
+      expect.objectContaining({
+        error: expect.stringContaining('intent'),
+        failure: { step: 'submission_interrupted', orphanCheck: 'realm_idle' }
+      })
     );
     expect(registerBridgeIn).not.toHaveBeenCalled();
   });
@@ -723,10 +808,14 @@ describe('deposit submissions', () => {
       signing.resolve();
       await settle();
       await watcherPage.reconcile();
+      // The origin-wide lock, not this realm's count, said no page still owned the row.
       expect(updatePhase).toHaveBeenCalledWith(
         'live',
         'failed',
-        expect.objectContaining({ error: expect.stringContaining('interrupted') })
+        expect.objectContaining({
+          error: expect.stringContaining('interrupted'),
+          failure: { step: 'submission_interrupted', orphanCheck: 'origin_lock' }
+        })
       );
     }
   );
@@ -749,6 +838,7 @@ describe('deposit submissions', () => {
     await realm.reconcile();
 
     expect(waitForReceipt).not.toHaveBeenCalled();
+    expect(readOutcome).not.toHaveBeenCalled();
     expect(updatePhase).not.toHaveBeenCalled();
     confirming.resolve();
   });

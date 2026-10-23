@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { ImportSeedPhraseScreen } from './ImportSeedPhrase';
 
 // --- Mocked dependencies -------------------------------------------------
@@ -105,6 +107,24 @@ beforeEach(() => {
   mockInputProps.length = 0;
   mockButtonProps = null;
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('ImportSeedPhraseScreen', () => {
   describe('rendering', () => {
@@ -343,5 +363,46 @@ describe('import-with-key link', () => {
     render(<ImportSeedPhraseScreen wordslist={WORDS} />);
 
     expect(screen.queryByTestId('import-with-key-link')).not.toBeInTheDocument();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports a word validation failure without sending the word', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+    changeWord(0, privateErrorFixture);
+    expect(screen.getByRole('alert')).toHaveTextContent('importSeedPhraseError');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('importSeedPhraseError', 'notice');
+  });
+  it('reports a restore rejection', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} isError />);
+    expect(screen.getByRole('alert')).toHaveTextContent('importSeedPhraseError');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('importSeedPhraseError', 'notice');
+  });
+  it('reports a known-word checksum failure without sending the phrase', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+    WORDS.forEach((word, index) => changeWord(index, word));
+    expect(screen.getByRole('alert')).toHaveTextContent('justValidPreGeneratedMnemonic');
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('justValidPreGeneratedMnemonic', 'notice');
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(WORDS[0]);
+  });
+  it('does not report an empty phrase', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

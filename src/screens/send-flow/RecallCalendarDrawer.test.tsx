@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import {
   combineDateAndTime,
@@ -14,6 +16,8 @@ import {
 // ---------------------------------------------------------------------------
 
 // i18n: identity translator so labels are the raw keys (matches sibling tests).
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -466,5 +470,41 @@ describe('combineDateAndTime', () => {
     const combined = combineDateAndTime(new Date('2030-06-15T10:00:00'), '');
     expect(combined.getHours()).toBe(0);
     expect(combined.getMinutes()).toBe(0);
+  });
+});
+
+describe('RecallCalendarDrawer user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: new Date('2030-01-01T12:00:00') });
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  it('reports recallTimeInPast after editing to a past time leaves the refusal visible for 1000 ms', async () => {
+    const onOpenChange = jest.fn();
+    const Owner = () => {
+      const [recallTime, setRecallTime] = React.useState('14:30');
+      return (
+        <RecallCalendarDrawer
+          {...makeProps({ recallDate: new Date('2030-01-01T00:00:00'), onOpenChange })}
+          recallTime={recallTime}
+          onRecallTimeChange={setRecallTime}
+        />
+      );
+    };
+    render(<Owner />);
+    fireEvent.change(screen.getByTestId('recall-time-input'), { target: { value: '11:00' } });
+    expect(screen.getByText('recallTimeInPast')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'confirm' })).toBeDisabled();
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['recallTimeInPast', 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
 });

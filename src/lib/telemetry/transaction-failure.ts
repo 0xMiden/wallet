@@ -12,7 +12,16 @@ import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
-import { type BridgeReceiveFailure, bridgeReceiveIdentity } from './bridge-receive-failure';
+import {
+  type BridgeReceiveFailure,
+  bridgeReceiveIdentity,
+  bridgeReceiveNativeFailure,
+  REOWN_NATIVE_ORIGINS,
+  REOWN_WALLET_RESPONSE_CODES,
+  REOWN_REQUEST_AGES,
+  REOWN_PUBLICATIONS,
+  REOWN_BACKGROUND_ANSWERS
+} from './bridge-receive-failure';
 import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
@@ -219,6 +228,13 @@ export const PIPELINE_KILLS = [
 
 type PipelineKill = (typeof PIPELINE_KILLS)[number];
 
+// Facts an offscreen abort carries (miden-client-proxy.ts): whose deadline closed the document, which of its timers
+// fired, whether that op was a write, and whether this op's start signal had arrived (a dropped signal reads `no`).
+export const OFFSCREEN_DEADLINE_OWNERS = ['own', 'collateral', 'unavailable'] as const;
+export const OFFSCREEN_DEADLINE_TIMERS = ['dispatch', 'backstop', 'started', 'resumed', 'unavailable'] as const;
+export const OFFSCREEN_DEADLINE_KILLERS = ['write', 'read', 'unavailable'] as const;
+export const OFFSCREEN_OP_STARTED = ['yes', 'no', 'unavailable'] as const;
+
 export const EXECUTION_CAUSES = [
   'request_note_consumed',
   'request_note_processing',
@@ -308,6 +324,20 @@ export interface ReapSnapshot {
   attempt: (typeof REAPED_ATTEMPT_ORIGINS)[number];
 }
 
+/** Which of the startup sweep's rules picked the row: no recorded start, a start before this session, or a start too far ahead. */
+export const STARTUP_SELECTIONS = ['missing_start', 'before_session', 'future_stamp'] as const;
+
+/** How long before the sweep the row entered its stored stage. */
+export const STORED_STAGE_AGES = ['under_1m', 'under_10m', 'under_1h', 'under_1d', 'over_1d'] as const;
+
+export const SUBMIT_RECORDS = ['submit_recorded', 'no_submit_recorded'] as const;
+
+export interface StartupSnapshot {
+  selection: (typeof STARTUP_SELECTIONS)[number];
+  stageAge?: (typeof STORED_STAGE_AGES)[number];
+  submit: (typeof SUBMIT_RECORDS)[number];
+}
+
 export const FAILURE_POINTS = [
   'pipeline',
   'earn_settlement',
@@ -338,6 +368,8 @@ export interface TransactionFailure {
   lastDeferral?: ConsumeDeferralCause;
   feeAdmission?: ClaimFeeAdmission;
   reap?: ReapSnapshot;
+  /** Read only with the `interrupted_on_startup` reason. */
+  startup?: StartupSnapshot;
   /** Whether the app was hidden while its submit was in flight; undefined when the platform cannot tell. */
   hiddenDuringSubmit?: boolean;
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
@@ -523,8 +555,44 @@ const LOCK_EVICTIONS = new Map<unknown, PipelineKill>([
   ['realm-error', 'wasm_lock_evicted_realm_error']
 ]);
 
+function closedFact<T extends string>(read: () => unknown, values: readonly T[], fallback: T): T {
+  try {
+    const value = read();
+    return values.find(listed => listed === value) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// The facts are read field by field off the thrown value, so a value from another realm or a hostile accessor
+// degrades each one to `unavailable` rather than dropping the abort's name.
+function offscreenAbortFacts(link: unknown, kill: PipelineKill): string {
+  const field = (owner: () => unknown, name: string) => () => {
+    const value = owner();
+    return typeof value === 'object' && value !== null ? Reflect.get(value, name) : undefined;
+  };
+  const facts = field(() => link, 'facts');
+  const startedValue = field(facts, 'started');
+  const started = closedFact(
+    () => {
+      const value = startedValue();
+      return value === true ? 'yes' : value === false ? 'no' : undefined;
+    },
+    OFFSCREEN_OP_STARTED,
+    'unavailable'
+  );
+  if (kill !== 'offscreen_aborted_deadline' && kill !== 'offscreen_aborted_deadline_no_kill') {
+    return `${kill}; op start reported ${started}`;
+  }
+  const deadline = field(facts, 'deadline');
+  const owner = closedFact(field(deadline, 'owner'), OFFSCREEN_DEADLINE_OWNERS, 'unavailable');
+  const timer = closedFact(field(deadline, 'timer'), OFFSCREEN_DEADLINE_TIMERS, 'unavailable');
+  const killer = closedFact(field(deadline, 'killer'), OFFSCREEN_DEADLINE_KILLERS, 'unavailable');
+  return `${kill}; deadline owner ${owner}; deadline timer ${timer}; deadline op ${killer}; op start reported ${started}`;
+}
+
 // Named by class and reason, never by message: the abort's message carries the operation id.
-function killIdentity(error: unknown): PipelineKill | undefined {
+function killIdentity(error: unknown): string | undefined {
   for (const link of errorChain(error)) {
     try {
       const offscreen = isOperationAbortedError(link);
@@ -535,9 +603,8 @@ function killIdentity(error: unknown): PipelineKill | undefined {
       } catch {
         reason = undefined;
       }
-      return offscreen
-        ? (OFFSCREEN_ABORTS.get(reason) ?? 'offscreen_aborted_other')
-        : (LOCK_EVICTIONS.get(reason) ?? 'wasm_lock_evicted_other');
+      if (!offscreen) return LOCK_EVICTIONS.get(reason) ?? 'wasm_lock_evicted_other';
+      return offscreenAbortFacts(link, OFFSCREEN_ABORTS.get(reason) ?? 'offscreen_aborted_other');
     } catch {
       // A throwing accessor costs this link, not the report.
     }
@@ -607,6 +674,16 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
+
+/**
+ * The gRPC status of the SDK's request failure inside a submit, `other` for a status the table does not list, or
+ * undefined when the error carries no such failure.
+ */
+export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[number] | undefined {
+  const refusal = submitRequestFailure(error);
+  if (refusal === undefined) return undefined;
+  return grpcStatusOf(refusal.kind)?.[0] ?? 'other';
+}
 
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
   const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
@@ -688,6 +765,10 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...SUBMIT_LEG_BUCKETS,
   ...THROWN_CLASSES,
   ...PIPELINE_KILLS,
+  ...OFFSCREEN_DEADLINE_OWNERS,
+  ...OFFSCREEN_DEADLINE_TIMERS,
+  ...OFFSCREEN_DEADLINE_KILLERS,
+  ...OFFSCREEN_OP_STARTED,
   ...EXECUTION_CAUSES,
   ...SIGNING_STEPS,
   ...CONFIRMING_STEPS,
@@ -696,6 +777,9 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...CLAIM_FEE_ADMISSIONS,
   ...REAP_AGES,
   ...REAPED_ATTEMPT_ORIGINS,
+  ...STARTUP_SELECTIONS,
+  ...STORED_STAGE_AGES,
+  ...SUBMIT_RECORDS,
   'none',
   'unrecorded',
   'unavailable',
@@ -713,7 +797,13 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...AUTH_PREPARATIONS,
   ...AUTH_LAYOUTS,
   ...COMMITMENT_MATCHES,
-  ...ACCOUNT_AUTH_CODES
+  ...ACCOUNT_AUTH_CODES,
+  ...REOWN_NATIVE_ORIGINS,
+  ...REOWN_WALLET_RESPONSE_CODES,
+  ...REOWN_REQUEST_AGES,
+  ...REOWN_PUBLICATIONS,
+  ...REOWN_BACKGROUND_ANSWERS,
+  'invalid_permissions'
 ]);
 
 function softwareVersion(value: string): string {
@@ -782,7 +872,11 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
               failure.feeAdmission === undefined ? 'unrecorded' : 'other'
             )}`
           ].join('')
-        : '';
+        : // Any row the loop requeued records its cause; only a recorded one is named, so a report that has none keeps its
+          // message and its Sentry group.
+          failure.lastDeferral === undefined
+          ? ''
+          : `; last deferral ${diagnostic<string>(failure.lastDeferral, CONSUME_DEFERRAL_CAUSES, 'other')}`;
     const platform: (typeof FAILURE_PLATFORMS)[number] = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
     const reason =
       failure.reason === undefined ? undefined : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
@@ -793,6 +887,14 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
             `; reaped attempt ${diagnostic<string>(failure.reap?.attempt, REAPED_ATTEMPT_ORIGINS, 'unavailable')}`
           ].join('')
         : '';
+    const startup =
+      reason === 'interrupted_on_startup'
+        ? [
+            `; startup selection ${diagnostic<string>(failure.startup?.selection, STARTUP_SELECTIONS, 'unavailable')}`,
+            `; stored stage age ${diagnostic<string>(failure.startup?.stageAge, STORED_STAGE_AGES, 'unavailable')}`,
+            `; submit ${diagnostic<string>(failure.startup?.submit, SUBMIT_RECORDS, 'unavailable')}`
+          ].join('')
+        : '';
     const identity =
       reason === undefined
         ? failureIdentity(failure)
@@ -801,7 +903,7 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}; point ${point}; ${identity}${bridge}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
@@ -809,7 +911,35 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     report.name = 'WalletTransactionFailure';
     // This stack would name the reporter, not the failed execution, and can include private file paths.
     report.stack = undefined;
-    annotateCrash(report, snapshotCrashDiagnostics(failure.error));
+    const inherited = snapshotCrashDiagnostics(failure.error);
+    delete inherited.reownNativeOrigin;
+    delete inherited.reownWalletResponseCode;
+    delete inherited.reownRequestAge;
+    delete inherited.reownPublished;
+    delete inherited.reownBackgrounded;
+    annotateCrash(report, inherited);
+    // Each is checked against its closed list there; a value the wallet does not define is dropped.
+    const bridgeSource = failure.bridgeReceive;
+    if (bridgeSource !== undefined) {
+      annotateCrash(report, {
+        bridgeBalanceCheck: bridgeSource.balanceCheck,
+        bridgeOrphanCheck: bridgeSource.orphanCheck,
+        bridgeSourceRoute: bridgeSource.sourceRoute
+      });
+    }
+    const native =
+      type === 'bridged-receive' && platform === 'android'
+        ? bridgeReceiveNativeFailure(failure.bridgeReceive?.cause)
+        : undefined;
+    if (native !== undefined) {
+      annotateCrash(report, {
+        reownNativeOrigin: native.nativeOrigin,
+        reownWalletResponseCode: native.walletResponseCode,
+        reownRequestAge: native.requestAge,
+        reownPublished: native.published,
+        reownBackgrounded: native.backgrounded
+      });
+    }
     // A queued row with no stage expired untried (the loop's requeues stamp one, and every requeue clears `attemptId`):
     // whatever held the queue has its own report, and each row behind it would otherwise add another error.
     const neverStarted = reason === 'queued_expired' && failure.stage === undefined;

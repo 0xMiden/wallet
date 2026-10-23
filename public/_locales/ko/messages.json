@@ -1,4 +1,28 @@
 {
+  "bridgeRouteEpoch": {
+    "message": "Fast · Epoch",
+    "englishSource": "Fast · Epoch"
+  },
+  "bridgeRouteAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteUnavailableBody": {
+    "message": "이 이체에는 이 경로를 사용할 수 없습니다. 사용 가능한 다른 경로를 통해 계속 진행할 수 있습니다. 이 화면에서는 아직 거래가 제출되지 않았습니다.",
+    "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
+  },
+  "bridgeRouteNoneAvailableBody": {
+    "message": "이 전송에 대해서는 이 경로를 사용할 수 없으며, 현재 다른 경로도 사용할 수 없습니다. 이 화면에서는 아직 어떤 거래도 제출되지 않았습니다.",
+    "englishSource": "This route is unavailable for this transfer, and no other route is available right now. No transaction has been submitted from this screen."
+  },
+  "bridgeContinueAgglayer": {
+    "message": "Agglayer로 계속",
+    "englishSource": "Continue via Agglayer"
+  },
+  "bridgeContinueEpoch": {
+    "message": "Epoch로 계속",
+    "englishSource": "Continue via Epoch"
+  },
   "usdcxBurnTitle": {
     "message": "USDCx 소각",
     "englishSource": "Burn USDCx"
@@ -86,16 +110,17 @@
     "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
   "usdcxBelowMinimumBurn": {
-    "message": "해당 금액은 faucet에서 정한 최소 소각 금액 미달입니다.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
-  },
-  "usdcxIncompatibleBurnScript": {
-    "message": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "message": "최소 $amount$ USDCx를 전송하십시오.",
+    "englishSource": "Send at least $amount$ USDCx.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxFaucetUnavailable": {
-    "message": "USDCx faucet의 소각 정책을 읽을 수 없습니다. 재검토를 요청하여 다시 시도해 주세요.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "USDCx faucet에 대해서는 아직 알려진 바가 없습니다. 검토를 다시 열어 재시도해 주십시오.",
+    "englishSource": "The USDCx faucet is not known yet. Reopen review to try again."
   },
   "usdcxSendMoreThanPayoutFee": {
     "message": "$amount$ 이상의 USDCx를 $network$로 전송하세요: Circle의 수수료는 지급 금액에서 공제됩니다.",
@@ -708,9 +733,33 @@
     "message": "나만의 비공개 지갑 이정표입니다.",
     "englishSource": "Your private wallet milestones."
   },
+  "badgesStatEarned": {
+    "message": "획득",
+    "englishSource": "Earned"
+  },
+  "badgesStatLocked": {
+    "message": "잠김",
+    "englishSource": "Locked"
+  },
+  "badgesStatComingSoon": {
+    "message": "곧 제공될 예정",
+    "englishSource": "Coming soon"
+  },
+  "badgesEarnedFraction": {
+    "message": "$earned$/$total$",
+    "englishSource": "$earned$/$total$",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "badgeCollection": {
-    "message": "배지 컬렉션",
-    "englishSource": "Badge collection"
+    "message": "모든 배지",
+    "englishSource": "All badges"
   },
   "mainnetOnly": {
     "message": "Mainnet 전용",
@@ -721,8 +770,8 @@
     "englishSource": "Badges unlock on Mainnet"
   },
   "badgesMainnetNoticeDescription": {
-    "message": "배지는 Mainnet에서 획득할 수 있습니다. 테스트 활동은 포함되지 않습니다.",
-    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+    "message": "배지는 메인넷에서 잠금 해제됩니다. 테스트 활동은 포함되지 않습니다.",
+    "englishSource": "Badges unlock on Mainnet. Test activity doesn't count."
   },
   "badgeEarnedLabel": {
     "message": "$badge$, 획득함",
@@ -907,6 +956,22 @@
   "transactionRestoredHint": {
     "message": "이 작업은 백업에서 복원된 것이므로, 지갑은 작업이 정상적으로 완료되었는지 확인하거나 재시도할 수 없습니다. 작업을 반복하기 전에 지갑 상태를 확인하십시오.",
     "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
+  },
+  "submissionInterrupted": {
+    "message": "이 내용을 제출하는 도중 연결이 끊어졌습니다. 지갑에서는 전송이 완료되었는지 확인할 수 없습니다. 여전히 완료될 수 있으므로, 다시 시도하기 전에 확인해 주십시오.",
+    "englishSource": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
+  },
+  "submissionRejectedByGuardian": {
+    "message": "귀하의 Guardian가 이 제출을 거부했습니다. 다시 시도해 주십시오.",
+    "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionRejectedByNetwork": {
+    "message": "네트워크에서 이 제출을 거부했습니다. 다시 시도해 주세요.",
+    "englishSource": "The network refused this submission. Try again."
+  },
+  "submissionUnanswered": {
+    "message": "이 제출에 대한 응답이 돌아오지 않았습니다. 지갑에서는 제출이 정상적으로 처리되었는지 확인할 수 없습니다. 아직 완료될 수 있으므로, 다시 시도하기 전에 확인해 보십시오.",
+    "englishSource": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again."
   },
   "showFullError": {
     "message": "전체 오류 보기",
@@ -1817,6 +1882,10 @@
   "other": {
     "message": "기타",
     "englishSource": "Other"
+  },
+  "others": {
+    "message": "기타",
+    "englishSource": "Others"
   },
   "thousandFormat": {
     "message": "$thousand$ k",
@@ -3257,6 +3326,26 @@
     "message": "원하는 시점에 언제든지 Guardian을 다시 교체할 수 있습니다. 이를 위해서는 복구 문구가 필요하므로 안전하게 보관하십시오.",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
+  "guardianSwitchSuccessInfo1Title": {
+    "message": "새로운 ‘Guardian’이 공동 서명합니다",
+    "englishSource": "Your new Guardian co-signs"
+  },
+  "guardianSwitchUnconfirmedInfo1Title": {
+    "message": "새로운 ‘Guardian’은 확인 후 한 번 공동 서명합니다",
+    "englishSource": "New Guardian co-signs once confirmed"
+  },
+  "guardianSwitchSuccessInfo2Title": {
+    "message": "아무것도 이동하지 않았습니다",
+    "englishSource": "Nothing moved"
+  },
+  "guardianSwitchSuccessInfo3Title": {
+    "message": "접근 가능하게 유지하십시오",
+    "englishSource": "Keep it reachable"
+  },
+  "guardianSwitchSuccessInfo4Title": {
+    "message": "언제든지 다시 전환할 수 있습니다",
+    "englishSource": "Switch again anytime"
+  },
   "guardianSwitchAuthenticationDescription": {
     "message": "이 Guardian 전환을 승인하려면 인증을 진행하십시오.",
     "englishSource": "Authenticate to approve this Guardian switch."
@@ -3320,6 +3409,18 @@
   "hotKeyRotationFailedGeneric": {
     "message": "일상용 키를 교체하는 과정에서 문제가 발생했습니다. 자금은 안전하며, 지금 다시 시도할 수 있습니다.",
     "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationStartOver": {
+    "message": "다시 시작",
+    "englishSource": "Start over"
+  },
+  "hotKeyRotationStartOverTitle": {
+    "message": "이 지갑을 삭제하고 다시 시작해야 할까요?",
+    "englishSource": "Remove this wallet and start over?"
+  },
+  "hotKeyRotationStartOverBody": {
+    "message": "이 작업은 해당 기기에서 지갑을 제거하므로, 예를 들어 다른 가디언(guardian) URL을 사용하여 지갑을 다시 복원할 수 있습니다. 귀하의 자금은 네트워크에 그대로 남아 있습니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
+    "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "매일 키 교체는 확인되지 않음",
@@ -3821,6 +3922,15 @@
     "message": "사용하신 guardian를 자동으로 감지할 수 없습니다. 사용하신 도메인을 선택하거나 URL을 직접 입력해 주세요.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
+  "guardianStateBehindChain": {
+    "message": "$name$는 이 계정을 인식하지만, 계정의 최신 상태를 보유하고 있지는 않습니다. 계정을 다른 guardian로 이전한 경우, 해당 guardian의 URL을 입력하십시오.",
+    "englishSource": "$name$ knows this account, but it does not hold the account's latest state. If you moved the account to another guardian, enter that guardian's URL.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
   "guardianProbePartialFailure": {
     "message": "$count$ guardian(s)에 접속할 수 없어, 탐지가 불완전할 수 있습니다.",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
@@ -4039,6 +4149,14 @@
   "bridgeFeatureUnavailableBody": {
     "message": "이 외부 서비스는 현재 이용이 불가능합니다. 잠시 후 다시 시도해 주십시오.",
     "englishSource": "This external service is currently down. Please try again later."
+  },
+  "geoRestrictedTitle": {
+    "message": "Not available where you are",
+    "englishSource": "Not available where you are"
+  },
+  "geoRestrictedBody": {
+    "message": "This feature is not offered in your location.",
+    "englishSource": "This feature is not offered in your location."
   },
   "swapUnavailableTitle": {
     "message": "이 네트워크에서는 스왑 기능을 사용할 수 없습니다.",
@@ -4864,6 +4982,30 @@
     "message": "자금 반환",
     "englishSource": "Returning funds"
   },
+  "swapPaybackStuck": {
+    "message": "지급이 중단됨",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "이 스왑의 지급이 계속 실패하는 이유는 해당 계정이 지급을 청구하기 위한 네트워크 수수료를 지불할 수 없기 때문입니다. 지갑은 하루에 한 번씩 다시 시도하며, 지금 바로 재시도할 수도 있습니다.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "이 스왑의 지급이 귀하의 Guardian에서 계속 실패하고 있습니다. 지갑은 하루에 한 번 다시 시도하며, 지금 바로 재시도할 수도 있습니다.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "네트워크에 연결할 수 없어 이 스왑의 지급이 계속 실패하고 있습니다. 지갑은 하루에 한 번 다시 시도하며, 지금 바로 재시도할 수도 있습니다.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "이 스왑의 지급이 계속 실패하고 있습니다. 지갑은 하루에 한 번 다시 시도하거나, 지금 바로 재시도할 수 있습니다.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "지급 재시도",
+    "englishSource": "Retry payout"
+  },
   "swapReturnedAt": {
     "message": "반환됨 · $time$",
     "englishSource": "Returned · $time$",
@@ -5158,6 +5300,33 @@
       }
     }
   },
+  "bridgeDepositBalanceCapExceeded": {
+    "message": "이 계좌에는 최대 $cap$ USD까지 보관할 수 있습니다. 현재 $held$ USD가 예치되어 있으며, 이번 입금으로 $deposit$ USD가 추가됩니다. 더 적은 금액을 입력하십시오.",
+    "englishSource": "This account can hold at most $cap$ USD. It holds $held$ USD and this deposit adds $deposit$ USD. Enter a smaller amount.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "held": {
+        "content": "$2"
+      },
+      "deposit": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceCapUnpriced": {
+    "message": "이 계좌는 최대 $cap$ USD까지 보유할 수 있으며, 현재 $token$의 가격이 없으므로 입금액을 해당 토큰 기준으로 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "This account can hold at most $cap$ USD, and $token$ has no price right now, so the deposit cannot be checked against it. Try again later.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "브릿지 시작되었습니다!",
     "englishSource": "Bridge initiated!"
@@ -5250,8 +5419,8 @@
     "englishSource": "USDCx (Circle xReserve)"
   },
   "usdcxArrival": {
-    "message": "~20분",
-    "englishSource": "~20 min"
+    "message": "~2분",
+    "englishSource": "~2 min"
   },
   "usdcxArrivalArc": {
     "message": "~1분",
@@ -6811,6 +6980,14 @@
     "message": "브리지 인",
     "englishSource": "Bridge in"
   },
+  "bridgeDepositTokensUnavailable": {
+    "message": "브리지의 토큰 목록을 불러올 수 없어 일부 토큰이 누락되었을 수 있습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "The bridge's token list could not be loaded, so some tokens may be missing. Try again later."
+  },
+  "bridgeDepositTokenNotListed": {
+    "message": "이 브리지는 해당 네트워크에 이 토큰을 상장하지 않습니다.",
+    "englishSource": "The bridge does not list this token on this network."
+  },
   "bridgeConnectWalletTitle": {
     "message": "지갑 연결하기",
     "englishSource": "Connect your wallet"
@@ -7044,5 +7221,37 @@
   "webViewStartFailedAction": {
     "message": "다시 시도해 보세요",
     "englishSource": "Try again"
+  },
+  "walletAccessCheckingTitle": {
+    "message": "이용 가능 여부 확인 중",
+    "englishSource": "Checking availability"
+  },
+  "walletAccessCheckingBody": {
+    "message": "해당 지역에서 지갑을 이용할 수 있는지 확인하는 동안 잠시 기다려 주세요.",
+    "englishSource": "Please wait while we check whether the wallet is available in your region."
+  },
+  "walletAccessRestrictedTitle": {
+    "message": "해당 지역에서는 지갑을 이용할 수 없습니다",
+    "englishSource": "Wallet unavailable in your region"
+  },
+  "walletAccessRestrictedBody": {
+    "message": "현재 위치에서는 지갑을 이용할 수 없습니다.",
+    "englishSource": "The wallet is not available from your current location."
+  },
+  "walletAccessUnavailableTitle": {
+    "message": "이용 가능 여부를 확인하지 못했습니다",
+    "englishSource": "Could not check availability"
+  },
+  "walletAccessUnavailableBody": {
+    "message": "연결을 확인하고 다시 시도해 주세요.",
+    "englishSource": "Check your connection and try again."
+  },
+  "runtimeUnsupportedTitle": {
+    "message": "이 브라우저나 기기에서는 지갑을 실행할 수 없습니다.",
+    "englishSource": "This browser or device can't run the wallet"
+  },
+  "runtimeUnsupportedBody": {
+    "message": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
+    "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   }
 }

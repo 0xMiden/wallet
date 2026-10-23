@@ -17,6 +17,8 @@ import { easings } from 'lib/animation/easings';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
 import { approxFiatAmount, balanceFormatterFor, formatBalance } from './amount-format';
@@ -89,6 +91,8 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   const feeShortfall = error === 'insufficientFeeAsset';
   const amountError =
     error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error, errorValues) : undefined;
+  useUserVisibleError(feeShortfall ? 'insufficientFeeAsset' : null, 'notice');
+  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline');
 
   const fiatValue =
     token && scaleIsKnown && token.fiatPrice > 0 && amount
@@ -103,7 +107,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
       onBack={onBack}
       footer={
         <Button
-          title={t('confirm')}
+          title={t('continue')}
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}
@@ -117,6 +121,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         value={amount}
         invalid={!!amountError}
         error={amountError}
+        errorId={isUserErrorId(error) ? error : null}
         helper={fiatValue && <span className="font-heading text-base font-bold text-gray">{fiatValue}</span>}
         showDivider={false}
         data-testid="send-amount-input"

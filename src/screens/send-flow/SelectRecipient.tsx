@@ -11,6 +11,8 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { ClearFieldButton, Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { clearFieldValue } from 'lib/ui/clear-field';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
@@ -81,6 +83,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError(isUserErrorId(error) ? error : null, 'inline');
   const reduceMotion = useReducedMotion();
   const transition = reduceMotion ? { duration: 0 } : { duration: DURATION, ease: EASE };
   // Collapses/expands a block's height so the content under it slides instead of jumping.

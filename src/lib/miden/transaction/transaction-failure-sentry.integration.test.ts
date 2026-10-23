@@ -1,11 +1,16 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
 import * as Repo from 'lib/miden/repo';
 import { captureCrash } from 'lib/telemetry/crash';
 import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
+import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
+import { readReownNativeFailure, type ReownNativeFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
   cancelTransaction,
+  failInterruptedTransactions,
   markStartedInThisRealm,
   markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
@@ -54,7 +59,20 @@ jest.mock('../sdk/miden-client', () => ({
   assertWasmHoldCurrent: () => {}
 }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
+jest.mock('@capacitor/core', () => {
+  const actual = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
+  const reown = { sendTransaction: jest.fn() };
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, getPlatform: jest.fn(actual.Capacitor.getPlatform) },
+    registerPlugin: jest.fn((name: string, implementations?: Parameters<typeof actual.registerPlugin>[1]) =>
+      name === 'Reown' ? reown : actual.registerPlugin(name, implementations)
+    )
+  };
+});
 
+const rawReown = registerPlugin<ReownPlugin>('Reown');
+const { Capacitor: actualCapacitor } = jest.requireActual<typeof import('@capacitor/core')>('@capacitor/core');
 const report = jest.mocked(reportTransactionFailure);
 const row = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'tx',
@@ -72,6 +90,8 @@ const phased = (type: 'earn-withdraw' | 'bridged-receive', phase: string): ITran
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  jest.mocked(Capacitor.getPlatform).mockImplementation(actualCapacitor.getPlatform);
+  jest.mocked(rawReown.sendTransaction).mockReset();
   await Repo.transactions.clear();
 });
 
@@ -178,6 +198,92 @@ describe('committed terminal transaction failure reports', () => {
       'manual',
       expect.anything()
     );
+  });
+
+  describe('the startup sweep', () => {
+    const accountId = `0x${'ab'.repeat(15)}`;
+    const noteId = `0x${'cd'.repeat(32)}`;
+    const startupRow = (overrides: Partial<ITransaction>): ITransaction =>
+      row({
+        id: `tx-${'ef'.repeat(16)}`,
+        type: 'consume',
+        accountId,
+        noteId,
+        noteIds: [noteId],
+        stage: 'signing-proposal',
+        ...overrides
+      });
+
+    it.each([
+      [
+        'a row with no recorded start',
+        { processingStartedAt: undefined, stageTimestamps: undefined },
+        'missing_start',
+        'unavailable',
+        'no_submit_recorded'
+      ],
+      [
+        'a row started before this session that recorded a submit',
+        {
+          processingStartedAt: SESSION_STARTED_AT - 600,
+          stageTimestamps: { 'signing-proposal': Date.now() - 5 * 60_000 },
+          mayHaveSubmitted: true
+        },
+        'before_session',
+        'under_10m',
+        'submit_recorded'
+      ],
+      [
+        'a row stamped further ahead than the clock can explain',
+        {
+          processingStartedAt: Math.floor(Date.now() / 1000) + MAX_WAIT_BEFORE_CANCEL + 3600,
+          stageTimestamps: { 'signing-proposal': Date.now() - 3 * 86_400_000 }
+        },
+        'future_stamp',
+        'over_1d',
+        'no_submit_recorded'
+      ]
+    ] as const)(
+      'reports %s with its startup facts and nothing the row holds',
+      async (_name, overrides, selection, age, submit) => {
+        const actual = jest.requireActual<typeof import('lib/telemetry/transaction-failure')>(
+          'lib/telemetry/transaction-failure'
+        );
+        report.mockImplementationOnce(actual.reportTransactionFailure);
+        const claim = startupRow(overrides);
+        await Repo.transactions.put(claim);
+
+        await failInterruptedTransactions();
+
+        expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.Failed);
+        expect(report).toHaveBeenCalledTimes(1);
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({
+            reason: 'interrupted_on_startup',
+            // The row's own facts reach the reporter as read; only the message renders an unknown age as `unavailable`.
+            startup: { selection, stageAge: age === 'unavailable' ? undefined : age, submit }
+          })
+        );
+        expect(captureCrash).toHaveBeenCalledTimes(1);
+        const [captured] = jest.mocked(captureCrash).mock.calls[0] ?? [];
+        const message = captured instanceof Error ? captured.message : '';
+        expect(message).toContain(
+          `; startup selection ${selection}; stored stage age ${age}; submit ${submit}; point pipeline; interrupted_on_startup.`
+        );
+        for (const leak of [accountId, noteId, claim.id, 'abab', 'cdcd', 'efef']) expect(message).not.toContain(leak);
+      }
+    );
+
+    it('spares a row this realm started and reports nothing for it', async () => {
+      const claim = startupRow({ processingStartedAt: undefined });
+      await Repo.transactions.put(claim);
+      markStartedInThisRealm(claim.id);
+
+      await failInterruptedTransactions();
+
+      expect((await Repo.transactions.get(claim.id))?.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(report).not.toHaveBeenCalled();
+    });
   });
 
   it.each([
@@ -404,6 +510,153 @@ describe('committed terminal transaction failure reports', () => {
     );
   });
 
+  it("hands an inbound bridge's report its balance check, orphan check and recorded USDCx route", async () => {
+    await Repo.transactions.put(
+      row({
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        extraInputs: { phase: 'submitting', provider: 'usdcx' }
+      })
+    );
+
+    await updateBridgedReceivePhase('tx', 'failed', {
+      error: 'Bridge submission was interrupted before a transaction hash was recorded.',
+      failure: {
+        step: 'submission_interrupted',
+        balanceCheck: 'read_failed',
+        orphanCheck: 'origin_lock',
+        sourceRoute: 'cctp_executor'
+      }
+    });
+
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bridgeReceive: {
+          route: 'usdcx',
+          step: 'submission_interrupted',
+          balanceCheck: 'read_failed',
+          orphanCheck: 'origin_lock',
+          sourceRoute: 'cctp_executor'
+        }
+      })
+    );
+  });
+
+  describe('ephemeral native request failures', () => {
+    const expectedSnapshot: ReownNativeFailure = {
+      nativeOrigin: 'wallet_error',
+      walletResponseCode: 'internal_error',
+      requestAge: '120_to_300s',
+      published: 'confirmed',
+      backgrounded: 'yes'
+    };
+
+    async function nativeApprovalRejection(): Promise<unknown> {
+      jest.mocked(Capacitor.getPlatform).mockReturnValue('android');
+      const rawError = Object.assign(new Error('Request expired'), {
+        code: `REOWN_NATIVE_REQUEST_FAILURE:${JSON.stringify(expectedSnapshot)}`
+      });
+      jest.mocked(rawReown.sendTransaction).mockRejectedValueOnce(rawError);
+      let caught: unknown;
+      try {
+        await NativeReown.sendTransaction({ chainId: 1, to: `0x${'a1'.repeat(20)}` });
+      } catch (rejection) {
+        caught = rejection;
+      }
+      expect(rawReown.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(caught).toBe(rawError);
+      expect(readReownNativeFailure(caught)).toEqual(expectedSnapshot);
+      return caught;
+    }
+
+    function expectNoPersistedNativeFailure(value: unknown): void {
+      if (typeof value !== 'object' || value === null) return;
+      expect(readReownNativeFailure(value)).toBeUndefined();
+      expect(Object.getOwnPropertySymbols(value)).toEqual([]);
+      for (const [key, nested] of Object.entries(value)) {
+        expect([
+          'failure',
+          'cause',
+          ...Object.keys(expectedSnapshot),
+          'reownNativeOrigin',
+          'reownWalletResponseCode',
+          'reownRequestAge',
+          'reownPublished',
+          'reownBackgrounded'
+        ]).not.toContain(key);
+        if (typeof nested === 'string') expect(nested).not.toContain('REOWN_NATIVE_REQUEST_FAILURE:');
+        expectNoPersistedNativeFailure(nested);
+      }
+    }
+
+    it('reports the actual marked approval cause once without persisting its snapshot', async () => {
+      const caught = await nativeApprovalRejection();
+      await Repo.transactions.put(
+        row({
+          type: 'bridged-receive',
+          status: ITransactionStatus.Completed,
+          extraInputs: { phase: 'submitting', provider: 'usdcx' }
+        })
+      );
+      const failure = {
+        error: 'Request expired',
+        failure: { step: 'wallet_approve', cause: caught }
+      } satisfies NonNullable<Parameters<typeof updateBridgedReceivePhase>[2]>;
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+
+      expect(report).toHaveBeenCalledTimes(1);
+      const reported = report.mock.calls[0]?.[0];
+      expect(reported).toMatchObject({
+        point: 'bridge_receive_settlement',
+        type: 'bridged-receive',
+        error: 'Request expired',
+        bridgeReceive: { route: 'usdcx', step: 'wallet_approve' }
+      });
+      expect(reported?.bridgeReceive?.cause).toBe(caught);
+      expect(readReownNativeFailure(reported?.bridgeReceive?.cause)).toEqual(expectedSnapshot);
+      const persisted = await Repo.transactions.get('tx');
+      expect(persisted).toMatchObject({
+        status: ITransactionStatus.Completed,
+        error: 'Request expired',
+        extraInputs: { phase: 'failed', provider: 'usdcx', error: 'Request expired' }
+      });
+      if (persisted === undefined) throw new Error('Expected a persisted inbound bridge');
+      expect(persisted.extraInputs).not.toHaveProperty('failure');
+      expect(persisted.extraInputs).not.toHaveProperty('cause');
+      expect(persisted.extraInputs).not.toHaveProperty('reownNativeOrigin');
+      expectNoPersistedNativeFailure(persisted);
+    });
+
+    it('does not report or persist a marked failure on a restored inbound bridge', async () => {
+      const caught = await nativeApprovalRejection();
+      await Repo.transactions.put(
+        row({
+          type: 'bridged-receive',
+          status: ITransactionStatus.Completed,
+          restoredFromBackup: true,
+          extraInputs: { phase: 'submitting', provider: 'usdcx' }
+        })
+      );
+      const failure = {
+        error: 'Request expired',
+        failure: { step: 'wallet_approve', cause: caught }
+      } satisfies NonNullable<Parameters<typeof updateBridgedReceivePhase>[2]>;
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+      await updateBridgedReceivePhase('tx', 'failed', failure);
+
+      const persisted = await Repo.transactions.get('tx');
+      expect(persisted).toMatchObject({
+        restoredFromBackup: true,
+        error: 'Request expired',
+        extraInputs: { phase: 'failed', provider: 'usdcx', error: 'Request expired' }
+      });
+      if (persisted === undefined) throw new Error('Expected a persisted restored inbound bridge');
+      expectNoPersistedNativeFailure(persisted);
+      expect(report).not.toHaveBeenCalled();
+    });
+  });
+
   it('fails a restored inbound bridge the reconciler cannot verify without reporting it', async () => {
     await Repo.transactions.put(
       row({
@@ -436,6 +689,39 @@ describe('committed terminal transaction failure reports', () => {
       diagnostics: undefined,
       error: 'no route liquidity'
     });
+  });
+
+  it.each([
+    [
+      'a discarded Guardian switch',
+      () =>
+        row({
+          type: 'switch-guardian',
+          status: ITransactionStatus.Completed,
+          extraInputs: { commitUnconfirmed: true },
+          lastDeferral: 'guardian_unreachable'
+        }),
+      () => resolveUnconfirmedSwitch('tx', false)
+    ],
+    [
+      'a demoted outbound bridge',
+      () => row({ type: 'bridged-send', status: ITransactionStatus.Completed, lastDeferral: 'guardian_unreachable' }),
+      () => markBridgedSendFailed('tx', 'no route liquidity')
+    ],
+    [
+      'a failed Earn withdrawal',
+      () => ({ ...phased('earn-withdraw', 'delivering'), lastDeferral: 'guardian_unreachable' as const }),
+      () => updateEarnWithdrawPhase('tx', 'failed', { error: 'relay timeout' })
+    ],
+    [
+      'a failed inbound bridge',
+      () => ({ ...phased('bridged-receive', 'delivering'), lastDeferral: 'guardian_unreachable' as const }),
+      () => updateBridgedReceivePhase('tx', 'failed', { error: 'relay timeout' })
+    ]
+  ])("forwards the row's recorded last deferral when reporting %s", async (_name, stored, fail) => {
+    await Repo.transactions.put(stored());
+    await fail();
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ lastDeferral: 'guardian_unreachable' }));
   });
 
   it('reports a discarded Guardian switch once, but never a landed switch', async () => {

@@ -6,13 +6,16 @@ on:
   workflow_dispatch: {}
 concurrency:
   group: guardian-lifecycle-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
   pull-requests: read
 jobs:
-  # Name and work read the same base value (#1071): the selector, its full-history
-  # checkout and its pull request read all run only under FULL, so a stacked pull
+  # The suite runs on every push to main and on dispatch. A pull request runs it only
+  # when its body carries a `Client PR:` / `Guardian PR:` / `Protocol PR:` / `Web SDK PR:`
+  # marker; otherwise the heavy job is skipped and the gate reports green.
+  # Name and work read the same base value (#1071): the selector and its pull
+  # request read run only under FULL, so a stacked pull
   # request skips them along with the heavy job and the gate that need them.
   select-guardian-e2e:
     name: Select Guardian E2E
@@ -21,9 +24,6 @@ jobs:
     outputs:
       run: ${{ steps.select.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Read current pull request body
         id: pull-request
         if: github.event_name == 'pull_request'
@@ -36,11 +36,9 @@ jobs:
               pull_number: context.issue.number
             });
             core.setOutput('body', data.body ?? '');
-      - name: Check changed paths
+      - name: Decide whether to run
         id: select
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BODY: ${{ steps.pull-request.outputs.body }}
         run: |
           set -euo pipefail
@@ -50,14 +48,6 @@ jobs:
           elif printf '%s\n' "$PR_BODY" \
             | grep -qiE '^[[:space:]]*(Client|Guardian|Protocol|Web SDK) PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+'; then
             run=true
-          else
-            changed=$(git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA")
-            if printf '%s\n' "$changed" | bash scripts/select-e2e-changes.sh guardian; then
-              run=true
-            else
-              status=$?
-              [ "$status" -eq 1 ] || exit "$status"
-            fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
@@ -214,6 +204,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         # E2E_NETWORK=localhost bakes MIDEN_NETWORK=localhost AND (always, per
         # test:e2e:blockchain:build) MIDEN_E2E_TEST=true -- required both for the
@@ -290,9 +283,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian --profile guardian-switch -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
         # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: guardian-lifecycle-e2e-report
           path: test-results/

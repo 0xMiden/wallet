@@ -4,6 +4,15 @@
   "guardianCommitmentComparable": true,
   "summarySigningInputs": "twin-preview",
   "accountNotFound": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "sheet": {
+    "simulatedEffects": "Simulated effects:",
+    "notSimulated": "This transaction could not be simulated, so its effects are unknown.",
+    "reasonPrefix": "Reason, ",
+    "leaves": "Leaves this account",
+    "fee": "Network fee, ",
+    "notesConsumed": "Notes consumed, ",
+    "notesCreated": "Notes created, "
+  },
   "texts": {
     "R5": {
       "offchain": {
