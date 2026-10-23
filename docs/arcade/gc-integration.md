@@ -29,7 +29,8 @@ It is read-only reference material. No changes or deployment there are part of B
 The starter allocation is conditional: eligible registered accounts, including existing registered
 accounts without a prior starter gift, receive **10 GC once** only if the distribution owner confirms
 reliable delivery without duplicates. Otherwise there is no free allocation. Purchasing is independent
-of this dependency. Do not advertise a gift or credit it optimistically before delivery is confirmed.
+of this dependency; gift availability is not a launch prerequisite. Release approval is separate.
+Do not advertise a gift or credit it optimistically before delivery is confirmed.
 The specific onboarding subsidy does not sponsor later purchase or game gas.
 
 The inspected [wallet registration adapter](../../src/lib/mainnet-access.ts) reports account admission;
@@ -91,7 +92,8 @@ an authenticated empty vault can display zero. Do not add a starter allocation o
 Balance refresh uses the existing wallet pipeline; a screen refresh does not prove finality.
 
 Play, replay and social sharing remain free at zero GC. Optional paid on-chain record/challenge actions
-are separate. Each game owns its stake, score validation, payout recipient, ties, deadlines, settlement
+are separate. A reference game’s Share X after an on-chain challenge does not establish a separate
+free Share Result flow; that free path still needs its own acceptance. Each game owns its stake, score validation, payout recipient, ties, deadlines, settlement
 and refunds. Disclose those terms, GC amount, user-paid gas and public result data before approval.
 Preserve immutable action/result and transaction identities to reconcile retries without double charges.
 No universal submission price, shared wallet payout contract or global ranking is implied.
