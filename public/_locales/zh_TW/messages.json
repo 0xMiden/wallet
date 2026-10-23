@@ -4025,6 +4025,18 @@
     "message": "資產變動",
     "englishSource": "Asset changes"
   },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "此筆交易亦涉及轉移錢包無法列出的資產，例如 NFT。請僅在您信任此交易的情況下繼續進行。",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
+  },
   "unknown": {
     "message": "未知",
     "englishSource": "Unknown"
