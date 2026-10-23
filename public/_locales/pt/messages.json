@@ -3559,6 +3559,27 @@
     "message": "Não vou compartilhar meu arquivo de carteira criptografada com ninguém, nem mesmo com a Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "O estado da conta $accountNames$ está neste arquivo",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "O arquivo contém sua frase de recuperação e o estado da conta que seu operador Guardian mantém para você; assim, qualquer pessoa com o arquivo e sua senha pode acessar ambos. Ele não contém nenhuma chave de uso diário: após a restauração, a carteira a substitui por meio do seu operador Guardian, ou você pode usar um par de chaves de uso diário salvo (Configurações → Chaves → Revelar Chave Privada). O arquivo é um instantâneo: depois de enviar ou receber, salve um novo, pois um arquivo mais antigo não consegue restaurar o que aconteceu depois dele.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Uma rotação ainda está em andamento. Aguarde até que ela termine e tente novamente.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Use meu par de chaves diárias salvo",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Não foi restaurado a partir deste arquivo: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",

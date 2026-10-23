@@ -213,6 +213,7 @@ jest.mock('lib/miden/back/actions', () => ({
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
   swapHotKey: jest.fn(),
+  importHotKeyPair: jest.fn(),
   checkGuardianDrift: jest.fn(),
   applyUserGuardianEndpoint: jest.fn(),
   handleReportTelemetryEvent: jest.fn(),
@@ -855,6 +856,16 @@ describe('processRequest', () => {
     });
     expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
     expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+  });
+
+  it('forwards an ImportHotKeyPairRequest to Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.ImportHotKeyPairRequest,
+      accountPublicKey: 'acc',
+      keyPairPayload: 'hot:evm'
+    });
+    expect(res.type).toBe(WalletMessageType.ImportHotKeyPairResponse);
+    expect(Actions.importHotKeyPair).toHaveBeenCalledWith('acc', 'hot:evm');
   });
 
   it('forwards a SwapHotKeyRequest without an expectation as none (#1233)', async () => {
