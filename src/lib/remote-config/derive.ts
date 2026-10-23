@@ -9,7 +9,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
-import { earnMarketForVault, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
+import { earnMarketForVault, type EarnVaultInfo, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -534,12 +534,18 @@ async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise
         )
       )
     );
-    for (const read of reads) {
-      if (read.status === 'rejected') throw read.reason;
-      const { vaults } = read.value;
-      const best = vaults.find(earnVaultTakesDeposits) ?? vaults[0];
-      if (best) return earnMarketForVault(best);
-    }
+    // The document's list order decides, across every route: the first listed vault that takes a deposit, else the
+    // first the catalogue serves. Chain order in `supportedEvmChains` says nothing about which market comes first.
+    const order = new Map(listed.map((vault, index) => [vault.marketUid, index]));
+    const rank = (vault: EarnVaultInfo): number => order.get(vault.marketUid.toLowerCase()) ?? listed.length;
+    const vaults = reads
+      .flatMap(read => {
+        if (read.status === 'rejected') throw read.reason;
+        return read.value.vaults;
+      })
+      .sort((a, b) => rank(a) - rank(b));
+    const best = vaults.find(earnVaultTakesDeposits) ?? vaults[0];
+    if (best) return earnMarketForVault(best);
     throw new NotDeployedError('Epoch has no supported USDC market');
   });
 }
