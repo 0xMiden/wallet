@@ -5,9 +5,8 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useBridgeConfigSnapshot } from './use-feature-availability';
 import { hasMainnetLaunched, selectMainnetLaunchAt } from './values';
 
-// The longest wait one timer takes: a browser clamps a longer `setTimeout` delay to a value that fires at
-// once, so a far-off moment is reached through a chain of waits.
-const MAX_TIMER_MS = 0x7fffffff;
+// Check the clock each second while launch is pending. A clock change does not reset a running timer.
+const MAX_TIMER_MS = 1_000;
 
 // Visible pages poll at most once per second, with an exact wake when launch is sooner.
 const VISIBLE_WAKE_MS = 1000;

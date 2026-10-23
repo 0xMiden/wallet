@@ -173,6 +173,37 @@ describe('useMainnetLaunched', () => {
     expect(result.current).toBe(true);
   });
 
+  it('waits for launch after the system clock moves backward', () => {
+    jest.setSystemTime(LAUNCH_AT - 500);
+    const { result } = renderHook(() => useMainnetLaunched());
+
+    act(() => {
+      jest.setSystemTime(LAUNCH_AT - 2_000);
+      jest.advanceTimersByTime(500);
+    });
+    expect(result.current).toBe(false);
+
+    act(() => {
+      jest.advanceTimersByTime(1_499);
+    });
+    expect(result.current).toBe(false);
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(result.current).toBe(true);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('clears the pending timer on unmount', () => {
+    const { unmount } = renderHook(() => useMainnetLaunched());
+    expect(jest.getTimerCount()).toBe(1);
+
+    unmount();
+
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it.each([
     ['the switch is off', { enabled: false, launchAt: LAUNCH_AT }],
     ['the switch is on with no moment', { enabled: true }],
