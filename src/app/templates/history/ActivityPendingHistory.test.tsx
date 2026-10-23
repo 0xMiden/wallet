@@ -153,6 +153,7 @@ const mockHistoryRenders: Array<{
   renderPendingItem: unknown;
   filter?: string;
   hideLoadingSpinner?: boolean;
+  deferInitialLoad?: boolean;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -162,7 +163,8 @@ jest.mock('./History', () => ({
     renderPendingItem,
     filter,
     onLoadingChange,
-    hideLoadingSpinner
+    hideLoadingSpinner,
+    deferInitialLoad
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
@@ -170,11 +172,19 @@ jest.mock('./History', () => ({
     onLoadingChange: (loading: boolean) => void;
     filter?: string;
     hideLoadingSpinner?: boolean;
+    deferInitialLoad?: boolean;
   }) => {
     jest.requireActual<typeof import('react')>('react').useEffect(() => {
       onLoadingChange(mockState.isLoadingHistory);
     }, [onLoadingChange, mockState.isLoadingHistory]);
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter, hideLoadingSpinner });
+    mockHistoryRenders.push({
+      pendingItems,
+      drawnPendingItems,
+      renderPendingItem,
+      filter,
+      hideLoadingSpinner,
+      deferInitialLoad
+    });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -268,6 +278,17 @@ it('revalues an unchanged pending list on verified price asset changes and remov
   } finally {
     _setSwapTokensForTest(undefined);
   }
+});
+
+it('shows the fetching bar and passes deferInitialLoad while the catalog is pending', () => {
+  const view = render(<ActivityPendingHistory search="" filter="all" catalogPending />);
+  expect(screen.getByRole('progressbar')).toHaveAccessibleName('activityFetchingHistoryAndNotes');
+  expect(screen.getByRole('status')).toHaveTextContent('activityFetchingHistoryAndNotes');
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(true);
+
+  view.rerender(<ActivityPendingHistory search="" filter="all" catalogPending={false} />);
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(false);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 });
 
 it('hides the list spinner under its own progress bar', () => {

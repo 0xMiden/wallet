@@ -437,6 +437,22 @@ describe('History initial-load signal', () => {
 
     expect(onInitialLoad).not.toHaveBeenCalled();
   });
+
+  it('does not report the initial load while the host still defers it', async () => {
+    const onInitialLoad = jest.fn();
+    const view = await renderHistory({ onInitialLoad, deferInitialLoad: true });
+    expect(onInitialLoad).not.toHaveBeenCalled();
+
+    await act(async () => {
+      view.rerender(<History address="0xme" onInitialLoad={onInitialLoad} deferInitialLoad={false} />);
+    });
+    expect(onInitialLoad).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    const onInitialLoadWhileExternal = jest.fn();
+    await renderHistory({ onInitialLoad: onInitialLoadWhileExternal, externalLoading: true });
+    expect(onInitialLoadWhileExternal).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('History', () => {

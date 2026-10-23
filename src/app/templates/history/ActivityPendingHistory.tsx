@@ -57,7 +57,7 @@ export const ActivityPendingHistory = ({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const recovery = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending ? account.publicKey : null);
   const isRecovering = recovery !== null && recovery.step !== 'history-partial' && recovery.step !== 'history-failed';
-  const isFetching = isLoadingNotes || isLoadingHistory || isRecovering;
+  const isFetching = isLoadingNotes || isLoadingHistory || isRecovering || catalogPending === true;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Accept All takes every listed transfer that can be accepted - whatever the asset, whoever
@@ -182,6 +182,7 @@ export const ActivityPendingHistory = ({
             onInitialLoad={onInitialLoad}
             onLoadingChange={setIsLoadingHistory}
             externalLoading={isLoadingNotes || isRecovering || catalogPending}
+            deferInitialLoad={catalogPending === true}
             hideLoadingSpinner
           />
         </div>
