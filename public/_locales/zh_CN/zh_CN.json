@@ -449,6 +449,8 @@
   "swapVerdictTolerated": "可能需要更长时间：当价格略有波动时即视为成交。",
   "swapVerdictPartial": "目前该订单仅部分成交；其余部分处于待处理状态。",
   "swapVerdictFull": "按当前价格成交。",
+  "swapNoFillWarning": "以当前的流动性来看，该掉期订单不太可能成交。您可以继续操作，但您的订单可能在到期前始终处于未成交状态。",
+  "swapPartialFillWarning": "当前可用的流动性仅能满足该掉期订单的一部分。您可以继续操作，但剩余部分可能在订单到期前仍无法成交。",
   "swapVerdictExpected": "您将收到约 $amount$ 的 $symbol$。",
   "swapSlippage": "滑点",
   "percentSign": "%",

@@ -449,6 +449,8 @@
   "swapVerdictTolerated": "Puede tardar más: se ejecuta cuando el precio varía ligeramente.",
   "swapVerdictPartial": "Ahora solo se ejecuta una parte de esta orden; el resto queda en espera.",
   "swapVerdictFull": "Se ejecuta al precio actual.",
+  "swapNoFillWarning": "Es poco probable que esta operación de intercambio se ejecute con la liquidez disponible actualmente. Puedes continuar, pero es posible que tu orden permanezca sin ejecutar hasta que caduque.",
+  "swapPartialFillWarning": "Solo una parte de esta operación de swap puede ejecutarse con la liquidez disponible en este momento. Puedes continuar, pero el resto puede quedar sin ejecutar hasta que caduque la orden.",
   "swapVerdictExpected": "Recibes aproximadamente $amount$ en $symbol$.",
   "swapSlippage": "Deslizamiento",
   "percentSign": "%",
