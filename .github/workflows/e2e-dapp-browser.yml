@@ -341,7 +341,7 @@ jobs:
     name: Android Auth Tab acceptance
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'auth-tab'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
       AUTH_TAB_FIREFOX_URL: https://ftp.mozilla.org/pub/fenix/releases/158.0.2/android/fenix-158.0.2-android-x86_64/fenix-158.0.2.multi.android-x86_64.apk

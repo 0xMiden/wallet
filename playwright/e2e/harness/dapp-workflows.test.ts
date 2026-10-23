@@ -12,11 +12,11 @@ const partFiles = (part: string): string[] =>
   workflow.match(new RegExp(`^\\s+${part}\\) files="([a-z -]+)" ;;$`, 'm'))?.[1]?.split(' ') ?? [];
 
 /** One job's block, from its id line to the next job's. */
-const jobBlock = (id: string): string => {
-  const start = workflow.indexOf(`\n  ${id}:\n`);
-  if (start === -1) throw new Error(`e2e-dapp.yml has no job ${id}`);
-  const next = workflow.slice(start + 1).search(/\n {2}[a-z][\w-]*:\n/);
-  return next === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + next);
+const jobBlock = (id: string, source = workflow, file = 'e2e-dapp.yml'): string => {
+  const start = source.indexOf(`\n  ${id}:\n`);
+  if (start === -1) throw new Error(`${file} has no job ${id}`);
+  const next = source.slice(start + 1).search(/\n {2}[a-z][\w-]*:\n/);
+  return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
 };
 
 describe('dApp E2E workflow', () => {
@@ -110,11 +110,16 @@ describe('the mobile legs of the dApp E2E workflow', () => {
 
   it('pins PL1 to a gated-presentation image while the dApp browser suite stays on Android 34 (C-P32)', () => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const browserAndroid = jobBlock('android-dapp-browser', browser, 'e2e-dapp-browser.yml');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
     const images = (text: string): string[] => [
       ...new Set(text.match(/system-images;android-\d+(?:\.\d+)?;[a-z_]+;x86_64/g) ?? [])
     ];
     expect(images(android)).toEqual(['system-images;android-37.0;google_apis;x86_64']);
-    expect(images(browser)).toEqual(['system-images;android-34;default;x86_64']);
+    expect(images(browserAndroid)).toEqual(['system-images;android-34;default;x86_64']);
+    expect(images(authTab)).toEqual(['system-images;android-34;google_apis_playstore;x86_64']);
+    expect(authTab).toContain("if: github.event_name == 'workflow_dispatch' && inputs.suite == 'auth-tab'");
+    expect(authTab).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 90 \|\| 60 \}\}/);
     expect(android).toContain('E2E_ANDROID_BASE_AVD: Pixel_API_37');
     expect(android).toContain('--name "$E2E_ANDROID_BASE_AVD"');
     expect(android).toContain('grep -qx "$E2E_ANDROID_BASE_AVD"');

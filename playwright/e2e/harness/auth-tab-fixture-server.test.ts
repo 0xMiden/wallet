@@ -44,7 +44,7 @@ function request(url: string, method = 'GET', body?: unknown, tlsOptions?: Fixtu
       url,
       {
         method,
-        rejectUnauthorized: false,
+        rejectUnauthorized: true,
         ...verification,
         headers: payload
           ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }

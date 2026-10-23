@@ -396,6 +396,10 @@ Review: focused native review has no actionable source finding. First real OS re
 - [x] Serve the auth dApp and redirect fixture from the local emulator host over HTTPS with a test CA limited to the debug fixture host.
 - [x] Exercise Chrome Auth Tab success and cancellation, then a real unsupported Custom Tabs provider through the existing fallback.
 - [x] Fix workflow-lint findings from the first current-head CI run.
+- [x] RED: push regression tests in commit `63a6270`; CI confirms both TLS bypass assertions and the recreated-Activity pending-result assertion fail, with CodeQL flagging disabled certificate validation.
+- [x] Merge the latest `origin/main` after the frozen red run, then update the workflow harness tests for the main-only Guardian push and the Auth Tab dispatch job's 90-minute timeout and Play Store image.
+- [x] GREEN: enforce TLS verification and clear abandoned restored Activity results before a new Auth Tab request can register.
+- [x] Run the two named workflow harness suites through the guarded local route (39 tests) and the TLS fixture suite (4 tests); Android verification remains CI-only.
 - [ ] Record exact CI source SHA, emulator image, browser package versions, queried Auth Tab capability and nonzero executed test count.
 - [ ] Run source review and current-head CI, fix all actionable findings, then update PR #1621 and complete its authorized merge gates.
 
