@@ -1328,6 +1328,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page
       .getByTestId('guardian-detected')
       .or(this.page.getByTestId('guardian-not-detected'))
+      .or(this.page.getByTestId('guardian-no-backup'))
+      .or(this.page.getByTestId('guardian-lookup-uncertain'))
       .first()
       .waitFor({ timeout: 30_000 });
     await this.page.getByTestId('recovery-method-continue').click();
@@ -1376,6 +1378,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page
       .getByTestId('guardian-detected')
       .or(this.page.getByTestId('guardian-not-detected'))
+      .or(this.page.getByTestId('guardian-no-backup'))
+      .or(this.page.getByTestId('guardian-lookup-uncertain'))
       .first()
       .waitFor({ timeout: 30_000 });
     await this.page.getByTestId('recovery-method-continue').click();
