@@ -283,6 +283,12 @@ export async function recordOneClickOriginTransactionHash(rowId: string, transac
     });
 }
 
+function rowPhaseForOneClick(phase: IOneClickTrackingData['phase']): 'received' | 'failed' | 'delivering' {
+  if (phase === 'delivered') return 'received';
+  if (phase === 'failed' || phase === 'refunded') return 'failed';
+  return 'delivering';
+}
+
 export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClickTrackingData['phase']): Promise<void> {
   await Repo.transactions
     .where('id')
@@ -292,9 +298,7 @@ export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClic
       if (!tracking) return false;
       transaction.extraInputs = {
         ...transaction.extraInputs,
-        ...(transaction.type === 'bridged-receive'
-          ? { phase: phase === 'delivered' ? 'received' : phase === 'failed' ? 'failed' : 'delivering' }
-          : {}),
+        ...(transaction.type === 'bridged-receive' ? { phase: rowPhaseForOneClick(phase) } : {}),
         oneClick: { ...tracking, phase, updatedAt: Date.now() }
       };
       return undefined;
@@ -322,11 +326,7 @@ async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingDat
       };
       transaction.extraInputs = {
         ...transaction.extraInputs,
-        ...(transaction.type === 'bridged-receive'
-          ? {
-              phase: next.phase === 'delivered' ? 'received' : next.phase === 'failed' ? 'failed' : 'delivering'
-            }
-          : {}),
+        ...(transaction.type === 'bridged-receive' ? { phase: rowPhaseForOneClick(next.phase) } : {}),
         oneClick: next
       };
       return undefined;
