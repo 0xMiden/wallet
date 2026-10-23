@@ -965,6 +965,10 @@
     "message": "Ваш «Guardian» отклонил эту заявку. Попытайтесь ещё раз.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "Эмитент этого токена заблокировал ваш аккаунт, поэтому токен не может быть отправлен.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "Сеть отклонила эту заявку. Попробуйте ещё раз.",
     "englishSource": "The network refused this submission. Try again."
@@ -2075,6 +2079,14 @@
     "message": "Исполнение по текущей цене.",
     "englishSource": "Fills at the current price."
   },
+  "swapNoFillWarning": {
+    "message": "Этот своп вряд ли будет исполнен с учетом доступной в данный момент ликвидности. Вы можете продолжить, но ваш ордер может остаться неисполненным до истечения срока его действия.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Только часть этого свопа может быть исполнена с использованием доступной в данный момент ликвидности. Вы можете продолжить, но остальная часть может остаться неисполненной до истечения срока действия ордера.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
+  },
   "swapVerdictExpected": {
     "message": "Вы получаете примерно $amount$ $symbol$.",
     "englishSource": "You receive about $amount$ $symbol$.",
@@ -2542,8 +2554,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "Используйте существующую фразу восстановления из 12 слов. Вы также можете импортировать кошельки от других поставщиков кошельков.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "Для создания учетной записи Miden можно использовать совместимую 12-словную фразу восстановления из другого кошелька. Это не приводит к переносу активов из других сетей.",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "Импорт с зашифрованным файлом кошелька",
@@ -2949,10 +2961,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "Введите 12-слововую фразу восстановления вашего кошелька.",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Поддерживаются только фразы восстановления формата Miden.",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Ваш кошелек готов!",
@@ -3952,22 +3960,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ Не удалось установить связь с guardian, поэтому обнаружение может быть неполным.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "Введите действительную 12-словную фразу восстановления, чтобы восстановить свою учетную запись Miden или создать новую.",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "Поддерживаются только 12-словные фразы восстановления. Фраза, которую вы вставили, длиннее, поэтому ничего не было введено.",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "На проверенных нами Guardians резервных копий обнаружено не было",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "Ничего не удалось восстановить. Если Guardian, который мы не проверяли, хранит резервную копию этой фразы, выберите её ниже. В противном случае вы можете создать новую учётную запись с этой фразой.",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "Мы не смогли проверить всех Guardian, поэтому не можем сказать, существует ли резервная копия. Попробуйте ещё раз или выберите того Guardian, которым вы пользовались.",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "Создайте новый аккаунт с помощью этой фразы",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "Создать новый аккаунт с этой фразой?",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "Это создает новый аккаунт. Это не восстанавливает существующий аккаунт.",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "Мы не можем гарантировать, как именно возникла эта фраза и насколько она надежна. Если она когда-либо станет известной, это может повлиять на каждый кошелек, который её использует.",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "Ваша фраза восстановления остается на этом устройстве.",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "Я понимаю риск и хочу использовать эту фразу для нового счёта",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "Если для этой фразы ещё не существует публичного аккаунта, при импорте на её основе создаётся новый.",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "Попробуйте выполнить обнаружение еще раз",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "Мы не смогли найти ваш аккаунт по этой ссылке: guardian. Проверьте URL-адрес или импортируйте его как публичный аккаунт.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "Мы не смогли найти резервную копию на этом Guardian. Проверьте URL-адрес или выберите другого Guardian.",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "Этот «guardian» работает в другой сети Miden, поэтому он не может восстановить аккаунт здесь.",

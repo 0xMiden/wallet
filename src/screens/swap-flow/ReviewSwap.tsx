@@ -13,6 +13,7 @@ import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { InfoHint } from 'components/ui/InfoHint';
+import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextField } from 'components/ui/TextField';
@@ -72,6 +73,18 @@ function expectedOverAsk(quote: SwapQuote, decimals: number): string | undefined
   if (expected === null || !/^\d+$/.test(expected)) return undefined;
   const amount = BigInt(expected);
   return amount > quote.requestedAmount ? formatBigInt(amount, decimals) : undefined;
+}
+
+function fillWarningKey(quote?: SwapQuote): string | undefined {
+  if (!quote || swapEtaBlocksSubmit(quote.eta)) return undefined;
+  switch (quote.eta.fillStatus) {
+    case 'none':
+      return 'swapNoFillWarning';
+    case 'partial':
+      return 'swapPartialFillWarning';
+    case 'full':
+      return undefined;
+  }
 }
 
 /**
@@ -169,6 +182,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const formatRateValue = rateFormatterFor(rate ?? 0);
   const verdict = quote === undefined ? undefined : swapVerdict(quote.eta);
   const blocksSubmit = quote !== undefined && swapEtaBlocksSubmit(quote.eta);
+  const warningKey = fillWarningKey(quote);
   const expected =
     quote !== undefined && verdict === 'full' ? expectedOverAsk(quote, requestToken.decimals) : undefined;
 
@@ -285,6 +299,13 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         'data-testid': 'swap-submit'
       }}
       secondary={{ label: t('back'), onPress: onGoBack, disabled: submitting }}
+      beforeActions={
+        warningKey && (
+          <Notice tone="warning" role="status" data-testid="swap-fill-warning">
+            {t(warningKey)}
+          </Notice>
+        )
+      }
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}

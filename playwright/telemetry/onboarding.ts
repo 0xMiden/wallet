@@ -49,6 +49,8 @@ export async function importWalletToConsentPrompt(page: Page): Promise<void> {
 
   await page.getByTestId('import-recovery-method').waitFor({ timeout: 15_000 });
   await page.getByText(/import public account/i).click();
+  // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
+  await page.getByTestId('reused-phrase-acknowledge').click();
   await page.getByRole('button', { name: /continue/i }).click();
 
   await passImportConfirmation(page, 30_000);

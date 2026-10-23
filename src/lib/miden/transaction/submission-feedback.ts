@@ -3,6 +3,7 @@ import { carriesIndefiniteSubmitOutcome, isApplyAfterSubmitError } from 'lib/mid
 import { SUBMIT_UNKNOWN_OUTCOME_STATUSES, submitGrpcStatus } from 'lib/telemetry/transaction-failure';
 
 import {
+  isAccountBlockedError,
   isUserCancelledTransaction,
   REMOTE_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -16,6 +17,7 @@ export type SubmissionFeedbackKind = 'rejected' | 'interrupted' | 'unanswered';
 export type SubmissionMessageKey =
   | 'submissionRejectedByNetwork'
   | 'submissionRejectedByGuardian'
+  | 'submissionBlockedByIssuer'
   | 'submissionInterrupted'
   | 'submissionUnanswered';
 
@@ -90,6 +92,8 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
   if (display === REMOTE_PROVER_FAILED_ERROR || raw === REMOTE_PROVER_FAILED_ERROR) {
     return row.stage === 'submitting' ? pack('unanswered', 'submissionUnanswered', raw) : undefined;
   }
+  // Ahead of the generic refusal: the node's answer can carry this code, and the issuer's block is the cause.
+  if (isAccountBlockedError(prose)) return pack('rejected', 'submissionBlockedByIssuer', raw);
   if (guardian === 'rejected') return pack('rejected', 'submissionRejectedByGuardian', raw);
   if (guardian === 'unanswered') return pack('unanswered', 'submissionUnanswered', raw);
   if (classified === 'refused') return pack('rejected', 'submissionRejectedByNetwork', raw);

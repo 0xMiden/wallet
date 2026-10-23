@@ -1133,7 +1133,7 @@ describe('SwapFlow / SwapManager', () => {
         expect(mockConfirmSensitive).not.toHaveBeenCalled();
         act(() => jest.advanceTimersByTime(1000));
         expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['swapPairNotListed', 'review']]);
-      });
+      }, 30_000); // renders the real swap displays; coverage instrumentation takes it past the 5 s default
 
       it('refuses the resubmit when the delist lands while a spending-limit challenge is open', async () => {
         mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
