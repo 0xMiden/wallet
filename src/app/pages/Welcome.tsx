@@ -14,10 +14,13 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { prepareMainnet } from 'lib/miden/prepare-mainnet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { hasMainnetLaunched } from 'lib/remote-config/values';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -151,6 +154,17 @@ const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
   accounts: payload.accounts,
   importedAccounts: payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest)
 });
+
+/**
+ * A create reached registration without an access code. Distinct from a code the mainnet node refused,
+ * which clears the code and marks it rejected.
+ */
+class MainnetAccessCodeRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MainnetAccessCodeRequiredError';
+  }
+}
 
 function requiresCreateCode(hash: string, type: OnboardingType | null): boolean {
   switch (hash) {
@@ -486,8 +500,19 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   );
 
   const register = useCallback(async () => {
-    if (inviteOnly && onboardingType !== OnboardingType.Import && !accessCode) {
-      throw new Error(t('mainnetAccessOnboardingBody'));
+    // The rendered inviteOnly flag follows a shared sample a wake may not have published. A create
+    // re-reads the document's moment here and ignores that sample. An import skips this whole block.
+    if (onboardingType !== OnboardingType.Import) {
+      if (hasMainnetLaunched(getBridgeConfigSnapshot(), Date.now())) {
+        onUnlockInviteOnly();
+        await prepareMainnet();
+        if (!accessCode) {
+          throw new MainnetAccessCodeRequiredError(t('mainnetAccessOnboardingBody'));
+        }
+      } else if (inviteOnly && !accessCode) {
+        // Seven taps before the moment still stop a code-less create, without a network change.
+        throw new MainnetAccessCodeRequiredError(t('mainnetAccessOnboardingBody'));
+      }
     }
     if (password && keyPairPayload) {
       // The pair stays in this onboarding component, never in wallet state.
@@ -548,6 +573,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     }
   }, [
     inviteOnly,
+    onUnlockInviteOnly,
     t,
     accessCode,
     password,
@@ -574,6 +600,11 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       const failure = ownMessage ?? t('smthWentWrong');
       setRegistrationError(failure);
       setRegistrationErrorId(ownMessage ? 'raw_onboarding_recovery_failed' : 'smthWentWrong');
+      if (error instanceof MainnetAccessCodeRequiredError) {
+        // No code was refused. Leave a held code in place and do not mark one rejected.
+        navigate('/#mainnet-access');
+        return true;
+      }
       if (isMainnetAccessCodeRejected(error)) {
         // The backend undid the setup; only another code can start it again.
         setAccessCode(undefined);
@@ -655,6 +686,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // next tap retries in the tab. The spinner stops either way, so the failure is said: a quiet screen gives no
         // reason to believe a second tap would help.
         console.error('[Welcome] Side panel handoff auto-register failed:', error);
+        // The access step stays on this page. Release the in-flight guard before that navigation,
+        // or the hash effect sends it back to Confirmation.
+        if (error instanceof MainnetAccessCodeRequiredError) attemptInFlightRef.current = false;
         routeRegistrationFailure(error);
         setConfirmPhase('failed');
       } finally {
@@ -948,6 +982,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
+          // The access step stays on this page. Release the in-flight guard before that navigation,
+          // or the hash effect sends it back to Confirmation.
+          if (error instanceof MainnetAccessCodeRequiredError) attemptInFlightRef.current = false;
           // A failure the routine leaves on this screen: the hardware-only path adds its attempt count.
           if (!routeRegistrationFailure(error) && password === '__HARDWARE_ONLY__') {
             // Track biometric attempts for hardware-only mode
