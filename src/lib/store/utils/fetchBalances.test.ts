@@ -337,6 +337,7 @@ describe('fetchBalances', () => {
 
   it('publishes raw base units alongside the display balance', async () => {
     const faucetId = 'large-balance-faucet';
+    const tokenId = `bech32-${faucetId}`;
     mockGetAccount.mockResolvedValueOnce({
       nonce: accountNonce,
       vault: () => ({
@@ -346,10 +347,10 @@ describe('fetchBalances', () => {
 
     const balances = (await fetchBalances(
       'large-balance-account',
-      { [faucetId]: { name: 'Large', symbol: 'LARGE', decimals: 0 } },
+      { [tokenId]: { name: 'Large', symbol: 'LARGE', decimals: 0 } },
       { tokenPrices: {} }
     ))!;
-    const row = balances.find(balance => balance.tokenId === faucetId)!;
+    const row = balances.find(balance => balance.tokenId === tokenId)!;
 
     expect(row).toMatchObject({ balanceBaseUnits: '12345678901234567890' });
     expect(row.balance).toBe(Number('12345678901234567890'));

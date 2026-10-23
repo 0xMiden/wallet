@@ -366,8 +366,33 @@ async function flushFlowMicrotasks(): Promise<void> {
   });
 }
 
+async function settlePreviewDebounce(): Promise<void> {
+  await act(async () => {
+    await new Promise(resolve => window.setTimeout(resolve, 400));
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  jest
+    .mocked(getOneClickTransactions)
+    .mockReset()
+    .mockImplementation(async () => mockPersistedRows as never);
+  jest
+    .mocked(submitEvmOneClickDeposit)
+    .mockReset()
+    .mockImplementation(async ({ onSubmitted }) => {
+      if (onSubmitted) {
+        try {
+          await onSubmitted(mockTxHash);
+        } catch (cause) {
+          const { OneClickDepositBroadcastError } =
+            jest.requireActual<typeof import('lib/one-click/evm')>('lib/one-click/evm');
+          throw new OneClickDepositBroadcastError(mockTxHash, cause);
+        }
+      }
+      return mockTxHash;
+    });
   mockAssertEvmDepositFunded.mockReset().mockResolvedValue({});
   mockAccountId = '0x111111111111111111111111111111';
   mockConfirmResult = Promise.resolve(true);
@@ -443,6 +468,7 @@ describe('OneClickFlow', () => {
     });
     fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254740993' } });
     fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    await settlePreviewDebounce();
 
     expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
   });
@@ -472,6 +498,7 @@ describe('OneClickFlow', () => {
     });
     fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254740992' } });
     fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    await settlePreviewDebounce();
 
     expect(screen.getByRole('button', { name: 'Review route' })).toBeEnabled();
   });
@@ -488,6 +515,7 @@ describe('OneClickFlow', () => {
     renderFlow(midenAsset, ethereumAsset);
     fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254.740975' } });
     fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    await settlePreviewDebounce();
 
     expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
   });
@@ -504,6 +532,7 @@ describe('OneClickFlow', () => {
     renderFlow(midenAsset, ethereumAsset);
     fireEvent.change(screen.getByLabelText('amount'), { target: { value: '9007199254.740974' } });
     fireEvent.change(screen.getByLabelText('external address'), { target: { value: mockOriginAddress } });
+    await settlePreviewDebounce();
 
     expect(screen.getByRole('button', { name: 'Review route' })).toBeEnabled();
   });
@@ -704,6 +733,7 @@ describe('OneClickFlow', () => {
     else jest.mocked(getOneClickTransactions).mockRejectedValueOnce(new Error('tracking lookup unavailable'));
     renderFlow(ethereumAsset, midenAsset);
     fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1' } });
+    await settlePreviewDebounce();
 
     expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
     expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();

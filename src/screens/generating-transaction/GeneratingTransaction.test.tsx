@@ -2,7 +2,6 @@ import React from 'react';
 
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
-import { waitFor } from '@testing-library/react';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
@@ -410,8 +409,14 @@ describe('GeneratingTransactionPage container effects', () => {
     };
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
-    await waitFor(() => expect(container.querySelector('[data-testid="restored-flow"]')).not.toBeNull());
-    act(() => root.unmount());
+    try {
+      await act(async () => {
+        for (let index = 0; index < 8; index++) await Promise.resolve();
+      });
+      expect(container.querySelector('[data-testid="restored-flow"]')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
   });
 
   // #602 — the processing screen nests a fixed-height full-screen page
