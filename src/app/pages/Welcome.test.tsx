@@ -64,6 +64,20 @@ jest.mock('app/templates/OnboardingNetwork', () => ({
     children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
   }) => children(mockInviteOnly, mockUnlockInviteOnly)
 }));
+const setOnboardingRegistrationActive = jest.fn((active: boolean) => {
+  jest
+    .requireActual<typeof import('app/templates/onboarding-registration')>('app/templates/onboarding-registration')
+    .setOnboardingRegistrationActive(active);
+});
+jest.mock('app/templates/onboarding-registration', () => {
+  const actual = jest.requireActual<typeof import('app/templates/onboarding-registration')>(
+    'app/templates/onboarding-registration'
+  );
+  return {
+    ...actual,
+    setOnboardingRegistrationActive: (active: boolean) => setOnboardingRegistrationActive(active)
+  };
+});
 
 // Latest props handed to the stubbed OnboardingFlow (re-read after every render
 // so `onAction` always reflects the component's current closure/state).
@@ -3652,6 +3666,99 @@ describe('Welcome — back navigation', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('Welcome — registration holds preparation', () => {
+  function holdRegister() {
+    let settle!: (error?: unknown) => void;
+    let duringFailure: unknown;
+    mockRegisterWallet.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settle = (error?: unknown) => {
+            if (error === undefined) resolve();
+            else reject(error);
+          };
+          try {
+            expect(setOnboardingRegistrationActive).toHaveBeenCalledWith(true);
+          } catch (error) {
+            duringFailure = error;
+          }
+        })
+    );
+    return {
+      settle(error?: unknown) {
+        settle(error);
+      },
+      during() {
+        expect(mockRegisterWallet).toHaveBeenCalled();
+        if (duringFailure !== undefined) throw duringFailure;
+      }
+    };
+  }
+
+  async function reachConfirmationTap() {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await setHash('#choose-protection');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+  }
+
+  async function finishHeld(held: { settle: (error?: unknown) => void }, pending?: Promise<unknown>, error?: unknown) {
+    await act(async () => {
+      held.settle(error);
+      if (pending) await pending;
+    });
+    await waitFor(() => expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(false));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
+  }
+
+  it('marks a confirmation tap active until registration resolves', async () => {
+    await reachConfirmationTap();
+    const held = holdRegister();
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    held.during();
+
+    await finishHeld(held, pending);
+  });
+
+  it('clears a confirmation tap when registration rejects', async () => {
+    await reachConfirmationTap();
+    const held = holdRegister();
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    held.during();
+
+    await finishHeld(held, pending, new Error('boom'));
+  });
+
+  it('marks a side-panel auto-register active until registration resolves', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    const held = holdRegister();
+    await setHash('#confirmation');
+    held.during();
+
+    await finishHeld(held);
+  });
+
+  it('clears a side-panel auto-register when registration rejects', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    const held = holdRegister();
+    await setHash('#confirmation');
+    held.during();
+
+    await finishHeld(held, undefined, new Error('creation failed'));
   });
 });
 

@@ -7,6 +7,7 @@ import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { OnboardingNetwork } from 'app/templates/OnboardingNetwork';
+import { setOnboardingRegistrationActive } from 'app/templates/onboarding-registration';
 import { forgetCarriedMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
@@ -667,6 +668,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
 
     setConfirmPhase('creating');
     attemptInFlightRef.current = true;
+    setOnboardingRegistrationActive(true);
     setIsLoading(true);
     // A Ready broadcast can land while register() finishes; the mark keeps Home off screen until the handoff.
     const finishMark = markOnboardingFinishing();
@@ -694,6 +696,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       } finally {
         finishMark.release();
         attemptInFlightRef.current = false;
+        setOnboardingRegistrationActive(false);
         setIsLoading(false);
       }
     })();
@@ -952,6 +955,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // auto-register. It registers the wallet, then waits for Ready before
         // moving on.
         attemptInFlightRef.current = true;
+        setOnboardingRegistrationActive(true);
         setIsLoading(true);
         // Held until this handler has navigated on: the Ready push below would otherwise show Home first. It lives
         // outside this component because the app subtree remounts when the wallet turns Ready.
@@ -995,6 +999,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         } finally {
           finishMark.release();
           attemptInFlightRef.current = false;
+          setOnboardingRegistrationActive(false);
           setIsLoading(false);
         }
         break;

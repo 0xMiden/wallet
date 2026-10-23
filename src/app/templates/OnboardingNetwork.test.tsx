@@ -8,6 +8,7 @@ import { WalletStatus } from 'lib/shared/types';
 import { WelcomeScreen } from 'screens/onboarding/common/Welcome';
 
 import { OnboardingNetwork } from './OnboardingNetwork';
+import { setOnboardingRegistrationActive } from './onboarding-registration';
 
 let mockRequired = true;
 let mockStatus = WalletStatus.Idle;
@@ -71,6 +72,7 @@ const page = () => <OnboardingNetwork>{content}</OnboardingNetwork>;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  setOnboardingRegistrationActive(false);
   mockRequired = true;
   mockStatus = WalletStatus.Idle;
   mockExtension = true;
@@ -122,6 +124,68 @@ it('keeps an active Welcome state while launch preparation is pending', async ()
   expect(screen.getByTestId('invite-only')).toHaveTextContent('true');
 
   await act(async () => finishApply());
+});
+
+function mountHeldRegistration() {
+  mockRequired = false;
+  const StatefulFlow = ({ inviteOnly }: { inviteOnly: boolean }) => {
+    const [value, setValue] = React.useState('');
+    return (
+      <div>
+        <input aria-label="flow state" value={value} onChange={event => setValue(event.currentTarget.value)} />
+        <span data-testid="invite-only">{String(inviteOnly)}</span>
+      </div>
+    );
+  };
+  const statefulPage = () => (
+    <OnboardingNetwork>{inviteOnly => <StatefulFlow inviteOnly={inviteOnly} />}</OnboardingNetwork>
+  );
+  const view = render(statefulPage());
+  fireEvent.change(screen.getByRole('textbox', { name: 'flow state' }), { target: { value: 'preserved state' } });
+  act(() => {
+    setOnboardingRegistrationActive(true);
+  });
+  mockRequired = true;
+  view.rerender(statefulPage());
+  return { view, statefulPage };
+}
+
+it('holds mainnet preparation while a registration attempt is in flight', () => {
+  const { view } = mountHeldRegistration();
+  const flowState = view.container.querySelector<HTMLInputElement>('[aria-label="flow state"]');
+
+  expect(flowState).toHaveValue('preserved state');
+  expect(mockApply).not.toHaveBeenCalled();
+  expect(screen.getByTestId('invite-only')).toHaveTextContent('true');
+  expect(flowState?.parentElement?.parentElement).toHaveProperty('inert', false);
+});
+
+it('prepares mainnet once a registration attempt ends with the wallet still idle', async () => {
+  mountHeldRegistration();
+  expect(mockApply).not.toHaveBeenCalled();
+
+  act(() => {
+    setOnboardingRegistrationActive(false);
+  });
+
+  await waitFor(() => expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE));
+  await waitFor(() => expect(mockFollow).toHaveBeenCalledTimes(1));
+});
+
+it('does not prepare when a registration attempt ends as the wallet leaves idle', async () => {
+  const { view, statefulPage } = mountHeldRegistration();
+  expect(mockApply).not.toHaveBeenCalled();
+  expect(screen.getByTestId('invite-only')).toHaveTextContent('true');
+
+  await act(async () => {
+    mockStatus = WalletStatus.Ready;
+    setOnboardingRegistrationActive(false);
+    view.rerender(statefulPage());
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(mockApply).not.toHaveBeenCalled();
 });
 
 it.each([WalletStatus.Locked, WalletStatus.Ready])('keeps an existing wallet on its network (%s)', status => {

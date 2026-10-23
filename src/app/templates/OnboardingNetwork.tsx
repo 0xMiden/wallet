@@ -1,7 +1,17 @@
-import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  FC,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { onboardingRegistrationActive, subscribeOnboardingRegistration } from 'app/templates/onboarding-registration';
 import { Button } from 'components/Button';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Spinner } from 'components/ui/Spinner';
@@ -30,11 +40,15 @@ export const OnboardingNetwork: FC<{
   const [inviteOnly, setInviteOnly] = useState(required);
   const [state, setState] = useState<'idle' | 'pending' | 'ready' | 'failed'>('idle');
   const [attempt, setAttempt] = useState(0);
+  const registrationActive = useSyncExternalStore(subscribeOnboardingRegistration, onboardingRegistrationActive);
   const mustPrepare = status === WalletStatus.Idle && (required || inviteOnly);
+  // The attempt prepares mainnet itself. Hold this effect so that preparation does not cover the
+  // screen or mark it inert while registration is still running.
+  const armed = mustPrepare && !registrationActive;
   const unlockInviteOnly = useCallback(() => setInviteOnly(true), []);
 
   const ready = state === 'ready';
-  const blocking = mustPrepare && !ready;
+  const blocking = armed && !ready;
   // Latched once the child has been shown. Its step and credentials live there, so a later
   // preparation covers that child instead of unmounting it.
   const revealed = useRef(false);
@@ -51,7 +65,7 @@ export const OnboardingNetwork: FC<{
   }, [blocking]);
 
   useEffect(() => {
-    if (!mustPrepare || ready) return;
+    if (!mustPrepare || registrationActive || ready) return;
     let active = true;
     setInviteOnly(true);
     setState('pending');
@@ -66,7 +80,7 @@ export const OnboardingNetwork: FC<{
     return () => {
       active = false;
     };
-  }, [mustPrepare, attempt, ready]);
+  }, [mustPrepare, registrationActive, attempt, ready]);
 
   const preparationStatus = (
     <SubPageLayout
