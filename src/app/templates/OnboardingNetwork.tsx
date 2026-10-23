@@ -65,7 +65,7 @@ export const OnboardingNetwork: FC<{
   }, [blocking]);
 
   useEffect(() => {
-    if (!mustPrepare || registrationActive || ready) return;
+    if (!mustPrepare || registrationActive || ready || onboardingRegistrationActive()) return;
     let active = true;
     setInviteOnly(true);
     setState('pending');

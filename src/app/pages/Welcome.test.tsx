@@ -345,6 +345,7 @@ jest.mock('lib/carried-mainnet-code', () => ({
 // replaces this; nothing here advances a launch timer, and inviteOnly stays the rendered sample.
 let mockMainnetCountdown: { enabled: boolean; launchAt?: number } | null = { enabled: false };
 const mockPrepareMainnet = jest.fn(() => Promise.resolve());
+const mockWaitForMainnetPreparation = jest.fn(() => Promise.resolve());
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => ({
     network: 'testnet',
@@ -355,7 +356,8 @@ jest.mock('lib/remote-config/runtime', () => ({
   })
 }));
 jest.mock('lib/miden/prepare-mainnet', () => ({
-  prepareMainnet: () => mockPrepareMainnet()
+  prepareMainnet: () => mockPrepareMainnet(),
+  waitForMainnetPreparation: () => mockWaitForMainnetPreparation()
 }));
 
 const READY = 2;
@@ -521,6 +523,8 @@ beforeEach(() => {
   mockMainnetCountdown = { enabled: false };
   mockPrepareMainnet.mockReset();
   mockPrepareMainnet.mockImplementation(() => Promise.resolve());
+  mockWaitForMainnetPreparation.mockReset();
+  mockWaitForMainnetPreparation.mockImplementation(() => Promise.resolve());
   mockIsMobileFn.mockReturnValue(false);
   mockIsDesktopFn.mockReturnValue(false);
   mockDesktopHW.mockResolvedValue(false);
@@ -2084,6 +2088,75 @@ describe('Welcome — confirmation / register', () => {
       expect(mockRegisterWallet).not.toHaveBeenCalled();
       expect(mockPrepareMainnet).not.toHaveBeenCalled();
       expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      'waits for an already-started launch preparation before seed import registration (side panel: %s)',
+      async sidePanel => {
+        pastMoment();
+        mockCanHandoff = sidePanel;
+        let finishPreparation!: () => void;
+        mockWaitForMainnetPreparation.mockImplementation(
+          () => new Promise<void>(resolve => (finishPreparation = resolve))
+        );
+        await renderWelcome();
+        await stageSeedRecovery({ walletType: WalletType.OnChain });
+
+        let registration: Promise<void> | undefined;
+        if (sidePanel) {
+          await setHash('#confirmation');
+          await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+          });
+        } else {
+          await act(async () => {
+            registration = mockFlowProps.current.onAction({ id: 'confirmation' });
+            await Promise.resolve();
+          });
+        }
+
+        expect(mockWaitForMainnetPreparation).toHaveBeenCalledTimes(1);
+        expect(mockRegisterWallet).not.toHaveBeenCalled();
+        await act(async () => {
+          finishPreparation();
+          await registration;
+          await Promise.resolve();
+        });
+        expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('sends an active create draft to code entry and resumes its route afterward', async () => {
+      await renderWelcome();
+      await dispatch({ id: 'choose-protection' });
+      await setHash('#network-notice');
+      await dispatch({ id: 'network-notice-acknowledge' });
+      await setHash('#create-password');
+      await dispatch({ id: 'create-password-submit', payload: { password: 'draft-password' } });
+      await setHash('#guardian-intro');
+      const seedPhrase = mockFlowProps.current.seedPhrase;
+      expect(seedPhrase).toEqual(expect.any(Array));
+
+      pastMoment();
+      mockInviteOnly = true;
+      mockNavigate.mockClear();
+      await act(async () => {
+        rerenderFn(<Welcome />);
+        await Promise.resolve();
+      });
+
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+      expect(mockFlowProps.current.seedPhrase).toEqual(seedPhrase);
+      await setHash('#mainnet-access');
+      expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+
+      await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#guardian-intro');
+      await setHash('#guardian-intro');
+      expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+      expect(mockFlowProps.current.seedPhrase).toEqual(seedPhrase);
     });
   });
 

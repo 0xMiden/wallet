@@ -160,6 +160,28 @@ it('holds mainnet preparation while a registration attempt is in flight', () => 
   expect(flowState?.parentElement?.parentElement).toHaveProperty('inert', false);
 });
 
+it('rechecks registration after a child starts it in the same commit', () => {
+  mockRequired = false;
+  const LaunchRegistration = ({ inviteOnly }: { inviteOnly: boolean }) => {
+    React.useEffect(() => {
+      if (!inviteOnly) return;
+      setOnboardingRegistrationActive(true);
+      return () => setOnboardingRegistrationActive(false);
+    }, [inviteOnly]);
+    return <div data-testid="launch-registration">{String(inviteOnly)}</div>;
+  };
+  const statefulPage = () => (
+    <OnboardingNetwork>{inviteOnly => <LaunchRegistration inviteOnly={inviteOnly} />}</OnboardingNetwork>
+  );
+  const view = render(statefulPage());
+
+  mockRequired = true;
+  view.rerender(statefulPage());
+
+  expect(screen.getByTestId('launch-registration')).toHaveTextContent('true');
+  expect(mockApply).not.toHaveBeenCalled();
+});
+
 it('prepares mainnet once a registration attempt ends with the wallet still idle', async () => {
   mountHeldRegistration();
   expect(mockApply).not.toHaveBeenCalled();

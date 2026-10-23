@@ -15,6 +15,10 @@ let preparing: Promise<void> | undefined;
 // mainnet while the service worker or client still serves the old network: the retry must refresh again.
 let refreshOwed = false;
 
+export function waitForMainnetPreparation(): Promise<void> {
+  return preparing ?? Promise.resolve();
+}
+
 /**
  * Complete the network change before a code check or recovery can start. Already on mainnet, by the
  * build or by a stored override (a custom one included), there is nothing to change.

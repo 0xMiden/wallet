@@ -15,7 +15,7 @@ import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
-import { prepareMainnet } from 'lib/miden/prepare-mainnet';
+import { prepareMainnet, waitForMainnetPreparation } from 'lib/miden/prepare-mainnet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -241,6 +241,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   const [accessCode, setAccessCode] = useState<string | undefined>();
   // The node refused the held code at registration, which undid the setup: the code step says so.
   const [accessCodeRejected, setAccessCodeRejected] = useState(false);
+  const resumeCreateHashRef = useRef<string | null>(null);
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
   // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
@@ -287,6 +288,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
   // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
   const resetFlowState = useCallback(() => {
+    resumeCreateHashRef.current = null;
     setAccessCode(undefined);
     setAccessCodeRejected(false);
     setSeedPhrase(null);
@@ -501,9 +503,12 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   );
 
   const register = useCallback(async () => {
-    // The rendered inviteOnly flag follows a shared sample a wake may not have published. A create
-    // re-reads the document's moment here and ignores that sample. An import skips this whole block.
-    if (onboardingType !== OnboardingType.Import) {
+    // Imports keep their network route but join a switch already started by the wrapper.
+    if (onboardingType === OnboardingType.Import) {
+      await waitForMainnetPreparation();
+    } else {
+      // The rendered inviteOnly flag follows a shared sample a wake may not have published. A create
+      // re-reads the document's moment here and ignores that sample.
       if (hasMainnetLaunched(getBridgeConfigSnapshot(), Date.now())) {
         onUnlockInviteOnly();
         await prepareMainnet();
@@ -743,7 +748,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         // Keep the code for registration after account setup.
         setAccessCode(action.payload);
         setAccessCodeRejected(false);
-        startCreateFlow();
+        if (resumeCreateHashRef.current) {
+          const resumeHash = resumeCreateHashRef.current;
+          resumeCreateHashRef.current = null;
+          navigate(`/${resumeHash}`);
+        } else {
+          startCreateFlow();
+        }
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
@@ -1107,8 +1118,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       return;
     }
     if (inviteOnly && !accessCode && requiresCreateCode(hash, onboardingType)) {
-      setStep(OnboardingStep.Welcome);
-      navigate('/');
+      if (onboardingType === OnboardingType.Create && flowRef.current) {
+        resumeCreateHashRef.current = hash === '#network-notice' ? protectionStepRoute() : hash;
+        navigate('/#mainnet-access');
+      } else {
+        setStep(OnboardingStep.Welcome);
+        navigate('/');
+      }
       return;
     }
     switch (hash) {
