@@ -425,6 +425,17 @@ describe('resetStorageDestructive', () => {
     expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
   });
 
+  it('still drops the developer network choice, and rejects with the delete error, when the delete rejects', async () => {
+    const deleteError = new Error('delete blocked');
+    mockDbDelete.mockRejectedValueOnce(deleteError);
+    jest.mocked(resetNativeAssetCache).mockClear();
+
+    await expect(resetStorageDestructive()).rejects.toBe(deleteError);
+
+    expect(mockForgetDeveloperNetworkChoice).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(resetNativeAssetCache)).not.toHaveBeenCalled();
+  });
+
   it('still clears the spending limits and rethrows the delete error when the cleanup steps reject', async () => {
     const deleteError = new Error('delete blocked');
     mockDbDelete.mockRejectedValueOnce(deleteError);

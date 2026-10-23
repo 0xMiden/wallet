@@ -164,16 +164,25 @@ export async function resetStorageDestructive({
   // key-value clear empties localStorage, and the extension's service worker has none.
   if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
   await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
+  let dbError: unknown;
+  let dbFailed = false;
   try {
     await Repo.db.delete();
     await Repo.db.open();
   } catch (err) {
+    dbFailed = true;
+    dbError = err;
     await Repo.db.open().catch(() => {});
     await Repo.transactions.clear().catch(() => {});
     await Repo.spendingLimits.clear().catch(() => {});
-    throw err;
   }
-  if (keepEndpointOverride) await forgetDeveloperNetworkChoice();
+  // A reset wallet must not stay on the developer's network choice, so this runs even when the database step
+  // failed; the database error is the one that propagates.
+  if (keepEndpointOverride) {
+    if (dbFailed) await forgetDeveloperNetworkChoice().catch(() => {});
+    else await forgetDeveloperNetworkChoice();
+  }
+  if (dbFailed) throw dbError;
   await resetNativeAssetCache();
 }
 
