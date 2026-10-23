@@ -129,6 +129,7 @@ describe('E2E workflows', () => {
     const pushed = readdirSync(DIR)
       .filter(file => /^(pr-)?e2e-.*\.yml$/.test(file))
       .filter(file => onBlock(read(file)).some(line => /^ {2}push:/.test(line)));
-    expect(pushed).toEqual([]);
+    // The one deliberate exception: the Guardian lifecycle suite runs on every push to main.
+    expect(pushed).toEqual(['pr-e2e-guardian-lifecycle.yml']);
   });
 });
