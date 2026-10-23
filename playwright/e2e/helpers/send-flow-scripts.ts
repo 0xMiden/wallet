@@ -10,14 +10,14 @@ export const SEND_FLOW = '[data-testid="send-flow"]';
 // A sheet portals to <body>, outside the flow; one that is closing keeps its rows through the exit, marked closed.
 export const OPEN_SHEET = '[role="dialog"][data-state="open"]';
 
-/** A script body whose lookups all run under `scope`; `text` reads a test id's text, `val` a DetailRow's value div. */
+/** A script body whose lookups all run under `scope`; `text` reads a test id's text, `val` a DetailRow's value div, without the USD line under it. */
 export function scopedJs(scope: string, body: string): string {
   return (
     `var root = document.querySelector(${JSON.stringify(scope)}); if (!root) return null; ` +
     `function text(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
     `return e ? (e.textContent || '').trim() : null; } ` +
     `function val(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
-    `var d = e && e.querySelector(':scope > div'); return d ? (d.textContent || '').trim() : null; } ` +
+    `var d = e && e.querySelector(':scope > div > div:first-child'); return d ? (d.textContent || '').trim() : null; } ` +
     body
   );
 }

@@ -496,7 +496,9 @@ describe('EarnDepositReview', () => {
     it('opens nothing for an amount finer than the collateral scale', async () => {
       renderReview(AAVE_VAULT.id, '?amount=1.0000001');
 
-      fireEvent.click(screen.getByTestId('open-position-btn'));
+      const cta = screen.getByTestId('open-position-btn');
+      expect(cta).toBeEnabled();
+      fireEvent.click(cta);
 
       await waitFor(() => expect(screen.getByTestId('earn-deposit-review-error')).toBeInTheDocument());
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();

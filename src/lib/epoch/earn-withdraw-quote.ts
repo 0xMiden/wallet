@@ -6,7 +6,7 @@ import {
   getNativeAssetId,
   getNativeAssetMetadata
 } from 'lib/miden-chain/native-asset';
-import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl, getEpochRoutes } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { buildEpochReadOnlyWalletClient } from './client';
@@ -140,7 +140,9 @@ export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void 
     quote.scope !== currentNative.scope ||
     quote.nativeRevision !== currentNative.revision ||
     quote.allocatorUrl !== getEpochAllocatorUrl() ||
-    quote.position.marketUid.split(':')[1] !== String(getEarnMarket().chainId)
+    // The position's chain must still be an Epoch route the document names; the default market's chain says
+    // nothing about a position on another route.
+    !getEpochRoutes().some(route => String(route.chainId) === quote.position.marketUid.split(':')[1])
   )
     throw new Error('earnWithdrawRefresh');
 }
@@ -193,7 +195,12 @@ export function assertWithdrawalAllocations(
   const delivery = mandates[deliveryIndex];
   const withdraws = mandates.filter((_, index) => index !== deliveryIndex);
   const [withdraw] = withdraws;
-  if (!delivery || withdraws.length !== 1 || !withdraw || !spendsReviewedInput(quote, withdraw))
+  // The SDK allocates only a leg whose quote needs a resource lock. The testnet dummy lender's withdraw leg does;
+  // the mainnet 1delta withdraw leg runs as a direct smart-account call and has no allocation, so the batch holds
+  // the delivery alone. Either shape is bound to the review: a withdraw allocation, when there is one, spends the
+  // reviewed input, and the delivery always does, with the reviewed floor.
+  if (!delivery || withdraws.length > 1 || (withdraw !== undefined && !spendsReviewedInput(quote, withdraw)))
     throw new Error('earnWithdrawRefresh');
+  if (withdraws.length === 1 && withdraw === undefined) throw new Error('earnWithdrawRefresh');
   assertWithdrawalDelivery(quote, delivery);
 }
