@@ -106,20 +106,29 @@ describe('off Testnet', () => {
   const derived = TEST_BRIDGE_CONFIG_SNAPSHOT.derived;
   if (!derived) throw new Error('The test derivation is missing');
 
-  it.each<[string, BridgeConfigSnapshot, unknown]>([
-    ['the configured collateral', devnet, { state: 'resolved', collateral: TEST_MIDEN_USDC }],
-    ['a document still loading', { ...devnet, status: 'loading', config: null, derived: null }, LOADING],
-    ['a document still being derived', { ...devnet, derived: null }, LOADING],
+  it.each<[string, BridgeConfigSnapshot]>([
+    ['the configured collateral', devnet],
+    ['a document still loading', { ...devnet, status: 'loading', config: null, derived: null }],
+    ['a document still being derived', { ...devnet, derived: null }],
     [
       'an output faucet that is absent',
-      { ...devnet, derived: { ...derived, epoch: { ...derived.epoch, midenUsdcFaucet: { state: 'absent' } } } },
-      UNAVAILABLE
+      { ...devnet, derived: { ...derived, epoch: { ...derived.epoch, midenUsdcFaucet: { state: 'absent' } } } }
     ]
-  ])('reads %s from the document, never the native asset', (_name, snapshot, expected) => {
+  ])('spends the native asset, never the document collateral, with %s', (_name, snapshot) => {
     mockSnapshot = snapshot;
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue(USDCX);
     const { result } = renderHook(() => useEarnCollateralState());
-    expect(result.current).toEqual(expected);
-    expect(getNativeAssetMetadata).not.toHaveBeenCalled();
+    expect(result.current).toEqual(RESOLVED);
+    expect(result.current).not.toEqual({ state: 'resolved', collateral: TEST_MIDEN_USDC });
+  });
+
+  it('waits for the native metadata off Testnet as it does on it', () => {
+    mockSnapshot = devnet;
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
+    jest.mocked(getNativeAssetMetadata).mockResolvedValue(null);
+    const { result } = renderHook(() => useEarnCollateralState());
+    expect(result.current).toEqual(LOADING);
+    expect(getNativeAssetMetadata).toHaveBeenCalled();
   });
 });
 

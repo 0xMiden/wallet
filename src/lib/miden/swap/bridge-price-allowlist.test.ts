@@ -58,7 +58,12 @@ const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridg
       }
     },
     agglayer: { indexer: skipped },
-    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: { state: 'error', message: 'down' } }
+    epoch: {
+      allocator: skipped,
+      market: skipped,
+      midenUsdcFaucet: { state: 'error', message: 'down' },
+      vaults: skipped
+    }
   };
 };
 const registry = derived({

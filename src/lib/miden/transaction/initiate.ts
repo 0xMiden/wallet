@@ -952,7 +952,9 @@ export const initiateEarnDepositTransaction = async (
   delegateTransaction: boolean,
   requestBytes: Uint8Array,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  protocol?: '1delta' | 'dummy-lending',
+  chainId?: number
 ): Promise<string> => {
   if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
@@ -963,7 +965,9 @@ export const initiateEarnDepositTransaction = async (
     faucetId,
     sendParams,
     delegateTransaction,
-    requestBytes
+    requestBytes,
+    protocol,
+    chainId
   );
   dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
@@ -985,7 +989,9 @@ export const initiateEarnWithdrawTransaction = async (
   sourceSymbol = 'USDC',
   submissionAttemptId?: string,
   attemptStartedAt?: number,
-  sourceDecimals?: number
+  sourceDecimals?: number,
+  protocol?: '1delta' | 'dummy-lending',
+  chainId?: number
 ): Promise<string> => {
   const dbTransaction = new EarnWithdrawTransaction(
     accountId,
@@ -997,7 +1003,9 @@ export const initiateEarnWithdrawTransaction = async (
     sourceSymbol,
     submissionAttemptId,
     attemptStartedAt,
-    sourceDecimals
+    sourceDecimals,
+    protocol,
+    chainId
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;

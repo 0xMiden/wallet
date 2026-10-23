@@ -1,3 +1,4 @@
+import { TEST_EARN_VAULT_INFO } from 'lib/epoch/testing/bridge-config';
 import { _resetGuardianRegistryForTest, getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 
@@ -22,7 +23,7 @@ import {
 import type { BridgeConfig, GuardianConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
 import type { SwapPairs } from './swap-pairs';
-import { selectNativeEthFaucet, selectSwapPairs } from './values';
+import { selectEarnVaultCatalog, selectNativeEthFaucet, selectSwapPairs } from './values';
 
 let mockNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -131,7 +132,8 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
   epoch: {
     allocator: { state: 'ok', value: true },
     market: { state: 'skipped' },
-    midenUsdcFaucet: { state: 'skipped' }
+    midenUsdcFaucet: { state: 'skipped' },
+    vaults: { state: 'skipped' }
   },
   swap: { pairs: { state: 'skipped' } }
 });
@@ -731,6 +733,7 @@ describe('a re-derivation that cannot read a value', () => {
     return {
       ...base,
       chains: { 11155111: { agglayer, epoch: { evmUsdc: { state: 'ok', value: USDC } } } },
+      epoch: { ...base.epoch, vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] } },
       swap: { pairs: { state: 'ok', value: SWAP_PAIRS } }
     };
   };
@@ -744,7 +747,7 @@ describe('a re-derivation that cannot read a value', () => {
     return {
       ...base,
       chains: { 11155111: { agglayer, epoch: { evmUsdc: down } } },
-      epoch: { ...base.epoch, allocator: down },
+      epoch: { ...base.epoch, allocator: down, vaults: down },
       swap: { pairs: down }
     };
   };
@@ -774,6 +777,8 @@ describe('a re-derivation that cannot read a value', () => {
     expect(sepoliaReads(derived)).toMatchObject(kept);
     // A solver that is down for one check does not empty the swap registry.
     expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(SWAP_PAIRS);
+    // Nor does a positions host that is down for one check empty the Earn vault catalogue.
+    expect(selectEarnVaultCatalog(getBridgeConfigSnapshot())).toEqual([TEST_EARN_VAULT_INFO]);
     const stored = mockStorage.get(DERIVED);
     expect(stored).toEqual(derived);
     serve(2);
@@ -781,6 +786,7 @@ describe('a re-derivation that cannot read a value', () => {
     await _refreshBridgeConfigForTest();
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
     expect(selectSwapPairs(getBridgeConfigSnapshot())).toBeNull();
+    expect(selectEarnVaultCatalog(getBridgeConfigSnapshot())).toBeNull();
     expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
   });
 
@@ -866,6 +872,8 @@ describe('a re-derivation that cannot read a value', () => {
     const { derived } = getBridgeConfigSnapshot();
     expect(derived?.chains[11155111]?.agglayer.tokens).toEqual({ state: 'ok', value: [ETH] });
     expect(derived?.epoch.allocator).toEqual(down);
+    // The catalogue the other realm stored reads back whole.
+    expect(derived?.epoch.vaults).toEqual({ state: 'ok', value: [TEST_EARN_VAULT_INFO] });
     expect(mockStorage.get(DERIVED)).toEqual(derived);
   });
 });
@@ -949,6 +957,22 @@ describe('the poll schedule', () => {
     });
     serve(1);
     await initBridgeConfig();
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['has failed', { state: 'error', message: 'HTTP 503' }],
+    ['was stored in a form that does not read back', { state: 'ok', value: [{ marketUid: 'damaged' }] }]
+  ])('re-checks every 5 minutes while the read of the Earn vault catalogue %s', async (_label, vaults) => {
+    seed(1);
+    const stored = derivedFor(config(1), NOW);
+    mockStorage.set(DERIVED, { ...stored, epoch: { ...stored.epoch, vaults } });
+    serve(1);
+    await initBridgeConfig();
+    expect(getBridgeConfigSnapshot().derived?.epoch.vaults.state).toBe('error');
     await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
     expect(mockFetch).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(1);

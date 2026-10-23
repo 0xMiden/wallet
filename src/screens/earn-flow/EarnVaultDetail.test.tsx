@@ -22,7 +22,9 @@ import type { EarnChartPoint, EarnVault } from './types';
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; vaultsPending?: boolean; error?: string; loadError?: string } = {
+  isLoading: false
+};
 const mockRefetch = jest.fn();
 
 // What the live mapping hands over today: a rate it has read, but no 24h move and no point dates.
@@ -111,7 +113,7 @@ jest.mock('./components', () => {
       label: string;
       meta?: React.ReactNode;
     }) => R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, value, ' ', label, ' ', meta),
-    earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+    earnSubjectTitle: ({ name, protocol }: { name?: string; protocol: string }) => name ?? protocol,
     EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
       `${subject.asset} on ${subject.network}`,
     // The token mark, which names the pair for assistive tech unless it is decorative, as the real one does.
@@ -125,7 +127,15 @@ jest.mock('./components', () => {
           'data-decorative': String(Boolean(decorative))
         },
         decorative ? null : 'earnAssetOnNetwork'
-      )
+      ),
+    // The closed-vault notice: a probe that shows only for a vault that accepts no deposits, as the real one does.
+    EarnVaultClosedNotice: ({ canOpen, depositsEnabled }: { canOpen?: boolean; depositsEnabled?: boolean }) =>
+      canOpen === false || depositsEnabled === false
+        ? R.createElement('div', {
+            'data-testid': 'earn-vault-closed-notice',
+            'data-deposits-enabled': String(depositsEnabled !== false)
+          })
+        : null
   };
 });
 
@@ -210,6 +220,8 @@ jest.mock('./useEarnPositions', () => ({
         apyChange24h: '+0.12% (24h)',
         tvl: '$1.2B',
         risk: 'Low',
+        riskLevel: 'low',
+        canOpen: true,
         audited: true,
         about: 'About the audited vault.',
         chartData: [
@@ -228,6 +240,7 @@ jest.mock('./useEarnPositions', () => ({
         apyChange24h: '-0.05% (24h)',
         tvl: '$500M',
         risk: 'Medium',
+        riskLevel: 'medium',
         audited: false,
         about: 'About the unaudited vault.',
         chartData: [
@@ -236,7 +249,51 @@ jest.mock('./useEarnPositions', () => ({
           { label: 'F3', value: 3.0 }
         ]
       },
-      mockFreshVault
+      mockFreshVault,
+      // A Morpho market that accepts no deposits now.
+      {
+        id: 'v-closed',
+        protocol: 'Morpho',
+        marketName: 'Morpho cbBTC-USDC 86',
+        asset: 'USDC',
+        network: 'Base',
+        apy: '5.90%',
+        aprPercent: 5.9,
+        apyChange24h: EARN_PLACEHOLDER,
+        tvl: '$812.3M',
+        risk: 'High',
+        riskLevel: 'high',
+        canOpen: false,
+        audited: false,
+        about: EARN_PLACEHOLDER,
+        chartData: [
+          { label: EARN_PLACEHOLDER, value: 5.9 },
+          { label: EARN_PLACEHOLDER, value: 5.9 }
+        ]
+      },
+      // A vault the document names and whose deposits it stops, though the market itself is open.
+      {
+        id: 'aave-v3-base-usdc',
+        name: 'Aave V3 USDC',
+        protocol: 'Aave V3',
+        listedAbout: 'Lends USDC to Aave V3 borrowers on Base.',
+        asset: 'USDC',
+        network: 'Base',
+        apy: '5.12%',
+        aprPercent: 5.12,
+        apyChange24h: EARN_PLACEHOLDER,
+        tvl: '$412.3M',
+        risk: 'Low',
+        riskLevel: 'low',
+        canOpen: false,
+        depositsEnabled: false,
+        audited: false,
+        about: 'Lends USDC to Aave V3 borrowers on Base.',
+        chartData: [
+          { label: EARN_PLACEHOLDER, value: 5.12 },
+          { label: EARN_PLACEHOLDER, value: 5.12 }
+        ]
+      }
     ],
     ...mockLoadState,
     refetch: mockRefetch
@@ -304,7 +361,7 @@ describe('EarnVaultDetail', () => {
 
     // Stats: audited → "✓ yes" with the ink value class.
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
-    expect(metricValue('earnRiskLabel')).toHaveTextContent('Low');
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('earnRiskLow');
     const audited = metricValue('earnAuditedLabel');
     expect(audited).toHaveTextContent('✓ yes');
     expect(audited).toHaveAttribute('data-value-class', 'text-ink');
@@ -340,7 +397,7 @@ describe('EarnVaultDetail', () => {
     const audited = metricValue('earnAuditedLabel');
     expect(audited).toHaveTextContent('no');
     expect(audited).toHaveAttribute('data-value-class', '');
-    expect(metricValue('earnRiskLabel')).toHaveTextContent('Medium');
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('earnRiskMedium');
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$500M');
 
     expect(screen.getByText('About the unaudited vault.')).toBeInTheDocument();
@@ -381,6 +438,64 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  it('greys out Deposit and says why for a vault that accepts no deposits now', () => {
+    render(<EarnVaultDetail vaultId="v-closed" />);
+
+    expect(screen.getByTestId('earn-vault-closed-notice')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('says one reason at a time: no closed-vault notice while Earn deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId="v-closed" />);
+
+    expect(screen.getByTestId('feature-unavailable-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+  });
+
+  it("titles a listed vault with the document's name, and shows its about sentence", () => {
+    render(<EarnVaultDetail vaultId="aave-v3-base-usdc" />);
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave V3 USDC');
+    expect(screen.getByText('Lends USDC to Aave V3 borrowers on Base.')).toBeInTheDocument();
+  });
+
+  it('greys out Deposit and says why for a vault whose deposits the document stops', () => {
+    render(<EarnVaultDetail vaultId="aave-v3-base-usdc" />);
+
+    expect(screen.getByTestId('earn-vault-closed-notice')).toHaveAttribute('data-deposits-enabled', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('draws no closed-vault notice for an open vault', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+  });
+
+  it('draws each known risk level in its status ink, and an unknown label as written in the card ink', () => {
+    const { unmount } = render(<EarnVaultDetail vaultId="v-audited" />);
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', 'text-positive-tint-ink');
+    unmount();
+
+    const medium = render(<EarnVaultDetail vaultId="v-unaudited" />);
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', 'text-pending-tint-ink');
+    medium.unmount();
+
+    const high = render(<EarnVaultDetail vaultId="v-closed" />);
+    expect(metricValue('earnRiskLabel')).toHaveTextContent('earnRiskHigh');
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', 'text-negative-tint-ink');
+    high.unmount();
+
+    render(<EarnVaultDetail vaultId="v-fresh" />);
+    expect(metricValue('earnRiskLabel')).toHaveTextContent(/^Low$/);
+    expect(metricValue('earnRiskLabel')).toHaveAttribute('data-value-class', '');
   });
 
   it('holds Deposit, with no notice, while availability is loading', () => {
@@ -490,6 +605,23 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();
     expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+
+  it('waits for a vault catalogue still pending after the positions read landed, not reading it as missing', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
+    expect(screen.queryByText('earnCurrentApy')).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+
+  it('draws a vault it has while the catalogue is pending', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
   });
 });
 

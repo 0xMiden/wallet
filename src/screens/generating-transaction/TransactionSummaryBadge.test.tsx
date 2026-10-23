@@ -8,6 +8,7 @@ import { act } from 'react-dom/test-utils';
 import {
   publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EARN_MARKET,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
@@ -18,8 +19,38 @@ import {
   ArrowFill,
   TransactionSummaryBadge,
   arrowInkFor,
+  earnMarketLabel,
   useTransactionSummaryBadgeContent
 } from './TransactionSummaryBadge';
+
+describe('earnMarketLabel', () => {
+  // A realm with no accepted document: no vault is listed, so every market is named from its lender key.
+  const UNLISTED: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null };
+
+  it("names a market the document lists by the vault's name, whatever the case of its uid", () => {
+    expect(earnMarketLabel(TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_EARN_MARKET.marketUid)).toBe('Dummy Lending USDC');
+    expect(earnMarketLabel(TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_EARN_MARKET.marketUid.toLowerCase())).toBe(
+      'Dummy Lending USDC'
+    );
+    expect(earnMarketLabel(UNLISTED, TEST_EARN_MARKET.marketUid)).toBe('Dummy Lending');
+  });
+
+  it.each<[string, string | undefined]>([
+    ['AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', 'Aave V3'],
+    ['COMPOUND_V3_USDC:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', 'Compound V3 USDC'],
+    // A Morpho Blue key carries the 32-byte market id, which shows shortened so no label can spill out of a pill.
+    [
+      'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      'Morpho d752…6e41d'
+    ],
+    ['DUMMY_LENDING:11155111:0xabc', 'Dummy Lending'],
+    ['NEW_LENDER:11155111:0xabc', 'NEW-LENDER'],
+    [':11155111:0xabc', undefined]
+  ])('names the market of %s, which no document lists, from its lender key', (marketUid, label) => {
+    expect(earnMarketLabel(UNLISTED, marketUid)).toBe(label);
+    expect(earnMarketLabel(TEST_BRIDGE_CONFIG_SNAPSHOT, marketUid)).toBe(label);
+  });
+});
 
 // One `t` across renders, as react-i18next gives, so a memo keyed on it recomputes only when its other inputs move.
 const mockT = (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key;
@@ -588,8 +619,8 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     // lhs = "{amount} {symbol}" with the USDC fallback symbol.
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
-    // rhs = the hyphenated market name derived from the marketUid lender key.
-    expect(container.textContent).toContain('DUMMY-LENDING');
+    // rhs = the lender family's display name derived from the marketUid lender key.
+    expect(container.textContent).toContain('Dummy Lending');
     expect(container.textContent).not.toContain('UNDEFINED');
     act(() => root.unmount());
   });
@@ -672,7 +703,7 @@ describe('useTransactionSummaryBadgeContent', () => {
       })
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('Unknown');
-    expect(container.textContent).toContain('DUMMY-LENDING');
+    expect(container.textContent).toContain('Dummy Lending');
     expect(mockFormatAmount).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
