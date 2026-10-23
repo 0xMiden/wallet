@@ -195,7 +195,12 @@ export function assertWithdrawalAllocations(
   const delivery = mandates[deliveryIndex];
   const withdraws = mandates.filter((_, index) => index !== deliveryIndex);
   const [withdraw] = withdraws;
-  if (!delivery || withdraws.length !== 1 || !withdraw || !spendsReviewedInput(quote, withdraw))
+  // The SDK allocates only a leg whose quote needs a resource lock. The testnet dummy lender's withdraw leg does;
+  // the mainnet 1delta withdraw leg runs as a direct smart-account call and has no allocation, so the batch holds
+  // the delivery alone. Either shape is bound to the review: a withdraw allocation, when there is one, spends the
+  // reviewed input, and the delivery always does, with the reviewed floor.
+  if (!delivery || withdraws.length > 1 || (withdraw !== undefined && !spendsReviewedInput(quote, withdraw)))
     throw new Error('earnWithdrawRefresh');
+  if (withdraws.length === 1 && withdraw === undefined) throw new Error('earnWithdrawRefresh');
   assertWithdrawalDelivery(quote, delivery);
 }

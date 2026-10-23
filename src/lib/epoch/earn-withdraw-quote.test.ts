@@ -186,10 +186,11 @@ it('binds every allocation: one withdraw leg for the reviewed input and the deli
   const leg = { tokenIn: token, tokenInAmount: q.amountAtomic, minTokenOut: '0' };
   const delivery = { ...leg, minTokenOut: q.minimumAtomic };
   expect(() => assertWithdrawalAllocations(q, [leg, delivery], 1)).not.toThrow();
+  // A withdraw leg that needs no resource lock (mainnet 1delta) has no allocation: the delivery alone is the batch.
+  expect(() => assertWithdrawalAllocations(q, [delivery], 0)).not.toThrow();
   const refused: Array<[Array<typeof leg | undefined>, number]> = [
     [[leg, delivery], 2],
     [[undefined, delivery], 1],
-    [[delivery], 0],
     [[leg, leg, delivery], 2],
     [[{ ...leg, tokenInAmount: '2' }, delivery], 1],
     [[leg, { ...delivery, minTokenOut: '0' }], 1]
