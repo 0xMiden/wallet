@@ -1,4 +1,4 @@
-import { getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEarnMarket, getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
 
 import {
   carryForward,
@@ -304,13 +304,42 @@ describe('fetchEarnPositions', () => {
     const fetchMock = serve({
       owner: () => positionsAnswer([apiItem('12.5', 12.5), apiItem('3', 3, 'AAVE_V3', AAVE_UID)])
     });
+    const getMarket = jest.mocked(getEarnMarket);
+    getMarket.mockImplementation(() => {
+      throw new Error('The bridge config has no usable Earn market.');
+    });
+    getMarket.mockClear();
 
-    const result = await fetchEarnPositions({ owners: [OWNER], skipCatalog: true });
+    try {
+      const result = await fetchEarnPositions({ owners: [OWNER], chains: [11155111], skipCatalog: true });
 
-    expect(requestedPaths(fetchMock)).toEqual([`/positions?account=${OWNER}`]);
-    expect(result.errors).toEqual([]);
-    expect(result.vaults).toEqual([]);
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
+      expect(requestedPaths(fetchMock)).toEqual([`/positions?account=${OWNER}`]);
+      expect(result.errors).toEqual([]);
+      expect(result.vaults).toEqual([]);
+      expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
+      expect(getMarket).not.toHaveBeenCalled();
+    } finally {
+      getMarket.mockImplementation(() => TEST_EARN_MARKET);
+    }
+  });
+
+  it('rejects a skip-catalog read that names no chain before any request', async () => {
+    const fetchMock = serve();
+    const getMarket = jest.mocked(getEarnMarket);
+    getMarket.mockImplementation(() => {
+      throw new Error('The bridge config has no usable Earn market.');
+    });
+    getMarket.mockClear();
+
+    try {
+      await expect(fetchEarnPositions({ owners: [OWNER], skipCatalog: true })).rejects.toThrow(
+        'A skip-catalog positions read needs the chain of its market.'
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(getMarket).not.toHaveBeenCalled();
+    } finally {
+      getMarket.mockImplementation(() => TEST_EARN_MARKET);
+    }
   });
 
   it('names the catalogue vaults a read dropped, and says when one had no uid', async () => {

@@ -6,7 +6,7 @@ import {
   getNativeAssetId,
   getNativeAssetMetadata
 } from 'lib/miden-chain/native-asset';
-import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
+import { findEpochUsdcAddress, getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { buildEpochReadOnlyWalletClient } from './client';
@@ -130,17 +130,19 @@ export async function quoteEarnWithdrawal(
 }
 
 /**
- * Synchronous guard used immediately before every vault signing request. The position can be in any catalogue vault,
- * so the guard checks only that its market uid names the Earn route's chain (the default market's chain).
+ * Synchronous guard used immediately before every vault signing request. The position's chain is accepted when the
+ * document configures an Epoch USDC route for it, including when that chain is not the default Earn market's. A
+ * chain with no such route needs a fresh quote. The default market does not have to be available.
  */
 export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void {
+  const chainId = Number(quote.position.marketUid.split(':')[1]);
   const currentNative = captureNativeAssetSnapshot();
   if (
     Date.now() >= quote.expiresAt ||
     quote.scope !== currentNative.scope ||
     quote.nativeRevision !== currentNative.revision ||
     quote.allocatorUrl !== getEpochAllocatorUrl() ||
-    quote.position.marketUid.split(':')[1] !== String(getEarnMarket().chainId)
+    findEpochUsdcAddress(chainId) === null
   )
     throw new Error('earnWithdrawRefresh');
 }
@@ -154,6 +156,7 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
   const fresh = await fetchEarnPositions({
     accountId: quote.accountId,
     owners: [quote.position.owner],
+    chains: [Number(quote.position.marketUid.split(':')[1])],
     skipCatalog: true
   });
   const position = fresh.positions.find(

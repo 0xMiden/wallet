@@ -3,6 +3,7 @@ import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import {
   type EarnMarket,
+  findEpochUsdcAddress,
   findEvmUsdc,
   getEarnMarket,
   getEarnVaults,
@@ -256,6 +257,26 @@ function isRouteMarket(marketUid: string, market: EarnMarket, listed: ReadonlySe
   );
 }
 
+/**
+ * True when a skip-catalog read keeps `marketUid`. Its chain is one of `chains`, its token is that chain's Epoch USDC
+ * when the document names one, and the document lists the uid or its lender family is known. This read has no default
+ * market: the caller passes the chain it already holds.
+ */
+function keepsWithdrawalMarket(marketUid: string, chains: readonly number[], listed: ReadonlySet<string>): boolean {
+  const [lenderKey = '', chainId, token] = marketUid.split(':');
+  const chain = Number(chainId);
+  if (!chains.includes(chain)) return false;
+  const usdc = findEpochUsdcAddress(chain);
+  if (usdc !== null && token?.toLowerCase() !== usdc.toLowerCase()) return false;
+  return listed.has(marketUid.toLowerCase()) || earnLenderFamily(lenderKey) !== undefined;
+}
+
+/** The chains a skip-catalog read queries. With none, it throws before any request: there is no default market. */
+function withdrawalChains(chains: number[] | undefined): number[] {
+  if (!chains?.length) throw new Error('A skip-catalog positions read needs the chain of its market.');
+  return chains;
+}
+
 /** Flatten one chain item's nested `data[].positions[]` into the non-zero `EarnPosition`s of the markets `keeps` names. */
 function flattenChainItem(
   owner: string,
@@ -307,11 +328,16 @@ export interface FetchEarnPositionsArgs {
   accountId?: string;
   /** Override the owner addresses to query (defaults to those from activity). */
   owners?: string[];
-  /** Chains to query (defaults to the configured Earn market's chain). */
+  /**
+   * Chains to query. Defaults to the configured Earn market's chain. A skip-catalog read has no default and requires
+   * this list, the chain parsed from the position it already holds.
+   */
   chains?: number[];
   /**
-   * Do not read the vault catalogue. `vaults` is then empty, and positions are kept by lender family, chain and token
-   * alone. A withdrawal check uses it, so a failed catalogue read never stops a withdrawal.
+   * Do not read the vault catalogue and do not consult the default Earn market. The caller passes `chains`; with
+   * none, the read throws before any request. `vaults` is empty. A position is kept when its chain is one of
+   * `chains`, its token matches the document's Epoch USDC on that chain when one is named, and its uid is listed or
+   * its lender family is known. A withdrawal check uses this so a failed catalogue read never stops a withdrawal.
    */
   skipCatalog?: boolean;
 }
@@ -327,16 +353,23 @@ export interface FetchEarnPositionsArgs {
  * A position is kept when the catalogue that loaded contains its market uid, or when its uid names a market on the
  * default market's chain and token that the document lists or whose lender family the wallet names. A catalogue that
  * loaded does not replace that route rule, so a market it omitted stays when the route already matches it. An
- * unknown-family position the catalogue did not serve stays out. It rejects only when the owner lookup fails or the
- * bridge config names no positions host or Earn market, before any request.
+ * unknown-family position the catalogue did not serve stays out. A skip-catalog read does not call `getEarnMarket` or
+ * the catalogue: the caller passes `chains`, and a position is kept when its chain is one of them, its token matches
+ * that chain's Epoch USDC when the document names one, and its uid is listed or its lender family is known. It
+ * rejects before any request when that read is given no chains, when the owner lookup fails, or when the bridge
+ * config names no positions host, or, for a catalogue read, no Earn market.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const [positionsUrl, market, listed] = [getEpochPositionsUrl(), getEarnMarket(), getEarnVaults()];
-  const chains = args.chains ?? [market.chainId];
+  // A withdrawal read names its own chain and must not ask for the default market, which may be unavailable.
+  const skipChains = args.skipCatalog ? withdrawalChains(args.chains) : undefined;
+  const positionsUrl = getEpochPositionsUrl();
+  const market = skipChains ? undefined : getEarnMarket();
+  const listed = getEarnVaults();
+  const chains = skipChains ?? args.chains ?? (market ? [market.chainId] : []);
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
   const readCatalog = async (): Promise<EarnVaultsResult | undefined> => {
-    if (args.skipCatalog) return undefined;
+    if (!market) return undefined;
     const usdc = findEvmUsdc(market.chainId);
     return fetchEarnVaults({
       positionsUrl,
@@ -356,9 +389,12 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   const catalogUids = catalog && !catalog.error ? new Set(catalog.vaults.map(vaultKey)) : undefined;
   const listedUids = new Set(listed.map(vault => vault.marketUid));
   // A loaded catalogue adds the markets it served. It does not replace the route rule, so a funded position whose
-  // market the catalogue omitted stays when the document lists it or its lender family is known.
+  // market the catalogue omitted stays when the document lists it or its lender family is known. A skip-catalog read
+  // has no default market, so it keeps by the chains the caller passed.
   const keeps = (marketUid: string): boolean =>
-    catalogUids?.has(marketUid.toLowerCase()) === true || isRouteMarket(marketUid, market, listedUids);
+    market
+      ? catalogUids?.has(marketUid.toLowerCase()) === true || isRouteMarket(marketUid, market, listedUids)
+      : keepsWithdrawalMarket(marketUid, chains, listedUids);
 
   const positions: EarnPosition[] = [];
   const errors: { owner: string; error: string }[] = [];

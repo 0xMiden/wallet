@@ -6,9 +6,11 @@ import {
   captureNativeAssetSnapshot,
   type NativeAssetChainMetadata
 } from 'lib/miden-chain/native-asset';
+import { findEpochUsdcAddress } from 'lib/remote-config/values';
 
 import {
   quoteEarnWithdrawal,
+  assertWithdrawalReviewContext,
   assertWithdrawalReviewCurrent,
   assertWithdrawalDelivery,
   assertWithdrawalAllocations
@@ -26,6 +28,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({
   getEpochAllocatorUrl: () => 'https://allocator.example',
+  findEpochUsdcAddress: jest.fn(),
   getEarnMarket: () => ({
     marketUid: 'DUMMY_LENDING:11155111:0x1111111111111111111111111111111111111111',
     chainId: 11155111
@@ -48,6 +51,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(captureNativeAssetSnapshot).mockReturnValue({ scope: 'testnet', revision: 1 });
   jest.mocked(getNativeAssetMetadata).mockReset().mockResolvedValue({ symbol: 'USDCX', decimals: 6 });
+  jest.mocked(findEpochUsdcAddress).mockImplementation(chainId => (chainId === 11155111 ? token : null));
   getTaskData.mockImplementation(async p => ({ taskTypeString: 'task', intentData: p.intentData }));
   getIntentQuote.mockResolvedValue({ success: true, tokenOut: '991822', transactions: [], resourceLockRequired: true });
   jest.mocked(fetchEarnPositions).mockResolvedValue({
@@ -144,7 +148,12 @@ it('requires refresh on expiry, a malformed reviewed amount, payout identity or 
 it('reads the fresh position without the vault catalogue', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);
   await assertWithdrawalReviewCurrent(q);
-  expect(fetchEarnPositions).toHaveBeenCalledWith({ accountId: 'miden', owners: [token], skipCatalog: true });
+  expect(fetchEarnPositions).toHaveBeenCalledWith({
+    accountId: 'miden',
+    owners: [token],
+    chains: [11155111],
+    skipCatalog: true
+  });
 });
 it("accepts a position in any market on the route's chain, and refuses one on another chain", async () => {
   // A market of another lender than the default market, on the default market's chain.
@@ -173,6 +182,16 @@ it("accepts a position in any market on the route's chain, and refuses one on an
 
   const offRoute = { ...q, position: { ...q.position, marketUid: `MORPHO_BLUE_${'ab'.repeat(32)}:8453:${token}` } };
   await expect(assertWithdrawalReviewCurrent(offRoute)).rejects.toThrow('earnWithdrawRefresh');
+});
+it('accepts a configured non-default Epoch USDC route and refuses an unconfigured chain', async () => {
+  const q = await quoteEarnWithdrawal(args, sdk);
+  jest.mocked(findEpochUsdcAddress).mockImplementation(chainId => (chainId === 8453 ? token : null));
+
+  const base = { ...q, position: { ...q.position, marketUid: `DUMMY_LENDING:8453:${token}` } };
+  expect(() => assertWithdrawalReviewContext(base)).not.toThrow();
+
+  const unconfigured = { ...base, position: { ...base.position, marketUid: `DUMMY_LENDING:84532:${token}` } };
+  expect(() => assertWithdrawalReviewContext(unconfigured)).toThrow('earnWithdrawRefresh');
 });
 it('binds the prepared delivery to the reviewed source amount, underlying and minimum', async () => {
   const q = await quoteEarnWithdrawal(args, sdk);

@@ -966,6 +966,12 @@ describe('resubmitEarnWithdrawal', () => {
       expect(result).toBe(worse ? REVIEW_CHANGED : 'submitted');
       expect(deps.ensureSmartAccount).toHaveBeenCalledTimes(worse ? 0 : 1);
       expect(execute).toHaveBeenCalledTimes(worse ? 0 : 1);
+      expect(fetchEarnPositions).toHaveBeenCalledWith({
+        accountId: row.accountId,
+        owners: [EVM_OWNER],
+        chains: [11155111],
+        skipCatalog: true
+      });
       expect(quoteEarnWithdrawal).toHaveBeenCalledWith(expect.objectContaining({ amount: '1' }));
       expect(row.extraInputs.reviewedMinimumReceivedAtomic).toBe(worse ? '5' : '6');
     }
