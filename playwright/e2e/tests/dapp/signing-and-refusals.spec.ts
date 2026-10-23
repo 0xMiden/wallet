@@ -675,7 +675,8 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx
         );
         const { noteId } = unwrap(imported.result, 'import of a note addressed to B', ctx);
-        const { result } = await answerPrompt(
+        // A P2ID note addressed to another account is refused before any sheet opens (#1764).
+        const result = await expectNoPrompt(
           dapp,
           () =>
             callDapp(
@@ -690,12 +691,18 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
               },
               ctx.deadline
             ),
-          { kind: 'consume', decision: 'approve', origin: dapp.origin, whileOpen: () => popupBlock(dapp, ctx) },
-          ctx
+          ctx,
+          { refusal: true }
         );
-        const { txId } = unwrap(result, 'requestConsume of a note addressed to B', ctx);
-        await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.R10[j.axis.label], ctx);
-        // The failed consume spent nothing: B claims exactly that note, which also leaves B nothing pending.
+        expect(result).toEqual(
+          refusal(
+            'WalletTransactionError',
+            'INVALID_PARAMS: Error: This account can never consume this note - refusing it',
+            'InvalidParamsMidenWalletError'
+          )
+        );
+        await expectNoNewRows(side, baseline);
+        // The refused consume spent nothing: B claims exactly that note, which also leaves B nothing pending.
         await expectReceivedByRecipient(
           j.walletB,
           [{ noteId: toBNote.noteId, faucetId: toBNote.faucetId, amount: toBNote.amount }],
