@@ -1,15 +1,20 @@
 import { beginBalanceSnapshot, isBalanceReflected, tagBalanceSnapshot, type BalanceSnapshot } from './balance-snapshot';
 import type { TokenBalanceData } from './front/balance';
+import { buildNetworkChoiceOverride, type EndpointOverride } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
-let mockOverride: { rpcUrl: string } | null = null;
+let mockOverride: Partial<EndpointOverride> | null = null;
+let mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
 let mockRpc = 'https://rpc.mainnet.example';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getActiveOverride: () => mockOverride,
-  getEffectiveNetworkName: () => 'mainnet',
+  getEffectiveNetworkName: () => mockNetwork,
   getEffectiveRpcUrl: () => mockRpc
 }));
 beforeEach(() => {
   mockOverride = null;
+  mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
   mockRpc = 'https://rpc.mainnet.example';
 });
 
@@ -86,6 +91,28 @@ describe('beginBalanceSnapshot', () => {
   it('labels a read under an active endpoint override', () => {
     mockOverride = { rpcUrl: 'https://private.example' };
     expect(beginBalanceSnapshot()(account)).toEqual({ network: 'override', accountNonce: '7' });
+  });
+
+  it('labels an endpoint-free Mainnet choice as Mainnet and accepts its balance snapshot', () => {
+    mockOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    const snapshot = beginBalanceSnapshot()(account);
+    expect(snapshot).toEqual({ network: 'mainnet', accountNonce: '7' });
+    const displayed = rows({ balance: 0 });
+    tagBalanceSnapshot(displayed, snapshot);
+    expect(isBalanceReflected(requirement, { 'account-a': displayed })).toBe(true);
+  });
+
+  it('labels an endpoint-free choice with the network its getter returns', () => {
+    mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+    mockOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.TESTNET);
+    expect(beginBalanceSnapshot()(account)).toEqual({ network: 'testnet', accountNonce: '7' });
+  });
+
+  it('detects a network choice that becomes a custom endpoint while the read runs', () => {
+    mockOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    const finish = beginBalanceSnapshot();
+    mockOverride = { ...mockOverride, rpcUrl: mockRpc };
+    expect(finish(account)).toEqual({ network: 'changed', accountNonce: '7' });
   });
 
   it('labels a read whose endpoint changed while it ran', () => {

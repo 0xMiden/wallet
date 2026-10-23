@@ -1,4 +1,9 @@
-import { getActiveOverride, getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import {
+  getActiveOverride,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  hasCustomEndpointOverride
+} from 'lib/miden-chain/effective-endpoints';
 
 import type { TokenBalanceData } from './front/balance';
 
@@ -16,11 +21,14 @@ export interface BalanceSnapshot {
 export function beginBalanceSnapshot(): (
   account: { nonce(): { asInt(): bigint } } | null | undefined
 ) => BalanceSnapshot {
-  const overridden = getActiveOverride() !== null;
+  const overridden = hasCustomEndpointOverride(getActiveOverride());
   const network = overridden ? 'override' : getEffectiveNetworkName();
   const rpc = getEffectiveRpcUrl();
   return account => ({
-    network: getEffectiveRpcUrl() === rpc && (getActiveOverride() !== null) === overridden ? network : 'changed',
+    network:
+      getEffectiveRpcUrl() === rpc && hasCustomEndpointOverride(getActiveOverride()) === overridden
+        ? network
+        : 'changed',
     accountNonce: account ? account.nonce().asInt().toString() : undefined
   });
 }
