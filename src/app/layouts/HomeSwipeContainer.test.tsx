@@ -188,7 +188,8 @@ function measure(width: number) {
 }
 
 function fire(target: EventTarget, type: string, touches?: number): Event {
-  const event = new Event(type, { bubbles: true, cancelable: true });
+  const init = { bubbles: true, cancelable: true };
+  const event = type.startsWith('touch') ? new TouchEvent(type, init) : new Event(type, init);
   if (touches !== undefined) Object.defineProperty(event, 'touches', { value: { length: touches } });
   act(() => {
     target.dispatchEvent(event);
@@ -338,6 +339,49 @@ describe('HomeSwipeContainer', () => {
       measure(W);
       fire(scroller, 'touchstart', 1);
       settleAt(scroller, W);
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    // A touch keeps targeting the node it started on after that node leaves the document, and a
+    // detached node's events reach no ancestor: the scroller never hears this touch end.
+    it('commits after a touch whose target was removed while the finger was down', () => {
+      const { scroller, getByTestId } = mount();
+      measure(W);
+      const row = document.createElement('div');
+      getByTestId('page-explore').appendChild(row);
+      fire(row, 'touchstart', 1);
+      row.remove();
+      settleAt(scroller, W);
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fire(row, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('waits for the last finger of several, wherever each started', () => {
+      const { scroller, getByTestId } = mount();
+      measure(W);
+      const row = document.createElement('div');
+      getByTestId('page-explore').appendChild(row);
+      fire(row, 'touchstart', 1);
+      fire(scroller, 'touchstart', 2);
+      row.remove();
+      settleAt(scroller, W);
+
+      fire(row, 'touchend', 1);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
       expect(mockNavigate).not.toHaveBeenCalled();
 
       fire(scroller, 'touchend', 0);
@@ -1029,6 +1073,23 @@ describe('HomeSwipeContainer', () => {
   });
 
   describe('cleanup', () => {
+    it('stops listening for the end of a touch still down at unmount', () => {
+      const { scroller, getByTestId, unmount } = mount();
+      measure(W);
+      const row = document.createElement('div');
+      getByTestId('page-explore').appendChild(row);
+      fire(row, 'touchstart', 1);
+      scroller.scrollLeft = W;
+
+      unmount();
+      fire(row, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs * 2);
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
     it('cancels a slide, ends the gesture and disconnects the observer on unmount', () => {
       const { scroller, rerender, unmount } = mount();
       measure(W);

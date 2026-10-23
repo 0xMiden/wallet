@@ -376,8 +376,33 @@ const HomeSwipeContainer: FC = () => {
       if (touchDown || ignoreScroll()) return;
       checkRest();
     };
-    const onTouchStart = () => {
+    const passive = { passive: true };
+    // A touch keeps targeting the node it started on even after that node leaves the document, and
+    // a detached node's events reach no ancestor, so the end is heard on each touch's own target.
+    const endTargets = new Set<EventTarget>();
+    const releaseEndTargets = () => {
+      for (const target of endTargets) {
+        target.removeEventListener('touchend', onTouchEnd);
+        target.removeEventListener('touchcancel', onTouchEnd);
+      }
+      endTargets.clear();
+    };
+    // Also covers a touch that never scrolled (a tap on content), which fires no scrollend.
+    const onTouchEnd = (event: Event) => {
+      touchDown = event instanceof TouchEvent && event.touches.length > 0;
+      if (touchDown) return;
+      releaseEndTargets();
+      releaseCatch();
+      armIdle();
+    };
+    const onTouchStart = (event: TouchEvent) => {
       touchDown = true;
+      const { target } = event;
+      if (target && !endTargets.has(target)) {
+        endTargets.add(target);
+        target.addEventListener('touchend', onTouchEnd, passive);
+        target.addEventListener('touchcancel', onTouchEnd, passive);
+      }
       beginGesture();
       const flip = flipRef.current;
       const track = trackRef.current;
@@ -395,26 +420,15 @@ const HomeSwipeContainer: FC = () => {
         s.scrollLeft = left;
       });
     };
-    // Also covers a touch that never scrolled (a tap on content), which fires no scrollend.
-    const onTouchEnd = (event: TouchEvent) => {
-      touchDown = event.touches.length > 0;
-      if (touchDown) return;
-      releaseCatch();
-      armIdle();
-    };
 
-    const passive = { passive: true };
     scroller.addEventListener('scroll', onScroll, passive);
     scroller.addEventListener('scrollend', onScrollEnd, passive);
     scroller.addEventListener('touchstart', onTouchStart, passive);
-    scroller.addEventListener('touchend', onTouchEnd, passive);
-    scroller.addEventListener('touchcancel', onTouchEnd, passive);
     return () => {
       scroller.removeEventListener('scroll', onScroll);
       scroller.removeEventListener('scrollend', onScrollEnd);
       scroller.removeEventListener('touchstart', onTouchStart);
-      scroller.removeEventListener('touchend', onTouchEnd);
-      scroller.removeEventListener('touchcancel', onTouchEnd);
+      releaseEndTargets();
       clearTimeout(idleTimer);
       const flip = flipRef.current;
       if (flip) endFlip(flip, true);
