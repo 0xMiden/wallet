@@ -208,8 +208,18 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
         operationId: result.row.id,
         allocationWeekStart: new Date((result.row.gcClaim!.scope.approvedWeek * WEEK - MONDAY) * 1000).toISOString()
       }));
-    const receipts = [];
+    const receipts: typeof results = [];
     for (const result of results) if (await receivable(result, context)) receipts.push(result);
+    if (
+      !page.complete ||
+      results.some(
+        result =>
+          !result.terminal &&
+          (result.reconciliation.state === 'pending' ||
+            (result.reconciliation.state === 'issued' && !receipts.includes(result)))
+      )
+    )
+      snapshot.pendingOperations = true;
     snapshot.receipts = receipts
       .filter(result => result.row.gcClaim!.scope.approvedWeek < entitlement.approvedWeek)
       .map(result => ({

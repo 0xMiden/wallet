@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [FIX][all] Finish GC history scans and keep checking pending request budgets after the weekly allocation arrives, so recovery becomes available without reopening Coins; retain those checks across temporary read failures (#1452).
+
 - [FIX][all] Finish Testnet GC receipt collection with proof-backed note imports and Guardian authentication, continue weekly status checks automatically, and simplify claim review with expandable fee details (#1452).
 
 - [CHANGE][all] Add native Arcade discovery and game details, catalog-scoped Activity, and unavailable GC balance/ranking pages. Explore groups the existing wallet-explore catalog into Finance/Arcade/Others without changing published categories, cached documents or version floors (#1452).

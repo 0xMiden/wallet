@@ -20,6 +20,8 @@ export interface WeeklyClaimRecovery {
 }
 
 export interface WeeklyClaimSnapshot {
+  /** History or other funded operations still need reconciliation, even when this week delivered. */
+  pendingOperations?: boolean;
   /** Authenticated older requests whose unused native budgets can be recovered. */
   recoveries?: WeeklyClaimRecovery[];
   /** Authenticated older receipts awaiting a separately approved consume. */

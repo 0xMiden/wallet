@@ -67,12 +67,20 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
         } else {
           uncertain.current = result.status.kind === 'pending';
           if (week !== undefined) uncertainWeek.current = week;
-          setSnapshot(result);
+          setSnapshot(previous =>
+            result.status.kind === 'unavailable' && previous.pendingOperations
+              ? { ...result, pendingOperations: true }
+              : result
+          );
         }
       }
     } catch {
       if (mounted.current)
-        setSnapshot({ status: { kind: uncertain.current ? 'pending' : 'unavailable' }, balance: null });
+        setSnapshot(previous => ({
+          status: { kind: uncertain.current ? 'pending' : 'unavailable' },
+          balance: null,
+          ...(previous.pendingOperations ? { pendingOperations: true } : {})
+        }));
     } finally {
       lock.current = false;
       if (mounted.current) setBusy(false);
@@ -90,7 +98,13 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
   useEffect(() => {
     // History pagination is a read, not evidence of an in-flight submission. Keep advancing
     // it without requiring repeated taps, and stop polling when a review is open.
-    if (!active || busy || review || !['checking', 'pending'].includes(snapshot.status.kind)) return;
+    if (
+      !active ||
+      busy ||
+      review ||
+      (!snapshot.pendingOperations && !['checking', 'pending'].includes(snapshot.status.kind))
+    )
+      return;
     const timer = setTimeout(() => void refresh(), snapshot.status.kind === 'checking' ? 250 : 5000);
     return () => clearTimeout(timer);
   }, [active, busy, review, snapshot, refresh]);

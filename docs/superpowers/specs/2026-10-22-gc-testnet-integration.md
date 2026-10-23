@@ -4,7 +4,7 @@ Reviewed scope: Testnet first, implemented as incremental stacked PRs on the exi
 
 ## Outcome
 
-A user can open Arcade in Bread, discover a reviewed Testnet game, see a verified GC balance, explicitly claim the weekly allocation, receive spendable GC, transfer it, and pay exactly 1 GC plus network fees to submit a result in one integrated game. Playing, replaying and sharing remain free, including at zero GC.
+A user can open Arcade in Bread, discover a reviewed Testnet game, see a verified GC balance, explicitly claim the weekly allocation, receive spendable GC, transfer it, and use exactly 1 GC plus disclosed network fees for the reviewed paid action in one integrated game. Playing, replaying and sharing remain free, including at zero GC.
 
 Testnet is the first acceptance environment. Mainnet activation requires a separate reviewed deployment decision and verified network-specific configuration.
 
@@ -17,35 +17,39 @@ Testnet is the first acceptance environment. Mainnet activation requires a separ
 - This issue is the review entry point. Keep separate components in their existing repositories. Contract/service, wallet-explore, documentation or game changes get linked PRs where those components belong.
 - Keep and update the existing Arcade PRs; do not replace them with one combined PR. Merge reviewed stack layers bottom-up, retargeting children before a parent branch is deleted. Preserve the local #1744 onboarding work separately.
 
+## Canonical-token alignment approved October23,2026
+
+Reuse Gaylord's existing canonical GC issuer on each verified network and the existing PSWAP shop. Weekly free claims distribute canonical GC from a separately funded distributor; do not deploy a competing minting faucet. Mainnet activation remains a separate reviewed decision. Prior experimental Testnet issuers and evidence do not establish canonical integration.
+
 ## Product contract
 
-- GC is an ordinary transferable fungible token with six decimals. No transfer ban, game allowlist, paid refill or redemption in this scope.
+- GC is an ordinary transferable fungible token with six decimals. No transfer ban or game allowlist. Reuse the existing PSWAP shop for optional GC purchases; purchases never create another weekly entitlement.
 - An account may explicitly claim 10 GC once per calendar week, resetting Monday at 00:00 UTC, independent of its balance.
 - Unspent GC carries over. Missed weeks do not accumulate. Sending GC away does not create a new entitlement. This is per account, not per person; no identity or Sybil-prevention system is implied.
 - Users fund all claim and leaderboard-submission network costs. Display those separately from the GC amount before approval. No wallet/team-funded user-fee subsidy.
-- Only a per-game leaderboard submission costs 1 GC. Games own score validation, ranking, ties, rewards and any game-specific settlement. Specify the payment recipient, escrow/burn behavior and refund conditions in the reviewed game contract; no universal burn, recipient or reward pool is assumed. No universal challenge/shot or prize-pool mechanism is imposed.
+- Paid game actions use 1GC under each game's disclosed policy. GQ's champion/rival challenge stakes are the recommended reference, not a universal mandatory game treasury. Each game owns score validation, ranking, ties, payout recipients, deadlines, settlement and refunds. Distinguish recoverable/winnable stakes from nonrefundable fees. Playing, replaying and social result sharing remain free; sharing a paid on-chain challenge is separate.
 - Unknown balance is unknown, not zero. A submitted or accepted operation is not a confirmed claim. No optimistic GC credit or fictional success in real flows.
 
 ## First gate: prove the transaction architecture
 
-Before deploying an issuer or enabling Claim, inspect the current protocol/SDK and demonstrate a minimal controlled local/test transaction design that satisfies the product contract. Record:
+Before deploying a distributor or enabling canonical Claim, inspect the current protocol/SDK and demonstrate a minimal controlled local/test transaction design that satisfies the product contract. Record:
 
-1. The issuer account/authentication and mint policy; canonical asset identity and decimals; configuration and key ownership.
+1. The existing canonical issuer identity, decimals and mint governance, plus the separate distributor account/authentication, inventory, configuration and funding ownership.
 2. The authoritative account/network/week identity and clock. Weekly entitlement must survive concurrent devices, local reset, recovery and reinstalls.
-3. How recipient authentication, replay prevention and atomic eligibility consumption work together with issuance. An arbitrary mint API or client-side cooldown is insufficient.
-4. Who executes and technically pays every transaction in claim request, issuer mint, note receipt/consumption and any refund. Show exactly how the user funds every cost. A faucet HTTP request does not automatically charge the user issuer-side fees.
+3. How recipient authentication, replay prevention and atomic eligibility consumption work together with canonical inventory distribution. An arbitrary mint API or client-side cooldown is insufficient.
+4. Who executes and technically pays every transaction in claim request, distributor payout, note receipt/consumption and any refund. Show exactly how the user funds every cost. A faucet HTTP request does not automatically charge the user issuer-side fees.
 5. Where durable operation records live, how they recover after crashes and lost responses, and which finalized evidence proves delivery or a terminal failure.
 6. What happens to a funded request across the Monday boundary, a changing fee quote, insufficient funding, an expired request or an issuer outage. Bind approvals to their intended account/network/week/amount; do not silently repurpose an old approval.
 
-Prefer the smallest protocol-supported design. Whether weekly enforcement belongs fully in contract storage or in a reviewed issuer service remains a technical decision for this gate. Do not present a feasibility assumption as implemented security. If the fee or atomicity requirements cannot be met, return a concrete decision to Brian rather than weakening them.
+Prefer the smallest protocol-supported design. Whether weekly enforcement belongs fully in contract storage or in a reviewed distribution service remains a technical decision for this gate. Do not present a feasibility assumption as implemented security. If the fee or atomicity requirements cannot be met, return a concrete decision to Brian rather than weakening them.
 
 ## Implementation work
 
-### Issuer and weekly distribution
+### Canonical inventory and weekly distribution
 
-Implement controlled issuance, authenticated claims, authoritative weekly eligibility, durable idempotency/status, delivery tracking and the fee mechanism proven above. Operator credentials stay in the established secret-management system, outside repositories and public artifacts. Include deployment artifacts, configuration validation and operator recovery instructions.
+Implement authenticated claims against funded canonical inventory, authoritative weekly eligibility, durable idempotency/status, delivery tracking, inventory replenishment and the fee mechanism proven above. The distributor cannot mint or change canonical mint governance. Operator credentials stay in the established secret-management system, outside repositories and public artifacts. Include deployment artifacts, configuration validation and operator recovery instructions.
 
-Separate the issuance decision from receipt availability. Concurrent/replayed requests must resolve to one logical allocation for the intended account/network/week. A retry after an uncertain response must reconcile the existing operation before issuing again. A confirmed failure must name what remains refundable or retryable.
+Separate the distribution decision from receipt availability. Concurrent/replayed requests must resolve to one logical allocation for the intended account/network/week. A retry after an uncertain response must reconcile the existing operation before distributing again. A confirmed failure must name what remains refundable or retryable.
 
 ### Wallet
 

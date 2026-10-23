@@ -453,3 +453,57 @@ it('rechecks the exact receipt and its fee funding before admitting a reviewed c
   await service.submit(scope, quote.quoteId);
   expect(raced.queueReceive).not.toHaveBeenCalled();
 });
+
+it('keeps watching a duplicate pending request after another request delivered this week', async () => {
+  const d = deps();
+  const row: ITransaction = {
+    id: 'delivered',
+    type: 'execute',
+    accountId: 'account',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    displayIcon: 'DEFAULT',
+    gcClaim: { ...prepared, version: 1 }
+  };
+  d.operations = async () => [row, { ...row, id: 'duplicate' }];
+  let recoverable = false;
+  d.reconcile = async (_context, operation) =>
+    operation.id === 'delivered'
+      ? { state: 'delivered', evidence: [] }
+      : { state: recoverable ? 'reclaimable' : 'pending', evidence: [], requestNoteBytes: new Uint8Array([3]) };
+  const service = createGcClaimBackendService(d);
+  await expect(service.read(scope)).resolves.toMatchObject({ status: { kind: 'claimed' }, pendingOperations: true });
+  recoverable = true;
+  const available = await service.read(scope);
+  expect(available.status.kind).toBe('reclaimable');
+  expect(available).not.toHaveProperty('pendingOperations');
+  expect(d.queueClaim).not.toHaveBeenCalled();
+  expect(d.queueReclaim).not.toHaveBeenCalled();
+});
+
+it('finishes scanning history after finding a delivered claim so later requests remain discoverable', async () => {
+  const d = deps();
+  d.operations = async () => [
+    {
+      id: 'delivered',
+      type: 'execute',
+      accountId: 'account',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'DEFAULT',
+      gcClaim: { ...prepared, version: 1 }
+    }
+  ];
+  d.reconcile = async () => ({ state: 'delivered', evidence: [] });
+  let complete = false;
+  d.history = async () => ({
+    requests: [],
+    unrecognizedRequestIds: [],
+    complete,
+    cursor: { nextBlock: complete ? 211 : 129, tipBlock: 210, tipCommitment: w('6') }
+  });
+  const service = createGcClaimBackendService(d);
+  await expect(service.read(scope)).resolves.toMatchObject({ status: { kind: 'claimed' }, pendingOperations: true });
+  complete = true;
+  expect(await service.read(scope)).not.toHaveProperty('pendingOperations');
+});

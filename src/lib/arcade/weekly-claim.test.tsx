@@ -328,3 +328,52 @@ it('accepts an older receipt separately while preserving the current eligible al
   expect(result.current.snapshot.status.kind).toBe('eligible');
   expect(result.current.snapshot.receipts).toEqual([]);
 });
+
+it('continues pending-operation checks after this week was claimed and stops when recovery is ready', async () => {
+  jest.useFakeTimers();
+  try {
+    const read = jest
+      .fn()
+      .mockResolvedValueOnce({ ...claimed, pendingOperations: true })
+      .mockResolvedValue({ status: { kind: 'reclaimable', reclaimHeight: 110 }, balance: '60' });
+    const submit = jest.fn();
+    const service: WeeklyClaimService = { read, prepare, submit };
+    const { result, unmount } = renderHook(() => useWeeklyClaim(scope, service));
+    await act(async () => undefined);
+    expect(result.current.snapshot.status.kind).toBe('claimed');
+    await act(async () => jest.advanceTimersByTime(5000));
+    expect(result.current.snapshot.status.kind).toBe('reclaimable');
+    expect(read).toHaveBeenCalledTimes(2);
+    await act(async () => jest.advanceTimersByTime(5000));
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(submit).not.toHaveBeenCalled();
+    unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it.each(['unavailable', 'throw'])('retains the pending recovery watcher across a transient %s read', async failure => {
+  jest.useFakeTimers();
+  try {
+    const read = jest.fn().mockResolvedValueOnce({ ...claimed, pendingOperations: true });
+    if (failure === 'throw') read.mockRejectedValueOnce(new Error('offline'));
+    else read.mockResolvedValueOnce({ status: { kind: 'unavailable' }, balance: null });
+    read.mockResolvedValue({ status: { kind: 'reclaimable', reclaimHeight: 110 }, balance: '60' });
+    const service: WeeklyClaimService = { read, prepare, submit: jest.fn() };
+    const { result, unmount } = renderHook(() => useWeeklyClaim(scope, service));
+    await act(async () => undefined);
+    await act(async () => jest.advanceTimersByTime(5000));
+    expect(result.current.snapshot).toMatchObject({
+      status: { kind: 'unavailable' },
+      balance: null,
+      pendingOperations: true
+    });
+    await act(async () => jest.advanceTimersByTime(5000));
+    expect(result.current.snapshot.status.kind).toBe('reclaimable');
+    expect(result.current.snapshot.pendingOperations).toBeUndefined();
+    unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});
