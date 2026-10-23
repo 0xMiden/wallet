@@ -90,6 +90,14 @@ const mockConfirmSensitive = jest.fn().mockResolvedValue(true);
 const mockFormatBigInt = jest.fn((amount: bigint, _decimals: number) => amount.toString());
 const mockStringToBigInt = jest.fn((str: string, _decimals: number) => BigInt(Math.trunc(Number(str) || 0)));
 const mockInitiateSwap = jest.fn().mockResolvedValue('tx-1');
+const mockVaultPreflight = jest.fn().mockResolvedValue(undefined);
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: (...args: unknown[]) => mockVaultPreflight(...args)
+}));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => mockNetworkScope
+}));
 const mockRequestSWProcessing = jest.fn();
 const mockIsExtension = jest.fn(() => true);
 const mockIsDelegateProof = jest.fn(() => false);
@@ -100,6 +108,7 @@ const mockNavigate = jest.fn();
 // ---------------------------------------------------------------------------
 
 // `react-i18next` — echo the key back so we can assert against raw keys.
+let mockNetworkScope = 'testnet|rpc';
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 let mockNativeFaucetId: string | null = 'MIDEN-ID';
@@ -417,8 +426,10 @@ const quoteAt = (
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockVaultPreflight.mockReset().mockResolvedValue(undefined);
   _resetNormalizedFaucetIdsForTest();
 
+  mockNetworkScope = 'testnet|rpc';
   mockBaseFee = 0;
   mockNativeFaucetId = 'MIDEN-ID';
   mockRenderedRoutes = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
@@ -2838,4 +2849,34 @@ afterEach(() => {
   mockRealSwapDisplays = false;
   mockRealSwapAmounts = false;
   jest.useRealTimers();
+});
+
+it('refuses a cached sufficient balance when the SDK vault cannot cover the pay amount', async () => {
+  renderFlow();
+  setOffer('10');
+  expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+  mockVaultPreflight.mockRejectedValueOnce(new Error('amountMustBeLessThanBalance'));
+  await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+  expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('amountMustBeLessThanBalance');
+  expect(mockConfirmSensitive).not.toHaveBeenCalled();
+  expect(mockInitiateSwap).not.toHaveBeenCalled();
+});
+
+it.each(['account', 'network'])('refuses a changed %s while authorization is open', async change => {
+  let authorize!: (value: boolean) => void;
+  mockConfirmSensitive.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        authorize = resolve;
+      })
+  );
+  const { rerender } = renderFlow();
+  setOffer('10');
+  await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+  if (change === 'account') mockAccountReturn = { publicKey: 'other-account' };
+  else mockNetworkScope = 'other|rpc';
+  rerender(<SwapFlow />);
+  await act(async () => authorize(true));
+  expect(mockInitiateSwap).not.toHaveBeenCalled();
+  expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapBalanceUnavailable');
 });

@@ -1329,6 +1329,8 @@ export class ConsumeTransaction implements ITransaction {
  * optional fields — need the same shape without hand-rolling their own copy.
  */
 export interface ISwapExtraInputs {
+  /** Endpoint scope of the vault preflight; absent on legacy orders. */
+  balanceScope?: string;
   requestedFaucetId: string;
   requestedAmount: bigint;
   orderId?: bigint | string;

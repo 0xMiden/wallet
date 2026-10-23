@@ -1380,6 +1380,33 @@ describe('MidenClientInterface', () => {
   // Swap is staged (#1233), so a delegated prove that fails falls back like the send's. What must
   // never be re-run is a swap whose submit was reached: a retry would draw a fresh serial, mint a
   // SECOND PSWAP note and lock the offered asset twice.
+  it('refuses a swap before SDK execution when its vault balance changed after queueing', async () => {
+    const staged = stagedExecuteRequest();
+    mockStagedSdk();
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const guard = jest.requireMock('lib/miden/swap/balance').assertSwapAccountBalance;
+    guard.mockImplementationOnce(() => {
+      throw new Error('amountMustBeLessThanBalance');
+    });
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({
+        transactions: { executeRequest: staged.executeRequest }
+      }) as any,
+      'testnet'
+    );
+    await expect(
+      client.swapTransaction({
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: 10n,
+        type: 'swap',
+        extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: 20n }
+      } as any)
+    ).rejects.toThrow('amountMustBeLessThanBalance');
+    expect(staged.executeRequest).not.toHaveBeenCalled();
+    expect(staged.submit).not.toHaveBeenCalled();
+  });
+
   it('does not re-run a delegated swap whose submit failed', async () => {
     const refused = new Error('node refused the PSWAP');
     const staged = stagedExecuteRequest();
@@ -4615,3 +4642,9 @@ describe('MidenClientInterface', () => {
     expect(jest.isMockFunction(console.warn)).toBe(false);
   });
 });
+
+// Vault arithmetic has its own SDK-read regressions; these fixtures isolate staged proof routing.
+jest.mock('lib/miden/swap/balance', () => ({
+  getSwapFeeContextSync: jest.fn(() => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

@@ -22,10 +22,12 @@ import {
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
+import { assertSwapVaultBalance } from 'lib/miden/swap/balance';
 import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { DEFAULT_SWAP_SLIPPAGE_BPS, swapEtaBlocksSubmit, SwapQuote, SwapQuoteErrorCode } from 'lib/miden/swap/quote';
 import { getDefaultSwapPair, getSwapPartners, isSwapPair, SwapPair, SwapToken } from 'lib/miden/swap/tokens';
 import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
+import { cacheScope } from 'lib/miden-chain/native-asset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -74,7 +76,10 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
   const { publicKey } = useAccount();
+  const activeAccount = useRef(publicKey);
+  activeAccount.current = publicKey;
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const balanceScope = useRef(cacheScope()).current;
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
@@ -482,6 +487,12 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         releaseSubmission();
         return;
       }
+      if (activeAccount.current !== publicKey || cacheScope() !== balanceScope) {
+        setSubmitError(t('swapBalanceUnavailable'));
+        setSubmitting(false);
+        releaseSubmission();
+        return;
+      }
       submissionPhase.current = 'executing';
       onBusyChange(true);
       setSubmitting(true);
@@ -544,6 +555,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       }
     },
     [
+      balanceScope,
       autoConsume,
       expirySecondsValue,
       offerAmountBaseUnits,
@@ -629,6 +641,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         return;
       }
       const spends = [{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }];
+      await assertSwapVaultBalance(publicKey, offerToken.faucetId, offerAmountBaseUnits, balanceScope);
       const assessment = await assessSpendingLimit(publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
         submissionPhase.current = 'challenge';
@@ -675,6 +688,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     publicKey,
     sameToken,
     offerAmountExceedsBalance,
+    balanceScope,
     offerToken,
     requestToken.faucetId,
     hasOfferAmount,

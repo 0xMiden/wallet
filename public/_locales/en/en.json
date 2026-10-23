@@ -1,4 +1,6 @@
 {
+  "swapBalanceUnavailable": "Could not verify your spendable balance. Please try again.",
+  "swapPendingSpend": "Wait for your pending transaction to finish before swapping.",
   "swapApproxAmount": "≈ $amount$",
   "swapExactPayAmount": "Exact pay amount",
   "swapReceiveTargetNote": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry.",

@@ -4231,3 +4231,10 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
     }
   );
 });
+
+// Routing fixtures deliberately isolate vault admission, covered by swap/balance and admission suites.
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

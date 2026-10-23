@@ -22,7 +22,7 @@
 
 ### Changes
 
-- [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount (#1749).
+- [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
 
 - [CHANGE][ci] The Guardian lifecycle E2E runs on every push to main instead of on every pull request; a pull request still runs it when its body names a linked Client, Guardian, Protocol or Web SDK PR, and the required gate reports green otherwise.
 - [CHANGE][all] A failed Guardian swap's crash report names which preparation step failed: building or saving the new swap order, rebuilding its request at the current network height, or saving the rebuilt request once the guardian prepared it, in fixed values only; the privacy policy lists them.
