@@ -187,6 +187,8 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
 
   await page.getByTestId('import-recovery-method').waitFor({ timeout: timeoutMs });
   await page.getByText(/import public account/i).click({ timeout: ACTION_TIMEOUT });
+  // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
+  await page.getByTestId('reused-phrase-acknowledge').click({ timeout: ACTION_TIMEOUT });
   await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
   await passImportConfirmation(page, timeoutMs);
