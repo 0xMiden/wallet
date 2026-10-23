@@ -89,7 +89,7 @@ const Earn: FC = () => {
             <>
               {loadFailed && <EarnLoadError onRetry={refetch} />}
               <div
-                className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
+                className="-mx-4 overflow-x-auto overscroll-x-contain no-scrollbar touch-pan-x"
                 onPointerDown={event => event.stopPropagation()}
               >
                 <div className="flex gap-3 px-4 pb-1">

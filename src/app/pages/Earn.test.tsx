@@ -376,6 +376,12 @@ describe('Earn page', () => {
     expect(stopSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the end of the positions row from chaining into the pager', () => {
+    const { container } = render(<Earn />);
+
+    expect(container.querySelector('.touch-pan-x')).toHaveClass('overscroll-x-contain');
+  });
+
   it('renders one VaultRow per vault with its details and no TVL line', () => {
     render(<Earn />);
 

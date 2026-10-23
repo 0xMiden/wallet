@@ -2,17 +2,17 @@
  * The four home-carousel panes, held to one shell — and to the one rule that decides whether the
  * carousel can still be swiped.
  *
- * **Why this is a source test.** The bug it guards is a gesture: `HomeSwipeContainer` drags its
- * track under `touch-action: pan-y`, and a horizontally scrollable element inside a pane is the
- * handler for a sideways pan, so the browser scrolls that element and framer's drag never starts.
+ * **Why this is a source test.** The bug it guards is a gesture: `HomeSwipeContainer` is a native
+ * scroll-snap pager, and a horizontally scrollable element inside a pane is the handler for a
+ * sideways pan, so the browser scrolls that element and the pager never sees the pan.
  * The Send pane lost its swipe to exactly one class on one row (`overflow-x-auto`, on the
  * Paste / Address Book / Scan row of the recipient step). jsdom has neither layout nor touch, so no
  * rendering test can reproduce it: what CAN be checked, cheaply and without a device, is that no
  * pane declares a sideways scroller without also saying it means to own the gesture there.
  *
- * Earn's position row is the one that does mean to: it carries `touch-pan-x` and stops the
- * `pointerdown` before the track's listener, which is the declared way to take the gesture for a
- * row. Anything else is the Send bug coming back.
+ * Earn's position row is the one that does mean to: it carries `touch-pan-x` and
+ * `overscroll-x-contain`, the declared way to own the gesture for a row. Anything else is the Send
+ * bug coming back.
  */
 
 import fs from 'fs';
@@ -65,8 +65,9 @@ describe('home-group panes', () => {
         .split('\n')
         .map((line, index) => ({ line, index }))
         .filter(({ line }) => /overflow-x-(auto|scroll)/.test(line))
-        // A row that means to own the gesture says so with `touch-pan-x` on the same element.
-        .filter(({ line }) => !/touch-pan-x/.test(line))
+        // A row that means to own the gesture says so with `touch-pan-x` and `overscroll-x-contain`
+        // on the same element.
+        .filter(({ line }) => !(/touch-pan-x/.test(line) && /overscroll-x-contain/.test(line)))
         .map(({ index }) => `${path.relative(SRC, file)}:${index + 1}`)
     );
 
