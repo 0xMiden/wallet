@@ -49,14 +49,14 @@ jest.mock('./ArcadeAllowanceCard', () => ({
 it('uses the effective chain network, isolates account changes, and uses only the backend adapter', () => {
   const view = render(<ArcadeAllowance />);
   expect(screen.getByText('Partner Mainnet')).toBeInTheDocument();
-  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-a', networkId: 'mainnet' }, mockService);
+  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-a', networkId: 'mainnet' }, mockService, true);
   act(() => {
     mockNetwork = 'testnet';
     mockListener();
   });
   expect(screen.getByText('Testnet')).toBeInTheDocument();
-  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-a', networkId: 'testnet' }, mockService);
+  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-a', networkId: 'testnet' }, mockService, true);
   mockAccount = 'account-b';
   view.rerender(<ArcadeAllowance />);
-  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-b', networkId: 'testnet' }, mockService);
+  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-b', networkId: 'testnet' }, mockService, true);
 });

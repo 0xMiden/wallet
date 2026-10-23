@@ -310,10 +310,18 @@ export function buildSendTransactionRequest(
  * consume shape (input notes as `(note, null)` pairs) without a salt. Its account argument only decides whether fee
  * conversion info is committed, and for a single-sig account miden-client commits it under its fixed default salt.
  * `scripts/consume-request-equivalence.mjs` is the proof the two serialize identically apart from the delta.
+ * Supply a fee-aware base builder when the request must already carry Guardian authentication before simulation.
  */
-export function buildConsumeTransactionRequest(notes: Note[], expirationDelta: number): TransactionRequest {
+export function buildConsumeTransactionRequest(
+  notes: Note[],
+  expirationDelta: number,
+  baseBuilder?: TransactionRequestBuilder
+): TransactionRequest {
   const pairs = new NoteAndArgsArray(notes.map(note => new NoteAndArgs(note, null)));
-  return new TransactionRequestBuilder().withInputNotes(pairs).withExpirationDelta(expirationDelta).build();
+  return (baseBuilder ?? new TransactionRequestBuilder())
+    .withInputNotes(pairs)
+    .withExpirationDelta(expirationDelta)
+    .build();
 }
 
 /**

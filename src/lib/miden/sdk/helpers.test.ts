@@ -542,6 +542,14 @@ describe('miden sdk helpers', () => {
   });
 
   describe('buildConsumeTransactionRequest (#1081)', () => {
+    it('builds consume inputs on the supplied authentication builder without replacing it', () => {
+      const base = new TransactionRequestBuilder();
+      const build = jest.spyOn(base, 'build');
+      const before = freshBuilders().length;
+      expect(buildConsumeTransactionRequest([], 600, base)).toMatchObject({ expirationDelta: 600 });
+      expect(build).toHaveBeenCalledTimes(1);
+      expect(freshBuilders()).toHaveLength(before);
+    });
     it('pairs every note with no argument and sets the delta', () => {
       const request = buildConsumeTransactionRequest(['note-a', 'note-b'] as any, 600);
       expect(request).toMatchObject({

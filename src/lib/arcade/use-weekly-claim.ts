@@ -19,10 +19,10 @@ function canonicalWeek(value: string | undefined): string | undefined {
 
 const unread: WeeklyClaimSnapshot = { status: { kind: 'unavailable' }, balance: null };
 const cannotResolveSubmission = (result: WeeklyClaimSnapshot) =>
-  result.status.kind === 'unavailable' || result.status.kind === 'eligible';
+  result.status.kind === 'unavailable' || result.status.kind === 'checking' || result.status.kind === 'eligible';
 
 /** Key the owning component by account/network to isolate in-flight results when the user switches. */
-export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimService) {
+export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimService, active = true) {
   const [snapshot, setSnapshot] = useState(unread);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -51,7 +51,8 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
     try {
       const result = await service.read({ accountId, networkId });
       if (mounted.current) {
-        for (const recovery of result.recoveries ?? []) pendingRecoveries.current.delete(recovery.operationId);
+        for (const recovery of [...(result.recoveries ?? []), ...(result.receipts ?? [])])
+          pendingRecoveries.current.delete(recovery.operationId);
         // Only an authoritative terminal verdict can release an uncertain submit. Eligibility
         // alone cannot prove that a previously funded request will never arrive.
         const week = canonicalWeek(result.allocationWeekStart);
@@ -60,7 +61,8 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
           setSnapshot({
             status: { kind: 'pending' },
             balance: null,
-            ...(result.recoveries ? { recoveries: result.recoveries } : {})
+            ...(result.recoveries ? { recoveries: result.recoveries } : {}),
+            ...(result.receipts ? { receipts: result.receipts } : {})
           });
         } else {
           uncertain.current = result.status.kind === 'pending';
@@ -85,16 +87,24 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
     };
   }, [refresh]);
 
+  useEffect(() => {
+    // History pagination is a read, not evidence of an in-flight submission. Keep advancing
+    // it without requiring repeated taps, and stop polling when a review is open.
+    if (!active || busy || review || !['checking', 'pending'].includes(snapshot.status.kind)) return;
+    const timer = setTimeout(() => void refresh(), snapshot.status.kind === 'checking' ? 250 : 5000);
+    return () => clearTimeout(timer);
+  }, [active, busy, review, snapshot, refresh]);
+
   const prepareReview = async (operationId?: string) => {
     const recoveryAvailable =
       operationId !== undefined &&
-      snapshot.recoveries?.some(item => item.operationId === operationId) &&
+      [...(snapshot.recoveries ?? []), ...(snapshot.receipts ?? [])].some(item => item.operationId === operationId) &&
       !pendingRecoveries.current.has(operationId);
     if (lock.current || reviewRef.current !== null) return;
     if (
       operationId !== undefined
         ? !recoveryAvailable
-        : uncertain.current || !['eligible', 'failed', 'reclaimable'].includes(snapshot.status.kind)
+        : uncertain.current || !['eligible', 'failed', 'reclaimable', 'receivable'].includes(snapshot.status.kind)
     )
       return;
     lock.current = true;
@@ -104,7 +114,8 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
       const quote = operationId
         ? await service.prepare({ accountId, networkId }, operationId)
         : await service.prepare({ accountId, networkId });
-      if (operationId && quote.mode !== 'reclaim') throw new Error('Recovery quote unavailable');
+      if (operationId && quote.mode !== 'reclaim' && quote.mode !== 'receive')
+        throw new Error('Recovery quote unavailable');
       if (mounted.current) {
         reviewRef.current = quote;
         reviewOperation.current = operationId;
@@ -132,13 +143,14 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
       setError('arcadeClaimReviewExpired');
       return;
     }
-    if (operationId !== undefined && quote.mode === 'reclaim') {
+    if (operationId !== undefined && (quote.mode === 'reclaim' || quote.mode === 'receive')) {
+      const inventory = quote.mode === 'receive' ? 'receipts' : 'recoveries';
       lock.current = true;
       pendingRecoveries.current.add(operationId);
       setBusy(true);
       setSnapshot(previous => ({
         ...previous,
-        recoveries: previous.recoveries?.filter(item => item.operationId !== operationId)
+        [inventory]: previous[inventory]?.filter(item => item.operationId !== operationId)
       }));
       try {
         const result = await service.submit({ accountId, networkId }, quote.quoteId);
@@ -151,26 +163,29 @@ export function useWeeklyClaim(scope: ArcadeAccountScope, service: WeeklyClaimSe
           setError('arcadeClaimPreparationFailed');
           setSnapshot(previous => ({
             ...previous,
-            recoveries: [
-              ...(previous.recoveries ?? []).filter(item => item.operationId !== operationId),
+            [inventory]: [
+              ...(previous[inventory] ?? []).filter(item => item.operationId !== operationId),
               { operationId, allocationWeekStart: quote.allocationWeekStart }
             ]
           }));
         } else if (mounted.current && result.status.kind !== 'unavailable') {
-          for (const item of result.recoveries ?? []) pendingRecoveries.current.delete(item.operationId);
+          for (const item of [...(result.recoveries ?? []), ...(result.receipts ?? [])])
+            pendingRecoveries.current.delete(item.operationId);
           const week = canonicalWeek(result.allocationWeekStart);
           const newerWeek = week !== undefined && uncertainWeek.current !== undefined && week > uncertainWeek.current;
           if (uncertain.current && cannotResolveSubmission(result) && !newerWeek) {
             setSnapshot(previous => ({
               ...previous,
-              recoveries: result.recoveries?.filter(item => !pendingRecoveries.current.has(item.operationId))
+              recoveries: result.recoveries?.filter(item => !pendingRecoveries.current.has(item.operationId)),
+              receipts: result.receipts?.filter(item => !pendingRecoveries.current.has(item.operationId))
             }));
           } else {
             uncertain.current = result.status.kind === 'pending';
             if (week !== undefined) uncertainWeek.current = week;
             setSnapshot({
               ...result,
-              recoveries: result.recoveries?.filter(item => !pendingRecoveries.current.has(item.operationId))
+              recoveries: result.recoveries?.filter(item => !pendingRecoveries.current.has(item.operationId)),
+              receipts: result.receipts?.filter(item => !pendingRecoveries.current.has(item.operationId))
             });
           }
         }

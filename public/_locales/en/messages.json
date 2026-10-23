@@ -7464,6 +7464,18 @@
     "message": "Review weekly claim",
     "englishSource": "Review weekly claim"
   },
+  "arcadeEstimatedFees": {
+    "message": "Estimated total fees",
+    "englishSource": "Estimated total fees"
+  },
+  "arcadeClaimSummary": {
+    "message": "Unused fees are returned with your GC. You'll confirm once more when it arrives.",
+    "englishSource": "Unused fees are returned with your GC. You'll confirm once more when it arrives."
+  },
+  "arcadeReclaimSummary": {
+    "message": "Return your unused fees to your wallet. This won't claim GC.",
+    "englishSource": "Return your unused fees to your wallet. This won't claim GC."
+  },
   "arcadeReviewReclaim": {
     "message": "Review budget recovery",
     "englishSource": "Review budget recovery"
@@ -7537,6 +7549,47 @@
     "englishSource": "10 GC per account each week, resetting Monday 00:00 UTC. Unspent GC carries over; missed weeks do not stack. You fund the network fees."
   },
   "arcadeChecking": {
+    "message": "Checking weekly allowance…",
+    "englishSource": "Checking weekly allowance…"
+  },
+  "arcadeClaimState_receivable": {
+    "message": "Your 10 GC receipt is ready. Accept it to add GC and the unused native budget to your balance.",
+    "englishSource": "Your 10 GC receipt is ready. Accept it to add GC and the unused native budget to your balance."
+  },
+  "arcadeAcceptGc": {
+    "message": "Accept GC",
+    "englishSource": "Accept GC"
+  },
+  "arcadePreviousReceiptWeek": {
+    "message": "GC receipt for the week of $date$ UTC",
+    "englishSource": "GC receipt for the week of $date$ UTC",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeReviewReceive": {
+    "message": "Accept GC receipt",
+    "englishSource": "Accept GC receipt"
+  },
+  "arcadeReceiveExplanation": {
+    "message": "Receive your GC and returned fees. The network fee is shown below.",
+    "englishSource": "Receive your GC and returned fees. The network fee is shown below."
+  },
+  "arcadeReceiveFee": {
+    "message": "Network fee to accept",
+    "englishSource": "Network fee to accept"
+  },
+  "arcadeReceiveRefund": {
+    "message": "Native budget returned",
+    "englishSource": "Native budget returned"
+  },
+  "arcadeConfirmReceive": {
+    "message": "Accept GC and pay fee",
+    "englishSource": "Accept GC and pay fee"
+  },
+  "arcadeClaimState_checking": {
     "message": "Checking weekly allowance…",
     "englishSource": "Checking weekly allowance…"
   },

@@ -7592,5 +7592,58 @@
   "arcadePostingPolicy": {
     "message": "游戏、重播和社交分享均免费，无论您的 GC 余额多少。若要提交至本游戏的排行榜，需支付 1 GC 及网络手续费，费用由您承担。",
     "englishSource": "Play, replay and social sharing are free, whatever your GC balance. Submit to this game’s leaderboard for 1 GC plus network fees, paid by you."
+  },
+  "arcadeEstimatedFees": {
+    "message": "Estimated total fees",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeClaimSummary": {
+    "message": "Unused fees are returned with your GC. You'll confirm once more when it arrives.",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeReclaimSummary": {
+    "message": "Return your unused fees to your wallet. This won't claim GC.",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeClaimState_receivable": {
+    "message": "Your 10 GC receipt is ready. Accept it to add GC and the unused native budget to your balance.",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeAcceptGc": {
+    "message": "Accept GC",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadePreviousReceiptWeek": {
+    "message": "GC receipt for the week of $date$ UTC",
+    "englishSource": "PENDING_TRANSLATION",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeReviewReceive": {
+    "message": "Accept GC receipt",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeReceiveExplanation": {
+    "message": "Receive your GC and returned fees. The network fee is shown below.",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeReceiveFee": {
+    "message": "Network fee to accept",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeReceiveRefund": {
+    "message": "Native budget returned",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeConfirmReceive": {
+    "message": "Accept GC and pay fee",
+    "englishSource": "PENDING_TRANSLATION"
+  },
+  "arcadeClaimState_checking": {
+    "message": "Checking weekly allowance…",
+    "englishSource": "PENDING_TRANSLATION"
   }
 }

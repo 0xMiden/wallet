@@ -67,6 +67,12 @@ class TestAsset {
 }
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  InputNote: { authenticated: (note: { serialize(): Uint8Array }, _proof: unknown) => note },
+  NoteFile: {
+    fromInputNote: (note: { serialize(): Uint8Array }) => ({
+      serialize: () => new Uint8Array([99, ...note.serialize()])
+    })
+  },
   RpcClient: jest.fn(() => ({
     getBlockHeaderByNumber: mockGetHeader,
     getAccountProof: mockGetProof,
@@ -347,7 +353,8 @@ it('proves linked issuance without fabricating an unavailable issuer transaction
       issuerFee: 1_600n
     }
   ]);
-  expect(result.receiptNoteBytes).toEqual(new Uint8Array([2]));
+  // Keep the verified inclusion proof/metadata envelope for SDK import, rather than raw Note bytes.
+  expect(result.receiptNoteBytes).toEqual(new Uint8Array([99, 2]));
   expect(mockFree).toHaveBeenCalledTimes(1);
 });
 
@@ -424,6 +431,10 @@ it('requires pinned genesis and issuer code and leaves read errors unresolved', 
 
 it('returns bounded historical material without inventing original request fees or executable bytes', async () => {
   syncNotes = [requestNote];
+  mockSync.mockImplementationOnce(async () => ({
+    blockTo: () => 128,
+    notes: () => [requestNote.committed()]
+  }));
   const first = await scanGcClaimHistoryPage(context, config);
   expect(first.complete).toBe(false);
   expect(first.cursor).toMatchObject({ nextBlock: 129, tipBlock: 210 });
@@ -443,6 +454,17 @@ it('returns bounded historical material without inventing original request fees 
   const advanced = await scanGcClaimHistoryPage(context, config, second.cursor);
   expect(advanced.complete).toBe(true);
   expect(advanced.cursor).toMatchObject({ nextBlock: 213, tipBlock: 212 });
+});
+
+it('catches up an old deployment with bounded wide pages instead of requiring one read per 128 blocks', async () => {
+  tip = 10000;
+  const first = await scanGcClaimHistoryPage(context, config);
+  expect(first.cursor).toMatchObject({ nextBlock: 4097, tipBlock: 10000 });
+  const second = await scanGcClaimHistoryPage(context, config, first.cursor);
+  expect(second.cursor).toMatchObject({ nextBlock: 8193, tipBlock: 10000 });
+  const third = await scanGcClaimHistoryPage(context, config, second.cursor);
+  expect(third.complete).toBe(true);
+  expect(third.cursor.nextBlock).toBe(10001);
 });
 
 it('recognizes a completed captured ordinary execute reclaim with the exact consumed request nullifier', async () => {

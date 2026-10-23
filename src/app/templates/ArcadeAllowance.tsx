@@ -21,11 +21,12 @@ const AccountAllowance: React.FC<{ scope: ArcadeAccountScope; networkName: strin
     }),
     [readGcWeeklyClaim, prepareGcWeeklyClaim, submitGcWeeklyClaim]
   );
+  const active = usePageActive();
   const { snapshot, busy, review, error, claim, recover, refresh, confirmReview, cancelReview } = useWeeklyClaim(
     scope,
-    service
+    service,
+    active
   );
-  const active = usePageActive();
   useEffect(() => {
     if (active) void refresh();
   }, [active, refresh]);

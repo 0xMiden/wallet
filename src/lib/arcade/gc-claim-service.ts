@@ -3,7 +3,13 @@ import type { ITransaction } from 'lib/miden/db/types';
 import type { GcEntitlement } from './entitlement';
 import type { GcClaimDeployment } from './gc-claim-deployment';
 import { gcClaimPhase as classifyPhase } from './gc-claim-operation';
-import type { GcClaimContext, GcClaimEvidence, GcClaimPhase, PreparedGcClaim } from './gc-claim-operation';
+import type {
+  GcClaimContext,
+  GcClaimEvidence,
+  GcClaimIssuanceEvidence,
+  GcClaimPhase,
+  PreparedGcClaim
+} from './gc-claim-operation';
 import type { GcClaimHistoryCursor, GcClaimHistoryPage, GcClaimReconciliation } from './gc-claim-reconcile';
 import type { ArcadeAccountScope, WeeklyClaimReview, WeeklyClaimService, WeeklyClaimSnapshot } from './weekly-claim';
 
@@ -34,6 +40,20 @@ export interface GcClaimServiceDependencies {
     row: ITransaction,
     noteBytes: Uint8Array
   ): Promise<{ requestBytes: Uint8Array; requestFee: bigint }>;
+  receiptPending(context: GcClaimContext, receiptId: string): Promise<boolean>;
+  prepareReceive(
+    context: GcClaimContext,
+    row: ITransaction,
+    issuance: GcClaimIssuanceEvidence,
+    noteBytes: Uint8Array
+  ): Promise<{ requestBytes: Uint8Array; requestFee: bigint }>;
+  queueReceive(
+    context: GcClaimContext,
+    receiptId: string,
+    requestBytes: Uint8Array,
+    fee: bigint,
+    expiresAt: number
+  ): Promise<void>;
   queueClaim(context: GcClaimContext, prepared: PreparedGcClaim): Promise<void>;
   queueReclaim(
     context: GcClaimContext,
@@ -49,6 +69,12 @@ export interface GcClaimServiceDependencies {
 const WEEK = 604800;
 const MONDAY = 259200;
 const unavailable: WeeklyClaimSnapshot = { status: { kind: 'unavailable' }, balance: null };
+export class GcBalanceAwaitingSyncError extends Error {
+  constructor() {
+    super('GC balance is awaiting background sync');
+    this.name = 'GcBalanceAwaitingSyncError';
+  }
+}
 const fingerprint = (deployment: GcClaimDeployment) =>
   JSON.stringify({ ...deployment, claimScriptBytes: Array.from(deployment.claimScriptBytes) });
 function amount(value: bigint, decimals: number): string {
@@ -76,6 +102,7 @@ interface Quote {
   prepared?: PreparedGcClaim;
   reclaim?: { row: ITransaction; requestBytes: Uint8Array; fee: bigint };
   receiptReserve?: bigint;
+  receive?: { row: ITransaction; receiptId: string; requestBytes: Uint8Array; fee: bigint; nativeRefund: bigint };
   targetedRecovery?: boolean;
   result?: WeeklyClaimSnapshot;
   dispatched: boolean;
@@ -96,13 +123,31 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
     if (requested.accountId !== context.accountId) throw new Error('GC account changed');
     return { context, deployment };
   }
+  function issuanceOf(result: { row: ITransaction; reconciliation: GcClaimReconciliation }) {
+    return (
+      result.reconciliation.evidence.find((item): item is GcClaimIssuanceEvidence => item.kind === 'issued') ??
+      result.row.gcClaim?.issuance
+    );
+  }
+  async function receivable(
+    result: { row: ITransaction; reconciliation: GcClaimReconciliation },
+    context: GcClaimContext
+  ) {
+    const issuance = issuanceOf(result);
+    return (
+      result.reconciliation.state === 'issued' &&
+      result.reconciliation.receiptNoteBytes !== undefined &&
+      issuance !== undefined &&
+      !(await deps.receiptPending(context, issuance.receiptNoteId))
+    );
+  }
   async function inspect(scope: ArcadeAccountScope): Promise<Inspection> {
     const { context, deployment } = await contextFor(scope);
     const entitlement = await deps.entitlement(context);
     const snapshot: WeeklyClaimSnapshot = {
       allocationWeekStart: new Date((entitlement.approvedWeek * WEEK - MONDAY) * 1000).toISOString(),
       balance: null,
-      status: { kind: 'pending' }
+      status: { kind: 'checking' }
     };
     // Scan even when a local operation exists: another device may have funded a duplicate
     // request. Every authenticated history record is tracked independently before adjudication.
@@ -163,16 +208,28 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
         operationId: result.row.id,
         allocationWeekStart: new Date((result.row.gcClaim!.scope.approvedWeek * WEEK - MONDAY) * 1000).toISOString()
       }));
+    const receipts = [];
+    for (const result of results) if (await receivable(result, context)) receipts.push(result);
+    snapshot.receipts = receipts
+      .filter(result => result.row.gcClaim!.scope.approvedWeek < entitlement.approvedWeek)
+      .map(result => ({
+        operationId: result.row.id,
+        allocationWeekStart: new Date((result.row.gcClaim!.scope.approvedWeek * WEEK - MONDAY) * 1000).toISOString()
+      }));
     const currentResults = results.filter(
       result => result.row.gcClaim?.scope.approvedWeek === entitlement.approvedWeek
     );
     const actionable = currentResults.find(result => result.reconciliation.state === 'reclaimable');
     const delivered = currentResults.find(result => result.reconciliation.state === 'delivered');
     const unresolved = currentResults.find(result => !result.terminal && result.reconciliation.state !== 'delivered');
-    const selected = actionable ?? delivered ?? unresolved ?? currentResults[0];
+    const receipt = receipts.find(result => result.row.gcClaim!.scope.approvedWeek === entitlement.approvedWeek);
+    const selected = actionable ?? delivered ?? receipt ?? unresolved ?? currentResults[0];
     if (actionable?.row.gcClaim)
       snapshot.status = { kind: 'reclaimable', reclaimHeight: actionable.row.gcClaim.reclaimHeight };
     else if (delivered) snapshot.status = { kind: 'claimed', nextEligibleAt: entitlement.nextEligibleAt };
+    else if (receipt) snapshot.status = { kind: 'receivable' };
+    else if (unresolved || entitlement.claimed) snapshot.status = { kind: 'pending' };
+    else if (blocked) snapshot.status = { kind: 'unavailable' };
     else if (page.complete && !blocked && !unresolved)
       snapshot.status =
         currentResults.length > 0
@@ -195,7 +252,8 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
     async read(scope) {
       try {
         return (await inspect(scope)).snapshot;
-      } catch {
+      } catch (error) {
+        if (error instanceof GcBalanceAwaitingSyncError) return { status: { kind: 'checking' }, balance: null };
         return unavailable;
       }
     },
@@ -203,26 +261,33 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
       const state = await inspect(scope);
       const { context, deployment, entitlement, snapshot } = state;
       const target = operationId
-        ? state.operations.find(item => item.row.id === operationId && item.reconciliation.state === 'reclaimable')
+        ? state.operations.find(
+            item =>
+              item.row.id === operationId &&
+              (item.reconciliation.state === 'reclaimable' || item.reconciliation.state === 'issued')
+          )
         : undefined;
       if (operationId && !target) throw new Error('GC recovery operation unavailable');
       const recoveryRow = target?.row ?? state.row;
       const recoveryEvidence = target?.reconciliation ?? state.reconciliation;
-      const reclaim = target !== undefined || snapshot.status.kind === 'reclaimable';
-      const allocationWeek = reclaim ? recoveryRow?.gcClaim?.scope.approvedWeek : entitlement.approvedWeek;
+      const receive = target ? await receivable(target, context) : snapshot.status.kind === 'receivable';
+      const reclaim = target ? target.reconciliation.state === 'reclaimable' : snapshot.status.kind === 'reclaimable';
+      if (target && !receive && !reclaim) throw new Error('GC receipt is already pending');
+      const allocationWeek = reclaim || receive ? recoveryRow?.gcClaim?.scope.approvedWeek : entitlement.approvedWeek;
       if (allocationWeek === undefined) throw new Error('GC allocation unavailable');
-      if (!reclaim && snapshot.status.kind !== 'eligible' && snapshot.status.kind !== 'failed')
+      if (!reclaim && !receive && snapshot.status.kind !== 'eligible' && snapshot.status.kind !== 'failed')
         throw new Error('GC claim is pending or unavailable');
-      const expires = reclaim
-        ? entitlement.referenceTimestamp + 300
-        : Math.min(entitlement.referenceTimestamp + 300, (entitlement.approvedWeek + 1) * WEEK - MONDAY);
+      const expires =
+        reclaim || receive
+          ? entitlement.referenceTimestamp + 300
+          : Math.min(entitlement.referenceTimestamp + 300, (entitlement.approvedWeek + 1) * WEEK - MONDAY);
       if (expires <= deps.now()) throw new Error('GC approval week expired');
       const quote: Quote = {
         context,
         deployment: fingerprint(deployment),
         review: {
           quoteId: deps.quoteId(),
-          mode: reclaim ? 'reclaim' : 'claim',
+          mode: receive ? 'receive' : reclaim ? 'reclaim' : 'claim',
           allocationWeekStart: new Date((allocationWeek * WEEK - MONDAY) * 1000).toISOString(),
           expiresAt: new Date(expires * 1000).toISOString(),
           nativeSymbol: deployment.nativeSymbol,
@@ -230,10 +295,26 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
           issuerBudget: '0',
           receiptFeeBudget: '0'
         },
-        targetedRecovery: reclaim && allocationWeek !== entitlement.approvedWeek,
+        targetedRecovery: (reclaim || receive) && allocationWeek !== entitlement.approvedWeek,
         dispatched: false
       };
-      if (reclaim) {
+      if (receive) {
+        const selected = target ?? state.operations.find(item => item.row.id === recoveryRow?.id);
+        const issuance = selected && issuanceOf(selected);
+        if (!selected || !issuance || !recoveryEvidence?.receiptNoteBytes) throw new Error('GC receipt unavailable');
+        const result = await deps.prepareReceive(context, selected.row, issuance, recoveryEvidence.receiptNoteBytes);
+        if (result.requestFee < 0n || state.native + issuance.nativeRefund < result.requestFee)
+          throw new Error('Insufficient native fee funds');
+        quote.receive = {
+          row: selected.row,
+          receiptId: issuance.receiptNoteId,
+          requestBytes: new Uint8Array(result.requestBytes),
+          fee: result.requestFee,
+          nativeRefund: issuance.nativeRefund
+        };
+        quote.review.requestFee = amount(result.requestFee, deployment.nativeDecimals);
+        quote.review.nativeRefund = amount(issuance.nativeRefund, deployment.nativeDecimals);
+      } else if (reclaim) {
         if (!recoveryRow?.gcClaim || !recoveryEvidence?.requestNoteBytes)
           throw new Error('GC reclaim note unavailable');
         const result = await deps.prepareReclaim(context, deployment, recoveryRow, recoveryEvidence.requestNoteBytes);
@@ -314,7 +395,8 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
         const pendingResult: WeeklyClaimSnapshot = quote.targetedRecovery
           ? {
               ...state.snapshot,
-              recoveries: state.snapshot.recoveries?.filter(item => item.operationId !== quote.reclaim?.row.id)
+              recoveries: state.snapshot.recoveries?.filter(item => item.operationId !== quote.reclaim?.row.id),
+              receipts: state.snapshot.receipts?.filter(item => item.operationId !== quote.receive?.row.id)
             }
           : { ...state.snapshot, status: { kind: 'pending' } };
         quote.result = pendingResult;
@@ -325,6 +407,27 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
             throw new Error('Insufficient native fee funds');
           quote.dispatched = true;
           await deps.queueClaim(quote.context, quote.prepared);
+        } else if (quote.receive) {
+          const receipt = quote.receive;
+          const selected = state.operations.find(item => item.row.id === receipt.row.id);
+          const issuance = selected && issuanceOf(selected);
+          if (
+            !selected ||
+            !issuance ||
+            issuance.receiptNoteId !== receipt.receiptId ||
+            issuance.nativeRefund !== receipt.nativeRefund ||
+            !(await receivable(selected, quote.context))
+          )
+            throw new Error('GC receipt state changed');
+          if (state.native + issuance.nativeRefund < receipt.fee) throw new Error('Insufficient native fee funds');
+          quote.dispatched = true;
+          await deps.queueReceive(
+            quote.context,
+            receipt.receiptId,
+            receipt.requestBytes,
+            receipt.fee,
+            Date.parse(quote.review.expiresAt) / 1000
+          );
         } else if (quote.reclaim) {
           if (
             !state.operations.some(
@@ -406,6 +509,14 @@ const production: GcClaimServiceDependencies = {
   normalizeContext: async context => (await import('./gc-claim-operation')).normalizeGcClaimContext(context),
   entitlement: async context => (await import('./entitlement')).readGcEntitlement(context, context.accountId),
   balances: readVerifiedGcBalances,
+  receiptPending: async (context, receiptId) =>
+    (await import('./gc-claim-receive')).gcReceiptPending(context, receiptId),
+  prepareReceive: async (context, _row, issuance, bytes) =>
+    (await import('./gc-claim-receive')).prepareGcReceipt(context, issuance, bytes),
+  queueReceive: async (context, receiptId, bytes, fee, expiresAt) => {
+    await (await import('./gc-claim-receive')).queueGcReceipt(context, receiptId, bytes, fee, expiresAt);
+    await wakeGcClaimProcessing();
+  },
   async operations(context) {
     return (await (await import('./gc-claim-queue')).listGcClaimOperations(context)).map(item => item.transaction);
   },
@@ -473,24 +584,41 @@ const production: GcClaimServiceDependencies = {
     };
   },
   async prepareReclaim(context, _deployment, row, noteBytes) {
-    const [{ Note }, { buildConsumeTransactionRequest }, { ensureSdkWasmReady }, { EXPIRATION_DELTA_BLOCKS }] =
-      await Promise.all([
-        import('@miden-sdk/miden-sdk/lazy'),
-        import('lib/miden/sdk/helpers'),
-        import('lib/miden-chain/constants'),
-        import('lib/miden/helpers')
-      ]);
+    const operation = row.gcClaim;
+    if (!operation) throw new Error('GC reclaim operation unavailable');
+    const [
+      { NoteFile },
+      { buildConsumeTransactionRequest, feeAwareRequestBuilder, randomFeeSalt },
+      { ensureSdkWasmReady },
+      { EXPIRATION_DELTA_BLOCKS },
+      { withWasmClientLock, assertWasmHoldCurrent, getMidenClient }
+    ] = await Promise.all([
+      import('@miden-sdk/miden-sdk/lazy'),
+      import('lib/miden/sdk/helpers'),
+      import('lib/miden-chain/constants'),
+      import('lib/miden/helpers'),
+      import('lib/miden/sdk/miden-client')
+    ]);
     await ensureSdkWasmReady();
-    const note = Note.deserialize(noteBytes);
-    if (!row.gcClaim || note.id().toString() !== row.gcClaim.requestNoteId) throw new Error('GC reclaim note changed');
-    const request = buildConsumeTransactionRequest([note], EXPIRATION_DELTA_BLOCKS);
+    const requestBytes = await withWasmClientLock(
+      async hold => {
+        const note = NoteFile.deserialize(noteBytes).note();
+        if (!note || note.id().toString() !== operation.requestNoteId) throw new Error('GC reclaim note changed');
+        const { client } = await getMidenClient();
+        assertWasmHoldCurrent(hold, 'GC reclaim after resolving client');
+        const builder = await feeAwareRequestBuilder(client, context.accountId, randomFeeSalt());
+        assertWasmHoldCurrent(hold, 'GC reclaim after resolving authentication');
+        return buildConsumeTransactionRequest([note], EXPIRATION_DELTA_BLOCKS, builder).serialize();
+      },
+      { label: 'gc-reclaim-build' }
+    );
     const measured = await measureRequest(
       context,
-      request.serialize(),
-      row.gcClaim.nativeBudget,
+      requestBytes,
+      operation.nativeBudget,
       true,
       noteBytes,
-      row.gcClaim.requestNoteId
+      operation.requestNoteId
     );
     return { requestBytes: measured.bytes, requestFee: measured.fee };
   },
@@ -548,12 +676,9 @@ export async function readVerifiedGcBalances(
         if (!Number.isSafeInteger(height) || height < minimumBlock || height < 0 || height > 0xffffffff)
           throw new Error('GC balance block unavailable');
         const proof = await rpc.getAccountProof(AccountId.fromHex(context.accountId), undefined, height);
-        if (
-          proof.blockNum() !== height ||
-          proof.accountId().toString() !== context.accountId ||
-          proof.accountCommitment().toHex() !== local.commitment
-        )
-          throw new Error('GC balance is awaiting background sync');
+        if (proof.blockNum() !== height || proof.accountId().toString() !== context.accountId)
+          throw new Error('GC balance proof identity mismatch');
+        if (proof.accountCommitment().toHex() !== local.commitment) throw new GcBalanceAwaitingSyncError();
       } finally {
         rpc.free();
       }

@@ -48,18 +48,23 @@ beforeEach(() => {
 });
 afterEach(() => jest.useRealTimers());
 
-it('shows the allocation week separately from every native funding amount before explicit confirmation', () => {
+it('leads with GC and total fees while keeping the full approval breakdown behind Details', () => {
   const onConfirm = jest.fn();
   const onCancel = jest.fn();
   render(<GcClaimReviewDrawer review={quote} busy={false} onConfirm={onConfirm} onCancel={onCancel} />);
   expect(onConfirm).not.toHaveBeenCalled();
   expect(screen.getByText('arcadeClaimAllocation')).toBeInTheDocument();
   expect(screen.getByText('arcadeClaimAllocationAmount')).toBeInTheDocument();
+  expect(screen.getByText('0.006 MIDEN')).toBeInTheDocument();
+  expect(screen.queryByText('Oct 19, 2026 UTC')).not.toBeInTheDocument();
+  const details = screen.getByRole('button', { name: 'details' });
+  expect(details).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(details);
+  expect(details).toHaveAttribute('aria-expanded', 'true');
   expect(screen.getByText('Oct 19, 2026 UTC')).toBeInTheDocument();
   for (const amount of ['0.001 MIDEN', '0.002 MIDEN', '0.003 MIDEN'])
     expect(screen.getByText(amount)).toBeInTheDocument();
-  expect(screen.getByText('arcadeClaimBudgetExplanation')).toBeInTheDocument();
-  expect(screen.getByText('arcadeClaimWeekExplanation')).toBeInTheDocument();
+  expect(screen.getByText('arcadeClaimSummary')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'arcadeConfirmClaim' }));
   expect(onConfirm).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'arcadeCancelReview' }));
@@ -91,7 +96,7 @@ it('reviews recovery without promising a GC allocation or charging a new issuer 
   expect(screen.queryByText('arcadeClaimAllocationAmount')).not.toBeInTheDocument();
   expect(screen.queryByText('arcadeClaimIssuerBudget')).not.toBeInTheDocument();
   expect(screen.queryByText('arcadeClaimReceiptFeeBudget')).not.toBeInTheDocument();
-  expect(screen.getByText('arcadeReclaimBudgetExplanation')).toBeInTheDocument();
+  expect(screen.getByText('arcadeReclaimSummary')).toBeInTheDocument();
   expect(screen.getByText('arcadeReclaimRecoverableBudget')).toBeInTheDocument();
   expect(screen.getByText('0.002 MIDEN')).toBeInTheDocument();
 });
@@ -101,4 +106,25 @@ it('renders no review without a quote and disables confirmation while busy', () 
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   view.rerender(<GcClaimReviewDrawer review={quote} busy onConfirm={jest.fn()} onCancel={jest.fn()} />);
   expect(screen.getByRole('button', { name: 'arcadeConfirmClaim' })).toBeDisabled();
+});
+
+it('reviews receipt acceptance with the GC amount, authenticated native refund and consume fee', () => {
+  const onConfirm = jest.fn();
+  render(
+    <GcClaimReviewDrawer
+      review={{ ...quote, mode: 'receive', nativeRefund: '0.000091' }}
+      busy={false}
+      onConfirm={onConfirm}
+      onCancel={jest.fn()}
+    />
+  );
+  expect(screen.getByText('arcadeReviewReceive')).toBeInTheDocument();
+  expect(screen.getByText('arcadeClaimAllocationAmount')).toBeInTheDocument();
+  expect(screen.getByText('arcadeReceiveFee')).toBeInTheDocument();
+  expect(screen.getByText('0.000091 MIDEN')).toBeInTheDocument();
+  expect(screen.queryByText('arcadeClaimIssuerBudget')).not.toBeInTheDocument();
+  expect(screen.queryByText('arcadeClaimReceiptFeeBudget')).not.toBeInTheDocument();
+  expect(onConfirm).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'arcadeConfirmReceive' }));
+  expect(onConfirm).toHaveBeenCalledTimes(1);
 });

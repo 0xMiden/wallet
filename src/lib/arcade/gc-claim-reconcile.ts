@@ -3,8 +3,10 @@ import {
   BlockHeader,
   FetchedNote,
   FungibleAsset,
+  InputNote,
   NetworkAccountTarget,
   Note,
+  NoteFile,
   NoteId,
   NoteScript,
   NoteTag,
@@ -38,7 +40,7 @@ import {
   normalizeGcClaimContext
 } from './gc-claim-operation';
 
-const PAGE_BLOCKS = 128;
+const PAGE_BLOCKS = 4096;
 const MAX_CANDIDATES = 64;
 const NETWORK_SLOT = 'bread::gc::network';
 
@@ -50,6 +52,7 @@ export interface GcClaimRecoveryConfig {
 export interface GcClaimReconciliation {
   state: 'pending' | 'reclaimable' | 'issued' | 'delivered' | 'reclaimed';
   evidence: GcClaimEvidence[];
+  /** Serialized authenticated NoteFiles; preserve metadata and verified inclusion proofs for SDK import. */
   requestNoteBytes?: Uint8Array;
   receiptNoteBytes?: Uint8Array;
 }
@@ -158,7 +161,10 @@ function wordFrom(values: readonly bigint[]): Word {
   return new Word(new BigUint64Array(values));
 }
 
-async function publicNote(session: ReadSession, fetched: FetchedNote): Promise<{ note: Note; block: number }> {
+async function publicNote(
+  session: ReadSession,
+  fetched: FetchedNote
+): Promise<{ note: Note; block: number; fileBytes: Uint8Array }> {
   const note = fetched.note;
   if (note === undefined || fetched.noteType !== NoteType.Public || note.metadata().noteType() !== NoteType.Public) {
     throw new Error('GC public note body unavailable');
@@ -172,7 +178,11 @@ async function publicNote(session: ReadSession, fetched: FetchedNote): Promise<{
     !fetched.inclusionProof.notePath().verify(BigInt(index), note.commitment(), header.noteRoot())
   )
     throw new Error('GC note inclusion proof mismatch');
-  return { note, block };
+  return {
+    note,
+    block,
+    fileBytes: NoteFile.fromInputNote(InputNote.authenticated(note, fetched.inclusionProof)).serialize()
+  };
 }
 
 function decodeRequest(session: ReadSession, note: Note): GcClaimHistoryPage['requests'][number]['material'] {
@@ -313,9 +323,18 @@ async function hasPendingReclaim(session: ReadSession, operation: GcClaimOperati
   );
 }
 
-async function fetchCandidates(session: ReadSession, tagValue: number, from: number, to: number, sender: string) {
+async function fetchCandidates(
+  session: ReadSession,
+  tagValue: number,
+  from: number,
+  to: number,
+  sender: string,
+  allowPartial = false
+) {
   const sync = await session.rpc.syncNotes(from, to, [new NoteTag(tagValue)]);
-  if (sync.blockTo() !== to) throw new Error('Incomplete GC note history range');
+  const scannedTo = gcClaimU32(sync.blockTo());
+  if (scannedTo < from || scannedTo > to || (!allowPartial && scannedTo !== to))
+    throw new Error('Incomplete GC note history range');
   const ids = [
     ...new Set(
       sync
@@ -325,7 +344,7 @@ async function fetchCandidates(session: ReadSession, tagValue: number, from: num
     )
   ];
   if (ids.length > MAX_CANDIDATES) throw new Error('GC note history page exceeds the bounded read limit');
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { notes: [], scannedTo };
   const fetched = await session.rpc.getNotesById(ids.map(id => NoteId.fromHex(id)));
   if (
     fetched.length !== ids.length ||
@@ -333,7 +352,7 @@ async function fetchCandidates(session: ReadSession, tagValue: number, from: num
     fetched.some(note => !ids.includes(gcClaimWord(note.noteId.toString())))
   )
     throw new Error('Incomplete GC note bodies');
-  return fetched;
+  return { notes: fetched, scannedTo };
 }
 
 export async function reconcileGcClaim(
@@ -359,7 +378,7 @@ export async function reconcileGcClaim(
       material.receiptRecipientCommitment !== expected.receiptRecipientCommitment
     )
       throw new Error('GC request preimage does not match its durable operation');
-    const requestNoteBytes = request.note.serialize();
+    const requestNoteBytes = request.fileBytes;
     const requestNullifier = gcClaimWord(request.note.nullifier().toHex());
     const spent = await session.rpc.getNullifierCommitHeight(Word.fromHex(requestNullifier), request.block);
     if (spent === undefined) {
@@ -375,8 +394,8 @@ export async function reconcileGcClaim(
     gcClaimU32(spent);
     if (spent < request.block || spent > session.tip) throw new Error('GC request spend outside snapshot');
     const receiptTag = gcClaimU32(Number(request.note.recipient().storage().items()[16]!.asInt()));
-    const candidates = await fetchCandidates(session, receiptTag, spent, spent, session.identity.issuerId);
-    const receipts: { note: Note; refund: bigint }[] = [];
+    const { notes: candidates } = await fetchCandidates(session, receiptTag, spent, spent, session.identity.issuerId);
+    const receipts: { note: Note; refund: bigint; fileBytes: Uint8Array }[] = [];
     for (const candidate of candidates) {
       const receipt = await publicNote(session, candidate);
       if (
@@ -413,7 +432,7 @@ export async function reconcileGcClaim(
         refund > expected.nativeBudget
       )
         throw new Error('Invalid GC/refund receipt');
-      receipts.push({ note: receipt.note, refund });
+      receipts.push({ note: receipt.note, refund, fileBytes: receipt.fileBytes });
     }
     if (receipts.length > 1) throw new Error('Ambiguous GC claim receipt');
     const anchor = {
@@ -458,7 +477,7 @@ export async function reconcileGcClaim(
     const receiptNullifier = gcClaimWord(receipt.note.nullifier().toHex());
     const received = await session.rpc.getNullifierCommitHeight(Word.fromHex(receiptNullifier), spent);
     const evidence: GcClaimEvidence[] = [issuance];
-    const receiptNoteBytes = receipt.note.serialize();
+    const receiptNoteBytes = receipt.fileBytes;
     if (received !== undefined) {
       gcClaimU32(received);
       if (received < spent || received > session.tip) throw new Error('GC receipt spend outside snapshot');
@@ -503,18 +522,22 @@ export async function scanGcClaimHistoryPage(
     const tipCommitment = gcClaimWord((await session.header(tipBlock)).commitment().toHex());
     const from = continuation ? gcClaimU32(continuation.nextBlock) : session.config.deploymentBlock;
     if (from < session.config.deploymentBlock || from > tipBlock + 1) throw new Error('Invalid GC history cursor');
-    const to = Math.min(tipBlock, from + PAGE_BLOCKS - 1);
+    let to = Math.min(tipBlock, from + PAGE_BLOCKS - 1);
     const requests: GcClaimHistoryPage['requests'] = [];
     const unrecognizedRequestIds: string[] = [];
     if (from <= to) {
-      const candidates = await fetchCandidates(
+      const page = await fetchCandidates(
         session,
         NoteTag.withAccountTarget(accountRefToSdk(session.identity.issuerId)).asU32(),
         from,
         to,
-        session.identity.accountId
+        session.identity.accountId,
+        true
       );
-      for (const candidate of candidates) {
+      // The node may cap a response before the requested end. Advance only through
+      // its acknowledged range so no requests disappear between bounded pages.
+      to = page.scannedTo;
+      for (const candidate of page.notes) {
         const fetched = await publicNote(session, candidate);
         if (fetched.block < from || fetched.block > to) throw new Error('GC history note outside requested page');
         if (fetched.note.script().root().toHex() !== session.config.claimScriptRoot) continue;

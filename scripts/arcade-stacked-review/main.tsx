@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import i18next from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { GcClaimReviewDrawer } from '../../src/app/templates/GcClaimReviewDrawer';
 import { ArcadePage } from '../../src/app/pages/ArcadePage';
 import { ArcadeLanding } from '../../src/app/pages/Browser/DappLauncher/ArcadeLanding';
 import { TabRootHeader } from '../../src/components/ui/TabRootHeader';
@@ -20,7 +21,23 @@ createRoot(document.getElementById('root')!).render(
     <div className="bg-accent-tint text-accent-tint-ink text-caption px-4 py-2">
       Review fixture · fictional balance, eligibility and game
     </div>
-    {params.get('page') === 'coins' ? (
+    {params.get('page') === 'claim-review' ? (
+      <GcClaimReviewDrawer
+        review={{
+          quoteId: 'fictional-claim-review',
+          mode: 'claim',
+          allocationWeekStart: '2026-10-19T00:00:00Z',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          nativeSymbol: 'USDCX',
+          requestFee: '0.000133',
+          issuerBudget: '0.00021',
+          receiptFeeBudget: '0.00021'
+        }}
+        busy={false}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />
+    ) : params.get('page') === 'coins' ? (
       <ArcadePage />
     ) : (
       <>

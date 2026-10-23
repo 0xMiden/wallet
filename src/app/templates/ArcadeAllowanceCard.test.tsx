@@ -15,6 +15,7 @@ it.each<{ status: WeeklyClaimStatus; enabled: boolean }>([
   { status: { kind: 'eligible' }, enabled: true },
   { status: { kind: 'claimed', nextEligibleAt: '2026-10-26T00:00:00Z' }, enabled: false },
   { status: { kind: 'pending' }, enabled: false },
+  { status: { kind: 'checking' }, enabled: false },
   { status: { kind: 'failed' }, enabled: true },
   { status: { kind: 'reclaimable', reclaimHeight: 200 }, enabled: true },
   { status: { kind: 'unavailable' }, enabled: false }
@@ -87,4 +88,28 @@ it('offers an older budget recovery without suppressing the new weekly claim', (
   fireEvent.click(screen.getByTestId('arcade-claim'));
   expect(onClaim).toHaveBeenCalledTimes(1);
   expect(screen.getByText('arcadePreviousBudgetWeek')).toBeInTheDocument();
+});
+
+it('offers acceptance for issued GC and a separate older receipt', () => {
+  const onClaim = jest.fn();
+  const onRecover = jest.fn();
+  render(
+    <ArcadeAllowanceCard
+      snapshot={{
+        status: { kind: 'receivable' },
+        balance: '0',
+        receipts: [{ operationId: 'old', allocationWeekStart: '2026-10-12T00:00:00Z' }]
+      }}
+      busy={false}
+      networkName="Testnet"
+      onClaim={onClaim}
+      onRecover={onRecover}
+      onRefresh={jest.fn()}
+    />
+  );
+  expect(screen.getByTestId('arcade-claim')).toHaveTextContent('arcadeAcceptGc');
+  fireEvent.click(screen.getByTestId('arcade-claim'));
+  expect(onClaim).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByTestId('arcade-receive-previous'));
+  expect(onRecover).toHaveBeenCalledWith('old');
 });

@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { Card } from 'components/ui/Card';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import type { WeeklyClaimSnapshot } from 'lib/arcade/weekly-claim';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error';
 
 interface AllowanceCardProps {
   snapshot: WeeklyClaimSnapshot;
@@ -28,8 +30,13 @@ export const ArcadeAllowanceCard: React.FC<AllowanceCardProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const { status, balance } = snapshot;
+  const previousReceipt = snapshot.receipts?.[0];
   const previousRecovery = snapshot.recoveries?.[0];
-  const claimable = status.kind === 'eligible' || status.kind === 'failed' || status.kind === 'reclaimable';
+  const claimable =
+    status.kind === 'receivable' ||
+    status.kind === 'eligible' ||
+    status.kind === 'failed' ||
+    status.kind === 'reclaimable';
   const date = status.kind === 'claimed' ? new Date(status.nextEligibleAt) : null;
   const nextDate =
     date && Number.isFinite(date.getTime())
@@ -67,29 +74,48 @@ export const ArcadeAllowanceCard: React.FC<AllowanceCardProps> = ({
       <p className="text-body-sm text-muted" role="status" aria-live="polite">
         {message}
       </p>
-      {error && (
-        <p className="text-body-sm text-negative-ink" role="alert">
-          {t(error)}
-        </p>
-      )}
+      {error && <ErrorLine errorId={isUserErrorId(error) ? error : null}>{t(error)}</ErrorLine>}
       <Button
         disabled={busy || !claimable}
         onClick={onClaim}
         title={t(
-          status.kind === 'reclaimable'
-            ? 'arcadeRecoverBudget'
-            : status.kind === 'claimed'
-              ? 'arcadeClaimed'
-              : status.kind === 'pending'
-                ? 'arcadeAwaitingReceipt'
-                : status.kind === 'failed'
-                  ? 'arcadeRetryClaim'
-                  : 'arcadeClaim'
+          status.kind === 'receivable'
+            ? 'arcadeAcceptGc'
+            : status.kind === 'reclaimable'
+              ? 'arcadeRecoverBudget'
+              : status.kind === 'claimed'
+                ? 'arcadeClaimed'
+                : status.kind === 'pending'
+                  ? 'arcadeAwaitingReceipt'
+                  : status.kind === 'failed'
+                    ? 'arcadeRetryClaim'
+                    : 'arcadeClaim'
         )}
         data-testid="arcade-claim"
       />
-      {(status.kind === 'pending' || status.kind === 'unavailable') && (
+      {(status.kind === 'pending' || status.kind === 'checking' || status.kind === 'unavailable') && (
         <Button variant={ButtonVariant.Secondary} disabled={busy} onClick={onRefresh} title={t('arcadeCheckStatus')} />
+      )}
+      {previousReceipt && onRecover && (
+        <div className="flex flex-col gap-2">
+          <p className="text-body-sm text-muted">
+            {t('arcadePreviousReceiptWeek', {
+              date: new Intl.DateTimeFormat(i18n.resolvedLanguage ?? 'en', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                timeZone: 'UTC'
+              }).format(new Date(previousReceipt.allocationWeekStart))
+            })}
+          </p>
+          <Button
+            variant={ButtonVariant.Secondary}
+            disabled={busy}
+            onClick={() => onRecover(previousReceipt.operationId)}
+            title={t('arcadeAcceptGc')}
+            data-testid="arcade-receive-previous"
+          />
+        </div>
       )}
       {previousRecovery && onRecover && (
         <div className="flex flex-col gap-2">

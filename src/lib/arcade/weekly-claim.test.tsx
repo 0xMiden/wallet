@@ -44,6 +44,37 @@ it('leaves production claims unavailable with an unread balance', async () => {
   await act(() => result.current.claim());
   expect(result.current.snapshot).toEqual({ status: { kind: 'unavailable' }, balance: null });
 });
+it('continues history checks automatically and allows an eligible claim without remounting', async () => {
+  let checks = 0;
+  const service: WeeklyClaimService = {
+    read: async () => (++checks < 3 ? { status: { kind: 'checking' }, balance: '0' } : eligible),
+    prepare,
+    submit: async () => claimed
+  };
+  const { result } = renderHook(() => useWeeklyClaim(scope, service));
+  await waitFor(() => expect(result.current.snapshot.status.kind).toBe('eligible'), { timeout: 5000 });
+  await act(() => result.current.claim());
+  expect(result.current.review).toEqual(review);
+});
+it('pauses automatic history reads while the owning page is hidden', async () => {
+  let reads = 0;
+  const service: WeeklyClaimService = {
+    read: async () => {
+      reads++;
+      return { status: { kind: 'checking' }, balance: null };
+    },
+    prepare,
+    submit: async () => claimed
+  };
+  const { result, rerender } = renderHook(({ active }) => useWeeklyClaim(scope, service, active), {
+    initialProps: { active: true }
+  });
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  rerender({ active: false });
+  const before = reads;
+  await act(async () => new Promise(resolve => setTimeout(resolve, 350)));
+  expect(reads).toBe(before);
+});
 
 it('blocks concurrent clicks, does not add an optimistic grant, and waits for receipt', async () => {
   let finish: (value: WeeklyClaimSnapshot) => void = () => {};
@@ -92,6 +123,9 @@ it('keeps a lost submission response pending until authoritative reconciliation'
   await act(() => result.current.refresh());
   expect(result.current.snapshot.status.kind).toBe('pending');
   read.mockResolvedValueOnce({ status: { kind: 'unavailable' }, balance: null });
+  await act(() => result.current.refresh());
+  expect(result.current.snapshot.status.kind).toBe('pending');
+  read.mockResolvedValueOnce({ status: { kind: 'checking' }, balance: null });
   await act(() => result.current.refresh());
   expect(result.current.snapshot.status.kind).toBe('pending');
   read.mockResolvedValueOnce(eligible);
@@ -258,4 +292,39 @@ it('prepares an older recovery separately and keeps this week eligible after a l
   await act(() => result.current.claim());
   expect(prepareRecovery).toHaveBeenCalledTimes(2);
   expect(service.submit).toHaveBeenCalledTimes(1);
+});
+
+it('reviews receipt acceptance after issuance without creating a new weekly funding request', async () => {
+  const receiptReview: WeeklyClaimReview = { ...review, mode: 'receive', nativeRefund: '0.000091' };
+  const service: WeeklyClaimService = {
+    read: async () => ({ status: { kind: 'receivable' }, balance: '0' }),
+    prepare: jest.fn(async () => receiptReview),
+    submit: jest.fn(async () => claimed)
+  };
+  const { result } = renderHook(() => useWeeklyClaim(scope, service));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(() => result.current.claim());
+  expect(result.current.review?.mode).toBe('receive');
+  expect(service.submit).not.toHaveBeenCalled();
+  await act(() => result.current.confirmReview());
+  expect(result.current.snapshot.status.kind).toBe('claimed');
+});
+it('accepts an older receipt separately while preserving the current eligible allowance', async () => {
+  const receiptReview: WeeklyClaimReview = { ...review, mode: 'receive', allocationWeekStart: '2026-10-12T00:00:00Z' };
+  const available: WeeklyClaimSnapshot = {
+    ...eligible,
+    receipts: [{ operationId: 'old-receipt', allocationWeekStart: receiptReview.allocationWeekStart }]
+  };
+  const service: WeeklyClaimService = {
+    read: async () => available,
+    prepare: jest.fn(async () => receiptReview),
+    submit: async () => ({ ...eligible, receipts: [] })
+  };
+  const { result } = renderHook(() => useWeeklyClaim(scope, service));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  await act(() => result.current.recover('old-receipt'));
+  expect(result.current.review?.mode).toBe('receive');
+  await act(() => result.current.confirmReview());
+  expect(result.current.snapshot.status.kind).toBe('eligible');
+  expect(result.current.snapshot.receipts).toEqual([]);
 });

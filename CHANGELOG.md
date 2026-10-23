@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [FIX][all] Finish Testnet GC receipt collection with proof-backed note imports and Guardian authentication, continue weekly status checks automatically, and simplify claim review with expandable fee details (#1452).
+
 - [CHANGE][all] Add native Arcade discovery and game details, catalog-scoped Activity, and unavailable GC balance/ranking pages. Explore groups the existing wallet-explore catalog into Finance/Arcade/Others without changing published categories, cached documents or version floors (#1452).
 
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.

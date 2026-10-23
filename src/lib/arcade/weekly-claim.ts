@@ -5,7 +5,9 @@ export interface ArcadeAccountScope {
 }
 
 export type WeeklyClaimStatus =
+  | { kind: 'checking' }
   | { kind: 'eligible' }
+  | { kind: 'receivable' }
   | { kind: 'claimed'; nextEligibleAt: string }
   | { kind: 'pending' }
   | { kind: 'failed' }
@@ -20,6 +22,8 @@ export interface WeeklyClaimRecovery {
 export interface WeeklyClaimSnapshot {
   /** Authenticated older requests whose unused native budgets can be recovered. */
   recoveries?: WeeklyClaimRecovery[];
+  /** Authenticated older receipts awaiting a separately approved consume. */
+  receipts?: WeeklyClaimRecovery[];
   /** Authoritative allocation week, supplied only after the backend reads chain entitlement. */
   allocationWeekStart?: string;
   status: WeeklyClaimStatus;
@@ -30,7 +34,8 @@ export interface WeeklyClaimSnapshot {
 /** A backend quote for this account and allocation week; amounts are formatted native units. */
 export interface WeeklyClaimReview {
   quoteId: string;
-  mode: 'claim' | 'reclaim';
+  mode: 'claim' | 'reclaim' | 'receive';
+  nativeRefund?: string;
   allocationWeekStart: string;
   expiresAt: string;
   nativeSymbol: string;
