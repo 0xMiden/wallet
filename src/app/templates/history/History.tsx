@@ -5,7 +5,6 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
-  getCompletedTransactions,
   getUncompletedTransactions,
   isCancellableTransaction,
   isOutcomeUnconfirmed,
@@ -29,6 +28,7 @@ import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getPaybackClaimStates, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
+import { getCompletedTransactionsPage, type CompletedHistoryCursor } from 'lib/miden/transaction/get';
 import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -158,9 +158,32 @@ function matchesActivityFilter(filter: ActivityFilter, entry: IHistoryEntry): bo
   }
 }
 
-type ScopedEntries = { key: string; entries: IHistoryEntry[] };
+type HistoryEntriesPage = {
+  entries: IHistoryEntry[];
+  rawCount: number;
+  hasMore: boolean;
+  nextCursor: CompletedHistoryCursor | null;
+};
 
-const NO_SCOPED_ENTRIES: ScopedEntries = { key: '', entries: [] };
+type ScopedEntries = {
+  key: string;
+  entries: IHistoryEntry[];
+  cursor: CompletedHistoryCursor | null;
+  cursorInitialized: boolean;
+  hasMore: boolean;
+};
+
+const NO_SCOPED_ENTRIES: ScopedEntries = {
+  key: '',
+  entries: [],
+  cursor: null,
+  cursorInitialized: false,
+  hasMore: true
+};
+
+const isOlderThanCursor = (entry: IHistoryEntry, cursor: CompletedHistoryCursor): boolean =>
+  entry.timestamp < cursor.effectiveTimestamp ||
+  (entry.timestamp === cursor.effectiveTimestamp && entry.txId !== undefined && entry.txId < cursor.transactionId);
 
 const NO_NOTES: ReadonlySet<string> = new Set();
 
@@ -190,37 +213,18 @@ const History = memo<HistoryProps>(
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
-    const [hasMore, setHasMore] = useState(true);
-    // Older pages carry the scope they were loaded for: `useSafeState` resets them in a passive effect, after
-    // the first render of a new scope has already committed with the old scope's rows.
-    const [scopedRest, setScopedRest] = useSafeState<ScopedEntries>(NO_SCOPED_ENTRIES, safeStateKey);
-    const restEntries = scopedRest.key === safeStateKey ? scopedRest.entries : NO_SCOPED_ENTRIES.entries;
+    // Rows and their raw continuation cursor share a scope. Reset them during
+    // layout so a page from the previous account or token cannot be rendered.
+    const [scopedRest, setScopedRest] = useSafeState<ScopedEntries>(NO_SCOPED_ENTRIES);
+    const activeRest = scopedRest.key === safeStateKey ? scopedRest : { ...NO_SCOPED_ENTRIES, key: safeStateKey };
+    const restEntries = activeRest.entries;
+    const hasMore = activeRest.hasMore;
 
-    // `restEntries` is keyed to the scope; these two are not, so without this
-    // they outlive it. A failed page sets `hasMore` false to stop the retry spin
-    // — correct for the scope that failed, but the flag would then follow the
-    // user to every other account and token page in this mount and silently
-    // disable their pagination too.
-    //
-    // The ref is the same problem seen from the other end: `useSafeState`'s
-    // setter only checks that the component is still MOUNTED, not that the key
-    // still matches, so a page already in flight when the user switches account
-    // would land its rows in the new account's list.
-    //
-    // `useLayoutEffect`, not `useEffect`: a passive effect is flushed by the
-    // scheduler AFTER paint, while a resolving fetch is a microtask. In that
-    // window the ref would still hold the old key and the stale page would sail
-    // through the guard. A layout effect runs inside commit, closing it. (Tests
-    // cannot see the difference — `act` flushes passive effects synchronously.)
-    //
-    // A monotonic counter rather than the key itself: comparing keys says "the
-    // scope matches now", which an A → B → A round trip satisfies while the
-    // original A request is still in flight. That request would then settle
-    // `hasMore` and `isLoading` for the second visit's own paging.
+    // A layout effect invalidates page requests before paint when the account
+    // or token changes. The counter rejects an A → B → A round trip too.
     const scopeRef = useRef(0);
     useLayoutEffect(() => {
       scopeRef.current += 1;
-      setHasMore(true);
       setIsLoading(false);
     }, [safeStateKey]);
 
@@ -247,7 +251,7 @@ const History = memo<HistoryProps>(
       readingCompleted ? completedKey : null,
       // Newest page only. The 10s refresh re-reads that window; older pages keep
       // the progress captured when `loadMore` loaded them.
-      async () => fetchTransactionsAsHistoryEntries(address, undefined, HISTORY_PAGE_SIZE, tokenId, true),
+      async () => fetchTransactionsAsHistoryEntries(address, undefined, tokenId, true),
       {
         revalidateOnMount: true,
         revalidateIfStale: true,
@@ -255,7 +259,29 @@ const History = memo<HistoryProps>(
         dedupingInterval: 3_000
       }
     );
-    const latestTransactions = useLastData(completedKey, readingCompleted, liveTransactions);
+    const latestHistoryPage = useLastData(completedKey, readingCompleted, liveTransactions);
+    const latestPageRef = useRef<{ key: string; page: HistoryEntriesPage } | null>(null);
+    useLayoutEffect(() => {
+      if (latestHistoryPage === undefined) return;
+      const previous = latestPageRef.current;
+      latestPageRef.current = { key: safeStateKey, page: latestHistoryPage };
+      setScopedRest(currentState => {
+        const current = currentState.key === safeStateKey ? currentState : { ...NO_SCOPED_ENTRIES, key: safeStateKey };
+        if (!current.cursorInitialized) {
+          return {
+            ...current,
+            cursor: latestHistoryPage.nextCursor,
+            cursorInitialized: true,
+            hasMore: latestHistoryPage.hasMore
+          };
+        }
+        if (previous?.key !== safeStateKey) return current;
+        const displaced = latestHistoryPage.nextCursor
+          ? previous.page.entries.filter(entry => isOlderThanCursor(entry, latestHistoryPage.nextCursor!))
+          : previous.page.entries;
+        return { ...current, entries: mergeAndSort(current.entries, displaced) };
+      });
+    }, [latestHistoryPage, safeStateKey, setScopedRest]);
 
     const {
       data: livePendingTransactions,
@@ -277,7 +303,7 @@ const History = memo<HistoryProps>(
     // settled read unless Pending, the in-flight read always. So a page mounted off screen stays loading, and reports
     // no initial load, until it is on screen and its reads have answered. The spinner reads `initialLoading`. The
     // report reads `initialLoading` and the host's extra hold `deferInitialLoad`.
-    const transactionsLoading = latestTransactions === undefined && !latestError;
+    const transactionsLoading = latestHistoryPage === undefined && !latestError;
     const pendingLoading = latestPendingTransactions === undefined && !pendingError;
     const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
     // The list is the reads that run together, so either failing is a failed load; Retry re-runs whichever runs.
@@ -324,41 +350,39 @@ const History = memo<HistoryProps>(
     // failed faucet claim is hidden too.
     const allEntries = useMemo(() => {
       const labelled = pendingTransactions
-        .concat(mergeAndSort(latestTransactions ?? [], restEntries))
+        .concat(mergeAndSort(latestHistoryPage?.entries ?? [], restEntries))
         .map(entry => labelHistoryEntry(bridgeConfig, entry));
       return hideFaucet ? labelled.filter(entry => !isFaucetActivityEntry(entry, nativeFaucetId)) : labelled;
-    }, [bridgeConfig, latestTransactions, restEntries, pendingTransactions, hideFaucet, nativeFaucetId]);
+    }, [bridgeConfig, latestHistoryPage, restEntries, pendingTransactions, hideFaucet, nativeFaucetId]);
 
-    const loadMore = async (page: number) => {
+    const loadMore = async (_page: number) => {
       // already loading, don't make duplicate calls
       if (isLoading) {
         return;
       }
+      const current = scopedRest.key === safeStateKey ? scopedRest : NO_SCOPED_ENTRIES;
+      if (!current.cursorInitialized || !current.hasMore || current.cursor === null) return;
       setIsLoading(true);
       const scope = scopeRef.current;
       const key = safeStateKey;
-      const offset = HISTORY_PAGE_SIZE * page;
-      const limit = HISTORY_PAGE_SIZE;
+      const cursor = current.cursor;
       try {
-        const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
+        const olderPage = await fetchTransactionsAsHistoryEntries(address, cursor, tokenId);
         // Answer for a scope the user has since left: its rows are another
         // account's history.
         if (scopeRef.current !== scope) return;
-        // Key off what the PAGE returned, not the merged list. Merged, the list
-        // is non-empty from the first successful page onward, so an exhausted
-        // history never sets the flag: the scroller re-arms on each parent
-        // render (SWR re-renders this on a timer) and fires an endless run of
-        // empty queries. A short page is also the last one, so stop there rather
-        // than spending one more round trip to see an empty one.
-        if (olderTransactions.length < limit) {
-          setHasMore(false);
-        }
         // Merge against the stored rows, not this render's: a closure from the first render after a switch
         // still holds the old scope's.
-        setScopedRest(prev => ({
-          key,
-          entries: mergeAndSort(prev.key === key ? prev.entries : [], olderTransactions)
-        }));
+        setScopedRest(previous => {
+          const currentRest = previous.key === key ? previous : { ...NO_SCOPED_ENTRIES, key };
+          return {
+            ...currentRest,
+            entries: mergeAndSort(currentRest.entries, olderPage.entries),
+            cursor: olderPage.nextCursor,
+            cursorInitialized: true,
+            hasMore: olderPage.hasMore
+          };
+        });
       } catch (error) {
         // Stop paging on failure. Clearing `isLoading` without this would spin:
         // the infinite scroller re-arms on every parent render (and SWR re-renders
@@ -367,14 +391,16 @@ const History = memo<HistoryProps>(
         // pagination permanently, so neither flag alone is the answer — the list
         // keeps everything already loaded and simply stops extending.
         console.error(
-          `Failed to load history page ${page} (offset ${offset}, limit ${limit}) for ${address}${
+          `Failed to load history before ${cursor.effectiveTimestamp}/${cursor.transactionId} for ${address}${
             tokenId ? ` token ${tokenId}` : ''
           }`,
           error
         );
         // Same reasoning as the success path: do not disable pagination for a
         // scope the user has already moved on to.
-        if (scopeRef.current === scope) setHasMore(false);
+        if (scopeRef.current === scope) {
+          setScopedRest(previous => (previous.key === key ? { ...previous, hasMore: false } : previous));
+        }
       } finally {
         if (scopeRef.current === scope) setIsLoading(false);
       }
@@ -501,17 +527,18 @@ export default History;
 
 async function fetchTransactionsAsHistoryEntries(
   address: string,
-  offset?: number,
-  limit?: number,
+  cursor?: CompletedHistoryCursor | null,
   tokenId?: string,
   fromEnd?: boolean
-): Promise<IHistoryEntry[]> {
-  // Omit `fromEnd` unless the refresh asked for the newest page, so `loadMore`
-  // keeps its five-argument ascending call.
-  const transactions = fromEnd
-    ? await getCompletedTransactions(address, offset, limit, true, tokenId, true)
-    : await getCompletedTransactions(address, offset, limit, true, tokenId);
-  const visibleTransactions = await suppressLinkedConsumes(transactions);
+): Promise<HistoryEntriesPage> {
+  const page = await getCompletedTransactionsPage({
+    accountId: address,
+    limit: HISTORY_PAGE_SIZE,
+    includeFailed: true,
+    tokenId,
+    ...(fromEnd ? { fromEnd: true } : { cursor })
+  });
+  const visibleTransactions = await suppressLinkedConsumes(page.transactions);
   // One settlement read for every eligible swap on this page. The fill
   // percentage is already on `swapProgress` while each row awaits its metadata.
   const swapProgress = await resolveSwapHistoryProgress(visibleTransactions);
@@ -556,7 +583,7 @@ async function fetchTransactionsAsHistoryEntries(
       // detail view renders. A terminal row is not guaranteed to carry
       // `completedAt`, and the day grouping builds a Date from this with no
       // fallback of its own — one missing value takes down the whole list.
-      timestamp: tx.completedAt ?? tx.initiatedAt,
+      timestamp: tx.completedAt || tx.initiatedAt,
       message: updateMessageForFailed,
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
@@ -637,7 +664,12 @@ async function fetchTransactionsAsHistoryEntries(
     return entry;
   });
 
-  return await Promise.all(entries);
+  return {
+    entries: await Promise.all(entries),
+    rawCount: page.rawCount,
+    hasMore: page.hasMore,
+    nextCursor: page.nextCursor
+  };
 }
 
 async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId?: string): Promise<IHistoryEntry[]> {

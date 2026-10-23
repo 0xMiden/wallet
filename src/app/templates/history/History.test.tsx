@@ -4,6 +4,7 @@ import { render, screen, act, waitFor, cleanup } from '@testing-library/react';
 import { flushSync } from 'react-dom';
 import { SWRConfig } from 'swr';
 
+import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { PageActiveContext } from 'app/layouts/page-active';
 import {
   publishMockBridgeSnapshot,
@@ -14,6 +15,7 @@ import {
 // used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
 // call reads (#1250).
 import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import type { CompletedHistoryCursor, CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -32,6 +34,7 @@ import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 // through it by mocking `useRetryableSWR` to actually run the SWR fetchers.
 // ---------------------------------------------------------------------------
 const mockGetCompletedTransactions = jest.fn();
+const mockGetCompletedTransactionsPage = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
 const mockSuppressedLinkedConsumeIds = jest.fn();
@@ -130,6 +133,10 @@ jest.mock('lib/miden/activity', () => ({
   isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure,
   isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
   notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
+}));
+
+jest.mock('lib/miden/transaction/get', () => ({
+  getCompletedTransactionsPage: (request: unknown) => mockGetCompletedTransactionsPage(request)
 }));
 
 jest.mock('lib/miden/db/types', () => ({
@@ -364,6 +371,36 @@ beforeEach(() => {
   mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
     offset === undefined ? makeCompleted() : []
   );
+  const offsetsByCursor = new Map<string, number>();
+  const cursorKey = (cursor: CompletedHistoryCursor | null | undefined) =>
+    cursor ? `${cursor.effectiveTimestamp}:${cursor.transactionId}` : 'null';
+  mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+    const offset = request.fromEnd ? undefined : (offsetsByCursor.get(cursorKey(request.cursor)) ?? 0);
+    const rows: Array<{ id?: string; completedAt?: number; initiatedAt?: number }> = await (request.fromEnd
+      ? mockGetCompletedTransactions(request.accountId, undefined, request.limit, true, request.tokenId, true)
+      : mockGetCompletedTransactions(request.accountId, offset, request.limit, true, request.tokenId));
+    const ordered = [...rows].sort((a, b) => {
+      const timestampDiff = (a.completedAt || a.initiatedAt || 0) - (b.completedAt || b.initiatedAt || 0);
+      return timestampDiff || (a.id ?? '').localeCompare(b.id ?? '');
+    });
+    const pageRows = request.fromEnd
+      ? ordered.slice(-request.limit).reverse()
+      : ordered.slice(offset, (offset ?? 0) + request.limit).reverse();
+    const oldest = pageRows[pageRows.length - 1];
+    const nextCursor =
+      oldest?.id !== undefined
+        ? { effectiveTimestamp: oldest.completedAt || oldest.initiatedAt || 0, transactionId: oldest.id }
+        : null;
+    if (nextCursor) {
+      offsetsByCursor.set(cursorKey(nextCursor), request.fromEnd ? 0 : (offset ?? 0) + pageRows.length);
+    }
+    return {
+      transactions: pageRows,
+      rawCount: pageRows.length,
+      hasMore: request.fromEnd ? pageRows.length > 0 : pageRows.length === request.limit,
+      nextCursor
+    };
+  });
   mockGetUncompletedTransactions.mockResolvedValue(makePending());
   mockGetTokenMetadata.mockImplementation(async (id: string | null) => {
     if (id === 'fa1') return { symbol: 'TKF', decimals: 6 };
@@ -1353,12 +1390,190 @@ describe('History', () => {
     await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
   });
 
+  it('loads older history contiguously after the initial newest page', async () => {
+    const makeRow = (id: string, timestamp: number) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: 'history item',
+      displayIcon: 'RECEIVE',
+      faucetId: undefined,
+      type: 'consume',
+      amount: undefined,
+      completedAt: timestamp === 100 ? 0 : timestamp,
+      initiatedAt: timestamp
+    });
+    const rows = Array.from({ length: HISTORY_PAGE_SIZE * 2 + 17 }, (_, index) =>
+      makeRow(`page-${String(index).padStart(4, '0')}`, index + 100)
+    );
+    const records = [...rows];
+    const cursorFor = (row: (typeof records)[number]) => ({
+      effectiveTimestamp: row.completedAt || row.initiatedAt,
+      transactionId: row.id
+    });
+    const olderRequests: Array<{ cursor?: unknown }> = [];
+    const descending = (a: (typeof records)[number], b: (typeof records)[number]) =>
+      (b.completedAt || b.initiatedAt) - (a.completedAt || a.initiatedAt) || b.id.localeCompare(a.id);
+
+    mockGetCompletedTransactions.mockImplementation(
+      async (
+        _address: string,
+        offset?: number,
+        limit?: number,
+        _includeFailed?: boolean,
+        _tokenId?: string,
+        fromEnd?: boolean
+      ) => {
+        const ordered = [...records].sort(
+          (a, b) => (a.completedAt || a.initiatedAt) - (b.completedAt || b.initiatedAt)
+        );
+        if (fromEnd) return ordered.slice(-limit!);
+        const start = offset ?? 0;
+        return ordered.slice(start, start + (limit ?? HISTORY_PAGE_SIZE));
+      }
+    );
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      const ordered = [...records].sort(descending);
+      if (request.fromEnd) {
+        const page = ordered.slice(0, request.limit);
+        return {
+          transactions: page,
+          rawCount: page.length,
+          hasMore: ordered.length > page.length,
+          nextCursor: page.length ? cursorFor(page[page.length - 1]!) : null
+        };
+      }
+      olderRequests.push({ cursor: request.cursor });
+      const pageRows = ordered.filter(row => {
+        const cursor = request.cursor;
+        const effectiveTimestamp = row.completedAt || row.initiatedAt;
+        return (
+          !cursor ||
+          effectiveTimestamp < cursor.effectiveTimestamp ||
+          (effectiveTimestamp === cursor.effectiveTimestamp && row.id < cursor.transactionId)
+        );
+      });
+      const page = pageRows.slice(0, request.limit);
+      return {
+        transactions: page,
+        rawCount: page.length,
+        hasMore: pageRows.length > page.length,
+        nextCursor: page.length ? cursorFor(page[page.length - 1]!) : request.cursor
+      };
+    });
+
+    await renderHistory();
+    const initialBoundary = cursorFor(rows[rows.length - HISTORY_PAGE_SIZE]!);
+    await waitFor(() => expect(entryKeys()).toContain(`completed-${rows[rows.length - 1]!.id}`));
+
+    records.push(makeRow('page-newer', rows.length + 100));
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-page-newer'));
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(1);
+    });
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(2);
+    });
+
+    const loadedIds = entryKeys().filter((key): key is string => key?.startsWith('completed-page-') ?? false);
+    const allIds = records.map(row => `completed-${row.id}`).sort();
+    expect(loadedIds.sort()).toEqual(allIds);
+    expect(new Set(loadedIds).size).toBe(allIds.length);
+    expect(olderRequests[0]?.cursor).toEqual(initialBoundary);
+    expect(
+      mockHistoryViewProps.entries.find((entry: { key: string }) => entry.key === 'completed-page-0000')?.timestamp
+    ).toBe(100);
+  });
+
+  it('advances past a full raw page of linked consumes', async () => {
+    const latest = {
+      id: 'latest',
+      status: STATUS.Completed,
+      displayMessage: 'latest',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 3000
+    };
+    const linkedPage = Array.from({ length: HISTORY_PAGE_SIZE }, (_, index) => ({
+      id: `linked-${index}`,
+      status: STATUS.Completed,
+      displayMessage: 'linked consume',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 2000 - index
+    }));
+    const older = {
+      id: 'older-visible',
+      status: STATUS.Completed,
+      displayMessage: 'older visible',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 1000
+    };
+    const latestCursor = { effectiveTimestamp: latest.completedAt, transactionId: latest.id };
+    const linkedCursor = { effectiveTimestamp: 1001, transactionId: 'linked-999' };
+    const visibleCursor = { effectiveTimestamp: older.completedAt, transactionId: older.id };
+    const pageRequests: Array<{ cursor?: unknown }> = [];
+
+    mockGetCompletedTransactions.mockImplementation(
+      async (
+        _address: string,
+        offset?: number,
+        _limit?: number,
+        _includeFailed?: boolean,
+        _tokenId?: string,
+        fromEnd?: boolean
+      ) => {
+        if (fromEnd) return [latest];
+        return offset === HISTORY_PAGE_SIZE ? linkedPage : [older];
+      }
+    );
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        return { transactions: [latest], rawCount: 1, hasMore: true, nextCursor: latestCursor };
+      }
+      pageRequests.push({ cursor: request.cursor });
+      if (pageRequests.length === 1) {
+        return { transactions: linkedPage, rawCount: linkedPage.length, hasMore: true, nextCursor: linkedCursor };
+      }
+      return { transactions: [older], rawCount: 1, hasMore: false, nextCursor: visibleCursor };
+    });
+    mockSuppressedLinkedConsumeIds.mockImplementation(
+      async (transactions: Array<{ id: string }>) =>
+        new Set(transactions.filter(tx => tx.id.startsWith('linked-')).map(tx => tx.id))
+    );
+
+    await renderHistory();
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(1);
+    });
+    expect(mockHistoryViewProps.hasMore).toBe(true);
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(2);
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-older-visible'));
+    expect(pageRequests[0]?.cursor).toEqual(latestCursor);
+    expect(pageRequests[1]?.cursor).toEqual(linkedCursor);
+  });
+
   // `hasMore` has to key off what the PAGE returned, not off the merged list:
   // merged, the list is non-empty from the first successful page onward, so an
   // exhausted history would never stop paging and the scroller — which re-arms
   // on every parent render, and SWR re-renders this on a timer — would fire an
   // endless run of empty queries.
   it('keeps paging while a page comes back full', async () => {
+    const latest = {
+      id: 'LATEST',
+      status: STATUS.Completed,
+      displayMessage: 'latest transaction',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 20_000
+    };
     const fullPage = Array.from({ length: 1000 }, (_, i) => ({
       id: `OLD${i}`,
       status: STATUS.Completed,
@@ -1371,7 +1586,7 @@ describe('History', () => {
     }));
     mockGetUncompletedTransactions.mockResolvedValue([]);
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
-      offset === undefined ? [] : fullPage
+      offset === undefined ? [latest] : fullPage
     );
     await renderHistory();
 
@@ -1384,8 +1599,16 @@ describe('History', () => {
 
   it('loadMore is re-entrancy guarded while a previous page is in flight', async () => {
     let releaseInFlight: (v: unknown[]) => void = () => {};
+    const latest = {
+      id: 'LATEST',
+      status: STATUS.Completed,
+      displayMessage: 'latest transaction',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 20_000
+    };
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
-      if (offset === undefined) return [];
+      if (offset === undefined) return [latest];
       return new Promise(res => {
         releaseInFlight = res;
       });
@@ -1419,8 +1642,16 @@ describe('History', () => {
     // a persistently failing page on every re-render. So: clear the flag, and
     // stop offering more.
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const latest = {
+      id: 'LATEST',
+      status: STATUS.Completed,
+      displayMessage: 'latest transaction',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 20_000
+    };
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
-      if (offset === undefined) return [];
+      if (offset === undefined) return [latest];
       throw new Error('dexie-down');
     });
     mockGetUncompletedTransactions.mockResolvedValue([]);
@@ -1430,42 +1661,34 @@ describe('History', () => {
       await mockHistoryViewProps.loadMore(0);
     });
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to load history page 0'),
+      expect.stringContaining('Failed to load history before'),
       expect.any(Error)
     );
     await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
 
-    // `isLoading` is internal, so it is proven cleared by the next call getting
-    // past the early-return guard at all — a leaked flag would silently no-op.
-    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
-      offset === undefined
-        ? []
-        : [
-            {
-              id: 'OLD',
-              status: STATUS.Completed,
-              displayMessage: 'older tx',
-              displayIcon: 'RECEIVE',
-              type: 'consume',
-              completedAt: 10
-            }
-          ]
-    );
+    const readsAfterFailure = mockGetCompletedTransactions.mock.calls.length;
     await act(async () => {
       await mockHistoryViewProps.loadMore(1);
     });
-    await waitFor(() => expect(entryKeys()).toContain('completed-OLD'));
+    expect(mockGetCompletedTransactions).toHaveBeenCalledTimes(readsAfterFailure);
 
     consoleErrorSpy.mockRestore();
   });
 
-  // `hasMore` is a bare useState while `restEntries` is keyed to the scope, so
-  // without an explicit reset the "stop extending" decision above would follow
-  // the user to every other account and token page in this mount.
+  // Paging state belongs to the account and token scope, so a failure must not
+  // disable pagination for a different scope in the same mount.
   it('re-enables paging after a failed page when the scope changes', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const latest = {
+      id: 'LATEST',
+      status: STATUS.Completed,
+      displayMessage: 'latest transaction',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 20_000
+    };
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
-      if (offset === undefined) return [];
+      if (offset === undefined) return [latest];
       throw new Error('dexie-down');
     });
     mockGetUncompletedTransactions.mockResolvedValue([]);
@@ -1489,8 +1712,16 @@ describe('History', () => {
   // would otherwise merge one account's history into another's list.
   it('discards a page that resolves after the scope changed', async () => {
     let releasePage: (rows: unknown[]) => void = () => {};
+    const latest = {
+      id: 'LATEST',
+      status: STATUS.Completed,
+      displayMessage: 'latest transaction',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 20_000
+    };
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
-      if (offset === undefined) return [];
+      if (offset === undefined) return [latest];
       return new Promise(resolve => {
         releasePage = resolve;
       });
@@ -1533,14 +1764,24 @@ describe('History', () => {
       type: 'consume',
       completedAt: 10
     });
-    mockGetCompletedTransactions.mockImplementation(async (addr: string, offset?: number) => {
-      if (offset !== undefined) return addr === '0xme' ? [row('OLD-PAGE')] : [row('NEW-PAGE')];
-      // The new scope's latest read stays unresolved, so the switch renders before any of its data.
-      return addr === '0xme' ? [] : new Promise(() => {});
+    const cursorFor = (entry: ReturnType<typeof row>): CompletedHistoryCursor => ({
+      effectiveTimestamp: entry.completedAt,
+      transactionId: entry.id
+    });
+    const olderAccountReads: string[] = [];
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      const latest = row(request.accountId === '0xme' ? 'LATEST-ME' : 'LATEST-OTHER');
+      if (request.fromEnd) {
+        return { transactions: [latest], rawCount: 1, hasMore: true, nextCursor: cursorFor(latest) };
+      }
+      olderAccountReads.push(request.accountId);
+      const older = row(request.accountId === '0xme' ? 'OLD-PAGE' : 'NEW-PAGE');
+      return { transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) };
     });
     mockGetUncompletedTransactions.mockResolvedValue([]);
     const { rerender } = await renderHistory();
 
+    await waitFor(() => expect(entryKeys()).toContain('completed-LATEST-ME'));
     await act(async () => {
       await mockHistoryViewProps.loadMore(0);
     });
@@ -1550,6 +1791,7 @@ describe('History', () => {
     await act(async () => {
       rerender(<History address="0xother" />);
     });
+    await waitFor(() => expect(entryKeys()).toContain('completed-LATEST-OTHER'));
 
     expect(mockHistoryViewCalls.length).toBeGreaterThan(0);
     for (const props of mockHistoryViewCalls) {
@@ -1557,9 +1799,11 @@ describe('History', () => {
     }
 
     await act(async () => {
-      await mockHistoryViewCalls[0].loadMore(0);
+      await mockHistoryViewProps.loadMore(0);
     });
-    expect(entryKeys()).toEqual(['completed-NEW-PAGE']);
+    await waitFor(() => expect(entryKeys()).toContain('completed-NEW-PAGE'));
+    expect(olderAccountReads).toEqual(['0xme', '0xother']);
+    expect(entryKeys()).not.toContain('completed-OLD-PAGE');
   });
 
   it('cancels a pending transaction by id and no-ops when the entry has no txId', async () => {
