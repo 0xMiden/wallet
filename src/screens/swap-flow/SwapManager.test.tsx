@@ -2779,3 +2779,7 @@ afterEach(() => {
   mockRealSwapAmounts = false;
   jest.useRealTimers();
 });
+
+// Load the real review after the mock bindings initialize, before any timed test.
+// Cold coverage instrumentation otherwise consumes the first interaction's deadline.
+jest.requireActual<typeof import('./ReviewSwap')>('./ReviewSwap');

@@ -965,6 +965,15 @@ export function swapHotKey(accountPublicKey: string, newHotPubKey: string, expec
   );
 }
 
+export function importHotKeyPair(accountPublicKey: string, keyPairPayload: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.importHotKeyPair(accountPublicKey, keyPairPayload);
+      accountsUpdated(updated);
+    })
+  );
+}
+
 export function getPublicKeyForCommitment(commitment: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.getPublicKeyForCommitment(commitment);

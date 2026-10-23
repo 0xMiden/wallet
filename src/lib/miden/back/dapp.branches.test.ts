@@ -205,7 +205,8 @@ const storedNote = {
   senderAccountId: 's1',
   nullifier: 'nf1',
   state: 0,
-  assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
+  assets: [{ faucetId: 'faucet-1', amount: '1000000' }],
+  nonFungibleAssets: []
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
 const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
@@ -811,7 +812,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     const sdkNote = (id: string) => ({
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
-      assets: () => ({ fungibleAssets: () => [] })
+      assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
     });
     const unparsable = (what: string) => () => {
       throw new Error(`not a ${what}`);
@@ -1217,7 +1218,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
         id: () => ({ toString: () => importedNote.noteId }),
         metadata: () => undefined,
         recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
-        assets: () => ({ assets: () => [], fungibleAssets: () => [] })
+        assets: () => ({ assets: () => [], fungibleAssets: () => [], nonFungibleAssets: () => [] })
       };
       const deserialize = jest.fn(() => note);
       if (decodeAfterUnlock)
@@ -1329,6 +1330,43 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     } finally {
       check.mockRestore();
     }
+  });
+
+  describe('a note that carries only an NFT (#1600)', () => {
+    const sheetMessages = () =>
+      (mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] }).transactionMessages;
+    const nftOnlyNote = {
+      ...importedNote,
+      assets: [],
+      nonFungibleAssets: [{ faucetId: 'mtst1nftfaucetaaaaaaaaaaaaaaaaaa', assetId: '0xaa11bb22\u2026cc33dd' }]
+    };
+
+    it('names the NFT and its faucet, and never says the note carries no assets', async () => {
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce([{ notes: [nftOnlyNote], uncommitted: 0 }]);
+      mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note'));
+
+      await consumeByCommitment();
+
+      const messages = sheetMessages();
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^Consuming note from faucet: /),
+          expect.stringMatching(/^Receiving, NFT 0xaa11bb22\u2026cc33dd from faucet /)
+        ])
+      );
+      expect(messages).not.toContain('Consuming a note that carries no assets');
+    });
+
+    it('still says a note with neither tokens nor NFTs carries no assets', async () => {
+      mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+        { notes: [{ ...nftOnlyNote, nonFungibleAssets: [] }], uncommitted: 0 }
+      ]);
+      mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable('0xreal-note'));
+
+      await consumeByCommitment();
+
+      expect(sheetMessages()).toContain('Consuming a note that carries no assets');
+    });
   });
 
   it('shows the note the commitment names and consumes it by its own note id', async () => {
@@ -1962,7 +2000,9 @@ describe('requestSign — input validation', () => {
 // ── requestPrivateNotes — input validation branches ──────────────
 
 describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () => {
-  const importedNote = { ...storedNote, noteId: 'n9', noteType: NoteType.Private };
+  // What a dApp is answered with: the wallet's own `nonFungibleAssets` field is stripped from the record.
+  const { nonFungibleAssets: _held, ...answeredNote } = storedNote;
+  const importedNote = { ...answeredNote, noteId: 'n9', noteType: NoteType.Private };
   const firstNote = { ...importedNote, noteId: 'n1' };
   const requestList = (notefilterType: NoteFilterTypes, noteIds?: string[]) =>
     dapp.requestPrivateNotes('https://miden.xyz', {
@@ -2019,6 +2059,17 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
       cause: expect.objectContaining({ message: 'operation abandoned after the consumable-notes read' })
     });
     expect(mockGetDetailsCommitmentMatches).not.toHaveBeenCalled();
+  });
+
+  it('does not send the wallet-only NFT list of a note to the dApp', async () => {
+    mockGetInputNoteDetails.mockResolvedValue([
+      { ...importedNote, noteId: 'n1', nonFungibleAssets: [{ faucetId: 'f', assetId: '0xaa' }] }
+    ]);
+
+    const answer = await requestList(NoteFilterTypes.All);
+
+    expect(answer.privateNotes).toHaveLength(1);
+    expect(answer.privateNotes[0]).not.toHaveProperty('nonFungibleAssets');
   });
 
   it('looks up every id in one batch when note ids and commitments are mixed', async () => {
@@ -2317,6 +2368,9 @@ describe('requestTransaction - custom spending-limit gate', () => {
     account: 'miden-account-1',
     outgoing: assets,
     incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
     inputNotesConsumed: 0,
     outputNotesCreated: assets.length,
     fee: undefined,

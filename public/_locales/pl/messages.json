@@ -3559,6 +3559,27 @@
     "message": "Nie udostępnię nikomu mojego zaszyfrowanego pliku portfela, w tym również firmie Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "Stan konta $accountNames$ znajduje się w tym pliku",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Plik zawiera frazę odzyskiwania oraz stan konta, który w innym przypadku przechowuje dla Ciebie operator usługi Guardian, więc każdy, kto posiada ten plik i hasło do niego, może odczytać obie te informacje. Nie zawiera on klucza codziennego: po przywróceniu portfel zastępuje go za pośrednictwem operatora usługi Guardian, lub możesz użyć zapisanej pary kluczy codziennych (Ustawienia → Klucze → Ujawnij klucz prywatny). Plik ten jest migawką: po wysłaniu lub otrzymaniu środków należy zapisać nowy plik, ponieważ starszy plik nie pozwala przywrócić zdarzeń, które miały miejsce po jego utworzeniu.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Trwa rotacja. Poczekaj, aż się zakończy, a następnie spróbuj ponownie.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Użyj mojej zapisanej pary kluczy do codziennego użytku",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Nie przywrócono z tego pliku: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -4003,6 +4024,18 @@
   "assetChanges": {
     "message": "Zmiany w aktywach",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Transakcja ta obejmuje również przeniesienie aktywów, których portfel nie może wyświetlić, takich jak NFT. Kontynuuj tylko wtedy, gdy masz do niej zaufanie.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "Nieznane",
