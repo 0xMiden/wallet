@@ -159,7 +159,9 @@ describe('initiateSendTransaction - reclaim window bounds', () => {
       expect.objectContaining({
         type: 'send',
         secondaryAccountId: recipient,
-        extraInputs: expect.objectContaining({ oneClick: tracking })
+        extraInputs: expect.objectContaining({
+          oneClick: expect.objectContaining({ ...tracking, fundingDeadline: expectedFundingDeadline })
+        })
       })
     );
     const row = mockAdd.mock.calls.at(0)?.[0];
