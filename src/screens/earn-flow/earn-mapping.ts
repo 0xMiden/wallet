@@ -212,9 +212,11 @@ export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string): EarnV
   const riskLevel = riskLabel === undefined ? undefined : riskLevelOf(riskLabel);
   const listedAbout = listing.about?.trim();
   const about = listedAbout || vault.about?.trim();
+  const marketName = vault.marketName.trim();
   return {
     id: vaultSlug(vault),
     name: listing.name,
+    ...(marketName ? { marketName } : {}),
     protocol: protocolName(vault.lenderFamily, vault.lenderName),
     ...(listedAbout ? { listedAbout } : {}),
     asset: vault.underlying.symbol,

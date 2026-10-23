@@ -271,9 +271,9 @@ describe('mapEarnVault', () => {
     const [morpho, , aave, compound] = EARN_VAULT_INFOS;
     expect(mapEarnVault(aave!)).toMatchObject({ name: 'Aave V3 USDC', protocol: 'Aave V3' });
     expect(mapEarnVault(compound!)).toMatchObject({ name: 'Compound III USDC', protocol: 'Compound V3' });
-    // The listed name tells two Morpho markets apart, so no market name is added.
+    // The document name remains the title; the catalogue's market name stays available to the subtitle.
     expect(mapEarnVault(morpho!)).toMatchObject({ name: 'Morpho uniBTC-USDC 77', protocol: 'Morpho' });
-    expect(mapEarnVault(morpho!)).not.toHaveProperty('marketName');
+    expect(mapEarnVault(morpho!)).toHaveProperty('marketName', 'Loan USDC');
     expect(mapEarnVault(libVault())).toMatchObject({ protocol: 'Dummy Lending', network: 'Sepolia' });
   });
 
