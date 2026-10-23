@@ -27,6 +27,7 @@
 
 ### Changes
 
+- [CHANGE][all] The Terms of Service describe the Encrypted Wallet File as a backup of Guardian account state and say which losses it covers: a lost device while the Guardian Operator is unavailable is recoverable from a current file together with a saved everyday key pair, and from the file alone once the operator answers (#1617).
 - [CHANGE][all] Show a warning above the review Swap button when no fill or only a partial fill is expected. Users can still continue.
 - [CHANGE][ci] The Guardian lifecycle E2E runs on every push to main instead of on every pull request; a pull request still runs it when its body names a linked Client, Guardian, Protocol or Web SDK PR, and the required gate reports green otherwise.
 - [CHANGE][all] A failed Guardian swap's crash report names which preparation step failed: building or saving the new swap order, rebuilding its request at the current network height, or saving the rebuilt request once the guardian prepared it, in fixed values only; the privacy policy lists them.
