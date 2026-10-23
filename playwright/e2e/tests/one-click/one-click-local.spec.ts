@@ -108,16 +108,23 @@ test('Guardian Miden send uses a signed 1Click quote and the ordinary local tran
       destinationAsset: ETH_ASSET_ID
     });
   await expect(walletA.page.getByTestId('one-click-review-submit')).toBeEnabled({ timeout: 60_000 });
-  // Capture the body before waiting for UI changes that can release the CDP response resource.
-  const signedReviewResponse = walletA.page
-    .waitForResponse(response => {
-      if (!response.url().includes('/v0/quote') || response.request().method() !== 'POST') return false;
-      const body: unknown = response.request().postDataJSON();
-      return typeof body === 'object' && body !== null && Reflect.get(body, 'dry') === false;
-    })
-    .then<unknown>(response => response.json());
+  // Capture the real fixture reply and forward it unchanged, without reading Chrome's CDP body cache.
+  let signedReview: unknown;
+  await walletA.page.route(`${oneClick.service.baseUrl}/v0/quote`, async route => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    const body: unknown = route.request().postDataJSON();
+    if (!isRecord(body) || Reflect.get(body, 'dry') !== false) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    signedReview = await response.json();
+    await route.fulfill({ response });
+  });
   await walletA.page.getByTestId('one-click-review-submit').click();
-  const signedReview = await signedReviewResponse;
   await expect(walletA.page.getByTestId('one-click-review-hero')).toBeVisible();
   expect(
     typeof signedReview === 'object' &&
