@@ -969,6 +969,10 @@
     "message": "Ваш «Guardian» відхилив цю заявку. Спробуйте ще раз.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "Емітент цього токена заблокував ваш обліковий запис, тому його неможливо надіслати.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "Мережа відхилила цю заявку. Спробуйте ще раз.",
     "englishSource": "The network refused this submission. Try again."
@@ -2082,6 +2086,14 @@
   "swapVerdictFull": {
     "message": "Виконання за поточною ціною.",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "Цей своп навряд чи буде виконаний з урахуванням наявної на даний момент ліквідності. Ви можете продовжувати, але ваше замовлення може залишитися невиконаним до закінчення терміну його дії.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Лише частина цього свопу може бути виконана за рахунок ліквідності, доступної на даний момент. Ви можете продовжувати, але решта може залишитися невиконаною до закінчення терміну дії замовлення.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "Ви отримуєте приблизно $amount$ $symbol$.",

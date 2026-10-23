@@ -969,6 +969,10 @@
     "message": "Votre « Guardian » a refusé cette soumission. Réessayez.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "L’émetteur de ce jeton a bloqué votre compte ; il est donc impossible de l’envoyer.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "Le réseau a rejeté cette soumission. Veuillez réessayer.",
     "englishSource": "The network refused this submission. Try again."
@@ -2082,6 +2086,14 @@
   "swapVerdictFull": {
     "message": "Exécution au prix actuel.",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "Il est peu probable que ce swap soit exécuté avec la liquidité actuellement disponible. Vous pouvez continuer, mais votre ordre risque de rester non exécuté jusqu’à son expiration.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Seule une partie de cet ordre de swap peut être exécutée avec la liquidité actuellement disponible. Vous pouvez continuer, mais le reste peut rester non exécuté jusqu’à l’expiration de l’ordre.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "Vous recevez environ $amount$ en $symbol$.",
