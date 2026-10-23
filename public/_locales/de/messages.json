@@ -1,4 +1,164 @@
 {
+  "arcadePreview": {
+    "message": "Vorschau",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Beenden",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Beispieldaten dienen ausschließlich der Designvorschau. Es handelt sich hierbei nicht um Ihr Wallet-Guthaben oder echte Spieler-Ranglisten. Es wird nichts veröffentlicht.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Beispiel-Akteur",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Nur Vorschau",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Beispiel-Update anwenden",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Ihr Rang",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Eingereichter Saldo",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC-Rangliste",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Beispiel-Snapshot lokal aktualisiert. Es wurde nichts übermittelt.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Entdecken Sie Spiele in Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Arcade entdecken",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Empfohlene Spiele",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Spiele zum Ausprobieren",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade-Tastenkombinationen",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Ranglisten",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Spielmünzen",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Meine Aktivitäten",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Das Spiel ist eröffnet",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Keine Spiele verfügbar",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Spiele werden hier erscheinen, sobald sie in diesem Netzwerk verfügbar sind.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Das Starten eines Spiels stellt keine Verbindung zu Ihrer Wallet her. Bread fragt zuerst nach.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC-Rankings",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "GC-Guthaben überprüfen",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC-Guthaben",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Nicht gelesen",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Saldo übermitteln",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Saldo aktualisieren",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Durch das Einreichen eines Kontostands-Snapshots werden Ihre Konto-ID, Ihr GC-Guthaben, das Netzwerk und der Zeitpunkt des Snapshots an die Rangliste übermittelt. Ihre anderen Vermögensguthaben sind darin nicht enthalten.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "Das Auslesen des GC-Guthabens und die Übermittlung an die Rangliste sind noch nicht miteinander verbunden. Es wurde noch kein Guthaben ausgelesen oder übermittelt.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Ranglisten werden hier angezeigt",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Rankings sind in diesem Netzwerk noch nicht live.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Ihr Guthaben wird hier angezeigt",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Spielmünzen sind in diesem Netzwerk noch nicht verfügbar.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Es sind ausschließlich die in der Arcade aufgeführten Spiele enthalten.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Finanzen",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Sonstiges",
+    "englishSource": "Others"
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -7333,5 +7493,66 @@
   "runtimeUnsupportedBody": {
     "message": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "arcadeCoinsShort": {
+    "message": "Coins",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Aktivität",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Spiele durchsuchen",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Ihr Guthaben bleibt vertraulich.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Es werden nur die Guthaben in die Rangliste aufgenommen, die Sie freigeben möchten.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Noch keine Spielaktivität",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Transaktionen, die du in Arcade-Spielen durchführst, werden hier angezeigt.",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1.000 GC für 1 USDCx, zuzüglich Netzwerkgebühren.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Der Kauf von GC ist in Bread noch nicht verfügbar.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "Mehr GC kaufen",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Guthaben nicht verfügbar",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Spielmünzen",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

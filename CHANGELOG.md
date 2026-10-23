@@ -2,6 +2,8 @@
 
 ## 1.17.6 (TBD)
 
+- [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
+
 ### Fixes
 
 - [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when a stored WalletConnect session is still reconnecting at startup. After ten seconds Connect is freed and the stored session is left in place, so a restore that connects after those ten seconds is kept. Closing the connect modal starts those ten seconds again and does not forget or disconnect a pairing that is still connecting. A session that never connects stays stored, and the next open waits ten seconds again before Connect is freed.

@@ -72,6 +72,8 @@ export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVaria
 export { PromptCarousel } from './PromptCarousel';
 export type { PromptCarouselProps } from './PromptCarousel';
 
+export { QuickActionButton } from './QuickActionButton';
+
 export { AssetListItem, AssetListItemSkeleton } from './AssetListItem';
 export { SelectionCheck } from './SelectionCheck';
 export type { AssetListItemProps, AssetDeltaDirection } from './AssetListItem';

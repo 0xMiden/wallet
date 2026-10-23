@@ -1,10 +1,17 @@
-import { getActiveOverride, getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import {
+  getActiveOverride,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  isNetworkChoiceOverride
+} from 'lib/miden-chain/effective-endpoints';
 
 import type { TokenBalanceData } from './front/balance';
 
 /** Captured under the WASM lock from the SAME account object as its vault assets. */
 export interface BalanceSnapshot {
   network: string;
+  /** Display provenance for a saved standard network choice; confirmation policy still uses network. */
+  selectedNetwork?: string;
   accountNonce?: string;
 }
 
@@ -16,13 +23,26 @@ export interface BalanceSnapshot {
 export function beginBalanceSnapshot(): (
   account: { nonce(): { asInt(): bigint } } | null | undefined
 ) => BalanceSnapshot {
-  const overridden = getActiveOverride() !== null;
+  const override = getActiveOverride();
+  const overridden = override !== null;
+  const selectedNetwork = override && isNetworkChoiceOverride(override) ? getEffectiveNetworkName() : undefined;
   const network = overridden ? 'override' : getEffectiveNetworkName();
   const rpc = getEffectiveRpcUrl();
-  return account => ({
-    network: getEffectiveRpcUrl() === rpc && (getActiveOverride() !== null) === overridden ? network : 'changed',
-    accountNonce: account ? account.nonce().asInt().toString() : undefined
-  });
+  return account => {
+    const currentOverride = getActiveOverride();
+    const sameRpc = getEffectiveRpcUrl() === rpc;
+    return {
+      network: sameRpc && (currentOverride !== null) === overridden ? network : 'changed',
+      accountNonce: account ? account.nonce().asInt().toString() : undefined,
+      ...(selectedNetwork &&
+      sameRpc &&
+      getEffectiveNetworkName() === selectedNetwork &&
+      currentOverride !== null &&
+      isNetworkChoiceOverride(currentOverride)
+        ? { selectedNetwork }
+        : {})
+    };
+  };
 }
 
 export interface BalanceRequirement {
@@ -36,6 +56,16 @@ export interface BalanceRequirement {
 const snapshots = new WeakMap<readonly TokenBalanceData[], BalanceSnapshot>();
 export function tagBalanceSnapshot(rows: readonly TokenBalanceData[], snapshot: BalanceSnapshot): void {
   snapshots.set(rows, snapshot);
+}
+
+/** True only for the exact synchronized vault rows from the selected network. */
+export function hasBalanceSnapshotForNetwork(rows: readonly TokenBalanceData[], network: string): boolean {
+  const snapshot = snapshots.get(rows);
+  return (
+    (snapshot?.selectedNetwork ?? snapshot?.network) === network &&
+    snapshot?.accountNonce !== undefined &&
+    /^\d+$/.test(snapshot.accountNonce)
+  );
 }
 
 export function isBalanceReflected(
