@@ -1,6 +1,10 @@
 # Canonical GC distributor v2
 
 This module is an offline protocol implementation. No account in its fixtures is deployed or funded.
+The approved Testnet integration uses our existing GC issuer `0x97924b9a77ed54917ff6d6364ae661`;
+Mainnet targets the existing GQ GC issuer, with activation requiring separate review.
+The reproducibility fixture uses the existing GQ Testnet asset only as a construction vector, not as
+an active deployment or a requirement to obtain additional external minting.
 Legacy `funded.rs`, `claim.masm` and `funded-*.masm` are retained unchanged for experimental deployment recovery.
 
 The distributor is a separate public BasicWallet network account. Its fixed code has no faucet,
@@ -93,6 +97,6 @@ GC/native identities but is construction evidence only.
 Before any live action: review protocol code, roots, configuration and unsigned bootstrap/deposit
 artifacts; review the exact funding recipient; obtain the separately authorized GC holder or mint
 signers' approval. Bootstrap deposits must actually be created by a funded signer, then consumed to
-create the account. Later refill and claim notes use the routed path. Testnet's observed 3GC supply
-cannot cover one 10GC allocation without additional separately authorized minting. This protocol
-never mints, modifies mint signers or assumes access to their keys. Mainnet activation remains gated.
+create the account. Later refill and claim notes use the routed path. The selected Testnet inventory is our existing GC; it remains distinct from other trial issuers and
+from Mainnet GC. This protocol never mints, modifies mint signers or assumes access to their keys.
+Mainnet activation remains gated.
