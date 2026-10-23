@@ -239,6 +239,43 @@ describe('1Click durable tracking', () => {
     expect(fetchStatus).toHaveBeenCalledWith(config, 'miden-deposit-address', undefined, inboundInput.quote);
   });
 
+  it('stops polling an outbound swap after the provider reports success', async () => {
+    const outboundRow = {
+      id: 'outbound-success-row',
+      type: 'send',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      transactionId: 'miden-send-hash',
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request,
+          quote,
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset,
+          destinationAsset,
+          faucetId: 'miden-faucet',
+          amount: request.amount,
+          phase: 'processing',
+          depositAddress: 'miden-deposit-address',
+          providerSubmitted: true
+        }
+      }
+    };
+    storedRows.push(outboundRow);
+    fetchStatus.mockResolvedValue({ status: 'SUCCESS', swapDetails: {} });
+
+    await reconcileOneClickSwaps();
+    await reconcileOneClickSwaps();
+
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
+    expect(outboundRow.extraInputs.oneClick.phase).toBe('delivered');
+  });
+
   it('sends the selected Miden account-bound amount to the signed deposit address', async () => {
     await initiateOneClickMidenDeposit(input);
 

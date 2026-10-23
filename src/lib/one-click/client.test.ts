@@ -180,6 +180,91 @@ describe('1Click client', () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 
+  it('accepts catalog metadata only when it matches the configured EVM identity', async () => {
+    const trustedAsset = {
+      assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
+      blockchain: 'base',
+      chainId: 8453,
+      contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      decimals: 6,
+      symbol: 'USDC'
+    };
+    const catalogAsset: Record<string, unknown> = { ...trustedAsset };
+    delete catalogAsset.chainId;
+    const trustedConfig = Object.assign(
+      { serviceUrl: 'https://proxy.example', midenAssets: [] },
+      { evmAssets: [trustedAsset] }
+    ) as OneClickConfig;
+    fetchMock.mockResolvedValue(Response.json([{ ...catalogAsset, coingeckoId: 'usd-coin' }]));
+
+    await expect(fetchOneClickAssets(trustedConfig, jest.fn())).resolves.toEqual([
+      { ...trustedAsset, coingeckoId: 'usd-coin' }
+    ]);
+  });
+
+  it('omits unconfigured EVM ERC-20 metadata while retaining pinned native assets', async () => {
+    fetchMock.mockResolvedValue(
+      Response.json([
+        {
+          assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
+          blockchain: 'base',
+          symbol: 'USDC',
+          decimals: 6,
+          contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
+        },
+        { assetId: 'nep141:base.omft.near', blockchain: 'base', symbol: 'ETH', decimals: 18 }
+      ])
+    );
+
+    const assets = await fetchOneClickAssets(configWithFees(), jest.fn());
+
+    expect(assets).toEqual([
+      {
+        assetId: 'nep141:base.omft.near',
+        blockchain: 'base',
+        symbol: 'ETH',
+        decimals: 18,
+        contractAddress: 'native',
+        chainId: 8453
+      }
+    ]);
+  });
+
+  it.each([
+    [
+      'provider asset ID conflicts with configured identity',
+      { assetId: 'nep141:base-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.omft.near' }
+    ],
+    [
+      'provider contract address conflicts with configured identity',
+      { contractAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
+    ],
+    ['provider decimals conflict with configured identity', { decimals: 18 }],
+    ['provider display symbol conflicts with configured identity', { symbol: 'USD Coin' }],
+    ['provider EVM chain conflicts with configured identity', { blockchain: 'arb' }],
+    ['configured EVM token is relabeled as a non-EVM chain', { blockchain: 'sol' }]
+  ])('omits an EVM token when %s', async (_label, override) => {
+    const trustedAsset = {
+      assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
+      blockchain: 'base',
+      chainId: 8453,
+      contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      decimals: 6,
+      symbol: 'USDC'
+    };
+    const catalogAsset: Record<string, unknown> = { ...trustedAsset };
+    delete catalogAsset.chainId;
+    const trustedConfig = Object.assign(
+      { serviceUrl: 'https://proxy.example', midenAssets: [] },
+      { evmAssets: [trustedAsset] }
+    ) as OneClickConfig;
+    fetchMock.mockResolvedValue(Response.json([{ ...catalogAsset, ...override }]));
+
+    const assets = await fetchOneClickAssets(trustedConfig, jest.fn());
+
+    expect(assets).toEqual([]);
+  });
+
   it('requires both provider and on-chain Miden decimals to match the configured mapping', async () => {
     fetchMock.mockResolvedValue(
       Response.json([{ assetId: 'miden:usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6 }])

@@ -1,11 +1,20 @@
 import { BridgedReceiveTransaction, IOneClickTrackingData } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { fetchOneClickStatus } from 'lib/one-click/client';
 
+import type { OneClickStatusResponse } from './types';
 import {
   claimOneClickEvmDepositAttempt,
   OneClickEvmDepositAlreadyAttemptedError,
+  reconcileOneClickSwaps,
+  recordOneClickOriginTransactionHash,
   retireOneClickEvmPreflightFailure
 } from './tracking';
+
+jest.mock('lib/one-click/client', () => ({
+  ...jest.requireActual('lib/one-click/client'),
+  fetchOneClickStatus: jest.fn()
+}));
 
 function makeInboundRow(id: string, overrides: Partial<IOneClickTrackingData> = {}): BridgedReceiveTransaction {
   const originAsset = {
@@ -96,6 +105,25 @@ function makeInboundRow(id: string, overrides: Partial<IOneClickTrackingData> = 
   return row;
 }
 
+function statusResponse(
+  row: BridgedReceiveTransaction,
+  status: OneClickStatusResponse['status']
+): OneClickStatusResponse {
+  return {
+    correlationId: 'status-correlation',
+    quoteResponse: row.extraInputs.oneClick!.quote,
+    status,
+    updatedAt: new Date().toISOString(),
+    swapDetails: {
+      intentHashes: [],
+      nearTxHashes: [],
+      originChainTxHashes: [],
+      destinationChainTxHashes: [],
+      ...(status === 'FAILED' ? { refundReason: 'provider reported failure' } : {})
+    }
+  };
+}
+
 const blockingTerminalCases: ReadonlyArray<{ label: string; state: Partial<IOneClickTrackingData> }> = [
   { label: 'known submission marker', state: { phase: 'failed', evmSubmission: 'known' } },
   {
@@ -107,6 +135,8 @@ const blockingTerminalCases: ReadonlyArray<{ label: string; state: Partial<IOneC
 describe('persisted EVM deposit claims', () => {
   beforeEach(async () => {
     await Repo.transactions.clear();
+    jest.clearAllMocks();
+    jest.mocked(fetchOneClickStatus).mockReset();
   });
 
   afterAll(async () => {
@@ -161,14 +191,16 @@ describe('persisted EVM deposit claims', () => {
     });
   });
 
-  it('allows a terminal failed legacy row without a submission marker to retire', async () => {
+  it('blocks a same-reference failed legacy row without a submission marker', async () => {
     const prior = makeInboundRow('claim-terminal-legacy', { phase: 'failed', evmSubmission: undefined });
     const next = makeInboundRow('claim-terminal-legacy-next');
     await Repo.transactions.bulkAdd([prior, next]);
 
-    await expect(claimOneClickEvmDepositAttempt(next.id)).resolves.toBeUndefined();
+    await expect(claimOneClickEvmDepositAttempt(next.id)).rejects.toBeInstanceOf(
+      OneClickEvmDepositAlreadyAttemptedError
+    );
     await expect(Repo.transactions.get(next.id)).resolves.toMatchObject({
-      extraInputs: { oneClick: { evmSubmission: 'attempted' } }
+      extraInputs: { oneClick: { evmSubmission: 'not-started' } }
     });
   });
 
@@ -188,14 +220,96 @@ describe('persisted EVM deposit claims', () => {
     }
   );
 
-  it('allows a terminal failed attempt to retire before a new claim for the same reference', async () => {
-    const prior = makeInboundRow('claim-terminal-prior', { phase: 'failed', evmSubmission: 'attempted' });
+  it('allows a terminal failed pre-request row to retire before a new claim for the same reference', async () => {
+    const prior = makeInboundRow('claim-terminal-prior', { phase: 'failed', evmSubmission: 'not-started' });
     const next = makeInboundRow('claim-terminal-next');
     await Repo.transactions.bulkAdd([prior, next]);
 
     await expect(claimOneClickEvmDepositAttempt(next.id)).resolves.toBeUndefined();
     await expect(Repo.transactions.get(next.id)).resolves.toMatchObject({
       extraInputs: { oneClick: { evmSubmission: 'attempted' } }
+    });
+  });
+
+  it('keeps a same-reference attempted row blocking after provider failure', async () => {
+    const prior = makeInboundRow('claim-failed-attempted-prior', {
+      phase: 'pending-deposit',
+      evmSubmission: 'attempted'
+    });
+    const candidate = makeInboundRow('claim-failed-attempted-candidate');
+    await Repo.transactions.add(prior);
+    jest.mocked(fetchOneClickStatus).mockResolvedValueOnce(statusResponse(prior, 'FAILED'));
+
+    await reconcileOneClickSwaps();
+
+    await expect(Repo.transactions.get(prior.id)).resolves.toMatchObject({
+      extraInputs: { oneClick: { phase: 'failed', evmSubmission: 'attempted' } }
+    });
+    await Repo.transactions.add(candidate);
+    await expect(claimOneClickEvmDepositAttempt(candidate.id)).rejects.toBeInstanceOf(
+      OneClickEvmDepositAlreadyAttemptedError
+    );
+    await expect(Repo.transactions.get(candidate.id)).resolves.toMatchObject({
+      extraInputs: { oneClick: { evmSubmission: 'not-started' } }
+    });
+  });
+
+  it('preserves a concurrent attempted claim when a deferred provider failure is reconciled', async () => {
+    const row = makeInboundRow('claim-deferred-attempted');
+    await Repo.transactions.add(row);
+    let resolveStatus!: (response: OneClickStatusResponse) => void;
+    let markStatusRequested!: () => void;
+    const statusRequested = new Promise<void>(resolve => {
+      markStatusRequested = resolve;
+    });
+    const pendingStatus = new Promise<OneClickStatusResponse>(resolve => {
+      resolveStatus = resolve;
+    });
+    jest.mocked(fetchOneClickStatus).mockImplementationOnce(async () => {
+      markStatusRequested();
+      return pendingStatus;
+    });
+
+    const reconciliation = reconcileOneClickSwaps();
+    await statusRequested;
+    await claimOneClickEvmDepositAttempt(row.id);
+    resolveStatus(statusResponse(row, 'FAILED'));
+    await reconciliation;
+
+    await expect(Repo.transactions.get(row.id)).resolves.toMatchObject({
+      extraInputs: { oneClick: { phase: 'failed', evmSubmission: 'attempted' } }
+    });
+  });
+
+  it('preserves a concurrent known origin hash when a deferred provider failure is reconciled', async () => {
+    const row = makeInboundRow('claim-deferred-known-hash');
+    await Repo.transactions.add(row);
+    let resolveStatus!: (response: OneClickStatusResponse) => void;
+    let markStatusRequested!: () => void;
+    const statusRequested = new Promise<void>(resolve => {
+      markStatusRequested = resolve;
+    });
+    const pendingStatus = new Promise<OneClickStatusResponse>(resolve => {
+      resolveStatus = resolve;
+    });
+    jest.mocked(fetchOneClickStatus).mockImplementationOnce(async () => {
+      markStatusRequested();
+      return pendingStatus;
+    });
+
+    const reconciliation = reconcileOneClickSwaps();
+    await statusRequested;
+    await claimOneClickEvmDepositAttempt(row.id);
+    const originHash = `0x${'b'.repeat(64)}`;
+    await recordOneClickOriginTransactionHash(row.id, originHash);
+    resolveStatus(statusResponse(row, 'FAILED'));
+    await reconciliation;
+
+    await expect(Repo.transactions.get(row.id)).resolves.toMatchObject({
+      extraInputs: {
+        evmTxHash: originHash,
+        oneClick: { phase: 'failed', evmSubmission: 'known', originTransactionHash: originHash }
+      }
     });
   });
 

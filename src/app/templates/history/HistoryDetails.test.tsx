@@ -565,22 +565,29 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
-  const setOneClickHistoryRow = (originBlockchain = 'eth', destinationBlockchain = 'miden') => {
+  const setOneClickHistoryRow = (
+    originBlockchain = 'eth',
+    destinationBlockchain = 'miden',
+    direction: 'evm-to-miden' | 'miden-to-evm' = 'evm-to-miden'
+  ) => {
+    const outbound = direction === 'miden-to-evm';
+    const originAssetId = outbound ? 'miden-usdc' : 'usdc';
+    const destinationAssetId = outbound ? 'usdc' : 'miden-usdc';
     setMockRow({
       ...baseSendTx,
       id: 'one-click-history',
-      type: 'bridged-receive',
+      type: outbound ? 'send' : 'bridged-receive',
       extraInputs: {
         provider: 'near-intents',
         phase: 'submitting',
         oneClick: {
-          direction: 'evm-to-miden',
+          direction,
           request: {
             amount: '1000000',
-            originAsset: 'usdc',
-            destinationAsset: 'miden-usdc',
-            refundTo: 'refund',
-            recipient: 'account',
+            originAsset: originAssetId,
+            destinationAsset: destinationAssetId,
+            refundTo: outbound ? 'account' : 'refund',
+            recipient: outbound ? '0x0000000000000000000000000000000000000001' : 'account',
             deadline: '2026-10-22T12:00:00.000Z',
             slippageTolerance: 100
           },
@@ -592,13 +599,13 @@ describe('HistoryDetails', () => {
               dry: false,
               swapType: 'EXACT_INPUT',
               slippageTolerance: 100,
-              originAsset: 'usdc',
+              originAsset: originAssetId,
               depositType: 'ORIGIN_CHAIN',
-              destinationAsset: 'miden-usdc',
+              destinationAsset: destinationAssetId,
               amount: '1000000',
-              refundTo: 'refund',
+              refundTo: outbound ? 'account' : 'refund',
               refundType: 'ORIGIN_CHAIN',
-              recipient: 'account',
+              recipient: outbound ? '0x0000000000000000000000000000000000000001' : 'account',
               recipientType: 'DESTINATION_CHAIN',
               deadline: '2026-10-22T12:00:00.000Z'
             },
@@ -625,8 +632,18 @@ describe('HistoryDetails', () => {
           accountAddress: 'account',
           faucetId: 'faucet',
           amount: '245000000',
-          originAsset: { assetId: 'usdc', blockchain: originBlockchain, symbol: 'USDC', decimals: 6 },
-          destinationAsset: { assetId: 'miden-usdc', blockchain: destinationBlockchain, symbol: 'MUSDC', decimals: 6 },
+          originAsset: {
+            assetId: originAssetId,
+            blockchain: originBlockchain,
+            symbol: outbound ? 'MID' : 'USDC',
+            decimals: 6
+          },
+          destinationAsset: {
+            assetId: destinationAssetId,
+            blockchain: destinationBlockchain,
+            symbol: outbound ? 'USDC' : 'MUSDC',
+            decimals: 6
+          },
           phase: 'arriving',
           depositAddress: 'deposit',
           providerStatus: 'SUCCESS',
@@ -673,6 +690,19 @@ describe('HistoryDetails', () => {
     expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
       'Miden'
     );
+  });
+
+  it('does not show Miden delivery status for an outbound swap reported successful', async () => {
+    setOneClickHistoryRow('miden', 'eth', 'miden-to-evm');
+
+    await renderAndLoad({ transactionId: 'one-click-history' });
+
+    expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+    expect(screen.queryByText('oneClickDeliveryArriving')).not.toBeInTheDocument();
+    expect(screen.queryByText('oneClickStatusDelivered')).not.toBeInTheDocument();
+    expect(
+      screen.getAllByTestId('detail-row').some(row => row.getAttribute('data-label') === 'oneClickDeliveryStatus')
+    ).toBe(false);
   });
 
   it('shows the friendly Arbitrum label for the arb route ID', async () => {

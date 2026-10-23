@@ -26,7 +26,11 @@ jest.mock('lib/one-click/client', () => ({
 }));
 jest.mock('./OneClickFlow', () => ({
   OneClickFlow: ({ initialRecovery }: { initialRecovery?: IOneClickTrackingData }) => (
-    <div data-testid="restored-flow" data-destination={initialRecovery?.destinationAsset.blockchain} />
+    <div
+      data-testid="restored-flow"
+      data-destination={initialRecovery?.destinationAsset.blockchain}
+      data-submission={initialRecovery?.evmSubmission}
+    />
   )
 }));
 
@@ -129,7 +133,14 @@ describe('OneClickRecovery', () => {
     expect(fetchOneClickAssets).toHaveBeenCalledTimes(1);
   });
 
-  it('restores an ambiguous inbound attempt without offering another funding submit', async () => {
+  it.each([
+    {
+      label: 'pending-deposit provider status',
+      phase: 'pending-deposit' as const,
+      providerStatus: 'PENDING_DEPOSIT' as const
+    },
+    { label: 'provider failure', phase: 'failed' as const, providerStatus: 'FAILED' as const }
+  ])('restores an attempted inbound route after $label for status recovery', async ({ phase, providerStatus }) => {
     const inbound = Object.assign(
       {
         ...tracking,
@@ -155,7 +166,8 @@ describe('OneClickRecovery', () => {
         originAsset: evmOrigin,
         destinationAsset: origin,
         faucetId: origin.faucetId!,
-        phase: 'pending-deposit' as const,
+        phase,
+        providerStatus,
         accountAddress: 'miden-account'
       },
       { evmSubmission: 'attempted' as const }
@@ -167,7 +179,7 @@ describe('OneClickRecovery', () => {
     mockCatalog = [evmOrigin, origin];
     render(<OneClickRecovery tracking={inbound} transactionAccountId="miden-account" onBack={jest.fn()} />);
 
-    expect(await screen.findByTestId('restored-flow')).toBeInTheDocument();
+    expect(await screen.findByTestId('restored-flow')).toHaveAttribute('data-submission', 'attempted');
   });
 
   it.each([

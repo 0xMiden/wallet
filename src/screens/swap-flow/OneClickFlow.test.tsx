@@ -708,6 +708,10 @@ describe('OneClickFlow', () => {
 
   it.each([
     { label: 'attempted marker with matching persisted reference', marker: { evmSubmission: 'attempted' } },
+    {
+      label: 'attempted marker after provider failure',
+      marker: { phase: 'failed', providerStatus: 'FAILED', evmSubmission: 'attempted' }
+    },
     { label: 'legacy absent marker with matching persisted reference', marker: {} }
   ])(
     'blocks funding from a persisted attempted or legacy unmarked EVM row after remount: $label',

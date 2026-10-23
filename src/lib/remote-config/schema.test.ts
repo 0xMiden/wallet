@@ -222,6 +222,61 @@ describe('swap section', () => {
   });
 });
 
+describe('OneClick trusted EVM asset identities', () => {
+  const midenAssets = [{ assetId: 'miden:usdc', faucetId: '0x123456789012345678901234567890', decimals: 6 }];
+  const evmAsset = {
+    assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
+    blockchain: 'base',
+    chainId: 8453,
+    contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+    decimals: 6,
+    symbol: 'USDC'
+  };
+
+  it('defaults missing EVM asset mappings to an empty list while preserving Miden mappings', () => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets };
+    const parsed = parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet');
+
+    expect(parsed?.swap?.oneClick).toStrictEqual({ ...oneClick, evmAssets: [] });
+  });
+
+  it('accepts a configured EVM asset identity binding', () => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [evmAsset] };
+    const parsed = parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet');
+
+    expect(parsed?.swap?.oneClick).toStrictEqual(oneClick);
+  });
+
+  it.each([
+    ['missing asset ID', { ...evmAsset, assetId: undefined }],
+    ['unsupported chain', { ...evmAsset, blockchain: 'polygon', chainId: 137 }],
+    ['chain ID does not match its chain', { ...evmAsset, chainId: 1 }],
+    ['malformed contract address', { ...evmAsset, contractAddress: '0xnot-an-address' }],
+    ['invalid decimals', { ...evmAsset, decimals: 39 }],
+    ['missing display symbol', { ...evmAsset, symbol: '' }]
+  ])('disables an invalid EVM asset binding: %s', (_label, mapping) => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [mapping] };
+
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  });
+
+  it('disables duplicate EVM asset IDs', () => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [evmAsset, { ...evmAsset }] };
+
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  });
+
+  it('disables duplicate EVM chain and contract bindings', () => {
+    const oneClick = {
+      serviceUrl: 'https://swap.example',
+      midenAssets,
+      evmAssets: [evmAsset, { ...evmAsset, assetId: 'another-provider-id' }]
+    };
+
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  });
+});
+
 it('lowercases Miden account ids written in upper case', () => {
   const parsed = parseBridgeConfig(
     withSection('agglayer', { midenBridge: '0x3B66E20B5088F25133B69216484652' }),
