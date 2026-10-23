@@ -1,164 +1,4 @@
 {
-  "arcadePreview": {
-    "message": "Vista previa",
-    "englishSource": "Preview"
-  },
-  "arcadeExitPreview": {
-    "message": "Salir",
-    "englishSource": "Exit"
-  },
-  "arcadeSampleNotice": {
-    "message": "Datos de muestra solo para vista previa del diseño. No se trata de los fondos de tu monedero ni de clasificaciones reales de jugadores. No se publica nada.",
-    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
-  },
-  "arcadeSamplePlayer": {
-    "message": "Jugador de ejemplo",
-    "englishSource": "Sample player"
-  },
-  "arcadePreviewOnly": {
-    "message": "Solo vista previa",
-    "englishSource": "Preview only"
-  },
-  "arcadeApplySample": {
-    "message": "Aplicar actualización de ejemplo",
-    "englishSource": "Apply sample update"
-  },
-  "arcadeYourRank": {
-    "message": "Tu rango",
-    "englishSource": "Your rank"
-  },
-  "arcadeSubmittedBalance": {
-    "message": "Saldo presentado",
-    "englishSource": "Submitted balance"
-  },
-  "arcadeLeaderboard": {
-    "message": "Clasificación de GC",
-    "englishSource": "GC leaderboard"
-  },
-  "arcadeSampleUpdated": {
-    "message": "Instantánea de muestra actualizada localmente. No se ha enviado nada.",
-    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
-  },
-  "arcadeTitle": {
-    "message": "Bread Arcade",
-    "englishSource": "Bread Arcade"
-  },
-  "arcadeHomeDescription": {
-    "message": "Descubre juegos en Bread.",
-    "englishSource": "Discover games in Bread."
-  },
-  "arcadeExplore": {
-    "message": "Explora Arcade",
-    "englishSource": "Explore Arcade"
-  },
-  "arcadeFeatured": {
-    "message": "Juegos destacados",
-    "englishSource": "Featured games"
-  },
-  "arcadeGamesToTry": {
-    "message": "Juegos para probar",
-    "englishSource": "Games to try"
-  },
-  "arcadeQuickActions": {
-    "message": "Atajos de Arcade",
-    "englishSource": "Arcade shortcuts"
-  },
-  "arcadeRankings": {
-    "message": "Clasificaciones",
-    "englishSource": "Rankings"
-  },
-  "arcadeCoins": {
-    "message": "Monedas del juego",
-    "englishSource": "Game Coins"
-  },
-  "arcadeMyActivity": {
-    "message": "Mi actividad",
-    "englishSource": "My activity"
-  },
-  "arcadeOpenGame": {
-    "message": "Juego abierto",
-    "englishSource": "Open game"
-  },
-  "arcadeDetails": {
-    "message": "Detalles",
-    "englishSource": "Details"
-  },
-  "arcadeNoGames": {
-    "message": "No hay juegos disponibles",
-    "englishSource": "No games available"
-  },
-  "arcadeNoGamesDescription": {
-    "message": "Los juegos aparecerán aquí cuando estén disponibles en esta red.",
-    "englishSource": "Games will appear here when they are available on this network."
-  },
-  "arcadeOpeningNotice": {
-    "message": "Al iniciar un juego, tu monedero no se conectará automáticamente. Bread te lo preguntará primero.",
-    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
-  },
-  "arcadeGCRankings": {
-    "message": "Clasificaciones de GC",
-    "englishSource": "GC rankings"
-  },
-  "arcadeReviewBalance": {
-    "message": "Revisar el saldo de GC",
-    "englishSource": "Review GC balance"
-  },
-  "arcadeGCBalance": {
-    "message": "Saldo de GC",
-    "englishSource": "GC balance"
-  },
-  "arcadeNotRead": {
-    "message": "No leído",
-    "englishSource": "Not read"
-  },
-  "arcadeSubmitBalance": {
-    "message": "Enviar saldo",
-    "englishSource": "Submit balance"
-  },
-  "arcadeUpdateBalance": {
-    "message": "Actualizar saldo",
-    "englishSource": "Update balance"
-  },
-  "arcadeBalanceDisclosure": {
-    "message": "Al enviar una instantánea del saldo, se comparte con la tabla de clasificación el identificador de tu cuenta, el saldo de GC, la red y la hora de la instantánea. No se incluyen los saldos de tus otros activos.",
-    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
-  },
-  "arcadeConnectionRequired": {
-    "message": "La lectura del saldo de GC y el envío a la tabla de clasificación aún no están conectados. No se ha leído ni enviado ningún saldo.",
-    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
-  },
-  "arcadeRankingsUnavailable": {
-    "message": "Las clasificaciones aparecerán aquí",
-    "englishSource": "Rankings will appear here"
-  },
-  "arcadeRankingsDescription": {
-    "message": "Las clasificaciones aún no están activas en esta red.",
-    "englishSource": "Rankings aren't live on this network yet."
-  },
-  "arcadeCoinsUnavailable": {
-    "message": "Tu saldo aparecerá aquí",
-    "englishSource": "Your balance will appear here"
-  },
-  "arcadeCoinsDescription": {
-    "message": "Las Game Coins aún no están activas en esta red.",
-    "englishSource": "Game Coins aren't live on this network yet."
-  },
-  "arcadeActivityScope": {
-    "message": "Solo se incluyen los juegos que aparecen en Arcade.",
-    "englishSource": "Only games listed in Arcade are included."
-  },
-  "categoryFinance": {
-    "message": "Finanzas",
-    "englishSource": "Finance"
-  },
-  "categoryArcade": {
-    "message": "Arcade",
-    "englishSource": "Arcade"
-  },
-  "categoryOthers": {
-    "message": "Otros",
-    "englishSource": "Others"
-  },
   "bridgeRouteEpoch": {
     "message": "Rápido · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3857,6 +3697,10 @@
     "message": "El importe debe ser inferior al saldo",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "Esta cantidad tiene más decimales de los que permite este token.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "Aceptar automáticamente las transferencias USDCX",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7493,6 +7337,204 @@
   "runtimeUnsupportedBody": {
     "message": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "Estimación en USD no disponible",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "La cotización en USD ha caducado. Actualizando el precio…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "Importe en $unit$",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "Introduce $unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "Cargando el precio en USD…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "No se ha podido actualizar el precio en USD",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "Estimación en USD",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Vista previa",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Salir",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Datos de muestra solo para vista previa del diseño. No se trata de los fondos de tu monedero ni de clasificaciones reales de jugadores. No se publica nada.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Jugador de ejemplo",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Solo vista previa",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Aplicar actualización de ejemplo",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Tu rango",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Saldo presentado",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "Clasificación de GC",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Instantánea de muestra actualizada localmente. No se ha enviado nada.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Descubre juegos en Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Explora Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Juegos destacados",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Juegos para probar",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Atajos de Arcade",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Clasificaciones",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Monedas del juego",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Mi actividad",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Juego abierto",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Detalles",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "No hay juegos disponibles",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Los juegos aparecerán aquí cuando estén disponibles en esta red.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Al iniciar un juego, tu monedero no se conectará automáticamente. Bread te lo preguntará primero.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "Clasificaciones de GC",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "Revisar el saldo de GC",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "Saldo de GC",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "No leído",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Enviar saldo",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Actualizar saldo",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Al enviar una instantánea del saldo, se comparte con la tabla de clasificación el identificador de tu cuenta, el saldo de GC, la red y la hora de la instantánea. No se incluyen los saldos de tus otros activos.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "La lectura del saldo de GC y el envío a la tabla de clasificación aún no están conectados. No se ha leído ni enviado ningún saldo.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Las clasificaciones aparecerán aquí",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Las clasificaciones aún no están activas en esta red.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Tu saldo aparecerá aquí",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Las Game Coins aún no están activas en esta red.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Solo se incluyen los juegos que aparecen en Arcade.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Finanzas",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Otros",
+    "englishSource": "Others"
   },
   "arcadeCoinsShort": {
     "message": "Monedas",

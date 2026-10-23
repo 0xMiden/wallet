@@ -3,9 +3,9 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
-import { AmountInput } from 'components/AmountInput';
 import { Button } from 'components/Button';
 import { NetworkLogo } from 'components/NetworkChip';
+import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ListRow } from 'components/ui/ListRow';
@@ -13,9 +13,12 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
+import { evmQuote } from 'lib/prices/evm';
+import { useWalletStore } from 'lib/store';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
-import { approxFiatAmount, balanceFormatterFor } from 'screens/send-flow/amount-format';
+import { balanceFormatterFor } from 'screens/send-flow/amount-format';
 import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { UITokenWithPendingBalance } from 'screens/send-flow/types';
 import { truncateAddress } from 'utils/string';
@@ -57,6 +60,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
   const balanceReady = token.balance !== null;
   const canProceed = token.scaleIsKnown && balanceReady && !!network && isValidAmount;
   const visibleError = error && (amount || error !== 'invalidAmount') ? error : undefined;
@@ -102,18 +106,23 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       >
         {t('enterAmount')}
       </SectionHeader>
-      <AmountInput
+      <TokenAmountInput
+        assetId={`${network?.chainId}:${token.id}`}
+        symbol={token.name}
+        decimals={token.decimals}
+        scaleIsKnown={token.scaleIsKnown}
+        externalAsset
+        quote={evmQuote(
+          prices,
+          network?.chainId,
+          token.id === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL ? '0x0000000000000000000000000000000000000000' : token.id
+        )}
         value={amount}
         onValueChange={value => onAmountChange(value || '')}
         invalid={!!amountError}
         error={amountError}
         errorId={amountErrorId}
         accent="receive"
-        helper={
-          token.scaleIsKnown && token.fiatPrice > 0 && amount
-            ? t('approxFiatValue', { value: approxFiatAmount(Number(amount) * token.fiatPrice) })
-            : undefined
-        }
         showDivider={false}
         data-testid="send-amount-input"
       />

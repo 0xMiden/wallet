@@ -1,164 +1,4 @@
 {
-  "arcadePreview": {
-    "message": "Попередній перегляд",
-    "englishSource": "Preview"
-  },
-  "arcadeExitPreview": {
-    "message": "Вихід",
-    "englishSource": "Exit"
-  },
-  "arcadeSampleNotice": {
-    "message": "Зразки даних призначені лише для попереднього перегляду дизайну. Це не кошти з вашого гаманця та не реальні рейтинги гравців. Ніщо не публікується.",
-    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
-  },
-  "arcadeSamplePlayer": {
-    "message": "Приклад гравця",
-    "englishSource": "Sample player"
-  },
-  "arcadePreviewOnly": {
-    "message": "Тільки для попереднього перегляду",
-    "englishSource": "Preview only"
-  },
-  "arcadeApplySample": {
-    "message": "Застосувати оновлений зразок",
-    "englishSource": "Apply sample update"
-  },
-  "arcadeYourRank": {
-    "message": "Ваш рейтинг",
-    "englishSource": "Your rank"
-  },
-  "arcadeSubmittedBalance": {
-    "message": "Поданий баланс",
-    "englishSource": "Submitted balance"
-  },
-  "arcadeLeaderboard": {
-    "message": "Рейтинг GC",
-    "englishSource": "GC leaderboard"
-  },
-  "arcadeSampleUpdated": {
-    "message": "Зразок знімка оновлено локально. Нічого не було надіслано.",
-    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
-  },
-  "arcadeTitle": {
-    "message": "Bread Arcade",
-    "englishSource": "Bread Arcade"
-  },
-  "arcadeHomeDescription": {
-    "message": "Відкрийте для себе ігри в Bread.",
-    "englishSource": "Discover games in Bread."
-  },
-  "arcadeExplore": {
-    "message": "Ознайомтеся з Arcade",
-    "englishSource": "Explore Arcade"
-  },
-  "arcadeFeatured": {
-    "message": "Рекомендовані ігри",
-    "englishSource": "Featured games"
-  },
-  "arcadeGamesToTry": {
-    "message": "Ігри, які варто спробувати",
-    "englishSource": "Games to try"
-  },
-  "arcadeQuickActions": {
-    "message": "Скорочення в Arcade",
-    "englishSource": "Arcade shortcuts"
-  },
-  "arcadeRankings": {
-    "message": "Рейтинги",
-    "englishSource": "Rankings"
-  },
-  "arcadeCoins": {
-    "message": "Ігрові монети",
-    "englishSource": "Game Coins"
-  },
-  "arcadeMyActivity": {
-    "message": "Моя активність",
-    "englishSource": "My activity"
-  },
-  "arcadeOpenGame": {
-    "message": "Відкрита гра",
-    "englishSource": "Open game"
-  },
-  "arcadeDetails": {
-    "message": "Деталі",
-    "englishSource": "Details"
-  },
-  "arcadeNoGames": {
-    "message": "Ігор немає",
-    "englishSource": "No games available"
-  },
-  "arcadeNoGamesDescription": {
-    "message": "Ігри з’являтимуться тут, коли стануть доступними в цій мережі.",
-    "englishSource": "Games will appear here when they are available on this network."
-  },
-  "arcadeOpeningNotice": {
-    "message": "Запуск гри не призведе до підключення вашого гаманця. Bread спершу запитає у вас дозволу.",
-    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
-  },
-  "arcadeGCRankings": {
-    "message": "Рейтинги GC",
-    "englishSource": "GC rankings"
-  },
-  "arcadeReviewBalance": {
-    "message": "Переглянути баланс GC",
-    "englishSource": "Review GC balance"
-  },
-  "arcadeGCBalance": {
-    "message": "Баланс GC",
-    "englishSource": "GC balance"
-  },
-  "arcadeNotRead": {
-    "message": "Не прочитано",
-    "englishSource": "Not read"
-  },
-  "arcadeSubmitBalance": {
-    "message": "Надіслати баланс",
-    "englishSource": "Submit balance"
-  },
-  "arcadeUpdateBalance": {
-    "message": "Оновити баланс",
-    "englishSource": "Update balance"
-  },
-  "arcadeBalanceDisclosure": {
-    "message": "Надсилання знімка балансу передбачає передачу до рейтингової таблиці ідентифікатора вашого рахунку, балансу GC, мережі та часу створення знімка. Баланси ваших інших активів не включаються.",
-    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
-  },
-  "arcadeConnectionRequired": {
-    "message": "Зчитування балансу GC та надсилання даних до рейтингової таблиці поки що не пов’язані між собою. Жодного балансу не було зчитано чи надіслано.",
-    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
-  },
-  "arcadeRankingsUnavailable": {
-    "message": "Рейтинги з’являться тут",
-    "englishSource": "Rankings will appear here"
-  },
-  "arcadeRankingsDescription": {
-    "message": "Рейтинги у цій мережі ще не працюють.",
-    "englishSource": "Rankings aren't live on this network yet."
-  },
-  "arcadeCoinsUnavailable": {
-    "message": "Ваш баланс з’явиться тут",
-    "englishSource": "Your balance will appear here"
-  },
-  "arcadeCoinsDescription": {
-    "message": "Ігрові монети ще не доступні в цій мережі.",
-    "englishSource": "Game Coins aren't live on this network yet."
-  },
-  "arcadeActivityScope": {
-    "message": "До переліку входять лише ігри, зазначені в розділі «Arcade».",
-    "englishSource": "Only games listed in Arcade are included."
-  },
-  "categoryFinance": {
-    "message": "Фінанси",
-    "englishSource": "Finance"
-  },
-  "categoryArcade": {
-    "message": "Arcade",
-    "englishSource": "Arcade"
-  },
-  "categoryOthers": {
-    "message": "Інше",
-    "englishSource": "Others"
-  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3857,6 +3697,10 @@
     "message": "Сума повинна бути меншою за залишок на рахунку",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "Ця сума має більше знаків після коми, ніж дозволяє цей токен.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "Автоматично приймати перекази USDCX",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7493,6 +7337,204 @@
   "runtimeUnsupportedBody": {
     "message": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "Оцінка в доларах США недоступна",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "Термін дії котирування в USD закінчився. Оновлення ціни…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "Сума в $unit$",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "Введіть $unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "Завантаження ціни в доларах США…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "Ціна в доларах США не може бути оновлена",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "Оцінка в доларах США",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Попередній перегляд",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Вихід",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Зразки даних призначені лише для попереднього перегляду дизайну. Це не кошти з вашого гаманця та не реальні рейтинги гравців. Ніщо не публікується.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Приклад гравця",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Тільки для попереднього перегляду",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Застосувати оновлений зразок",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Ваш рейтинг",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Поданий баланс",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "Рейтинг GC",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Зразок знімка оновлено локально. Нічого не було надіслано.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Відкрийте для себе ігри в Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Ознайомтеся з Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Рекомендовані ігри",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Ігри, які варто спробувати",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Скорочення в Arcade",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Рейтинги",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Ігрові монети",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Моя активність",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Відкрита гра",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Ігор немає",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Ігри з’являтимуться тут, коли стануть доступними в цій мережі.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Запуск гри не призведе до підключення вашого гаманця. Bread спершу запитає у вас дозволу.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "Рейтинги GC",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "Переглянути баланс GC",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "Баланс GC",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Не прочитано",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Надіслати баланс",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Оновити баланс",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Надсилання знімка балансу передбачає передачу до рейтингової таблиці ідентифікатора вашого рахунку, балансу GC, мережі та часу створення знімка. Баланси ваших інших активів не включаються.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "Зчитування балансу GC та надсилання даних до рейтингової таблиці поки що не пов’язані між собою. Жодного балансу не було зчитано чи надіслано.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Рейтинги з’являться тут",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Рейтинги у цій мережі ще не працюють.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Ваш баланс з’явиться тут",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Ігрові монети ще не доступні в цій мережі.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "До переліку входять лише ігри, зазначені в розділі «Arcade».",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Фінанси",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Інше",
+    "englishSource": "Others"
   },
   "arcadeCoinsShort": {
     "message": "Монети",

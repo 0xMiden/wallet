@@ -127,6 +127,13 @@ describe('settledHeldUsd', () => {
     expect(settledHeldUsd([row('ETH', 1), row('PEND', 5)], { ETH: quote(2000) })).toBeNull();
   });
 
+  it('waits while a held token is priced by an expired quote', () => {
+    const now = 10_000_000;
+    const at = (price: number, age: number) => ({ ...quote(price), observedAt: now - age });
+    expect(settledHeldUsd([row('ETH', 1)], { ETH: at(2000, 60_000) }, now)).toBe(2000);
+    expect(settledHeldUsd([row('ETH', 1)], { ETH: at(2000, 10 * 60_000 + 1) }, now)).toBeNull();
+  });
+
   it('sums the holdings once every held token is quoted', () => {
     expect(settledHeldUsd([row('ETH', 1), row('USDC', 5)], { ETH: quote(2000), USDC: quote(1) })).toBe(2005);
   });

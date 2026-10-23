@@ -96,6 +96,11 @@ export type UIToken = {
    */
   fiatPriceIsNominal?: boolean;
   /**
+   * First millisecond `fiatPrice` is too old to quote (`quoteExpiryMs`); omitted for a price that never
+   * expires or is absent. A dollar computation reads the token as unpriced from then on.
+   */
+  fiatPriceExpiresAt?: number;
+  /**
    * Whether `decimals` is what the faucet reported, rather than the unknown-token
    * placeholder's guess of 6.
    *

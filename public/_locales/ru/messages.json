@@ -1,164 +1,4 @@
 {
-  "arcadePreview": {
-    "message": "Предварительный просмотр",
-    "englishSource": "Preview"
-  },
-  "arcadeExitPreview": {
-    "message": "Выход",
-    "englishSource": "Exit"
-  },
-  "arcadeSampleNotice": {
-    "message": "Примерные данные предназначены исключительно для предварительного просмотра дизайна. Это не средства вашего кошелька и не реальные рейтинги игроков. Ничто не публикуется.",
-    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
-  },
-  "arcadeSamplePlayer": {
-    "message": "Пример игрока",
-    "englishSource": "Sample player"
-  },
-  "arcadePreviewOnly": {
-    "message": "Только для предварительного просмотра",
-    "englishSource": "Preview only"
-  },
-  "arcadeApplySample": {
-    "message": "Применить обновление образца",
-    "englishSource": "Apply sample update"
-  },
-  "arcadeYourRank": {
-    "message": "Ваш рейтинг",
-    "englishSource": "Your rank"
-  },
-  "arcadeSubmittedBalance": {
-    "message": "Представленный баланс",
-    "englishSource": "Submitted balance"
-  },
-  "arcadeLeaderboard": {
-    "message": "Рейтинг GC",
-    "englishSource": "GC leaderboard"
-  },
-  "arcadeSampleUpdated": {
-    "message": "Образец моментального снимка обновлён локально. Ничего не было отправлено.",
-    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
-  },
-  "arcadeTitle": {
-    "message": "Bread Arcade",
-    "englishSource": "Bread Arcade"
-  },
-  "arcadeHomeDescription": {
-    "message": "Откройте для себя игры в Bread.",
-    "englishSource": "Discover games in Bread."
-  },
-  "arcadeExplore": {
-    "message": "Исследуйте Arcade",
-    "englishSource": "Explore Arcade"
-  },
-  "arcadeFeatured": {
-    "message": "Рекомендуемые игры",
-    "englishSource": "Featured games"
-  },
-  "arcadeGamesToTry": {
-    "message": "Игры, которые стоит попробовать",
-    "englishSource": "Games to try"
-  },
-  "arcadeQuickActions": {
-    "message": "Сокращения в Arcade",
-    "englishSource": "Arcade shortcuts"
-  },
-  "arcadeRankings": {
-    "message": "Рейтинги",
-    "englishSource": "Rankings"
-  },
-  "arcadeCoins": {
-    "message": "Игровые монеты",
-    "englishSource": "Game Coins"
-  },
-  "arcadeMyActivity": {
-    "message": "Моя активность",
-    "englishSource": "My activity"
-  },
-  "arcadeOpenGame": {
-    "message": "Открытая игра",
-    "englishSource": "Open game"
-  },
-  "arcadeDetails": {
-    "message": "Подробности",
-    "englishSource": "Details"
-  },
-  "arcadeNoGames": {
-    "message": "Игры недоступны",
-    "englishSource": "No games available"
-  },
-  "arcadeNoGamesDescription": {
-    "message": "Игры появятся здесь, когда станут доступны в этой сети.",
-    "englishSource": "Games will appear here when they are available on this network."
-  },
-  "arcadeOpeningNotice": {
-    "message": "Запуск игры не приведет к подключению вашего кошелька. Bread сначала спросит у вас разрешения.",
-    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
-  },
-  "arcadeGCRankings": {
-    "message": "Рейтинги GC",
-    "englishSource": "GC rankings"
-  },
-  "arcadeReviewBalance": {
-    "message": "Проверить баланс GC",
-    "englishSource": "Review GC balance"
-  },
-  "arcadeGCBalance": {
-    "message": "Баланс GC",
-    "englishSource": "GC balance"
-  },
-  "arcadeNotRead": {
-    "message": "Не прочитано",
-    "englishSource": "Not read"
-  },
-  "arcadeSubmitBalance": {
-    "message": "Отправить баланс",
-    "englishSource": "Submit balance"
-  },
-  "arcadeUpdateBalance": {
-    "message": "Обновить баланс",
-    "englishSource": "Update balance"
-  },
-  "arcadeBalanceDisclosure": {
-    "message": "Отправка моментального снимка баланса означает передачу в таблицу лидеров идентификатора вашего счёта, баланса GC, сети и времени создания снимка. Балансы ваших других активов не включаются.",
-    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
-  },
-  "arcadeConnectionRequired": {
-    "message": "Считывание баланса GC и отправка данных в таблицу лидеров пока не связаны между собой. Баланс не считывался и не отправлялся.",
-    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
-  },
-  "arcadeRankingsUnavailable": {
-    "message": "Рейтинги будут отображаться здесь",
-    "englishSource": "Rankings will appear here"
-  },
-  "arcadeRankingsDescription": {
-    "message": "Рейтинги в этой сети пока не доступны.",
-    "englishSource": "Rankings aren't live on this network yet."
-  },
-  "arcadeCoinsUnavailable": {
-    "message": "Ваш баланс будет отображаться здесь",
-    "englishSource": "Your balance will appear here"
-  },
-  "arcadeCoinsDescription": {
-    "message": "Игровые монеты пока не доступны в этой сети.",
-    "englishSource": "Game Coins aren't live on this network yet."
-  },
-  "arcadeActivityScope": {
-    "message": "Включены только игры, перечисленные в разделе «Arcade».",
-    "englishSource": "Only games listed in Arcade are included."
-  },
-  "categoryFinance": {
-    "message": "Финансы",
-    "englishSource": "Finance"
-  },
-  "categoryArcade": {
-    "message": "Arcade",
-    "englishSource": "Arcade"
-  },
-  "categoryOthers": {
-    "message": "Другое",
-    "englishSource": "Others"
-  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3857,6 +3697,10 @@
     "message": "Сумма должна быть меньше остатка",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "В этой сумме больше десятичных знаков, чем допускает данный токен.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "Автоматически принимать переводы USDCX",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7493,6 +7337,204 @@
   "runtimeUnsupportedBody": {
     "message": "Кошельку требуется WebAssembly SIMD, чего данный браузер или устройство не поддерживает. Откройте кошелек на другом устройстве или в обновлённом браузере.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "Оценка в долларах США недоступна",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "Срок действия котировки в долларах США истек. Обновление цены…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "Сумма в $unit$",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "Введите $unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "Загрузка цены в долларах США…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "Цена в долларах США не может быть обновлена",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "Оценка в долларах США",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Предварительный просмотр",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Выход",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Примерные данные предназначены исключительно для предварительного просмотра дизайна. Это не средства вашего кошелька и не реальные рейтинги игроков. Ничто не публикуется.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Пример игрока",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Только для предварительного просмотра",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Применить обновление образца",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Ваш рейтинг",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Представленный баланс",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "Рейтинг GC",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Образец моментального снимка обновлён локально. Ничего не было отправлено.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Откройте для себя игры в Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Исследуйте Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Рекомендуемые игры",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Игры, которые стоит попробовать",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Сокращения в Arcade",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Рейтинги",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Игровые монеты",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Моя активность",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Открытая игра",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Игры недоступны",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Игры появятся здесь, когда станут доступны в этой сети.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Запуск игры не приведет к подключению вашего кошелька. Bread сначала спросит у вас разрешения.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "Рейтинги GC",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "Проверить баланс GC",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "Баланс GC",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Не прочитано",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Отправить баланс",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Обновить баланс",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Отправка моментального снимка баланса означает передачу в таблицу лидеров идентификатора вашего счёта, баланса GC, сети и времени создания снимка. Балансы ваших других активов не включаются.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "Считывание баланса GC и отправка данных в таблицу лидеров пока не связаны между собой. Баланс не считывался и не отправлялся.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Рейтинги будут отображаться здесь",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Рейтинги в этой сети пока не доступны.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Ваш баланс будет отображаться здесь",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Игровые монеты пока не доступны в этой сети.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Включены только игры, перечисленные в разделе «Arcade».",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Финансы",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Другое",
+    "englishSource": "Others"
   },
   "arcadeCoinsShort": {
     "message": "Монеты",

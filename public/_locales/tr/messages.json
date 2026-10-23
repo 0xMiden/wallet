@@ -1,164 +1,4 @@
 {
-  "arcadePreview": {
-    "message": "Önizleme",
-    "englishSource": "Preview"
-  },
-  "arcadeExitPreview": {
-    "message": "Çıkış",
-    "englishSource": "Exit"
-  },
-  "arcadeSampleNotice": {
-    "message": "Örnek veriler yalnızca tasarım önizlemesi içindir. Bunlar cüzdan bakiyeniz veya gerçek oyuncu sıralamalarınız değildir. Hiçbir şey yayınlanmamıştır.",
-    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
-  },
-  "arcadeSamplePlayer": {
-    "message": "Örnek oyuncu",
-    "englishSource": "Sample player"
-  },
-  "arcadePreviewOnly": {
-    "message": "Yalnızca önizleme",
-    "englishSource": "Preview only"
-  },
-  "arcadeApplySample": {
-    "message": "Örnek güncellemeyi uygulayın",
-    "englishSource": "Apply sample update"
-  },
-  "arcadeYourRank": {
-    "message": "Sıralamanız",
-    "englishSource": "Your rank"
-  },
-  "arcadeSubmittedBalance": {
-    "message": "Gönderilen bakiye",
-    "englishSource": "Submitted balance"
-  },
-  "arcadeLeaderboard": {
-    "message": "GC liderlik tablosu",
-    "englishSource": "GC leaderboard"
-  },
-  "arcadeSampleUpdated": {
-    "message": "Örnek anlık görüntü yerel olarak güncellendi. Hiçbir şey gönderilmedi.",
-    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
-  },
-  "arcadeTitle": {
-    "message": "Bread Arcade",
-    "englishSource": "Bread Arcade"
-  },
-  "arcadeHomeDescription": {
-    "message": "Bread'de oyunları keşfedin.",
-    "englishSource": "Discover games in Bread."
-  },
-  "arcadeExplore": {
-    "message": "Arcade'i keşfedin",
-    "englishSource": "Explore Arcade"
-  },
-  "arcadeFeatured": {
-    "message": "Öne çıkan oyunlar",
-    "englishSource": "Featured games"
-  },
-  "arcadeGamesToTry": {
-    "message": "Denemeniz gereken oyunlar",
-    "englishSource": "Games to try"
-  },
-  "arcadeQuickActions": {
-    "message": "Arcade kısayolları",
-    "englishSource": "Arcade shortcuts"
-  },
-  "arcadeRankings": {
-    "message": "Sıralamalar",
-    "englishSource": "Rankings"
-  },
-  "arcadeCoins": {
-    "message": "Oyun Paraları",
-    "englishSource": "Game Coins"
-  },
-  "arcadeMyActivity": {
-    "message": "Etkinliklerim",
-    "englishSource": "My activity"
-  },
-  "arcadeOpenGame": {
-    "message": "Açık oyun",
-    "englishSource": "Open game"
-  },
-  "arcadeDetails": {
-    "message": "Ayrıntılar",
-    "englishSource": "Details"
-  },
-  "arcadeNoGames": {
-    "message": "Oynanabilir oyun yok",
-    "englishSource": "No games available"
-  },
-  "arcadeNoGamesDescription": {
-    "message": "Oyunlar, bu ağda kullanıma sunulduğunda burada görünecektir.",
-    "englishSource": "Games will appear here when they are available on this network."
-  },
-  "arcadeOpeningNotice": {
-    "message": "Bir oyun açmak cüzdanınızı bağlamaz. Bread önce izin ister.",
-    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
-  },
-  "arcadeGCRankings": {
-    "message": "GC sıralamaları",
-    "englishSource": "GC rankings"
-  },
-  "arcadeReviewBalance": {
-    "message": "GC bakiyesini inceleyin",
-    "englishSource": "Review GC balance"
-  },
-  "arcadeGCBalance": {
-    "message": "GC bakiyesi",
-    "englishSource": "GC balance"
-  },
-  "arcadeNotRead": {
-    "message": "Okunmadı",
-    "englishSource": "Not read"
-  },
-  "arcadeSubmitBalance": {
-    "message": "Bakiyeyi gönder",
-    "englishSource": "Submit balance"
-  },
-  "arcadeUpdateBalance": {
-    "message": "Bakiyeyi güncelle",
-    "englishSource": "Update balance"
-  },
-  "arcadeBalanceDisclosure": {
-    "message": "Bir bakiye anlık görüntüsünü göndermek, hesap tanımlayıcınızı, GC bakiyenizi, ağınızı ve anlık görüntü zamanınızı liderlik tablosuyla paylaşmak anlamına gelir. Diğer varlık bakiyeleriniz dahil edilmez.",
-    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
-  },
-  "arcadeConnectionRequired": {
-    "message": "GC bakiyesi okuma ve liderlik tablosu gönderimi henüz birbirine bağlı değildir. Henüz hiçbir bakiye okunmamış veya gönderilmemiştir.",
-    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
-  },
-  "arcadeRankingsUnavailable": {
-    "message": "Sıralamalar burada görünecektir",
-    "englishSource": "Rankings will appear here"
-  },
-  "arcadeRankingsDescription": {
-    "message": "Sıralamalar bu ağda henüz aktif değildir.",
-    "englishSource": "Rankings aren't live on this network yet."
-  },
-  "arcadeCoinsUnavailable": {
-    "message": "Bakiyeniz burada görünecektir",
-    "englishSource": "Your balance will appear here"
-  },
-  "arcadeCoinsDescription": {
-    "message": "Oyun Paraları henüz bu ağda aktif değildir.",
-    "englishSource": "Game Coins aren't live on this network yet."
-  },
-  "arcadeActivityScope": {
-    "message": "Yalnızca Arcade'de listelenen oyunlar dahil edilir.",
-    "englishSource": "Only games listed in Arcade are included."
-  },
-  "categoryFinance": {
-    "message": "Finans",
-    "englishSource": "Finance"
-  },
-  "categoryArcade": {
-    "message": "Arcade",
-    "englishSource": "Arcade"
-  },
-  "categoryOthers": {
-    "message": "Diğer",
-    "englishSource": "Others"
-  },
   "bridgeRouteEpoch": {
     "message": "Hızlı · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3857,6 +3697,10 @@
     "message": "Tutar, bakiyeden az olmalıdır",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "Bu tutarın ondalık basamak sayısı, bu tokenin izin verdiği sayıdan fazladır.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "USDCX transferlerini otomatik kabul et",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7493,6 +7337,204 @@
   "runtimeUnsupportedBody": {
     "message": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "USD tahmini mevcut değil",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "USD fiyat teklifi süresi doldu. Fiyat yenileniyor…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "$unit$ cinsinden tutar",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "$unit$ girin",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "USD fiyatı yükleniyor…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "USD fiyatı yenilenemedi",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "USD tahmini",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Önizleme",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Çıkış",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Örnek veriler yalnızca tasarım önizlemesi içindir. Bunlar cüzdan bakiyeniz veya gerçek oyuncu sıralamalarınız değildir. Hiçbir şey yayınlanmamıştır.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Örnek oyuncu",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Yalnızca önizleme",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Örnek güncellemeyi uygulayın",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Sıralamanız",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Gönderilen bakiye",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC liderlik tablosu",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Örnek anlık görüntü yerel olarak güncellendi. Hiçbir şey gönderilmedi.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Bread'de oyunları keşfedin.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Arcade'i keşfedin",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Öne çıkan oyunlar",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Denemeniz gereken oyunlar",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade kısayolları",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Sıralamalar",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Oyun Paraları",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Etkinliklerim",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Açık oyun",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Ayrıntılar",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Oynanabilir oyun yok",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Oyunlar, bu ağda kullanıma sunulduğunda burada görünecektir.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Bir oyun açmak cüzdanınızı bağlamaz. Bread önce izin ister.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC sıralamaları",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "GC bakiyesini inceleyin",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC bakiyesi",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Okunmadı",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Bakiyeyi gönder",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Bakiyeyi güncelle",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Bir bakiye anlık görüntüsünü göndermek, hesap tanımlayıcınızı, GC bakiyenizi, ağınızı ve anlık görüntü zamanınızı liderlik tablosuyla paylaşmak anlamına gelir. Diğer varlık bakiyeleriniz dahil edilmez.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC bakiyesi okuma ve liderlik tablosu gönderimi henüz birbirine bağlı değildir. Henüz hiçbir bakiye okunmamış veya gönderilmemiştir.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Sıralamalar burada görünecektir",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Sıralamalar bu ağda henüz aktif değildir.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Bakiyeniz burada görünecektir",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Oyun Paraları henüz bu ağda aktif değildir.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Yalnızca Arcade'de listelenen oyunlar dahil edilir.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Finans",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Diğer",
+    "englishSource": "Others"
   },
   "arcadeCoinsShort": {
     "message": "Madeni paralar",

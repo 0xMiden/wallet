@@ -1,164 +1,4 @@
 {
-  "arcadePreview": {
-    "message": "미리 보기",
-    "englishSource": "Preview"
-  },
-  "arcadeExitPreview": {
-    "message": "종료",
-    "englishSource": "Exit"
-  },
-  "arcadeSampleNotice": {
-    "message": "이 데이터는 디자인 미리보기용 샘플일 뿐입니다. 이는 귀하의 지갑 자금이나 실제 플레이어 순위가 아닙니다. 어떤 정보도 공개되지 않습니다.",
-    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
-  },
-  "arcadeSamplePlayer": {
-    "message": "플레이어 예시",
-    "englishSource": "Sample player"
-  },
-  "arcadePreviewOnly": {
-    "message": "미리보기 전용",
-    "englishSource": "Preview only"
-  },
-  "arcadeApplySample": {
-    "message": "샘플 업데이트 적용",
-    "englishSource": "Apply sample update"
-  },
-  "arcadeYourRank": {
-    "message": "귀하의 등급",
-    "englishSource": "Your rank"
-  },
-  "arcadeSubmittedBalance": {
-    "message": "제출된 잔액",
-    "englishSource": "Submitted balance"
-  },
-  "arcadeLeaderboard": {
-    "message": "GC 순위표",
-    "englishSource": "GC leaderboard"
-  },
-  "arcadeSampleUpdated": {
-    "message": "로컬에서 샘플 스냅샷이 업데이트되었습니다. 제출된 내용은 없습니다.",
-    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
-  },
-  "arcadeTitle": {
-    "message": "Bread Arcade",
-    "englishSource": "Bread Arcade"
-  },
-  "arcadeHomeDescription": {
-    "message": "Bread에서 게임을 찾아보세요.",
-    "englishSource": "Discover games in Bread."
-  },
-  "arcadeExplore": {
-    "message": "아케이드 둘러보기",
-    "englishSource": "Explore Arcade"
-  },
-  "arcadeFeatured": {
-    "message": "추천 게임",
-    "englishSource": "Featured games"
-  },
-  "arcadeGamesToTry": {
-    "message": "해볼 만한 게임들",
-    "englishSource": "Games to try"
-  },
-  "arcadeQuickActions": {
-    "message": "아케이드 단축키",
-    "englishSource": "Arcade shortcuts"
-  },
-  "arcadeRankings": {
-    "message": "순위",
-    "englishSource": "Rankings"
-  },
-  "arcadeCoins": {
-    "message": "게임 코인",
-    "englishSource": "Game Coins"
-  },
-  "arcadeMyActivity": {
-    "message": "내 활동",
-    "englishSource": "My activity"
-  },
-  "arcadeOpenGame": {
-    "message": "오픈 게임",
-    "englishSource": "Open game"
-  },
-  "arcadeDetails": {
-    "message": "세부 사항",
-    "englishSource": "Details"
-  },
-  "arcadeNoGames": {
-    "message": "이용 가능한 게임 없음",
-    "englishSource": "No games available"
-  },
-  "arcadeNoGamesDescription": {
-    "message": "이 네트워크에서 게임이 이용 가능해지면 이곳에 표시될 것입니다.",
-    "englishSource": "Games will appear here when they are available on this network."
-  },
-  "arcadeOpeningNotice": {
-    "message": "게임을 실행한다고 해서 지갑이 자동으로 연결되지는 않습니다. Bread가 먼저 확인을 요청합니다.",
-    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
-  },
-  "arcadeGCRankings": {
-    "message": "GC 순위",
-    "englishSource": "GC rankings"
-  },
-  "arcadeReviewBalance": {
-    "message": "GC 잔액 확인",
-    "englishSource": "Review GC balance"
-  },
-  "arcadeGCBalance": {
-    "message": "GC 잔액",
-    "englishSource": "GC balance"
-  },
-  "arcadeNotRead": {
-    "message": "읽지 않음",
-    "englishSource": "Not read"
-  },
-  "arcadeSubmitBalance": {
-    "message": "잔액 제출",
-    "englishSource": "Submit balance"
-  },
-  "arcadeUpdateBalance": {
-    "message": "잔액 업데이트",
-    "englishSource": "Update balance"
-  },
-  "arcadeBalanceDisclosure": {
-    "message": "잔액 스냅샷을 제출하면 계정 식별자, GC 잔액, 네트워크 및 스냅샷 시간이 리더보드에 공유됩니다. 기타 자산 잔액은 포함되지 않습니다.",
-    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
-  },
-  "arcadeConnectionRequired": {
-    "message": "GC 잔액 조회와 순위표 제출 기능은 아직 연동되지 않았습니다. 현재까지 잔액이 조회되거나 제출된 바 없습니다.",
-    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
-  },
-  "arcadeRankingsUnavailable": {
-    "message": "순위는 이곳에 표시됩니다",
-    "englishSource": "Rankings will appear here"
-  },
-  "arcadeRankingsDescription": {
-    "message": "이 네트워크에서는 아직 실시간 순위 기능이 제공되지 않습니다.",
-    "englishSource": "Rankings aren't live on this network yet."
-  },
-  "arcadeCoinsUnavailable": {
-    "message": "여기에 잔액이 표시됩니다.",
-    "englishSource": "Your balance will appear here"
-  },
-  "arcadeCoinsDescription": {
-    "message": "게임 코인은 아직 이 네트워크에서 사용 가능하지 않습니다.",
-    "englishSource": "Game Coins aren't live on this network yet."
-  },
-  "arcadeActivityScope": {
-    "message": "아케이드(Arcade)에 등재된 게임만 포함됩니다.",
-    "englishSource": "Only games listed in Arcade are included."
-  },
-  "categoryFinance": {
-    "message": "금융",
-    "englishSource": "Finance"
-  },
-  "categoryArcade": {
-    "message": "Arcade",
-    "englishSource": "Arcade"
-  },
-  "categoryOthers": {
-    "message": "기타",
-    "englishSource": "Others"
-  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3857,6 +3697,10 @@
     "message": "금액은 잔액보다 적어야 합니다.",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "이 금액은 해당 토큰이 허용하는 소수점 자리 수보다 더 많은 소수점 자릿수를 가지고 있습니다.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "USDCX 이체 자동 수락",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7493,6 +7337,204 @@
   "runtimeUnsupportedBody": {
     "message": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "USD 추정치 없음",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "USD 호가가 만료되었습니다. 가격을 새로 고침 중…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "$unit$ 단위의 금액",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "$unit$ 입력",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "USD 가격 불러오는 중…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "USD 가격이 갱신되지 않았습니다",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "USD 추정치",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "미리 보기",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "종료",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "이 데이터는 디자인 미리보기용 샘플일 뿐입니다. 이는 귀하의 지갑 자금이나 실제 플레이어 순위가 아닙니다. 어떤 정보도 공개되지 않습니다.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "플레이어 예시",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "미리보기 전용",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "샘플 업데이트 적용",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "귀하의 등급",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "제출된 잔액",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC 순위표",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "로컬에서 샘플 스냅샷이 업데이트되었습니다. 제출된 내용은 없습니다.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Bread에서 게임을 찾아보세요.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "아케이드 둘러보기",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "추천 게임",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "해볼 만한 게임들",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "아케이드 단축키",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "순위",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "게임 코인",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "내 활동",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "오픈 게임",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "세부 사항",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "이용 가능한 게임 없음",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "이 네트워크에서 게임이 이용 가능해지면 이곳에 표시될 것입니다.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "게임을 실행한다고 해서 지갑이 자동으로 연결되지는 않습니다. Bread가 먼저 확인을 요청합니다.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC 순위",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "GC 잔액 확인",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC 잔액",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "읽지 않음",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "잔액 제출",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "잔액 업데이트",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "잔액 스냅샷을 제출하면 계정 식별자, GC 잔액, 네트워크 및 스냅샷 시간이 리더보드에 공유됩니다. 기타 자산 잔액은 포함되지 않습니다.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC 잔액 조회와 순위표 제출 기능은 아직 연동되지 않았습니다. 현재까지 잔액이 조회되거나 제출된 바 없습니다.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "순위는 이곳에 표시됩니다",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "이 네트워크에서는 아직 실시간 순위 기능이 제공되지 않습니다.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "여기에 잔액이 표시됩니다.",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "게임 코인은 아직 이 네트워크에서 사용 가능하지 않습니다.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "아케이드(Arcade)에 등재된 게임만 포함됩니다.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "금융",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "기타",
+    "englishSource": "Others"
   },
   "arcadeCoinsShort": {
     "message": "코인",

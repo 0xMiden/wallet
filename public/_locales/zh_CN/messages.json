@@ -1,164 +1,4 @@
 {
-  "arcadePreview": {
-    "message": "预览",
-    "englishSource": "Preview"
-  },
-  "arcadeExitPreview": {
-    "message": "退出",
-    "englishSource": "Exit"
-  },
-  "arcadeSampleNotice": {
-    "message": "示例数据仅用于设计预览。这些并非您的钱包资金或真实玩家排名。任何内容均未发布。",
-    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
-  },
-  "arcadeSamplePlayer": {
-    "message": "示例播放器",
-    "englishSource": "Sample player"
-  },
-  "arcadePreviewOnly": {
-    "message": "仅供预览",
-    "englishSource": "Preview only"
-  },
-  "arcadeApplySample": {
-    "message": "应用示例更新",
-    "englishSource": "Apply sample update"
-  },
-  "arcadeYourRank": {
-    "message": "您的等级",
-    "englishSource": "Your rank"
-  },
-  "arcadeSubmittedBalance": {
-    "message": "提交的余额",
-    "englishSource": "Submitted balance"
-  },
-  "arcadeLeaderboard": {
-    "message": "GC排行榜",
-    "englishSource": "GC leaderboard"
-  },
-  "arcadeSampleUpdated": {
-    "message": "本地更新了示例快照。未提交任何内容。",
-    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
-  },
-  "arcadeTitle": {
-    "message": "Bread Arcade",
-    "englishSource": "Bread Arcade"
-  },
-  "arcadeHomeDescription": {
-    "message": "在 Bread 中探索游戏。",
-    "englishSource": "Discover games in Bread."
-  },
-  "arcadeExplore": {
-    "message": "探索 Arcade",
-    "englishSource": "Explore Arcade"
-  },
-  "arcadeFeatured": {
-    "message": "精选游戏",
-    "englishSource": "Featured games"
-  },
-  "arcadeGamesToTry": {
-    "message": "推荐尝试的游戏",
-    "englishSource": "Games to try"
-  },
-  "arcadeQuickActions": {
-    "message": "Arcade 快捷键",
-    "englishSource": "Arcade shortcuts"
-  },
-  "arcadeRankings": {
-    "message": "排名",
-    "englishSource": "Rankings"
-  },
-  "arcadeCoins": {
-    "message": "游戏币",
-    "englishSource": "Game Coins"
-  },
-  "arcadeMyActivity": {
-    "message": "我的活动",
-    "englishSource": "My activity"
-  },
-  "arcadeOpenGame": {
-    "message": "公开交易",
-    "englishSource": "Open game"
-  },
-  "arcadeDetails": {
-    "message": "详情",
-    "englishSource": "Details"
-  },
-  "arcadeNoGames": {
-    "message": "暂无游戏可用",
-    "englishSource": "No games available"
-  },
-  "arcadeNoGamesDescription": {
-    "message": "当本网络上推出游戏时，它们将在此处显示。",
-    "englishSource": "Games will appear here when they are available on this network."
-  },
-  "arcadeOpeningNotice": {
-    "message": "打开游戏不会自动连接您的钱包。Bread 会先征得您的同意。",
-    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
-  },
-  "arcadeGCRankings": {
-    "message": "GC 排名",
-    "englishSource": "GC rankings"
-  },
-  "arcadeReviewBalance": {
-    "message": "查看 GC 余额",
-    "englishSource": "Review GC balance"
-  },
-  "arcadeGCBalance": {
-    "message": "GC余额",
-    "englishSource": "GC balance"
-  },
-  "arcadeNotRead": {
-    "message": "未读",
-    "englishSource": "Not read"
-  },
-  "arcadeSubmitBalance": {
-    "message": "提交余额",
-    "englishSource": "Submit balance"
-  },
-  "arcadeUpdateBalance": {
-    "message": "更新余额",
-    "englishSource": "Update balance"
-  },
-  "arcadeBalanceDisclosure": {
-    "message": "提交余额快照会向排行榜分享您的账户标识符、GC 余额、网络及快照时间。您的其他资产余额不包含在内。",
-    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
-  },
-  "arcadeConnectionRequired": {
-    "message": "GC 余额读取与排行榜提交目前尚未关联。尚未读取或提交任何余额。",
-    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
-  },
-  "arcadeRankingsUnavailable": {
-    "message": "排名将显示在此处",
-    "englishSource": "Rankings will appear here"
-  },
-  "arcadeRankingsDescription": {
-    "message": "该网络目前尚未启用实时排名功能。",
-    "englishSource": "Rankings aren't live on this network yet."
-  },
-  "arcadeCoinsUnavailable": {
-    "message": "您的余额将显示在此处",
-    "englishSource": "Your balance will appear here"
-  },
-  "arcadeCoinsDescription": {
-    "message": "游戏币目前尚未在此网络上上线。",
-    "englishSource": "Game Coins aren't live on this network yet."
-  },
-  "arcadeActivityScope": {
-    "message": "仅包含“Arcade”中列出的游戏。",
-    "englishSource": "Only games listed in Arcade are included."
-  },
-  "categoryFinance": {
-    "message": "金融",
-    "englishSource": "Finance"
-  },
-  "categoryArcade": {
-    "message": "Arcade",
-    "englishSource": "Arcade"
-  },
-  "categoryOthers": {
-    "message": "其他",
-    "englishSource": "Others"
-  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3857,6 +3697,10 @@
     "message": "金额必须小于余额",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "该金额的小数位数超过了该代币允许的范围。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "自动接受 USDCX 转账",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7493,6 +7337,204 @@
   "runtimeUnsupportedBody": {
     "message": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "无法提供美元估算值",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "美元报价已过期。正在刷新价格……",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "金额以$unit$为单位",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "输入$unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "正在加载美元价格……",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "无法刷新美元价格",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "美元估算",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "预览",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "退出",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "示例数据仅用于设计预览。这些并非您的钱包资金或真实玩家排名。任何内容均未发布。",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "示例播放器",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "仅供预览",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "应用示例更新",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "您的等级",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "提交的余额",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC排行榜",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "本地更新了示例快照。未提交任何内容。",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "在 Bread 中探索游戏。",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "探索 Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "精选游戏",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "推荐尝试的游戏",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade 快捷键",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "排名",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "游戏币",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "我的活动",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "公开交易",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "详情",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "暂无游戏可用",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "当本网络上推出游戏时，它们将在此处显示。",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "打开游戏不会自动连接您的钱包。Bread 会先征得您的同意。",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC 排名",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "查看 GC 余额",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC余额",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "未读",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "提交余额",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "更新余额",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "提交余额快照会向排行榜分享您的账户标识符、GC 余额、网络及快照时间。您的其他资产余额不包含在内。",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC 余额读取与排行榜提交目前尚未关联。尚未读取或提交任何余额。",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "排名将显示在此处",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "该网络目前尚未启用实时排名功能。",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "您的余额将显示在此处",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "游戏币目前尚未在此网络上上线。",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "仅包含“Arcade”中列出的游戏。",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "金融",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "其他",
+    "englishSource": "Others"
   },
   "arcadeCoinsShort": {
     "message": "代币",
