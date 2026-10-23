@@ -23,6 +23,8 @@ import { WalletStatus } from 'lib/shared/types';
 // Read through `isExtension()` while a request runs, so each test picks its platform.
 // eslint-disable-next-line no-var
 var mockIsExtension = false;
+// eslint-disable-next-line no-var
+var mockIsDesktop = false;
 
 const mockLoginKeyCommitment = jest.fn();
 const mockSignWithLoginKey = jest.fn();
@@ -64,8 +66,8 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
 
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension,
-  isDesktop: () => false,
-  isMobile: () => !mockIsExtension
+  isDesktop: () => mockIsDesktop,
+  isMobile: () => !mockIsExtension && !mockIsDesktop
 }));
 
 const mockStorageState: Record<string, unknown> = {};
@@ -193,8 +195,9 @@ const WORD = u8ToB64(new Uint8Array(32).fill(7));
 const LOGIN_KEY = 'login-key-commitment';
 const SIGNATURE = 'login-signature';
 const UNAVAILABLE = `${MidenDAppErrorType.LoginKeyUnavailable}: this account's root key is not on this device`;
-const NOT_A_WORD = `${MidenDAppErrorType.InvalidParams}: a login signature signs only a 32-byte word`;
+const NOT_A_WORD = `${MidenDAppErrorType.InvalidParams}: a login signature signs only a word: 32 bytes holding four little-endian field elements`;
 const NOT_HTTPS = `${MidenDAppErrorType.InvalidParams}: login keys need an https page`;
+const VAULT_REFUSALS = [`${MidenDAppErrorType.InvalidParams}: not a word to sign`, UNAVAILABLE];
 
 function connect(origin: string, session: Record<string, unknown> = {}) {
   mockStorageState[STORAGE_KEY] = {
@@ -277,6 +280,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(extensionBrowser.windows.create).mockReset().mockImplementation(createWindow);
   mockIsExtension = false;
+  mockIsDesktop = false;
   mockWalletStatus = WalletStatus.Ready;
   mockStoreListeners.clear();
   mockIntercomListeners.length = 0;
@@ -471,7 +475,7 @@ describe('both login key messages', () => {
 });
 
 describe('requestLoginSign', () => {
-  it('refuses a login signature over anything but a 32-byte word', async () => {
+  it('refuses a login signature over anything but four serialized field elements', async () => {
     const notWords = [
       { kind: 'signingInputs' },
       { kind: undefined },
@@ -491,6 +495,31 @@ describe('requestLoginSign', () => {
     expect(mockWithUnlocked).not.toHaveBeenCalled();
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized login word before decoding or prompting', async () => {
+    const atobSpy = jest.spyOn(globalThis, 'atob');
+    try {
+      for (const payload of ['A'.repeat(48), 'A'.repeat(45)]) {
+        await expect(dapp.requestLoginSign(ORIGIN, signRequest({ payload }))).rejects.toThrow(new Error(NOT_A_WORD));
+        expect(atobSpy).not.toHaveBeenCalled();
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+      }
+    } finally {
+      atobSpy.mockRestore();
+    }
+  });
+
+  it('still signs a valid 43-character unpadded login word', async () => {
+    const payload = WORD.slice(0, -1);
+    expect(payload).toHaveLength(43);
+
+    await expect(dapp.requestLoginSign(ORIGIN, signRequest({ payload }))).resolves.toEqual({
+      type: MidenDAppMessageType.LoginSignResponse,
+      signature: SIGNATURE
+    });
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, payload);
   });
 
   it('refuses without a prompt when the account has no root key', async () => {
@@ -627,18 +656,53 @@ describe('requestLoginSign', () => {
     expect(mockSignWithLoginKey).not.toHaveBeenCalled();
   });
 
-  it("passes the vault's refusal of a word on with its code once", async () => {
-    // 32 bytes, but no field elements: the check before the prompt passes them, and the vault refuses them.
-    const notFieldElements = signRequest({ payload: u8ToB64(new Uint8Array(32).fill(255)) });
-    const refusal = `${MidenDAppErrorType.InvalidParams}: not a word to sign`;
-    mockSignWithLoginKey.mockRejectedValue(new Error(refusal));
-    await expect(dapp.requestLoginSign(ORIGIN, notFieldElements)).rejects.toThrow(new Error(refusal));
+  it.each(['mobile', 'extension', 'desktop'])(
+    'refuses a payload that is not four field elements before the prompt on %s',
+    async platform => {
+      mockIsExtension = platform === 'extension';
+      mockIsDesktop = platform === 'desktop';
+      // A regressed extension gate must settle rather than wait for an unanswered popup.
+      jest.mocked(extensionBrowser.windows.create).mockRejectedValueOnce(new Error('unexpected login prompt'));
+      const notFieldElements = signRequest({ payload: u8ToB64(new Uint8Array(32).fill(0xff)) });
 
+      await expect(dapp.requestLoginSign(ORIGIN, notFieldElements)).rejects.toThrow(new Error(NOT_A_WORD));
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+      expect(mockIntercomListeners).toHaveLength(0);
+      expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+      expect(mockLoginKeyCommitment).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['mobile', 'desktop'].flatMap(platform => VAULT_REFUSALS.map(message => ({ platform, message }))))(
+    "passes the vault's post-approval refusal through once on $platform: $message",
+    async ({ platform, message }) => {
+      mockIsDesktop = platform === 'desktop';
+      mockSignWithLoginKey.mockRejectedValue(new Error(message));
+
+      await expect(settle(dapp.requestLoginSign(ORIGIN, signRequest()))).resolves.toEqual({ ok: false, message });
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(firstCall(mockRequestConfirmation.mock.invocationCallOrder)).toBeLessThan(
+        firstCall(mockSignWithLoginKey.mock.invocationCallOrder)
+      );
+      expect(mockSignWithLoginKey).toHaveBeenCalledTimes(1);
+      expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
+    }
+  );
+
+  it.each(VAULT_REFUSALS)("passes the vault's post-approval refusal through once on extension: %s", async message => {
     mockIsExtension = true;
-    const popup = await openPopup(() => dapp.requestLoginSign(ORIGIN, notFieldElements));
+    mockSignWithLoginKey.mockRejectedValue(new Error(message));
+    const popup = await openPopup(() => dapp.requestLoginSign(ORIGIN, signRequest()));
     await popup.getPayload();
-    await popup.decide(MidenMessageType.DAppSignConfirmationRequest, { confirmed: true });
-    await expect(popup.outcome).resolves.toEqual({ ok: false, message: refusal });
+    expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+    await expect(popup.decide(MidenMessageType.DAppSignConfirmationRequest, { confirmed: true })).resolves.toEqual({
+      type: MidenMessageType.DAppSignConfirmationResponse
+    });
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message });
+    expect(mockIntercomListeners).toHaveLength(0);
+    expect(mockSignWithLoginKey).toHaveBeenCalledTimes(1);
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, WORD);
   });
 
   it('refuses an approval once the page has been disconnected', async () => {

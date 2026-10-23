@@ -8,6 +8,7 @@
 ### Fixes
 
 - [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
+- [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
 
 ## 1.17.6 (2026-10-23)
 

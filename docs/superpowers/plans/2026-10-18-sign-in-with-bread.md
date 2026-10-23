@@ -24,7 +24,7 @@ signLoginBytes(data: Uint8Array, kind: 'word'): Promise<{ signature: Uint8Array 
 ```
 
 - `loginKey` is the 32-byte commitment of the connected account's login key for the page's registrable domain, in the same form as the account key commitment that `connect` returns as `publicKey`.
-- `signature` is a serialized SDK signature: 66 bytes, `[0x01, r(32), s(32), v(1)]`, recoverable ECDSA over secp256k1 with Keccak, the bytes `signBytes` returns for an ECDSA account key. It signs the login message M = `Poseidon2.hashElements([T0, T1, T2, T3, W0, W1, W2, W3])`, never the word W itself. W0..W3 are the word's four field elements in its own order, `Word.deserialize(data).toFelts()`; T0..T3 are the ASCII bytes of `Bread login v1` packed little-endian, four bytes per element, the last zero-padded: T0 = 0x61657242, T1 = 0x6f6c2064, T2 = 0x206e6967, T3 = 0x00003176. A site checks a login signature against M computed from its own word, never against the word.
+- `signature` is a serialized SDK signature: 66 bytes, `[0x01, r(32), s(32), v(1)]`, recoverable ECDSA over secp256k1 with Keccak, the bytes `signBytes` returns for an ECDSA account key. It signs the login message M = `Poseidon2.hashElements([T0, T1, T2, T3, W0, W1, W2, W3])`, never the word W itself. W0..W3 are the word's four field elements in its own order, `Word.deserialize(data).toFelts()`, each a little-endian u64 strictly below the field modulus 0xffffffff00000001; Bread refuses any other payload before it prompts with `INVALID_PARAMS: a login signature signs only a word: 32 bytes holding four little-endian field elements`; T0..T3 are the ASCII bytes of `Bread login v1` packed little-endian, four bytes per element, the last zero-padded: T0 = 0x61657242, T1 = 0x6f6c2064, T2 = 0x206e6967, T3 = 0x00003176. A site checks a login signature against M computed from its own word, never against the word.
 - Neither method takes a domain or an origin. Bread reads the domain from the page's real origin: the extension's content-script `MessageEvent.origin`, the in-app browser's page URL, the desktop window's URL.
 - Both reject with an error whose message contains `LOGIN_KEY_UNAVAILABLE` when the account's root key isn't on this device, and always for a single private-key import, which has no login key. On every provider that error is a `MidenWalletError`, which is not an `Error` instance, so sites read its `message` and never test `instanceof Error`. Bread never derives a login key from any other key.
 - A Bread without the login key has neither method. Sites detect the methods, never a version.
@@ -101,8 +101,8 @@ export function deriveLoginKeyScalar(
 ```
 - `loginKeyDomain(origin)`:
   - `new URL(origin)`; a failure throws `Error('INVALID_PARAMS: not an origin')`.
-  - Secure pages only: `https:`, or `http:` on `localhost`, a `*.localhost` name, `127.0.0.1` or `[::1]`. Anything else throws `Error('INVALID_PARAMS: login keys need an https page')`.
-  - `host = url.hostname.toLowerCase()` (the URL parser has already converted an IDN to punycode). Port and scheme never enter the domain.
+  - `host = url.hostname.toLowerCase()` (the URL parser has already converted an IDN to punycode), with trailing dots removed, since `tldts` drops them for its own lookup: `http://localhost.` is a loopback page and `https://intranet.` uses `intranet`. Port and scheme never enter the domain.
+  - Secure pages only, checked on that `host`: `https:`, or `http:` on `localhost`, a `*.localhost` name, `127.0.0.1` or `[::1]`. Anything else throws `Error('INVALID_PARAMS: login keys need an https page')`.
   - `parse(host, { allowPrivateDomains: true })` from `tldts`: an IP or no `domain` gives `host`; otherwise `domain`.
 - `deriveLoginKeyScalar`:
   - `info` is the UTF-8 bytes of `v1\0<source>\0<domain>\0` followed by one counter byte, starting at 0.
@@ -148,7 +148,8 @@ The pinned values were computed with plain HKDF-SHA256 (RFC 5869) from the rules
 ```ts
 // Vault
 async loginKeyCommitment(accountId: string, domain: string): Promise<string>; // base64, 32 bytes
-async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string>; // word: base64 of 32 bytes; signs its login message; returns base64 of 66 bytes
+// word: base64 of 32 bytes holding four little-endian u64 field elements, each strictly below 0xffffffff00000001
+async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string>; // signs its login message; returns base64 of 66 bytes
 ```
 - The root, resolved in this order:
   1. `account.evmAddress` is set and its leaf is stored: source `evm`, the 32-byte leaf.
@@ -197,13 +198,14 @@ LoginKeyRequest = 'LOGIN_KEY_REQUEST', LoginKeyResponse = 'LOGIN_KEY_RESPONSE',
 LoginSignRequest = 'LOGIN_SIGN_REQUEST', LoginSignResponse = 'LOGIN_SIGN_RESPONSE'
 interface MidenDAppLoginKeyRequest  { type: LoginKeyRequest;  sourceAccountId: string }
 interface MidenDAppLoginKeyResponse { type: LoginKeyResponse; loginKey: string }   // base64, 32 bytes
-interface MidenDAppLoginSignRequest { type: LoginSignRequest; sourceAccountId: string; payload: string; kind: 'word' } // payload: base64, 32 bytes
+// payload: base64 of 32 bytes holding four little-endian u64 field elements, each strictly below 0xffffffff00000001
+interface MidenDAppLoginSignRequest { type: LoginSignRequest; sourceAccountId: string; payload: string; kind: 'word' }
 interface MidenDAppLoginSignResponse { type: LoginSignResponse; signature: string } // base64, 66 bytes
 ```
-- Both handlers: `sourceAccountId` is required, else `INVALID_PARAMS`; `getDApp(origin, sourceAccountId)`, else `NOT_GRANTED`; `assertRequestAccountIsCurrent(dApp.accountId)`; `domain = loginKeyDomain(origin)`, from the `origin` argument only. Every other request field is ignored.
+- Both handlers: `sourceAccountId` is required, else `INVALID_PARAMS`; `getDApp(origin, sourceAccountId)`, else `NOT_GRANTED`; `assertRequestAccountIsCurrent(dApp.accountId)`; `domain = loginKeyDomain(origin)`, from the `origin` argument only. No other request field selects the account or the domain; `requestLoginSign` checks `kind` and `payload` as below.
 - `requestLoginKey`: no prompt. A locked wallet follows `requestGuardianInfo`: `runPrepare`, then `prepareAfterUnlock` on mobile and desktop, `requestUnlockOnly` on the extension. The vault call takes the stored session's account and the page's domain; nothing comes from the request.
 - `requestLoginSign`:
-  - `kind` must be `'word'` and the payload must decode to 32 bytes, else `INVALID_PARAMS`.
+  - `kind` must be `'word'` and the payload must decode to 32 bytes holding four little-endian u64 field elements, each strictly below 0xffffffff00000001. Otherwise refuse before any prompt with `INVALID_PARAMS: a login signature signs only a word: 32 bytes holding four little-endian field elements`.
   - While the wallet is unlocked, resolve the root before any prompt (`loginKeyCommitment`), so a missing root refuses with `LOGIN_KEY_UNAVAILABLE` and no prompt.
   - Then `requestSign`'s flow: mobile and desktop `waitForUnlockOnNonExtension` then `confirmOnNonExtension('loginSign', ...)`; the extension `requestConfirm` with payload type `'loginSign'` (Task A4). Decline gives `NOT_GRANTED`. Approval runs `assertDappSendStillAuthorized`, then `vault.signWithLoginKey(...)`.
 - `processDApp` routes both through `getDappQueue()`, as `SignRequest`.

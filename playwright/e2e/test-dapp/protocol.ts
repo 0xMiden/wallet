@@ -152,6 +152,7 @@ export type RawCall =
   | 'requestAssets'
   | 'requestGuardianInfo'
   | 'signBytes'
+  | 'signLoginBytes'
   | 'connect'
   | 'waitForTransaction';
 
