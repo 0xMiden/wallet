@@ -222,6 +222,16 @@ export function maxSendableNative(balance: number, verificationBaseFee: number |
   return Math.max(0, balance - reserve);
 }
 
+export function maxSendableNativeBaseUnits(balanceBaseUnits: bigint, verificationBaseFee: number | null): bigint {
+  if (verificationBaseFee === null || !Number.isFinite(verificationBaseFee) || verificationBaseFee <= 0) {
+    return balanceBaseUnits;
+  }
+  const reserveBaseUnits = verificationBaseFee * FEE_RESERVE_MULTIPLE;
+  if (!Number.isSafeInteger(Math.ceil(reserveBaseUnits))) return 0n;
+  const reserve = BigInt(Math.ceil(reserveBaseUnits));
+  return balanceBaseUnits > reserve ? balanceBaseUnits - reserve : 0n;
+}
+
 /**
  * Whether ONE consume transaction crediting `amount` leaves the holder better off.
  *

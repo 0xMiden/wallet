@@ -378,7 +378,8 @@ export async function fetchBalances(
         tokenSlug: nativeMetadata.symbol,
         metadata: nativeMetadata,
         ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-        balance: 0
+        balance: 0,
+        balanceBaseUnits: '0'
       }
     ];
   }
@@ -423,7 +424,8 @@ export async function fetchBalances(
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
       ...balancePrice(tokenPrices, tokenId, tokenMetadata.symbol),
-      balance: balance.toNumber()
+      balance: balance.toNumber(),
+      balanceBaseUnits: asset.amount().toString()
     });
   }
 
@@ -437,7 +439,8 @@ export async function fetchBalances(
       tokenSlug: nativeMetadata.symbol,
       metadata: nativeMetadata,
       ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-      balance: 0
+      balance: 0,
+      balanceBaseUnits: '0'
     });
   }
 

@@ -18,6 +18,8 @@ export interface BridgeWatcherDocument {
  *   readiness, through `reconcileBridgedReceives`.
  * - Miden→EVM (`bridged-send`): Epoch fill status and AggLayer claimability,
  *   through `reconcileBridgedSends`.
+ * - 1Click swaps: persisted 1Click status and exact Miden delivery, through
+ *   `reconcileOneClickSwaps`.
  *
  * Before this watcher the polling lived on the Home, Explore and Activity pages,
  * so a bridge started from the deposit screen was not tracked until the user
@@ -72,10 +74,15 @@ export function startBridgeIntentPolling({
     const { reconcileBridgedSends } = await import('lib/wallet-prompts');
     if (!disposed) await reconcileBridgedSends();
   });
+  const pollOneClick = guarded('one-click', async () => {
+    const { reconcileOneClickSwaps } = await import('lib/one-click/tracking');
+    if (!disposed) await reconcileOneClickSwaps();
+  });
   const startTicking = () => {
     const tick = () => {
       pollReceives();
       pollSends();
+      pollOneClick();
     };
     tick();
     const timer = setInterval(tick, POLL_INTERVAL_MS);

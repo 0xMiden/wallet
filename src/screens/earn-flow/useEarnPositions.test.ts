@@ -129,7 +129,7 @@ const READY_CONFIG: BridgeConfig = {
   version: 1,
   'bridge-providers': { epoch: { positionsUrl: POSITIONS_URL }, agglayer: {}, usdcx: {} },
   supportedEvmChains: SEPOLIA_ROUTE,
-  features: { earn: true },
+  features: { earn: true, nearIntents: false },
   earn: { vaults: [LISTING] }
 };
 const READY: BridgeConfigSnapshot = {
@@ -602,7 +602,7 @@ describe('useEarnPositions', () => {
       ],
       [
         'names an Epoch route but lists no Earn vault',
-        { ...READY_CONFIG, features: { earn: false }, earn: undefined },
+        { ...READY_CONFIG, features: { earn: false, nearIntents: false }, earn: undefined },
         'The bridge config has no usable Earn vault.'
       ]
     ])(
@@ -637,7 +637,7 @@ describe('useEarnPositions', () => {
       ['a document with no Epoch route', { ...READY, config: { ...READY_CONFIG, supportedEvmChains: {} } }, true],
       [
         'a document that lists no Earn vault',
-        { ...READY, config: { ...READY_CONFIG, features: { earn: false }, earn: undefined } },
+        { ...READY, config: { ...READY_CONFIG, features: { earn: false, nearIntents: false }, earn: undefined } },
         true
       ],
       ['a configured document with no derivation yet', { ...READY, derived: null }, false],

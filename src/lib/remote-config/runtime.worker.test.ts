@@ -61,7 +61,7 @@ const config = (version: number): BridgeConfig => ({
   version,
   'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
   supportedEvmChains: {},
-  features: { earn: false }
+  features: { earn: false, nearIntents: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
