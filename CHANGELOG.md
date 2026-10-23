@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] USD entry and available-balance estimates follow quote expiry, spend checks compare exact base units, and token precision is preserved before selection then refused when the selected token cannot represent it.
 - [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when a stored WalletConnect session is still reconnecting at startup. After ten seconds Connect is freed and the stored session is left in place, so a restore that connects after those ten seconds is kept. Closing the connect modal starts those ten seconds again and does not forget or disconnect a pairing that is still connecting. A session that never connects stays stored, and the next open waits ten seconds again before Connect is freed.
 - [FIX][all] A crash report for a proof the node refused as expired now says whether the transaction waited under half, over half or past the blocks its expiration allowed before it was submitted, so slow proving can be told from a short window (#1768).
 - [FIX][all] A send that the token's issuer has blocked now says so in plain words, in every language, instead of showing the generic failure message (#1767).
@@ -31,6 +32,8 @@
 - [CHANGE][all] Show a warning above the review Swap button when no fill or only a partial fill is expected. Users can still continue.
 - [CHANGE][ci] The Guardian lifecycle E2E runs on every push to main instead of on every pull request; a pull request still runs it when its body names a linked Client, Guardian, Protocol or Web SDK PR, and the required gate reports green otherwise.
 - [CHANGE][all] A failed Guardian swap's crash report names which preparation step failed: building or saving the new swap order, rebuilding its request at the current network height, or saving the rebuilt request once the guardian prepared it, in fixed values only; the privacy policy lists them.
+- [CHANGE][all] Add shared token/USD amount entry and action-review conversions for Send, Swap, bridge-in/out and Earn, with exact token precision and verified fresh pricing.
+
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
 - [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
 - [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.

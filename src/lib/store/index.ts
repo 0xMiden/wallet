@@ -275,6 +275,7 @@ export const useWalletStore = create<WalletStore>()(
     fiatRates: null,
     fiatRatesLoading: false,
     tokenPrices: {},
+    tokenPricesStatus: 'loading',
 
     // Initial sync state
     isInitialized: false,
