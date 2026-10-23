@@ -44,8 +44,10 @@ public class AuthTabCertificateSetupTest {
         clickText(device, "Install a certificate");
         clickText(device, "CA certificate");
         clickText(device, "Install anyway");
+        confirmPinIfAsked(device, devicePin, "Downloads");
         clickText(device, "Downloads");
         clickText(device, CERTIFICATE_FILE);
+        confirmPinIfAsked(device, devicePin, "Install anyway", "Install", "OK", "Done");
         clickFirstAvailable(device, "Install anyway", "Install", "OK");
         clickFirstAvailable(device, "Install anyway", "Install", "OK", "Done");
 
@@ -70,6 +72,28 @@ public class AuthTabCertificateSetupTest {
             Thread.sleep(500);
         }
         return false;
+    }
+
+    // A user-CA install on a PIN-locked device asks for the screen lock before it continues.
+    private static void confirmPinIfAsked(UiDevice device, String devicePin, String... nextLabels) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
+        while (System.nanoTime() < deadline) {
+            UiObject2 pin = device.findObject(By.res("com.android.settings", "password_entry"));
+            if (pin != null) {
+                pin.setText(devicePin);
+                UiObject2 next = device.findObject(By.res("com.android.settings", "next_button"));
+                if (next != null && next.isEnabled()) next.click();
+                else device.pressEnter();
+                assertTrue("device PIN confirmation still showing",
+                    device.wait(Until.gone(By.res("com.android.settings", "password_entry")), UI_TIMEOUT_MS));
+                device.waitForIdle();
+                return;
+            }
+            for (String label : nextLabels) {
+                if (device.findObject(By.text(label)) != null) return;
+            }
+            device.wait(Until.newWindow(), 500);
+        }
     }
 
     private static void clickText(UiDevice device, String text) {

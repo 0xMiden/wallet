@@ -55,7 +55,8 @@ run_instrumentation_test() {
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
-adb shell locksettings set-pin 1234 >/dev/null
+device_pin=1234
+adb shell locksettings set-pin "$device_pin" >/dev/null
 adb install -r "$RUNNER_TEMP/firefox.apk"
 adb shell dumpsys package org.mozilla.firefox > "$results_dir/firefox-package.txt"
 grep -m1 'versionName=158.0.2' "$results_dir/firefox-package.txt"
@@ -63,7 +64,8 @@ adb shell mkdir -p /sdcard/Download
 adb push "$RUNNER_TEMP/auth-tab-cert/auth-tab-root-ca.crt" /sdcard/Download/auth-tab-root-ca.crt
 
 run_instrumentation_test com.miden.wallet.AuthTabCertificateSetupTest certificate-setup.log \
-  "-Pandroid.testInstrumentationRunnerArguments.caSubject=$AUTH_TAB_CA_SUBJECT"
+  "-Pandroid.testInstrumentationRunnerArguments.caSubject=$AUTH_TAB_CA_SUBJECT" \
+  "-Pandroid.testInstrumentationRunnerArguments.devicePin=$device_pin"
 grep -F "fixtureCaInstalled=true subject=$AUTH_TAB_CA_SUBJECT" "$results_dir/certificate-setup.log"
 
 adb shell cmd role clear-role-holders --user 0 android.app.role.BROWSER

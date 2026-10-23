@@ -173,7 +173,22 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(runner).toContain('target: google_apis_playstore');
     expect(runner).toContain('emulator-boot-timeout: 600');
     expect(runner).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');
-    expect(acceptance).toContain('adb shell locksettings set-pin 1234');
+    const pinBinding = acceptance.indexOf('device_pin=1234');
+    const pinSet = acceptance.indexOf('adb shell locksettings set-pin "$device_pin"');
+    const certificateSetup = acceptance.indexOf('AuthTabCertificateSetupTest');
+    const pinArgument = acceptance.indexOf('-Pandroid.testInstrumentationRunnerArguments.devicePin=$device_pin');
+    expect(pinBinding).toBeGreaterThan(-1);
+    expect(pinSet).toBeGreaterThan(pinBinding);
+    expect(acceptance.split('devicePin=$device_pin')).toHaveLength(2);
+    expect(pinArgument).toBeGreaterThan(certificateSetup);
+    expect(pinArgument).toBeLessThan(acceptance.indexOf('expectedProvider=com.android.chrome'));
+    const certificateTest = readFileSync(
+      resolve(__dirname, '../../../android/app/src/androidTest/java/com/miden/wallet/AuthTabCertificateSetupTest.java'),
+      'utf8'
+    );
+    expect(certificateTest).toContain('By.res("com.android.settings", "password_entry")');
+    expect(certificateTest).toContain('setText(devicePin)');
+    expect(certificateTest).toContain('By.res("com.android.settings", "next_button")');
     expect(acceptance).toContain('yarn playwright test --config playwright.android.auth-tab.config.ts');
     expect(authTab).not.toContain('adb wait-for-device');
   });
