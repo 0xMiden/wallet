@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { PageHeader } from './PageHeader';
 
@@ -47,10 +49,13 @@ it("insets the rule with the row: the caller's margin holds both", () => {
 });
 
 it('draws back as a 24px back-glyph arrow on a fill circle and close as a 24px ink glyph', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'PageHeader.tsx'), 'utf8');
+  expect(source).toContain('appearance="back"');
+  expect(source).not.toContain('className="text-back-glyph"');
+
   render(<PageHeader title="New contact" onBack={jest.fn()} onClose={jest.fn()} />);
 
-  // The colour lives on the IconButton itself (a `fill` circle); back takes the softer `back-glyph`
-  // over the `filled` appearance's `ink`, and the glyph inherits it through `currentColor`.
+  // The `back` appearance paints `text-back-glyph`; the glyph inherits it through `currentColor`.
   const backButton = screen.getByTestId('page-back');
   expect(backButton).toHaveClass('text-back-glyph');
   const back = screen.getByTestId('icon-arrow-left');
