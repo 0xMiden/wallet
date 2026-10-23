@@ -62,6 +62,12 @@ export const MAX_EARN_VAULT_NAME_LENGTH = 64;
 export const MAX_EARN_VAULT_ABOUT_LENGTH = 200;
 
 /**
+ * A vault's `logo`: a file under `icons/` of the config repo, relative to the base URL the document was fetched from.
+ * The rule of the config repo's validator (scripts/validate.mjs).
+ */
+export const EARN_VAULT_LOGO = /^icons\/[a-z0-9]+(-[a-z0-9]+)*\.(svg|png)$/;
+
+/**
  * An Earn vault as the document lists it. The list is the only source of the vaults the wallet offers: a market of
  * the Epoch catalogue that no entry names is not offered. The text fields are literal: the wallet shows them as
  * written in every language.
@@ -78,6 +84,11 @@ export interface EarnVaultConfig {
   risk?: EarnVaultRisk;
   /** False when the document stops new deposits into the vault. True when the document does not set it. */
   depositsEnabled: boolean;
+  /**
+   * The vault's mark, a path such as `icons/aave.svg` relative to the document's base URL (`EARN_VAULT_LOGO`).
+   * Several vaults may name one file. Resolve it with `selectEarnVaultLogoUrl`.
+   */
+  logo?: string;
 }
 
 /** A 20-byte EVM address, lowercase. */
@@ -537,6 +548,11 @@ function earnVaultText(value: unknown, maxLength: number): string {
   return value;
 }
 
+// A path under `icons/`, never a URL: the wallet resolves it against the document's own base URL.
+function earnVaultLogo(value: unknown): string {
+  return typeof value === 'string' && EARN_VAULT_LOGO.test(value) ? value : invalid();
+}
+
 function oneOf<T extends string>(values: readonly T[], value: unknown): T {
   return values.find(known => known === value) ?? invalid();
 }
@@ -546,6 +562,7 @@ function readEarnVault(value: unknown, routes: Map<number, string | undefined>):
   if (typeof value.id !== 'string' || !EARN_VAULT_ID.test(value.id)) return invalid();
   const about = read(value, 'about', about => earnVaultText(about, MAX_EARN_VAULT_ABOUT_LENGTH));
   const risk = read(value, 'risk', risk => oneOf(EARN_VAULT_RISKS, risk));
+  const logo = read(value, 'logo', earnVaultLogo);
   return {
     id: value.id,
     marketUid: earnMarketUid(value.marketUid, routes),
@@ -553,7 +570,8 @@ function readEarnVault(value: unknown, routes: Map<number, string | undefined>):
     protocol: oneOf(EARN_VAULT_PROTOCOLS, value.protocol),
     ...(about === undefined ? {} : { about }),
     ...(risk === undefined ? {} : { risk }),
-    depositsEnabled: read(value, 'depositsEnabled', requiredBoolean) ?? true
+    depositsEnabled: read(value, 'depositsEnabled', requiredBoolean) ?? true,
+    ...(logo === undefined ? {} : { logo })
   };
 }
 

@@ -11,8 +11,7 @@ import { isRecord } from 'lib/update/guards';
  * them the wallet offers, in which order and under which name: a market no entry names is not offered.
  *
  * This module has no wallet state. The caller gives the fetch, the timeout and the document's list, so the
- * bridge-config derivation (`lib/remote-config/derive`) and the Earn positions read (`./pools`) can both use it
- * without an import cycle.
+ * bridge-config derivation (`lib/remote-config/derive`), its one reader, can use it without an import cycle.
  */
 
 /**

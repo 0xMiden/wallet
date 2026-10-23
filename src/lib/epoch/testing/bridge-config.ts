@@ -33,6 +33,8 @@ export const TEST_EARN_VAULT: EarnVaultConfig = {
   depositsEnabled: true
 };
 export const TEST_EARN_VAULTS: readonly EarnVaultConfig[] = [TEST_EARN_VAULT];
+/** The same vault with a document logo (`earn.vaults[].logo`), for the suites that draw one. */
+export const TEST_EARN_VAULT_WITH_LOGO: EarnVaultConfig = { ...TEST_EARN_VAULT, logo: 'icons/dummy-lending.svg' };
 /**
  * That vault as the derivation reads it from the testnet host, which has no `/pools` route: the positions fallback
  * names the dummy lender, and the route's USDC read gives its token.

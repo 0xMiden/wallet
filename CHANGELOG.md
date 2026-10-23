@@ -12,6 +12,7 @@
 
 ### Changes
 
+- [CHANGE][all] Earn shows each vault's logo from the wallet-config document (`earn.vaults[].logo`, served from the config repo), falling back to the bundled mark or the protocol's initial when it does not load; the vault, deposit and review pages wait for the vault catalogue instead of showing "not found" when positions load first.
 - [CHANGE][all] Earn opens at once: the positions read keys on the wallet-config document only, no longer waiting on the derived market, and the last read is stored so a cold open (every extension popup) shows it, marked stale, while the live read runs.
 - [CHANGE][all] Earn reads the vault catalogue once per bridge-config document version and shares it between realms (`derived.epoch.vaults`); the positions poll no longer reads `/pools` every 30 s.
 - [FIX][all] Earn history links the position owner and the EVM transaction to the explorer of the market's own chain (Base, Arbitrum, Ethereum), no longer Sepolia; a chain the wallet does not know shows the value with no link.

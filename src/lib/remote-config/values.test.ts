@@ -4,6 +4,7 @@ import type { DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { BridgeConfig } from './schema';
+import { bridgeConfigBaseUrl, bridgeConfigUrl } from './source';
 import {
   BridgeConfigUnavailableError,
   getAgglayerBridgeOut,
@@ -26,6 +27,7 @@ import {
   selectEarnMarket,
   selectEarnVault,
   selectEarnVaultCatalog,
+  selectEarnVaultLogoUrl,
   selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
@@ -337,6 +339,37 @@ describe('the Earn vaults', () => {
     expect(getEarnVaults()).toEqual([vault]);
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(getEarnVaults()).toEqual([]);
+  });
+});
+
+describe('selectEarnVaultLogoUrl', () => {
+  const [listed] = CONFIG.earn?.vaults ?? [];
+  if (!listed) throw new Error('the test document lists no vault');
+  const savedUrl = process.env.MIDEN_REMOTE_CONFIG_URL;
+  afterEach(() => {
+    if (savedUrl === undefined) delete process.env.MIDEN_REMOTE_CONFIG_URL;
+    else process.env.MIDEN_REMOTE_CONFIG_URL = savedUrl;
+  });
+
+  it("resolves the logo against the base URL the network's document is fetched from", () => {
+    // The document's own URL without its `/<network>.json`.
+    const base = bridgeConfigUrl('testnet').replace(/\/testnet\.json$/, '');
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/aave.svg' })).toBe(`${base}/icons/aave.svg`);
+    expect(bridgeConfigBaseUrl('testnet')).toBe(base);
+  });
+
+  it('resolves against the served base in an E2E build', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    process.env.MIDEN_REMOTE_CONFIG_URL = 'http://127.0.0.1:8550/config/';
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/dummy-lending.png' })).toBe(
+      'http://127.0.0.1:8550/config/icons/dummy-lending.png'
+    );
+  });
+
+  it('gives null for a listing with no logo, or one that is not an icons/ path', () => {
+    expect(selectEarnVaultLogoUrl(snapshot(), listed)).toBeNull();
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'https://evil.example/x.svg' })).toBeNull();
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/../x.svg' })).toBeNull();
   });
 });
 

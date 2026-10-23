@@ -2,14 +2,14 @@ import { keccak256, toBytes } from 'viem';
 
 import type { EarnVaultConfig } from 'lib/remote-config/schema';
 
+import { EARN_LENDER_FAMILY_NAMES, earnLenderFamily, earnMarketForVault, earnVaultTakesDeposits } from './pools';
 import {
-  EARN_LENDER_FAMILY_NAMES,
-  earnLenderFamily,
-  earnMarketForVault,
-  earnVaultTakesDeposits,
-  fetchEarnVaults
-} from './pools';
-import { EARN_POOLS_MAX_PAGES, EARN_POOLS_PAGE_SIZE, type EarnVaultInfo } from './pools-read';
+  EARN_POOLS_MAX_PAGES,
+  EARN_POOLS_PAGE_SIZE,
+  type EarnVaultInfo,
+  type EarnVaultRoute,
+  readEarnVaults
+} from './pools-read';
 import {
   AAVE_V3_LISTING,
   AAVE_V3_USDC,
@@ -82,6 +82,21 @@ function serveEvery(run: (url: string, init?: { signal?: AbortSignal }) => Promi
 
 const requestedUrls = (fetchMock: jest.Mock) => fetchMock.mock.calls.map(([url]) => String(url));
 
+// The same bound as one positions request.
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/** Reads the catalogue of `route` over the global fetch, as the bridge-config derivation does over its own. */
+const readVaults = (route: EarnVaultRoute) =>
+  readEarnVaults((url, init) => fetch(url, init), route, REQUEST_TIMEOUT_MS);
+
+/** A read that served `vaults` from `source` and dropped nothing. */
+const served = (vaults: EarnVaultInfo[], source: 'pools' | 'positions' = 'pools') => ({
+  vaults,
+  source,
+  droppedMarketUids: [],
+  droppedUnkeyed: false
+});
+
 // The zero account's positions answer on the testnet host, which has no /pools route.
 const positionsCatalogItem = (lenderKey: string, chainId = String(BASE_CHAIN_ID), depositApr = 2) => ({
   lender: lenderKey,
@@ -126,11 +141,11 @@ describe('earnLenderFamily', () => {
   });
 });
 
-describe('fetchEarnVaults from /pools', () => {
+describe('readEarnVaults from /pools', () => {
   it('requests the route chain and token, and maps a market with every field', async () => {
     const fetchMock = serve(() => answer(poolsPage([AAVE_V3_USDC])));
 
-    const result = await fetchEarnVaults(ROUTE);
+    const result = await readVaults(ROUTE);
 
     const [url] = requestedUrls(fetchMock);
     const query = new URL(url ?? '').searchParams;
@@ -144,6 +159,9 @@ describe('fetchEarnVaults from /pools', () => {
       sortDir: 'DESC'
     });
     expect(result).toEqual({
+      source: 'pools',
+      droppedMarketUids: [],
+      droppedUnkeyed: false,
       vaults: [
         {
           marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
@@ -173,7 +191,7 @@ describe('fetchEarnVaults from /pools', () => {
       answer(poolsPage([MORPHO_UNIBTC_USDC, EULER_V2_USDC, MORPHO_USDC_COLLATERAL, COMPOUND_V3_USDC, AAVE_V3_USDC]))
     );
 
-    const { vaults } = await fetchEarnVaults(route(...BASE_EARN_VAULTS));
+    const { vaults } = await readVaults(route(...BASE_EARN_VAULTS));
 
     // The list decides, so a market that pays nothing is offered when it is listed, and Euler is not.
     expect(vaults.map(vault => [vault.listing.id, vault.lenderFamily, vault.aprTotal])).toEqual([
@@ -193,7 +211,7 @@ describe('fetchEarnVaults from /pools', () => {
     };
     serve(() => answer(poolsPage([eulerOnUsdc])));
 
-    const { vaults } = await fetchEarnVaults(route(listingFor(eulerOnUsdc, 'euler-v2-base-usdc', 'Euler USDC')));
+    const { vaults } = await readVaults(route(listingFor(eulerOnUsdc, 'euler-v2-base-usdc', 'Euler USDC')));
 
     expect(vaults).toHaveLength(1);
     expect(vaults[0]?.lenderKey).toBe('EULER_V2');
@@ -203,7 +221,7 @@ describe('fetchEarnVaults from /pools', () => {
   it('drops and logs a listed vault the catalogue does not serve', async () => {
     serve(() => answer(poolsPage([AAVE_V3_USDC, EULER_V2_USDC])));
 
-    const result = await fetchEarnVaults(route(AAVE_V3_LISTING, COMPOUND_V3_LISTING));
+    const result = await readVaults(route(AAVE_V3_LISTING, COMPOUND_V3_LISTING));
 
     expect(result.vaults.map(vault => vault.listing.id)).toEqual(['aave-v3-base-usdc']);
     expect(result.droppedMarketUids).toEqual([COMPOUND_V3_LISTING.marketUid]);
@@ -214,7 +232,7 @@ describe('fetchEarnVaults from /pools', () => {
     const fetchMock = serve(() => answer(poolsPage([AAVE_V3_USDC])));
     const otherChain = listingFor({ marketUid: `AAVE_V3:1:${BASE_USDC}` }, 'aave-v3-ethereum-usdc', 'Aave V3 USDC');
 
-    expect(await fetchEarnVaults(route(otherChain))).toEqual({ vaults: [] });
+    expect(await readVaults(route(otherChain))).toEqual(served([]));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -234,16 +252,16 @@ describe('fetchEarnVaults from /pools', () => {
     };
     serve(() => answer(poolsPage([otherChain, otherToken, AAVE_V3_USDC, AAVE_V3_USDC])));
 
-    const result = await fetchEarnVaults(ROUTE);
+    const result = await readVaults(ROUTE);
 
     expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
-    expect(result.droppedMarketUids).toBeUndefined();
+    expect(result.droppedMarketUids).toEqual([]);
   });
 
   it('matches the route token in any case', async () => {
     serve(() => answer(poolsPage([AAVE_V3_USDC])));
 
-    const { vaults } = await fetchEarnVaults({ ...ROUTE, underlying: BASE_USDC.toLowerCase() });
+    const { vaults } = await readVaults({ ...ROUTE, underlying: BASE_USDC.toLowerCase() });
 
     expect(vaults).toHaveLength(1);
   });
@@ -256,7 +274,7 @@ describe('fetchEarnVaults from /pools', () => {
     };
     serve(() => answer(poolsPage([noTermSheet, noAprTotal])));
 
-    const { vaults } = await fetchEarnVaults(route(AAVE_V3_LISTING, COMPOUND_V3_LISTING));
+    const { vaults } = await readVaults(route(AAVE_V3_LISTING, COMPOUND_V3_LISTING));
 
     expect(vaults.map(vault => [vault.lenderKey, vault.aprTotal, vault.canOpen, vault.about])).toEqual([
       ['AAVE_V3', 3.75454844, true, AAVE_V3_USDC.termSheet.supply.description],
@@ -273,7 +291,7 @@ describe('fetchEarnVaults from /pools', () => {
   ])('reads a market that is %s as one that takes no deposit', async (_label, change) => {
     serve(() => answer(poolsPage([{ ...AAVE_V3_USDC, ...change }])));
 
-    const { vaults } = await fetchEarnVaults(ROUTE);
+    const { vaults } = await readVaults(ROUTE);
 
     expect(vaults).toEqual([expect.objectContaining({ lenderKey: 'AAVE_V3', canOpen: false })]);
   });
@@ -295,7 +313,7 @@ describe('fetchEarnVaults from /pools', () => {
       )
     );
 
-    const [vault] = (await fetchEarnVaults(ROUTE)).vaults;
+    const [vault] = (await readVaults(ROUTE)).vaults;
 
     expect(vault).toBeDefined();
     expect(vault).not.toHaveProperty('totalDepositsUsd');
@@ -318,14 +336,13 @@ describe('fetchEarnVaults from /pools', () => {
     };
     serve(() => answer(poolsPage([stringRate, noLenderName, fractionalDecimals, AAVE_V3_USDC])));
 
-    const result = await fetchEarnVaults(route(...BASE_EARN_VAULTS));
+    const result = await readVaults(route(...BASE_EARN_VAULTS));
 
-    expect(result.error).toBeUndefined();
     expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
     expect(result.droppedMarketUids).toEqual(
       [COMPOUND_V3_USDC, MORPHO_UNIBTC_USDC, MORPHO_USDC_COLLATERAL].map(item => item.marketUid.toLowerCase())
     );
-    expect(result.droppedUnkeyed).toBeUndefined();
+    expect(result.droppedUnkeyed).toBe(false);
     expect(console.warn).toHaveBeenCalledTimes(3);
   });
 
@@ -334,7 +351,7 @@ describe('fetchEarnVaults from /pools', () => {
     const { marketUid: _marketUid, ...noUid } = MORPHO_UNIBTC_USDC;
     serve(() => answer(poolsPage([wrongUid, null, noUid])));
 
-    const result = await fetchEarnVaults(route(AAVE_V3_LISTING, MORPHO_UNIBTC_LISTING));
+    const result = await readVaults(route(AAVE_V3_LISTING, MORPHO_UNIBTC_LISTING));
 
     expect(result.vaults).toEqual([]);
     // An item with no uid of its own is listed by the market its lender, chain and token make.
@@ -346,17 +363,17 @@ describe('fetchEarnVaults from /pools', () => {
     const wrongUid = { ...COMPOUND_V3_USDC, marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` };
     serve(() => answer(poolsPage([wrongUid, AAVE_V3_USDC])));
 
-    const result = await fetchEarnVaults(ROUTE);
+    const result = await readVaults(ROUTE);
 
     expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
-    expect(result.droppedMarketUids).toBeUndefined();
+    expect(result.droppedMarketUids).toEqual([]);
   });
 
   it('reads the next page while a page is full, and stops after a short page', async () => {
     const fullPage = Array.from({ length: EARN_POOLS_PAGE_SIZE }, () => EULER_V2_USDC);
     const fetchMock = serve(start => answer(poolsPage(start === 0 ? fullPage : [AAVE_V3_USDC], start)));
 
-    const { vaults } = await fetchEarnVaults(ROUTE);
+    const { vaults } = await readVaults(ROUTE);
 
     expect(requestedUrls(fetchMock).map(url => new URL(url).searchParams.get('start'))).toEqual(['0', '200']);
     expect(vaults.map(vault => vault.lenderKey)).toEqual(['AAVE_V3']);
@@ -366,7 +383,7 @@ describe('fetchEarnVaults from /pools', () => {
     const fullPage = Array.from({ length: EARN_POOLS_PAGE_SIZE }, () => AAVE_V3_USDC);
     const fetchMock = serve(start => answer(poolsPage(fullPage, start)));
 
-    const { vaults } = await fetchEarnVaults(ROUTE);
+    const { vaults } = await readVaults(ROUTE);
 
     expect(fetchMock).toHaveBeenCalledTimes(EARN_POOLS_MAX_PAGES);
     expect(requestedUrls(fetchMock).map(url => new URL(url).searchParams.get('start'))).toEqual([
@@ -383,21 +400,16 @@ describe('fetchEarnVaults from /pools', () => {
     const fullPage = Array.from({ length: EARN_POOLS_PAGE_SIZE }, () => AAVE_V3_USDC);
     const fetchMock = serve(start => (start === 0 ? answer(poolsPage(fullPage)) : answer(null, 502)));
 
-    const result = await fetchEarnVaults(ROUTE);
-
-    expect(result.vaults).toEqual([]);
-    expect(result.error).toContain('Epoch pools page 2 failed');
+    await expect(readVaults(ROUTE)).rejects.toThrow('Epoch pools page 2 failed');
     expect(requestedUrls(fetchMock).map(url => new URL(url).pathname)).toEqual(['/pools', '/pools']);
   });
 
-  it('fails the read on a network error, with no fallback, and never rejects', async () => {
+  it('fails the read on a network error, with no fallback', async () => {
     const fetchMock = serveEvery(async () => {
       throw new TypeError('Failed to fetch');
     });
 
-    const result = await fetchEarnVaults(ROUTE);
-
-    expect(result).toEqual({ vaults: [], error: 'Failed to fetch' });
+    await expect(readVaults(ROUTE)).rejects.toThrow('Failed to fetch');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -408,23 +420,24 @@ describe('fetchEarnVaults from /pools', () => {
         new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
     );
     try {
-      let settled = false;
-      const read = fetchEarnVaults(ROUTE).finally(() => {
-        settled = true;
+      let failure: unknown;
+      const read = readVaults(ROUTE).catch((error: unknown) => {
+        failure = error;
       });
 
       await jest.advanceTimersByTimeAsync(14_999);
-      expect(settled).toBe(false);
+      expect(failure).toBeUndefined();
       await jest.advanceTimersByTimeAsync(1);
+      await read;
 
-      expect(await read).toEqual({ vaults: [], error: 'Request timed out after 15000 ms' });
+      expect(failure).toEqual(new Error('Request timed out after 15000 ms'));
     } finally {
       jest.useRealTimers();
     }
   });
 });
 
-describe('fetchEarnVaults on a host with no /pools route', () => {
+describe('readEarnVaults on a host with no /pools route', () => {
   it.each([
     ['a 404', () => answer('Cannot GET /pools', 404)],
     ['a body that is not JSON', notJson],
@@ -444,7 +457,7 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       })
     );
 
-    const result = await fetchEarnVaults(route(DUMMY_LISTING));
+    const result = await readVaults(route(DUMMY_LISTING));
 
     expect(requestedUrls(fetchMock)).toEqual([
       expect.stringContaining(`${POSITIONS_URL}/pools?`),
@@ -464,7 +477,7 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       canOpen: true,
       listing: DUMMY_LISTING
     };
-    expect(result).toEqual({ vaults: [expected] });
+    expect(result).toEqual(served([expected], 'positions'));
   });
 
   it('gives the underlying the symbol and decimals the caller names', async () => {
@@ -473,7 +486,7 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       () => answer({ success: true, data: { items: [positionsCatalogItem('DUMMY_LENDING')] } })
     );
 
-    const { vaults } = await fetchEarnVaults({
+    const { vaults } = await readVaults({
       ...route(DUMMY_LISTING),
       fallbackUnderlying: { symbol: 'USDC', decimals: 18 }
     });
@@ -497,7 +510,7 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
         })
     );
 
-    const result = await fetchEarnVaults(route(AAVE_V3_LISTING, DUMMY_LISTING));
+    const result = await readVaults(route(AAVE_V3_LISTING, DUMMY_LISTING));
 
     expect(result.vaults.map(vault => vault.lenderKey)).toEqual(['DUMMY_LENDING']);
     expect(result.droppedMarketUids).toEqual([`aave_v3:8453:${BASE_USDC.toLowerCase()}`]);
@@ -510,10 +523,7 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       () => answer(null, 503)
     );
 
-    const result = await fetchEarnVaults(ROUTE);
-
-    expect(result.vaults).toEqual([]);
-    expect(result.error).toBe('Remote JSON request failed with HTTP 503');
+    await expect(readVaults(ROUTE)).rejects.toThrow('Remote JSON request failed with HTTP 503');
   });
 
   it('fails the read when the fallback answers no envelope', async () => {
@@ -522,17 +532,14 @@ describe('fetchEarnVaults on a host with no /pools route', () => {
       () => answer({ success: true })
     );
 
-    expect(await fetchEarnVaults(ROUTE)).toEqual({
-      vaults: [],
-      error: 'Epoch positions catalogue response is invalid'
-    });
+    await expect(readVaults(ROUTE)).rejects.toThrow('Epoch positions catalogue response is invalid');
   });
 });
 
 describe('earnMarketForVault', () => {
   it("names the vault's uid, its listed protocol's hash, the checksummed token and the numeric chain", async () => {
     serve(() => answer(poolsPage([MORPHO_UNIBTC_USDC])));
-    const [vault] = (await fetchEarnVaults(route(MORPHO_UNIBTC_LISTING))).vaults;
+    const [vault] = (await readVaults(route(MORPHO_UNIBTC_LISTING))).vaults;
     if (!vault) throw new Error('no vault');
     const lowercaseUsdc: `0x${string}` = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 
@@ -572,7 +579,7 @@ describe('earnMarketForVault', () => {
 describe('earnVaultTakesDeposits', () => {
   it('takes a deposit only while the catalogue opens the vault and the document keeps its deposits on', async () => {
     serve(() => answer(poolsPage([AAVE_V3_USDC])));
-    const [vault] = (await fetchEarnVaults(ROUTE)).vaults;
+    const [vault] = (await readVaults(ROUTE)).vaults;
     if (!vault) throw new Error('no vault');
 
     expect(earnVaultTakesDeposits(vault)).toBe(true);

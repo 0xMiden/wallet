@@ -618,9 +618,26 @@ describe('the Earn vaults', () => {
     ['a risk of medium', withVault({ risk: 'medium' })],
     ['a risk of high', withVault({ risk: 'high' })],
     ['vaults that all stop deposits', withVault({ depositsEnabled: false })],
-    ['an unknown field', withVault({ logo: 'dummy.png' })]
+    ['an unknown field', withVault({ colour: 'blue' })],
+    ['an SVG logo', withVault({ logo: 'icons/aave.svg' })],
+    ['a PNG logo with hyphens and digits', withVault({ logo: 'icons/morpho-blue-2.png' })]
   ])('accepts %s', (_label, body) => {
     expect(parseBridgeConfig(body, 'testnet')?.earn?.vaults).toHaveLength(1);
+  });
+
+  it('keeps a logo as written and omits one the vault does not name', () => {
+    const second = { ...DUMMY_VAULT, id: 'aave-v3-sepolia-usdc', marketUid: `AAVE_V3:11155111:${SEPOLIA_USDC}` };
+    const vaults = parseBridgeConfig(
+      withVaults([
+        { ...DUMMY_VAULT, logo: 'icons/aave.svg' },
+        { ...second, logo: 'icons/aave.svg' },
+        { ...second, id: 'third', marketUid: `MORPHO_BLUE:11155111:${SEPOLIA_USDC}` }
+      ]),
+      'testnet'
+    )?.earn?.vaults;
+    // Two vaults may share one file.
+    expect(vaults?.map(vault => vault.logo)).toEqual(['icons/aave.svg', 'icons/aave.svg', undefined]);
+    expect(vaults?.[2]).not.toHaveProperty('logo');
   });
 
   it('accepts as many vaults as the document lists', () => {
@@ -724,7 +741,21 @@ describe('the Earn vaults', () => {
     ['an unknown risk', withVault({ risk: 'extreme' })],
     ['a risk in capitals', withVault({ risk: 'Low' })],
     ['a deposits switch written as text', withVault({ depositsEnabled: 'false' })],
-    ['a null deposits switch', withVault({ depositsEnabled: null })]
+    ['a null deposits switch', withVault({ depositsEnabled: null })],
+    ['a logo outside icons/', withVault({ logo: 'aave.svg' })],
+    ['a logo that is a URL', withVault({ logo: 'https://example.com/icons/aave.svg' })],
+    ['a logo that climbs out of icons/', withVault({ logo: 'icons/../aave.svg' })],
+    ['a logo in a folder under icons/', withVault({ logo: 'icons/lender/aave.svg' })],
+    ['a logo with a capital letter', withVault({ logo: 'icons/Aave.svg' })],
+    ['a logo with an underscore', withVault({ logo: 'icons/aave_v3.svg' })],
+    ['a logo with a doubled hyphen', withVault({ logo: 'icons/aave--v3.svg' })],
+    ['a logo with a leading hyphen', withVault({ logo: 'icons/-aave.svg' })],
+    ['a WebP logo', withVault({ logo: 'icons/aave.webp' })],
+    ['a logo with an upper-case extension', withVault({ logo: 'icons/aave.SVG' })],
+    ['a logo with a query', withVault({ logo: 'icons/aave.svg?x=1' })],
+    ['an empty logo', withVault({ logo: '' })],
+    ['a null logo', withVault({ logo: null })],
+    ['a numeric logo', withVault({ logo: 7 })]
   ])('rejects a document with %s', (_label, body) => {
     expect(parseBridgeConfig(body, 'testnet')).toBeNull();
   });

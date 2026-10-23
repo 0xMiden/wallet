@@ -32,10 +32,11 @@ interface EarnVaultDetailProps {
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { t } = useTranslation();
-  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
+  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
+  // The vaults come from the derivation's catalogue, which can settle after the positions read.
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading: isLoading || vaultsPending, error: loadError });
   // Neither the pending nor the vault-less failed branch draws the Deposit control or its notice.
   const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !((loadFailed && !found) || pending) });
 

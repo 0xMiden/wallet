@@ -8,10 +8,12 @@ import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import {
   type AgglayerRecoveryConfig,
+  EARN_VAULT_LOGO,
   type EarnVaultConfig,
   epochCollateralFaucetId,
   type SupportedEvmChainConfig
 } from './schema';
+import { bridgeConfigBaseUrl } from './source';
 import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
@@ -133,6 +135,16 @@ const NO_EARN_VAULTS: readonly EarnVaultConfig[] = [];
  */
 export function selectEarnVaults(s: BridgeConfigSnapshot): readonly EarnVaultConfig[] {
   return s.config?.earn?.vaults ?? NO_EARN_VAULTS;
+}
+
+/**
+ * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
+ * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
+ * never runs.
+ */
+export function selectEarnVaultLogoUrl(s: BridgeConfigSnapshot, listing: EarnVaultConfig): string | null {
+  const { logo } = listing;
+  return logo !== undefined && EARN_VAULT_LOGO.test(logo) ? `${bridgeConfigBaseUrl(s.network)}/${logo}` : null;
 }
 
 /** The listed Earn vault of `marketUid` (in any case), or null when the document lists none for it. */

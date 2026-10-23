@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useSWRConfig } from 'swr';
 
@@ -7,10 +7,12 @@ import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepo
 import { useAccount } from 'lib/miden/front';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import {
   BridgeConfigUnavailableError,
   selectEarnVaultCatalog,
+  selectEarnVaultLogoUrl,
   selectEarnVaults,
   selectEpochRoutes
 } from 'lib/remote-config/values';
@@ -141,6 +143,12 @@ export function useEarnPositions(): {
   positions: EarnPosition[];
   /** The listed vaults the derivation's catalogue serves, in the document's order. Empty until a derivation holds it. */
   vaults: EarnVault[];
+  /**
+   * The document lists vaults and the derivation has not settled their catalogue yet (no `derived.epoch.vaults`). A
+   * vault lookup reads this as loading, since `isLoading` is the positions read's and can end first. False once the
+   * catalogue is read, failed or skipped.
+   */
+  vaultsPending: boolean;
   /**
    * No data and no error, live, kept or stored, including while the page is covered. A retry after a failure keeps
    * the error and reports false.
@@ -306,16 +314,22 @@ export function useEarnPositions(): {
   const isLoading = data === undefined && !readError;
   const fundingAsset = config.network === 'testnet' ? 'USDCx' : undefined;
 
+  // A listing's logo is a path relative to the base URL of this snapshot's network document.
+  const logoUrlOf = useCallback((listing: EarnVaultConfig) => selectEarnVaultLogoUrl(config, listing), [config]);
+
   // The document decides which vaults show, in which order and under which entry; the catalogue is already in its
   // order, so each listing takes its own vault.
   const vaults = useMemo(
     () =>
       listed.flatMap(listing => {
         const vault = catalog?.find(item => item.marketUid.toLowerCase() === listing.marketUid);
-        return vault ? [mapEarnVault({ ...vault, listing }, fundingAsset)] : [];
+        return vault ? [mapEarnVault({ ...vault, listing }, fundingAsset, logoUrlOf(listing))] : [];
       }),
-    [catalog, listed, fundingAsset]
+    [catalog, listed, fundingAsset, logoUrlOf]
   );
+  // The document lists vaults and the derivation has not settled its catalogue: a vault missing from `vaults` may
+  // still come, whatever the positions read reports.
+  const vaultsPending = listed.length > 0 && config.derived?.epoch.vaults === undefined;
 
   return useMemo(() => {
     // Owner queries never reject: each failure resolves in `errors`, while what loaded before may still show.
@@ -324,10 +338,11 @@ export function useEarnPositions(): {
     const stale = Boolean(readError) || fromStore !== undefined;
     return {
       positions: (data?.positions ?? []).map(position => ({
-        ...mapEarnPosition(position, listed),
+        ...mapEarnPosition(position, listed, logoUrlOf),
         stale: stale || failedOwners.has(position.owner)
       })),
       vaults,
+      vaultsPending,
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,
       // Surface a load failure so the UI can show "couldn't load - retry" instead
@@ -342,5 +357,17 @@ export function useEarnPositions(): {
         if (!isValidating) void mutate();
       }
     };
-  }, [data, fromStore, listed, vaults, isLoading, readError, notOnNetwork, isValidating, mutate]);
+  }, [
+    data,
+    fromStore,
+    listed,
+    logoUrlOf,
+    vaults,
+    vaultsPending,
+    isLoading,
+    readError,
+    notOnNetwork,
+    isValidating,
+    mutate
+  ]);
 }

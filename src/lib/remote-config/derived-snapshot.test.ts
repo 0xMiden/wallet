@@ -335,6 +335,18 @@ describe('the Earn vault catalogue', () => {
     expect(parseStoredDerived(stored(value), 'testnet', 4)).toStrictEqual(value);
   });
 
+  it("reads back a listing's logo, and a listing with none as having none", () => {
+    const value = withVaults(listing({ logo: 'icons/euler-v2.png' }));
+    const parsed = parseStoredDerived(stored(value), 'testnet', 4);
+    expect(parsed).toStrictEqual(value);
+    const vaults = parsed?.epoch.vaults;
+    expect(vaults?.state === 'ok' && vaults.value.map(item => item.listing.logo)).toEqual([
+      undefined,
+      'icons/euler-v2.png'
+    ]);
+    expect(vaults?.state === 'ok' && vaults.value[0]?.listing).not.toHaveProperty('logo');
+  });
+
   // One vault that does not read back fails the whole catalogue, never a partial list, and keeps the rest of the copy.
   it.each([
     ['a probe that is not an object', 'ok'],
@@ -364,7 +376,12 @@ describe('the Earn vault catalogue', () => {
     ['a listing name past 64 characters', listing({ name: 'x'.repeat(65) })],
     ['a listing with an empty about', listing({ about: '' })],
     ['a listing id in upper case', listing({ id: 'Euler' })],
-    ['a listing with no deposit switch', listing({ depositsEnabled: undefined })]
+    ['a listing with no deposit switch', listing({ depositsEnabled: undefined })],
+    ['a listing logo that is a URL', listing({ logo: 'https://icons.example/euler.svg' })],
+    ['a listing logo outside icons/', listing({ logo: 'euler.svg' })],
+    ['a listing logo of another type', listing({ logo: 'icons/euler.webp' })],
+    ['a listing logo that is not text', listing({ logo: 7 })],
+    ['a listing logo that JSON wrote as null', listing({ logo: null })]
   ])('reads a catalogue with %s as a failed read', (_label, vaults) => {
     const parsed = parseStoredDerived(stored(withVaults(vaults)), 'testnet', 4);
     expect(parsed).toStrictEqual({ ...whole(), epoch: { ...whole().epoch, vaults: MALFORMED } });

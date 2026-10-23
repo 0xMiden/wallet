@@ -12,6 +12,7 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { Probe } from 'lib/remote-config/derive';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
+import { bridgeConfigBaseUrl } from 'lib/remote-config/source';
 
 import { EARN_POSITIONS_STORAGE_PREFIX, earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -297,6 +298,61 @@ describe('useEarnPositions', () => {
     expect(result.current.positions).toHaveLength(1);
     expect(result.current.loadError).toBeUndefined();
     expect(result.current.error).toBeUndefined();
+  });
+
+  it('reports the vaults pending while the document lists vaults and no derivation settled their catalogue', () => {
+    mockConfigSnapshot = { ...READY, derived: null };
+    // The positions read lands first.
+    mockUseRetryableSWR.mockReturnValue({ data: { ...liveResult, errors: [] }, isLoading: false });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.vaults).toEqual([]);
+    expect(result.current.vaultsPending).toBe(true);
+
+    act(() => publishConfig(READY));
+    expect(result.current.vaultsPending).toBe(false);
+    expect(result.current.vaults.map(item => item.id)).toEqual(['dummy-lending-sepolia-usdc']);
+  });
+
+  it.each<[string, BridgeConfigSnapshot]>([
+    ['read', READY],
+    ['failed', withCatalog({ state: 'error', message: 'Epoch pools page 2 failed' })],
+    ['skipped', withCatalog({ state: 'skipped' })],
+    ['absent', withCatalog({ state: 'absent' })],
+    ['loading with no document, which lists no vault', LOADING]
+  ])('reports no pending vaults when the catalogue is %s', (_case, snapshot) => {
+    mockConfigSnapshot = snapshot;
+    mockUseRetryableSWR.mockReturnValue({ data: undefined, isLoading: true });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.vaultsPending).toBe(false);
+  });
+
+  it("draws a listed vault's document logo on the vault and on a position in its market", () => {
+    const listing = { ...LISTING, logo: 'icons/dummy-lending.svg' };
+    mockConfigSnapshot = { ...READY, config: { ...READY_CONFIG, earn: { vaults: [listing] } } };
+    mockUseRetryableSWR.mockReturnValue({ data: liveResult, isLoading: false });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    const expected = `${bridgeConfigBaseUrl('testnet')}/icons/dummy-lending.svg`;
+    expect(result.current.vaults[0]?.logoUrl).toBe(expected);
+    expect(result.current.positions[0]?.logoUrl).toBe(expected);
+  });
+
+  it('gives no logo URL to a vault whose listing names none, or to a position in an unlisted market', () => {
+    mockUseRetryableSWR.mockReturnValue({
+      data: { ...liveResult, positions: [position, { ...position, marketUid: 'AAVE_V3:11155111:0xasset' }] },
+      isLoading: false
+    });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.vaults[0]).not.toHaveProperty('logoUrl');
+    expect(result.current.positions.map(item => item.logoUrl)).toEqual([undefined, undefined]);
   });
 
   it('reports a per-owner positions error as error only, never as a request failure', () => {

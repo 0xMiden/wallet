@@ -48,10 +48,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       settleRouteFlow('earn', flow => flow.cancel());
     };
   }, []);
-  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
+  const { vaults, vaultsPending, isLoading, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
+  // The vaults come from the derivation's catalogue, which can settle after the positions read.
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading: isLoading || vaultsPending, error: loadError });
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);

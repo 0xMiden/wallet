@@ -13,6 +13,7 @@ import type {
 } from './derive';
 import {
   type BridgeConfig,
+  EARN_VAULT_LOGO,
   EARN_VAULT_PROTOCOLS,
   EARN_VAULT_RISKS,
   type EarnVaultConfig,
@@ -143,7 +144,7 @@ function earnText(value: unknown, maxLength: number): value is string {
 // document version, so the same rules hold for it.
 function earnListing(value: unknown): EarnVaultConfig | null {
   if (!isRecord(value)) return null;
-  const { id, marketUid, name, protocol, about, risk, depositsEnabled } = value;
+  const { id, marketUid, name, protocol, about, risk, depositsEnabled, logo } = value;
   const knownProtocol = EARN_VAULT_PROTOCOLS.find(known => known === protocol);
   const knownRisk = EARN_VAULT_RISKS.find(known => known === risk);
   if (
@@ -155,7 +156,8 @@ function earnListing(value: unknown): EarnVaultConfig | null {
     knownProtocol === undefined ||
     (about !== undefined && !earnText(about, MAX_EARN_VAULT_ABOUT_LENGTH)) ||
     (risk !== undefined && knownRisk === undefined) ||
-    typeof depositsEnabled !== 'boolean'
+    typeof depositsEnabled !== 'boolean' ||
+    (logo !== undefined && !(isString(logo) && EARN_VAULT_LOGO.test(logo)))
   ) {
     return null;
   }
@@ -166,7 +168,8 @@ function earnListing(value: unknown): EarnVaultConfig | null {
     protocol: knownProtocol,
     ...(isString(about) ? { about } : {}),
     ...(knownRisk === undefined ? {} : { risk: knownRisk }),
-    depositsEnabled
+    depositsEnabled,
+    ...(isString(logo) ? { logo } : {})
   };
 }
 
