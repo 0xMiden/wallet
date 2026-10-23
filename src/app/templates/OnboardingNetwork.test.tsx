@@ -350,3 +350,19 @@ it('still prepares mainnet on the seven-tap unlock under a Developer Settings ch
   expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE);
   expect(onSubmit).toHaveBeenCalledWith('mainnet-access');
 });
+
+// Welcome mounts afresh after a Developer Settings save, which is what makes this choice reach the page.
+it('leaves a fresh page on the saved network after an unmarked page prepared mainnet', async () => {
+  const first = render(page());
+  await waitFor(() => expect(screen.getByTestId('flow')).toHaveTextContent('true'));
+  expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE);
+  first.unmount();
+
+  mockDeveloperChoice = true;
+  mockApply.mockClear();
+  render(page());
+  await act(async () => {});
+
+  expect(screen.getByTestId('flow')).toHaveTextContent('false');
+  expect(mockApply).not.toHaveBeenCalled();
+});
