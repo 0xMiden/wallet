@@ -29,6 +29,8 @@ public class AuthTabCertificateSetupTest {
     public void installFixtureAuthorityThroughSettings() throws Exception {
         String expectedSubject = InstrumentationRegistry.getArguments().getString("caSubject");
         assertNotNull("caSubject instrumentation argument", expectedSubject);
+        String devicePin = InstrumentationRegistry.getArguments().getString("devicePin");
+        assertNotNull("devicePin instrumentation argument", devicePin);
 
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
