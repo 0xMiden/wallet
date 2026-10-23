@@ -1,6 +1,6 @@
 name: E2E Mainnet Nightly
 
-# One Chrome job against Miden mainnet, from origin/main. It restores two long-lived
+# One Chrome job against Miden mainnet, from the ref it runs on (main for the schedule). It restores two long-lived
 # accounts, sends one base unit of the native asset each way, then loops the minimum
 # bridge on every mainnet route: USDCx on Arc, Base, Arbitrum and Ethereum, and native
 # ETH over AggLayer. The loops check every chain first and send nothing if any one of
@@ -35,10 +35,12 @@ jobs:
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
       E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
       MAINNET_ONE_CLICK_CHECKPOINT_ANCHOR_RUN_ID: ${{ vars.MAINNET_ONE_CLICK_CHECKPOINT_ANCHOR_RUN_ID }}
+      # 1Click is off until the route is enabled on NEAR: set the repository variable to `true` to run its stages.
+      MAINNET_ONE_CLICK_ENABLED: ${{ vars.MAINNET_ONE_CLICK_ENABLED }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -164,12 +166,16 @@ jobs:
           set -e
           E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-round-trip xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
           E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-bridge-loop xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
-          MAINNET_ONE_CLICK_MODE=preflight E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-1click-preflight xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts
+          if [ "${MAINNET_ONE_CLICK_ENABLED:-}" = true ]; then
+            MAINNET_ONE_CLICK_MODE=preflight E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-1click-preflight xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts
+          else
+            echo 'MAINNET_ONE_CLICK_ENABLED is not true: skipping the 1Click preflight.'
+          fi
 
       - name: Check whether 1Click preflight produced an authorized route
         id: mainnet-1click-ready
         run: |
-          if [ -f test-results/mainnet-1click-preflight/summary.json ]; then
+          if [ "${MAINNET_ONE_CLICK_ENABLED:-}" = true ] && [ -f test-results/mainnet-1click-preflight/summary.json ]; then
             echo 'ready=true' >> "$GITHUB_OUTPUT"
           else
             echo 'ready=false' >> "$GITHUB_OUTPUT"
