@@ -151,6 +151,7 @@ export function mapEarnPosition(position: LibEarnPosition, listed: readonly Earn
   const listing = listed.find(vault => vault.marketUid === position.marketUid.toLowerCase());
   // A listed market's name identifies it on its own.
   const marketName = listing ? undefined : distinguishingMarketName(family, position.lenderName);
+  const epochProtocol = position.epochProtocol ?? listing?.protocol;
   const yearlyUsd = (position.depositsUSD * position.depositApr) / 100;
   return {
     id: positionSlug(position),
@@ -163,6 +164,7 @@ export function mapEarnPosition(position: LibEarnPosition, listed: readonly Earn
     withdrawable: position.withdrawable,
     decimals: position.decimals,
     protocol,
+    ...(epochProtocol ? { epochProtocol } : {}),
     ...(listing ? { name: listing.name } : {}),
     ...(marketName ? { marketName } : {}),
     asset: position.symbol,

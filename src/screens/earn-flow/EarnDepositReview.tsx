@@ -166,6 +166,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         amount: amountBaseUnits,
         collateral,
         market: earnMarketForVault(vaultInfo),
+        protocol: vaultInfo.listing.protocol,
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },

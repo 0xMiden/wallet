@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useSWRConfig } from 'swr';
 
@@ -10,7 +10,10 @@ import {
   fetchEarnPositions,
   getEarnDepositEvmAddresses
 } from 'lib/epoch';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
+import * as Repo from 'lib/miden/repo';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { BridgeConfigUnavailableError, selectEarnMarket, selectEarnVaults } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
@@ -203,6 +206,50 @@ export function useEarnPositions(): {
   // No data and no error (live or kept): a page mounted covered reads as loading, not empty.
   const isLoading = data === undefined && !readError;
 
+  // A position the catalogue and the document both leave without a protocol takes the newest local
+  // earn-deposit for this account, owner, and market. The read is the transactions table, so it does
+  // not ask the positions service.
+  const [depositProtocols, setDepositProtocols] = useState(() => new Map<string, '1delta' | 'dummy-lending'>());
+  useEffect(() => {
+    const missing = (data?.positions ?? []).some(
+      position => mapEarnPosition(position, listed).epochProtocol === undefined
+    );
+    if (!missing) {
+      setDepositProtocols(current => (current.size === 0 ? current : new Map()));
+      return;
+    }
+    // Drop a previous account's protocols before the read returns, so they cannot label this account's position.
+    setDepositProtocols(current => (current.size === 0 ? current : new Map()));
+    let cancelled = false;
+    void (async () => {
+      const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
+      if (cancelled) return;
+      const found = new Map<string, '1delta' | 'dummy-lending'>();
+      const newestAt = new Map<string, number>();
+      for (const tx of rows) {
+        if (tx.type !== 'earn-deposit' || tx.restoredFromBackup) continue;
+        if (!compareAccountIds(tx.accountId, account.publicKey)) continue;
+        const extra: IEarnDepositExtraInputs | undefined = tx.extraInputs;
+        if (!extra) continue;
+        const protocol = extra.protocol;
+        if (protocol !== '1delta' && protocol !== 'dummy-lending') continue;
+        const owner = extra.evmRecipient.trim().toLowerCase();
+        const marketUid = extra.marketUid.trim().toLowerCase();
+        if (!owner || !marketUid) continue;
+        const key = `${owner}:${marketUid}`;
+        const at = tx.initiatedAt;
+        const previous = newestAt.get(key);
+        if (previous !== undefined && previous >= at) continue;
+        newestAt.set(key, at);
+        found.set(key, protocol);
+      }
+      if (!cancelled) setDepositProtocols(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [account.publicKey, data, listed]);
+
   return useMemo(() => {
     // Owner and catalogue queries never reject: each failure resolves in `errors`, while what loaded before may still
     // show. An owner's failure is positions-only; the catalogue's failure is the vaults'.
@@ -220,8 +267,12 @@ export function useEarnPositions(): {
     return {
       positions: (data?.positions ?? []).map(position => {
         const mapped = mapEarnPosition(position, listed);
+        const recovered = depositProtocols.get(
+          `${position.owner.trim().toLowerCase()}:${position.marketUid.trim().toLowerCase()}`
+        );
         return {
           ...mapped,
+          ...(mapped.epochProtocol === undefined && recovered ? { epochProtocol: recovered } : {}),
           vaultId: renderedVaultIds.has(mapped.vaultId) ? mapped.vaultId : '',
           stale: Boolean(readError) || failedOwners.has(position.owner)
         };
@@ -241,5 +292,5 @@ export function useEarnPositions(): {
         if (!isValidating) void mutate();
       }
     };
-  }, [data, listed, isLoading, readError, notOnNetwork, isValidating, mutate, config.network]);
+  }, [data, listed, isLoading, readError, notOnNetwork, isValidating, mutate, config.network, depositProtocols]);
 }

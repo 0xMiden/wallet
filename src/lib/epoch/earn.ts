@@ -11,6 +11,7 @@ import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/t
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import type { EarnVaultProtocol } from 'lib/remote-config/schema';
 import { type EarnMarket, getEpochAllocatorUrl, getEvmChainId } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
@@ -334,6 +335,8 @@ export interface OpenEarnPositionArgs {
   evmAddress: string;
   /** The market of the vault the user chose (`earnMarketForVault`). The deposit names its uid and protocol hash. */
   market: EarnMarket;
+  /** The protocol string the document lists the vault with, the same string the market's protocol hash is of. */
+  protocol: EarnVaultProtocol;
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
   deps: BridgeNoteDeps;
@@ -408,6 +411,8 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
           bindingAttachmentFelts,
           evmRecipient,
           marketUid: market.marketUid,
+          protocol: args.protocol,
+          chainId: market.chainId,
           allocatorUrl,
           deps: args.deps,
           onRowCreated: args.onRowCreated,

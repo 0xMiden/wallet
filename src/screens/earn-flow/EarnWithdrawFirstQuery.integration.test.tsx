@@ -151,6 +151,7 @@ const mockPosition: EarnPosition = {
   withdrawable: '20',
   decimals: 6,
   protocol: 'Aave',
+  epochProtocol: 'dummy-lending',
   asset: 'USDC',
   network: 'Sepolia',
   amount: '$20',
@@ -277,7 +278,9 @@ async function pastFailure() {
     marketUid: mockPosition.marketUid,
     underlyingAddress: PREPARED_TOKEN,
     amount: '10',
-    underlyingDecimals: 6
+    underlyingDecimals: 6,
+    protocol: 'dummy-lending',
+    chainId: 11155111
   }).catch(error => {
     if (error !== failure) throw error;
   });
@@ -352,7 +355,13 @@ describe('Earn withdrawal first-query reporting', () => {
         id,
         type: 'earn-withdraw',
         status: ITransactionStatus.Completed,
-        extraInputs: { phase: 'failed', submissionState: 'preparing', error: failure.message }
+        extraInputs: {
+          phase: 'failed',
+          submissionState: 'preparing',
+          error: failure.message,
+          protocol: 'dummy-lending',
+          chainId: 11155111
+        }
       });
       expect(mockExecuteActions).not.toHaveBeenCalled();
       expect(read.rows).toEqual([]);

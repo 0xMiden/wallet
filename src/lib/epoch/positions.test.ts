@@ -200,7 +200,8 @@ describe('fetchEarnPositions', () => {
         symbol: 'USDC',
         underlyingAddress: SEPOLIA_USDC,
         decimals: 6,
-        priceUsd: 1
+        priceUsd: 1,
+        epochProtocol: 'dummy-lending'
       }
     ]);
   });

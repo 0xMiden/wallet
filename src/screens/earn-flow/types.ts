@@ -30,6 +30,8 @@ export interface EarnPosition {
   withdrawable: string;
   decimals: number;
   protocol: string;
+  /** `1delta` or `dummy-lending` when a listing, the catalogue, or a local deposit records it. */
+  epochProtocol?: '1delta' | 'dummy-lending';
   /** The document's name of this position's vault, when the document lists its market. */
   name?: string;
   /** The name of the market when neither the document nor the protocol identifies it. */

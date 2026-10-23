@@ -114,6 +114,8 @@ export interface EarnPosition {
   underlyingAddress: string;
   decimals: number;
   priceUsd: number;
+  /** The document's protocol for this market, the string a deposit hashes. Absent when the document does not list it. */
+  epochProtocol?: '1delta' | 'dummy-lending';
 }
 
 /** The `owner` under which `errors` reports a failed vault catalogue read. It is never an EVM address. */
@@ -416,6 +418,10 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     errors.push({ owner: EARN_CATALOG_ERROR_OWNER, error: catalog.error });
   }
 
+  for (const position of positions) {
+    const protocol = listed.find(vault => vault.marketUid === position.marketUid.toLowerCase())?.protocol;
+    if (protocol) position.epochProtocol = protocol;
+  }
   const totalDepositsUSD = positions.reduce((sum, p) => sum + p.depositsUSD, 0);
   return {
     positions,

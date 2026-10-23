@@ -459,6 +459,7 @@ describe('EarnDepositReview', () => {
         underlying: '0xunderlying',
         chainId: 8453
       });
+      expect(mockOpenEarnPosition.mock.calls[0]![0].protocol).toBe(vault.info!.listing.protocol);
     });
 
     it('opens nothing, and says why, for a vault that accepts no deposits now', async () => {

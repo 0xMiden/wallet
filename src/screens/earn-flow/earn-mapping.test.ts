@@ -1,4 +1,5 @@
 import type { EarnPosition as LibEarnPosition, EarnVaultInfo } from 'lib/epoch';
+import type { EarnVaultConfig } from 'lib/remote-config/schema';
 
 import { EARN_DATA, EARN_VAULT_INFOS } from './data';
 import {
@@ -143,6 +144,27 @@ describe('mapEarnPosition', () => {
 
   it('shows the lender name of a lender outside the known families', () => {
     expect(mapEarnPosition(libPosition({ lenderKey: 'SPARK', lenderName: 'Spark' })).protocol).toBe('Spark');
+  });
+
+  it('copies the catalogue protocol, else the listing protocol, and leaves the lender label alone', () => {
+    const listing: EarnVaultConfig = {
+      id: 'dummy-lending-sepolia-usdc',
+      marketUid: 'dummy_lending:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      name: 'Dummy Lending USDC',
+      protocol: 'dummy-lending',
+      depositsEnabled: true
+    };
+    const fromCatalogue = mapEarnPosition(libPosition({ epochProtocol: '1delta' }), [listing]);
+    expect(fromCatalogue.epochProtocol).toBe('1delta');
+    expect(fromCatalogue.protocol).toBe('Dummy Lending');
+
+    const fromListing = mapEarnPosition(libPosition(), [listing]);
+    expect(fromListing.epochProtocol).toBe('dummy-lending');
+    expect(fromListing.protocol).toBe('Dummy Lending');
+
+    const neither = mapEarnPosition(libPosition());
+    expect(neither.protocol).toBe('Dummy Lending');
+    expect(neither.epochProtocol).toBeUndefined();
   });
 
   it('names the dummy lender Dummy Lending in its route', () => {

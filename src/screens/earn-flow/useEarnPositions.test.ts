@@ -16,6 +16,19 @@ const mockAccount: { publicKey: string; evmAddress?: string } = {
   evmAddress: '0xABCDEF'
 };
 const mockUseRetryableSWR = jest.fn();
+const mockEarnDepositRows: Array<{
+  type: string;
+  accountId: string;
+  initiatedAt: number;
+  restoredFromBackup?: boolean;
+  extraInputs: { protocol?: string; evmRecipient?: string; marketUid?: string };
+}> = [];
+
+jest.mock('lib/miden/repo', () => ({
+  transactions: {
+    filter: () => ({ toArray: async () => mockEarnDepositRows })
+  }
+}));
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
@@ -170,6 +183,7 @@ const liveResult: EarnPositionsResult = {
 describe('useEarnPositions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEarnDepositRows.length = 0;
     mockAccount.publicKey = 'miden-account';
     mockAccount.evmAddress = '0xABCDEF';
     mockConfigSnapshot = READY;
@@ -184,6 +198,7 @@ describe('useEarnPositions', () => {
     expect(result.current.positions[0]).toMatchObject({
       owner: '0xabcdef',
       protocol: 'Dummy Lending',
+      epochProtocol: 'dummy-lending',
       asset: 'USDC',
       network: 'Sepolia',
       amount: '$10.00'
@@ -205,6 +220,70 @@ describe('useEarnPositions', () => {
     });
     expect(result.current.error).toBe('owner unavailable');
     expect(result.current.isLoading).toBe(false);
+  });
+
+  it('takes the newest local deposit protocol for this account, owner, and market', async () => {
+    const marketUid = 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+    const unlisted = {
+      ...position,
+      owner: '0xabcDEF',
+      marketUid,
+      lenderKey: 'AAVE_V3',
+      lenderName: 'Aave V3'
+    };
+    const row = (
+      initiatedAt: number,
+      protocol: string,
+      owner: string,
+      market: string,
+      accountId = 'miden-account',
+      restoredFromBackup = false
+    ) => ({
+      type: 'earn-deposit',
+      accountId,
+      initiatedAt,
+      restoredFromBackup,
+      extraInputs: { protocol, evmRecipient: owner, marketUid: market }
+    });
+    mockEarnDepositRows.push(
+      row(10, 'dummy-lending', '0xabcdef', marketUid),
+      row(30, 'aave', '0xAbCdEf', marketUid.toLowerCase()),
+      row(20, '1delta', ' 0xABCDEF ', marketUid),
+      row(40, 'dummy-lending', '0xabcdef', 'OTHER:8453:0x1'),
+      row(50, '1delta', '0xabcdef', marketUid, 'other-account'),
+      row(60, 'dummy-lending', '0xother', marketUid),
+      row(70, '1delta', '0xabcdef', marketUid, 'miden-account', true)
+    );
+    mockUseRetryableSWR.mockReturnValue({
+      data: { ...liveResult, positions: [unlisted], vaults: [] },
+      isLoading: false
+    });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    await waitFor(() => expect(result.current.positions[0]?.epochProtocol).toBe('1delta'));
+    expect(result.current.positions[0]?.protocol).toBe('Aave V3');
+  });
+
+  it('keeps a catalogue protocol ahead of a newer local deposit', async () => {
+    mockEarnDepositRows.push({
+      type: 'earn-deposit',
+      accountId: 'miden-account',
+      initiatedAt: 50,
+      extraInputs: { protocol: '1delta', evmRecipient: '0xabcdef', marketUid: position.marketUid }
+    });
+    mockUseRetryableSWR.mockReturnValue({
+      data: { ...liveResult, positions: [{ ...position, epochProtocol: 'dummy-lending' }] },
+      isLoading: false
+    });
+
+    const { result } = renderHook(() => useEarnPositions());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.positions[0]).toMatchObject({ protocol: 'Dummy Lending', epochProtocol: 'dummy-lending' });
   });
 
   it('shows the vaults the current document lists, in its order and under its entry, and no other', () => {
