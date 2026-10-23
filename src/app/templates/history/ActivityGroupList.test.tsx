@@ -349,6 +349,11 @@ describe('ActivityGroupList', () => {
     expect(screen.getByText('cancelled · 2 hours')).toBeTruthy();
   });
 
+  it('localizes a failed group whose latest message is the English sentinel', () => {
+    renderList([entry({ message: 'Transaction failed', secondaryAddress: 'mtst1alice' })]);
+    expect(screen.getByText('transactionFailedNotificationTitle · 2 hours')).toBeTruthy();
+  });
+
   it('badges a group that still has something in flight, and counts it', () => {
     renderList([
       entry({ timestamp: 900, type: HistoryEntryType.PendingTransaction, secondaryAddress: 'mtst1alice' }),

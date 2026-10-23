@@ -78,7 +78,9 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       ? t('faucetRequest')
       : entry.isUnconfirmed
         ? t('notConfirmed')
-        : entry.message;
+        : entry.message === 'Transaction failed'
+          ? t('transactionFailedNotificationTitle')
+          : entry.message;
   return (
     <div
       className={classNames(

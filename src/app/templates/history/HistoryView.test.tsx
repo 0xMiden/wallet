@@ -902,7 +902,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
 
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
-    const row = rowByTitle('Transaction failed');
+    const row = rowByTitle('transactionFailedNotificationTitle');
     expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
@@ -1010,7 +1010,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(rowByTitle('cancelled')).toHaveAttribute('data-status', 'cancelled');
     const failedRow = screen
       .getAllByTestId('activity-row')
-      .find(el => el.getAttribute('data-title') === 'Transaction failed')!;
+      .find(el => el.getAttribute('data-title') === 'transactionFailedNotificationTitle')!;
     expect(failedRow).toHaveAttribute('data-status', 'failed');
     expect(failedRow).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
@@ -1669,7 +1669,7 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(degraded).toHaveAttribute('data-status', 'confirmed');
     expect(queued).toHaveAttribute('data-title', 'Switching guardian');
     expect(queued).toHaveAttribute('data-status', 'pending');
-    expect(failed).toHaveAttribute('data-title', 'Transaction failed');
+    expect(failed).toHaveAttribute('data-title', 'transactionFailedNotificationTitle');
     expect(failed).toHaveAttribute('data-status', 'failed');
   });
 });

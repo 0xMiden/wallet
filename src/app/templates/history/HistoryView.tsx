@@ -285,7 +285,9 @@ function buildRowProps(
             ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
             : guardianTitleKey
               ? t(guardianTitleKey)
-              : entry.message || '';
+              : entry.message === 'Transaction failed'
+                ? t('transactionFailedNotificationTitle')
+                : entry.message || '';
   const placedAt = new Date(entry.timestamp * 1000);
   const swapPlacement = isSwap
     ? t('swapPlacedAt', { time: Number.isFinite(placedAt.getTime()) ? format(placedAt, 'HH:mm') : t('unknown') })
