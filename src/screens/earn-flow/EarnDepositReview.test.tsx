@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 import { confirmSensitiveAction } from 'lib/biometric';
-import { openEarnPosition } from 'lib/epoch';
+import { earnMarketForVault, openEarnPosition } from 'lib/epoch';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -25,7 +25,9 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; vaultsPending?: boolean; error?: string; loadError?: string } = {
+  isLoading: false
+};
 const mockRefetch = jest.fn();
 
 jest.mock('react-i18next', () => ({
@@ -72,6 +74,15 @@ jest.mock('lib/miden/back/protector-probe', () => ({
 //     and the collateral id helper are used by this screen.
 jest.mock('lib/epoch', () => ({
   earnCollateralFaucetId: () => 'mtst1usdc',
+  // The market of a vault, tagged with the vault's uid so a test can see which vault it came from.
+  earnMarketForVault: jest.fn((vault: { marketUid: string; chainId: string }) => ({
+    marketUid: vault.marketUid,
+    protocolHash: '0xprotocol',
+    underlying: '0xunderlying',
+    chainId: Number(vault.chainId)
+  })),
+  earnVaultTakesDeposits: (vault: { canOpen: boolean; listing: { depositsEnabled: boolean } }) =>
+    vault.canOpen && vault.listing.depositsEnabled,
   openEarnPosition: jest.fn(() => Promise.resolve())
 }));
 
@@ -260,7 +271,10 @@ jest.mock('./components', () => {
         R.createElement('span', { className: figureClassName }, value),
         unit,
         R.createElement('span', { className: labelClassName }, label)
-      )
+      ),
+    // A probe that shows only for a vault that accepts no deposits, as the real notice does.
+    EarnVaultClosedNotice: ({ canOpen }: { canOpen?: boolean }) =>
+      canOpen === false ? R.createElement('div', { 'data-testid': 'earn-vault-closed-notice' }) : null
   };
 });
 
@@ -274,6 +288,10 @@ jest.mock('components/AmountInput', () => ({
 
 const mockOpenEarnPosition = openEarnPosition as jest.Mock;
 const mockConfirmSensitive = confirmSensitiveAction as jest.Mock;
+
+const AAVE_VAULT = EARN_DATA.vaults[2]!; // The Aave V3 USDC market on Base, which accepts deposits.
+const MORPHO_VAULT = EARN_DATA.vaults[0]!; // A Morpho USDC market on the same chain, which accepts deposits.
+const CLOSED_VAULT = EARN_DATA.vaults[1]!; // A Morpho market that accepts no deposits now.
 
 // Bound, as the amount step links it, to the collateral the case mocks; only `unbound` names no faucet.
 const renderReview = (vaultId: string, search = '', { unbound = false } = {}) => {
@@ -314,12 +332,12 @@ describe('EarnDepositReview', () => {
 
   describe('deposit amount header', () => {
     it('renders the page shell, resolves the vault by id, and shows the parsed amount + asset logo', () => {
-      renderReview('aave-usdc-ethereum-2', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       expect(screen.getByTestId('earn-deposit-review-page')).toBeInTheDocument();
 
       // Vault resolved by id (not the first vault): its title and its mark both come from it.
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave V3$/);
       expect(screen.getByText(/^USDC on /)).toBeInTheDocument();
       const mark = screen.getByTestId('earn-asset-mark');
       expect(mark).toHaveAttribute('data-asset', 'USDC');
@@ -338,7 +356,7 @@ describe('EarnDepositReview', () => {
     });
 
     it("sets the caption and the figure in the amount step's own entry type", () => {
-      renderReview('aave-usdc-ethereum-2', '?amount=1,000.50');
+      renderReview(AAVE_VAULT.id, '?amount=1,000.50');
 
       const hero = screen.getByTestId('earn-hero');
       expect(within(hero).getByText('earnDepositAmountTitle')).toHaveClass('amount-caption-sentinel');
@@ -358,31 +376,31 @@ describe('EarnDepositReview', () => {
     });
 
     it('gives the CTA the earn flow colour', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=500');
+      renderReview(AAVE_VAULT.id, '?amount=500');
 
       expect(screen.getByTestId('open-position-btn')).toHaveAttribute('data-accent', 'earn');
     });
 
     it('strips thousands separators and trailing zeros from the amount', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1,234.50');
+      renderReview(AAVE_VAULT.id, '?amount=1,234.50');
       expect(within(screen.getByTestId('earn-hero')).getByText('1234.5')).toBeInTheDocument();
     });
 
     // The deposit is the typed amount exactly, so a third decimal is never rounded away.
     it('shows a typed amount exactly, never rounded to two decimals', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=0.015');
+      renderReview(AAVE_VAULT.id, '?amount=0.015');
       expect(within(screen.getByTestId('earn-hero')).getByText('0.015')).toBeInTheDocument();
     });
 
     it('defaults the amount to 0 when the query string has no amount param', () => {
-      renderReview('aave-usdc-ethereum-1', '');
+      renderReview(AAVE_VAULT.id, '');
       expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
     });
 
     // The typed hero reads it as 0 by itself; the parsed amount must too, or the CTA offers to
     // deposit NaN and the projection reads $NaN.
     it('reads a non-numeric amount as 0 in the hero, the CTA and the projection', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=not-a-number');
+      renderReview(AAVE_VAULT.id, '?amount=not-a-number');
       expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
       expect(screen.getByTestId('open-position-btn')).toBeDisabled();
       expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
@@ -395,7 +413,7 @@ describe('EarnDepositReview', () => {
     // never gated on account type. This fails if the old guardian block returns.
     it('lets a Guardian account open a position', async () => {
       mockAccount.type = 'guardian';
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       const cta = screen.getByTestId('open-position-btn');
       expect(cta).toBeEnabled();
@@ -406,7 +424,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('adds no haptic of its own and opens the Epoch position with the scaled amount + account owner', async () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       const cta = screen.getByTestId('open-position-btn');
       expect(cta).toHaveTextContent('earnOpenPosition');
@@ -427,9 +445,47 @@ describe('EarnDepositReview', () => {
       expect(call.deps.signTransaction).toBe(mockSignTransaction);
     });
 
+    it.each([
+      ['the Aave V3 vault', AAVE_VAULT],
+      ['a Morpho vault on the same chain', MORPHO_VAULT]
+    ])('opens the position in the market of the chosen vault: %s', async (_name, vault) => {
+      renderReview(vault.id, '?amount=10');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+      expect(earnMarketForVault).toHaveBeenCalledWith(vault.info);
+      expect(mockOpenEarnPosition.mock.calls[0]![0].market).toEqual({
+        marketUid: vault.info!.marketUid,
+        protocolHash: '0xprotocol',
+        underlying: '0xunderlying',
+        chainId: 8453
+      });
+      expect(mockOpenEarnPosition.mock.calls[0]![0].protocol).toBe(vault.info!.listing.protocol);
+    });
+
+    it('opens nothing, and says why, for a vault that accepts no deposits now', async () => {
+      renderReview(CLOSED_VAULT.id, '?amount=10');
+
+      const cta = screen.getByTestId('open-position-btn');
+      expect(cta).toBeDisabled();
+      expect(screen.getByTestId('earn-vault-closed-notice')).toBeInTheDocument();
+      // One reason at a time: the collateral says nothing over a closed vault.
+      expect(screen.queryByTestId('earn-collateral-notice')).toBeNull();
+      fireEvent.click(cta);
+      await act(async () => {});
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('draws no closed-vault notice for an open vault', () => {
+      renderReview(AAVE_VAULT.id, '?amount=10');
+
+      expect(screen.queryByTestId('earn-vault-closed-notice')).toBeNull();
+    });
+
     it('scales by the collateral the config names and deposits that collateral', async () => {
       mockCollateral = { faucetId: '0x00000000000000000000000000e2e0', symbol: 'tUSDC', decimals: 2 };
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -437,9 +493,18 @@ describe('EarnDepositReview', () => {
       expect(mockOpenEarnPosition.mock.calls[0]![0]).toMatchObject({ amount: 100_000n, collateral: mockCollateral });
     });
 
+    it('opens nothing for an amount finer than the collateral scale', async () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=1.0000001');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() => expect(screen.getByTestId('earn-deposit-review-error')).toBeInTheDocument());
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
     it('deposits nothing while the config names no collateral', async () => {
       mockCollateral = null;
-      renderReview('aave-usdc-ethereum-1', `?amount=1,000&collateral=${USDC.faucetId}`);
+      renderReview(AAVE_VAULT.id, `?amount=1,000&collateral=${USDC.faucetId}`);
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -448,7 +513,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('confirms the deposit with the earn-deposit reason and the shared hardware-only protector probe', async () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -460,7 +525,7 @@ describe('EarnDepositReview', () => {
 
     it('does not open the position when biometric confirmation is declined, leaving the CTA usable again', async () => {
       mockConfirmSensitive.mockResolvedValue(false);
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
       const cta = screen.getByTestId('open-position-btn');
 
       fireEvent.click(cta);
@@ -476,7 +541,7 @@ describe('EarnDepositReview', () => {
 
     it("shows the screen's own error, and deposits nothing, when the protector probe rejects", async () => {
       mockConfirmSensitive.mockRejectedValue(new Error('protector check failed'));
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -486,7 +551,7 @@ describe('EarnDepositReview', () => {
 
     it('requires strict authentication before any Earn quote or intent work when over limit', async () => {
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -509,7 +574,7 @@ describe('EarnDepositReview', () => {
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
         breachAssessment({ accountId: 'mm1someotheraccount' })
       );
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
       await waitFor(() => expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalled());
@@ -529,7 +594,7 @@ describe('EarnDepositReview', () => {
       // refuses it on its own, independently of the staleness guard above.
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
       mockAuthorizationAccountOverride = 'mm1someotheraccount';
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
       fireEvent.click(await screen.findByRole('button', { name: 'authorize-limit' }));
@@ -543,7 +608,7 @@ describe('EarnDepositReview', () => {
         code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
         symbol: 'USDC'
       });
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -561,7 +626,7 @@ describe('EarnDepositReview', () => {
         symbol: 'USDC'
       });
       mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -578,7 +643,7 @@ describe('EarnDepositReview', () => {
       // Not price-unavailable and not an authorization-required breach - a genuine pre-check
       // failure, which must surface as itself rather than the generic fallback copy.
       mockWalletStoreState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -593,7 +658,7 @@ describe('EarnDepositReview', () => {
         symbol: 'USDC'
       });
       mockWalletStoreState.readSpendingLimit.mockResolvedValue(undefined);
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -604,7 +669,7 @@ describe('EarnDepositReview', () => {
 
     it('opens the unvalued challenge when the actual deposit cannot be priced', async () => {
       mockOpenEarnPosition.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'USDC' });
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -618,7 +683,7 @@ describe('EarnDepositReview', () => {
       // actual deposit that itself cannot be priced.
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
       mockOpenEarnPosition.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'USDC' });
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
       expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
@@ -634,7 +699,7 @@ describe('EarnDepositReview', () => {
 
     it('cancels the Earn challenge before quote or intent work and preserves the amount', async () => {
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
       fireEvent.click(await screen.findByRole('button', { name: 'cancel-limit' }));
@@ -653,7 +718,7 @@ describe('EarnDepositReview', () => {
         code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
         assessment: { ...firstAssessment, revision: 'revision-2', assessedAt: 240 }
       });
-      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      renderReview(AAVE_VAULT.id, '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
       fireEvent.click(await screen.findByRole('button', { name: 'authorize-limit' }));
@@ -668,7 +733,7 @@ describe('EarnDepositReview', () => {
         return Promise.resolve();
       });
 
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
       await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx%2F1'));
@@ -678,7 +743,7 @@ describe('EarnDepositReview', () => {
       jest.useFakeTimers();
       jest.mocked(reportUserVisibleError).mockClear();
       mockAccount.evmAddress = undefined;
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -690,7 +755,7 @@ describe('EarnDepositReview', () => {
 
     it('surfaces the SDK error message when opening the position rejects', async () => {
       mockOpenEarnPosition.mockRejectedValue(new Error('allocator unreachable'));
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -701,7 +766,7 @@ describe('EarnDepositReview', () => {
       jest.useFakeTimers();
       jest.mocked(reportUserVisibleError).mockClear();
       mockOpenEarnPosition.mockRejectedValue(new Error('allocator unreachable'));
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       await act(async () => fireEvent.click(screen.getByTestId('open-position-btn')));
 
@@ -717,7 +782,7 @@ describe('EarnDepositReview', () => {
       jest.useFakeTimers();
       jest.mocked(reportUserVisibleError).mockClear();
       mockOpenEarnPosition.mockRejectedValue(new Error('allocator unreachable'));
-      const view = renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      const view = renderReview(AAVE_VAULT.id, '?amount=1000');
 
       await act(async () => fireEvent.click(screen.getByTestId('open-position-btn')));
 
@@ -734,7 +799,7 @@ describe('EarnDepositReview', () => {
       jest.useFakeTimers();
       jest.mocked(reportUserVisibleError).mockClear();
       mockOpenEarnPosition.mockRejectedValue('nope');
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
@@ -747,7 +812,7 @@ describe('EarnDepositReview', () => {
     it('ignores a second tap while the first submission is in flight', async () => {
       let release: () => void = () => {};
       mockOpenEarnPosition.mockImplementation(() => new Promise<void>(resolve => (release = resolve)));
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       const cta = screen.getByTestId('open-position-btn');
       fireEvent.click(cta);
@@ -760,7 +825,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('disables the CTA for a zero amount', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=0');
+      renderReview(AAVE_VAULT.id, '?amount=0');
       expect(screen.getByTestId('open-position-btn')).toBeDisabled();
     });
   });
@@ -768,7 +833,7 @@ describe('EarnDepositReview', () => {
   describe('the pinned footer', () => {
     it('sits on the page margin, the same on every platform', () => {
       (isMobile as jest.Mock).mockReturnValue(true);
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
       const footer = screen.getByTestId('open-position-btn').parentElement!;
 
       expect(footer).toHaveAttribute('data-slot', 'footer');
@@ -780,7 +845,7 @@ describe('EarnDepositReview', () => {
 
   describe('deposit projection', () => {
     it('renders the projection chart and the three projected reward tiles', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       // Chart plumbing rendered.
       expect(screen.getByTestId('chart-container')).toBeInTheDocument();
@@ -792,10 +857,10 @@ describe('EarnDepositReview', () => {
       expect(screen.getByText('earnProjection1Year')).toBeInTheDocument();
 
       // Rewards = amount × APY fraction × year fraction, 2dp, interpolated into
-      // the reward key. The fixture vault's aprPercent is 5.24 => 0.0524.
-      expect(screen.getByText('earnProjectedRewardAmount_$4.37')).toBeInTheDocument();
-      expect(screen.getByText('earnProjectedRewardAmount_$26.20')).toBeInTheDocument();
-      expect(screen.getByText('earnProjectedRewardAmount_$52.40')).toBeInTheDocument();
+      // the reward key. The fixture vault's aprPercent (its total APR) is 5.12 => 0.0512.
+      expect(screen.getByText('earnProjectedRewardAmount_$4.27')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_$25.60')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_$51.20')).toBeInTheDocument();
     });
 
     it('projects from aprPercent rather than the parsed apy string when they differ', () => {
@@ -808,7 +873,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('renders the static detail rows including the route built from the vault', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       expect(screen.getByText('earnCollateralLabel')).toBeInTheDocument();
       expect(screen.getByText('earnCollateralValue')).toBeInTheDocument();
@@ -818,11 +883,11 @@ describe('EarnDepositReview', () => {
 
       // Route label reuses the shared `route` key; value interpolates protocol + network.
       expect(screen.getByText('route')).toBeInTheDocument();
-      expect(screen.getByText('earnDepositRoute_Aave_Ethereum')).toBeInTheDocument();
+      expect(screen.getByText('earnDepositRoute_Aave V3_Base')).toBeInTheDocument();
     });
 
     it('sets the projection and the details on outline cards inside one heading-face wrapper', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+      renderReview(AAVE_VAULT.id, '?amount=1000');
 
       const projection = screen.getByTestId('chart-container').closest<HTMLElement>('.rounded-2xl');
       const details = screen.getByText('earnCollateralLabel').closest<HTMLElement>('.divide-y');
@@ -836,7 +901,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('renders zero rewards when the amount is zero', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=0');
+      renderReview(AAVE_VAULT.id, '?amount=0');
       expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
       // All three reward tiles collapse to +$0.00.
       expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
@@ -920,9 +985,25 @@ describe('EarnDepositReview after a failed load', () => {
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 
+  it('waits for a vault catalogue still pending after the positions read landed', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    renderReview('no-such-vault', '?amount=10');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
+    expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();
+  });
+
+  it('draws a vault it has while the catalogue is pending', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    renderReview(AAVE_VAULT.id, '?amount=10');
+
+    expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeInTheDocument();
+  });
+
   it("shows no notice over a found vault when only one owner's positions failed", () => {
     mockLoadState = { isLoading: false, error: 'owner unavailable' };
-    renderReview(EARN_DATA.vaults[1]!.id, '?amount=10');
+    renderReview(AAVE_VAULT.id, '?amount=10');
 
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeInTheDocument();
@@ -930,7 +1011,7 @@ describe('EarnDepositReview after a failed load', () => {
 
   it('keeps a vault it already has, under the notice', () => {
     mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
-    renderReview(EARN_DATA.vaults[1]!.id, '?amount=10');
+    renderReview(AAVE_VAULT.id, '?amount=10');
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
     expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
@@ -954,7 +1035,7 @@ describe('native USDCx funding', () => {
 
   it('shows USDCx and uses its exact faucet and atomic amount for a native deposit', async () => {
     mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
-    renderReview('aave-usdc-ethereum-1', '?amount=1.25&collateral=0x4cbdcaffe75f0a317482224dae6436');
+    renderReview(AAVE_VAULT.id, '?amount=1.25&collateral=0x4cbdcaffe75f0a317482224dae6436');
     expect(within(screen.getByTestId('earn-hero')).getByText('USDCx')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('open-position-btn'));
     await waitFor(() =>
@@ -969,7 +1050,7 @@ describe('native USDCx funding', () => {
 
   it('refuses review for an old collateral identity after the frontend switches to USDCx', () => {
     mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
-    renderReview('aave-usdc-ethereum-1', '?amount=1&collateral=0x5b043dcb48d5721106f7a1ceb2b804');
+    renderReview(AAVE_VAULT.id, '?amount=1&collateral=0x5b043dcb48d5721106f7a1ceb2b804');
     expect(screen.getByTestId('open-position-btn')).toBeDisabled();
     expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralMismatch');
   });
@@ -978,7 +1059,7 @@ describe('native USDCx funding', () => {
     jest.useFakeTimers();
     jest.mocked(reportUserVisibleError).mockClear();
     mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
-    renderReview('aave-usdc-ethereum-1', '?amount=1&collateral=0x5b043dcb48d5721106f7a1ceb2b804');
+    renderReview(AAVE_VAULT.id, '?amount=1&collateral=0x5b043dcb48d5721106f7a1ceb2b804');
     expect(screen.getByTestId('open-position-btn')).toBeDisabled();
     expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent('earnCollateralMismatch');
     act(() => jest.advanceTimersByTime(1000));
@@ -991,7 +1072,7 @@ describe('native USDCx funding', () => {
   ])('says why the deposit waits while the collateral is %s', async (wait, key) => {
     mockCollateral = null;
     mockCollateralWait = wait;
-    renderReview('aave-usdc-ethereum-1', '?amount=1.25&collateral=0x4cbdcaffe75f0a317482224dae6436');
+    renderReview(AAVE_VAULT.id, '?amount=1.25&collateral=0x4cbdcaffe75f0a317482224dae6436');
     expect(screen.getByTestId('open-position-btn')).toBeDisabled();
     expect(screen.getByTestId('earn-collateral-notice')).toHaveTextContent(key);
     fireEvent.click(screen.getByTestId('open-position-btn'));
@@ -1001,8 +1082,8 @@ describe('native USDCx funding', () => {
 
   it('sends a review link that names no faucet back to the amount step, depositing nothing', async () => {
     mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
-    renderReview('aave-usdc-ethereum-1', '?amount=1.25', { unbound: true });
-    expect(screen.getByTestId('redirect')).toHaveTextContent(/^\/earn\/vaults\/aave-usdc-ethereum-1\/deposit$/);
+    renderReview(AAVE_VAULT.id, '?amount=1.25', { unbound: true });
+    expect(screen.getByTestId('redirect').textContent).toBe(`/earn/vaults/${AAVE_VAULT.id}/deposit`);
     expect(screen.queryByTestId('open-position-btn')).toBeNull();
     await act(async () => {});
     expect(mockOpenEarnPosition).not.toHaveBeenCalled();
@@ -1010,7 +1091,7 @@ describe('native USDCx funding', () => {
 
   it('submits a review link that names the current faucet', async () => {
     mockCollateral = { faucetId: '0x4cbdcaffe75f0a317482224dae6436', symbol: 'USDCx', decimals: 6 };
-    renderReview('aave-usdc-ethereum-1', '?amount=1.25');
+    renderReview(AAVE_VAULT.id, '?amount=1.25');
     expect(screen.queryByTestId('redirect')).toBeNull();
     expect(screen.queryByTestId('earn-collateral-notice')).toBeNull();
     fireEvent.click(screen.getByTestId('open-position-btn'));

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 
 import { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -8,6 +8,8 @@ import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/faucet-ids';
 import { SwapPair } from 'lib/miden/swap/tokens';
+import { parseBridgeConfig, type BridgeConfig } from 'lib/remote-config/schema';
+import testnet from 'lib/remote-config/testing/testnet.json';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
@@ -92,6 +94,8 @@ const mockRequestSWProcessing = jest.fn();
 const mockIsExtension = jest.fn(() => true);
 const mockIsDelegateProof = jest.fn(() => false);
 const mockNavigate = jest.fn();
+const mockFetchOneClickAssets = jest.fn();
+let mockBridgeConfig: BridgeConfig | null;
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -146,6 +150,9 @@ jest.mock('./SwapAmounts', () => {
         <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
         <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
         <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
+        <span data-testid="sa-one-click-networks">
+          {(props.oneClickNetworks ?? []).map(network => network.id).join(',')}
+        </span>
         <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
         <AmountInput
           data-testid="sa-request-input"
@@ -262,6 +269,8 @@ const mockSwapPartners = (faucetId: string) =>
         mockSolverPairs.some(pair => pair.includes(faucetId) && pair.includes(token.faucetId)))
   );
 jest.mock('lib/miden/swap/tokens', () => ({
+  // These registry fixtures have no verified market quotes; amount and receipt UI must stay token-only.
+  tokenQuote: () => undefined,
   normalizedFaucetId:
     jest.requireActual<typeof import('lib/miden/swap/faucet-ids')>('lib/miden/swap/faucet-ids').normalizedFaucetId,
   getSwapTokens: () => mockGetSwapTokens(),
@@ -281,7 +290,31 @@ jest.mock('lib/miden/swap/use-swap-tokens', () => ({
   swapAvailability: () => (mockGetSwapTokens().length >= 2 ? { state: 'available' } : { state: 'loading' })
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useBridgeConfigSnapshot: () => ({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null })
+  useBridgeConfigSnapshot: () => ({
+    network: 'mainnet',
+    status: 'ready',
+    config: mockBridgeConfig,
+    derived: null,
+    lastFetch: null
+  })
+}));
+jest.mock('lib/one-click/config', () => {
+  const actual = jest.requireActual<typeof import('lib/one-click/config')>('lib/one-click/config');
+  return {
+    ...actual,
+    useOneClickConfig: () =>
+      actual.getOneClickConfig({
+        network: 'mainnet',
+        status: 'ready',
+        config: mockBridgeConfig,
+        derived: null,
+        lastFetch: null
+      })
+  };
+});
+jest.mock('lib/one-click/client', () => ({
+  ...jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client'),
+  fetchOneClickAssets: (...args: unknown[]) => mockFetchOneClickAssets(...args)
 }));
 
 jest.mock('./useSwapQuote', () => ({
@@ -446,6 +479,8 @@ beforeEach(() => {
   mockAllBalancesReturn = { data: mockBalanceData };
   mockMetadata = { some: 'metadata' };
   mockAccountReturn = { publicKey: 'pk-1' };
+  mockBridgeConfig = null;
+  mockFetchOneClickAssets.mockReset();
 
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
   mockSolverPairs = undefined;
@@ -541,6 +576,69 @@ describe('SwapFlow / SwapManager', () => {
     const drawer = screen.getByTestId('swap-token-drawer');
     expect(drawer).toHaveAttribute('data-open', 'false');
     expect(drawer).toHaveAttribute('data-current', 'faucet-A');
+  });
+
+  it('keeps configured 1Click networks hidden and does not fetch its catalog while the rollout switch is off', () => {
+    mockBridgeConfig = parseBridgeConfig(
+      {
+        ...testnet,
+        network: 'mainnet',
+        features: { ...testnet.features, nearIntents: false },
+        swap: {
+          ...testnet.swap,
+          oneClick: {
+            serviceUrl: 'https://one-click.example',
+            midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+          }
+        }
+      },
+      'mainnet'
+    );
+    if (!mockBridgeConfig) throw new Error('The disabled-feature fixture must remain a valid wallet config');
+    mockRealSwapAmounts = true;
+    renderFlow();
+
+    expect(screen.queryByTestId('one-click-pay-network-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('one-click-receive-network-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('one-click-connect-origin-wallet')).not.toBeInTheDocument();
+    expect(mockFetchOneClickAssets).not.toHaveBeenCalled();
+  });
+
+  it('keeps one-click routes available from the surviving provider catalog mappings', async () => {
+    mockBridgeConfig = parseBridgeConfig(
+      {
+        ...testnet,
+        network: 'mainnet',
+        features: { ...testnet.features, nearIntents: true },
+        swap: {
+          ...testnet.swap,
+          oneClick: {
+            serviceUrl: 'https://one-click.example',
+            midenAssets: [
+              { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 },
+              { assetId: 'miden:other', faucetId: '0x637c15a622074e91188aa894456c52', decimals: 6 }
+            ]
+          }
+        }
+      },
+      'mainnet'
+    );
+    if (!mockBridgeConfig) throw new Error('The enabled-feature fixture must remain a valid wallet config');
+    mockFetchOneClickAssets.mockResolvedValue([
+      {
+        assetId: 'miden:usdc',
+        blockchain: 'miden',
+        symbol: 'USDC',
+        decimals: 6,
+        faucetId: '0x537c15a622074e91188aa894456c52'
+      },
+      { assetId: 'eth:token', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
+    ]);
+
+    renderFlow();
+
+    await waitFor(() => expect(screen.getByTestId('sa-one-click-networks')).toHaveTextContent('miden,eth'));
+    expect(mockFetchOneClickAssets).toHaveBeenCalledTimes(1);
   });
 
   it('renders nothing for an unknown route (renderStep default branch)', () => {
@@ -768,6 +866,70 @@ describe('SwapFlow / SwapManager', () => {
       setOffer('10');
 
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+    });
+
+    it('blocks an 18-decimal offer one base unit above its spendable balance', async () => {
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 18 }, mockTokenB, mockTokenC]);
+      mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 1 }];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      quoteFollowsOffer();
+      renderFlow();
+      setOffer('1.000000000000000001');
+
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offerAmount: '1.000000000000000001' })
+      );
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
+    it('blocks an offer amount when the selected token has fewer decimals', async () => {
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      const lowPrecisionOffer = { ...mockTokenC, decimals: 2 };
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 18 }, mockTokenB, lowPrecisionOffer]);
+      mockBalanceData = [
+        { tokenId: 'bech32-faucet-A', balance: 10 },
+        { tokenId: 'bech32-faucet-C', balance: 10 }
+      ];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      quoteFollowsOffer();
+      renderFlow();
+      setOffer('1.123456');
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      act(() => mockDrawerProps.onSelect(lowPrecisionOffer));
+
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.123456');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ offerAmount: '' }));
+      expect(mockStringToBigInt).not.toHaveBeenCalledWith('1.123456', 2);
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
+    it('blocks a receive amount beyond the selected request token precision', async () => {
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
+      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, lowPrecisionRequest]);
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      quoteFollowsOffer();
+      renderFlow();
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      act(() => mockDrawerProps.onSelect(lowPrecisionRequest));
+      setRequest('1.123456');
+
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ requestAmount: '' }));
+      expect(mockStringToBigInt).not.toHaveBeenCalledWith('1.123456', 2);
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
     });
 
     it('flags an offer above the holding of a registry token whose stored override carries decimals', () => {

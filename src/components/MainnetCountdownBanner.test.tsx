@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useMainnetLaunched } from 'lib/remote-config/use-mainnet-launch';
 
 import { MainnetCountdownBanner, formatCountdown } from './MainnetCountdownBanner';
 
@@ -85,12 +86,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey
 }));
 
-let mockInviteOnly = false;
 let mockWipeFailure = false;
 const mockConfirm = jest.fn<Promise<boolean>, [object]>();
 const mockAlert = jest.fn<Promise<void>, [object]>();
 const mockReset = jest.fn<Promise<void>, [MIDEN_NETWORK_NAME, string | undefined]>();
-jest.mock('lib/remote-config/values', () => ({ selectInviteOnlyOnboarding: () => mockInviteOnly }));
 jest.mock('lib/ui/dialog', () => ({
   useConfirm: () => (options: object) => {
     mockSteps.push('confirm');
@@ -108,6 +107,9 @@ jest.mock('lib/miden/reset-and-reload', () => ({
 
 const LAUNCH_AT = Date.parse('2026-10-26T00:00:00Z');
 
+// Moves the clock to the launch moment: mainnet has launched, so the banner offers the switch.
+const launched = () => jest.setSystemTime(LAUNCH_AT);
+
 const CODE = '8gKIgL0O6HcU';
 
 // Opens the switch from the banner, enters a code and asks for it to be checked.
@@ -120,6 +122,20 @@ const submitCode = async (code: string = CODE) => {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+}
+
+function restoreVisibility(): void {
+  if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+  else Reflect.deleteProperty(document, 'visibilityState');
+}
+
+const LaunchState = () => (
+  <output data-testid="mainnet-launch-state">{useMainnetLaunched() ? 'launched' : 'pending'}</output>
+);
 
 describe('formatCountdown', () => {
   const launchAt = LAUNCH_AT;
@@ -148,7 +164,6 @@ describe('MainnetCountdownBanner', () => {
     jest.clearAllMocks();
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
     mockNetworkKey = 'testnet';
-    mockInviteOnly = false;
     mockWipeFailure = false;
     mockConfirm.mockResolvedValue(false);
     mockAlert.mockResolvedValue(undefined);
@@ -160,11 +175,34 @@ describe('MainnetCountdownBanner', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    restoreVisibility();
   });
 
-  it('asks for a mainnet access code when invite-only mode starts, even without a countdown', () => {
-    mockInviteOnly = true;
-    mockCountdown = null;
+  it('updates the banner and launch state together when a hidden page becomes visible', () => {
+    setVisibility('hidden');
+    jest.setSystemTime(LAUNCH_AT - 60_000);
+    render(
+      <>
+        <MainnetCountdownBanner />
+        <LaunchState />
+      </>
+    );
+
+    expect(screen.getByTestId('mainnet-countdown')).toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-launch-state')).toHaveTextContent('pending');
+
+    act(() => {
+      jest.setSystemTime(LAUNCH_AT + 60_000);
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(screen.getByTestId('mainnet-switch-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-launch-state')).toHaveTextContent('launched');
+  });
+
+  it('asks for a mainnet access code once the launch moment has passed, in place of the countdown', () => {
+    launched();
     render(<MainnetCountdownBanner />);
     expect(screen.getByRole('button', { name: 'mainnetAccessTitle' })).toBeInTheDocument();
     expect(screen.queryByTestId('mainnet-countdown')).not.toBeInTheDocument();
@@ -172,7 +210,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('opens the code entry first, asking nothing and wiping nothing', () => {
-    mockInviteOnly = true;
+    launched();
     render(<MainnetCountdownBanner />);
     fireEvent.click(screen.getByTestId('mainnet-switch-link'));
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('switchToMainnet');
@@ -182,7 +220,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('wipes nothing for a code the mainnet node refuses, and says so', async () => {
-    mockInviteOnly = true;
+    launched();
     mockCheck.mockResolvedValue('rejected');
     render(<MainnetCountdownBanner />);
     await submitCode('47291835');
@@ -193,7 +231,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('wipes nothing when the code cannot be checked, and says so', async () => {
-    mockInviteOnly = true;
+    launched();
     mockCheck.mockRejectedValue(new Error('Failed to fetch'));
     render(<MainnetCountdownBanner />);
     await submitCode();
@@ -204,7 +242,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('keeps the wallet when the switch confirmation is cancelled', async () => {
-    mockInviteOnly = true;
+    launched();
     render(<MainnetCountdownBanner />);
     await submitCode();
     expect(mockConfirm).toHaveBeenCalledWith(
@@ -215,7 +253,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('resets for mainnet, carrying the code, only after the node accepted it and the user confirmed', async () => {
-    mockInviteOnly = true;
+    launched();
     mockConfirm.mockResolvedValue(true);
     render(<MainnetCountdownBanner />);
     await submitCode();
@@ -229,7 +267,7 @@ describe('MainnetCountdownBanner', () => {
   ])(
     'asks nothing more and wipes nothing when the sheet is closed before the node answers and %s',
     async (_label, keepContent) => {
-      mockInviteOnly = true;
+      launched();
       mockKeepContentAfterClose = keepContent;
       mockConfirm.mockResolvedValue(true);
       let settle: (outcome: 'granted') => void = () => {};
@@ -246,7 +284,7 @@ describe('MainnetCountdownBanner', () => {
   );
 
   it('checks no code submitted while the closed sheet is still mounted', async () => {
-    mockInviteOnly = true;
+    launched();
     mockKeepContentAfterClose = true;
     render(<MainnetCountdownBanner />);
     fireEvent.click(screen.getByTestId('mainnet-switch-link'));
@@ -260,7 +298,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('reports a failed reset and permits a retry', async () => {
-    mockInviteOnly = true;
+    launched();
     mockConfirm.mockResolvedValue(true);
     mockReset.mockRejectedValueOnce(new Error('Reset failed'));
     render(<MainnetCountdownBanner />);
@@ -274,7 +312,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('forwards resetDidNotFinish from the actual mainnet wipe-error callback', async () => {
-    mockInviteOnly = true;
+    launched();
     mockConfirm.mockResolvedValue(true);
     mockWipeFailure = true;
     render(<MainnetCountdownBanner />);
@@ -289,7 +327,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('forwards resetDidNotFinish from the actual mainnet reset outer catch', async () => {
-    mockInviteOnly = true;
+    launched();
     mockConfirm.mockResolvedValue(true);
     mockReset.mockRejectedValueOnce(new Error('prepare or reload refused'));
     render(<MainnetCountdownBanner />);
@@ -304,7 +342,7 @@ describe('MainnetCountdownBanner', () => {
   });
 
   it('does not offer the switch on mainnet', () => {
-    mockInviteOnly = true;
+    launched();
     mockNetworkKey = null;
     render(<MainnetCountdownBanner />);
     expect(screen.queryByTestId('mainnet-switch-banner')).not.toBeInTheDocument();
@@ -352,14 +390,28 @@ describe('MainnetCountdownBanner', () => {
     expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
   });
 
-  it('renders nothing once the launch moment has passed', () => {
+  it('offers the switch instead of the countdown once the launch moment has passed', () => {
     jest.setSystemTime(Date.parse('2026-10-26T00:00:00Z'));
     render(<MainnetCountdownBanner />);
 
     expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-switch-banner')).toBeInTheDocument();
   });
 
-  it('goes away on the tick that reaches the launch moment', () => {
+  it.each([
+    ['the switch is off', { enabled: false, launchAt: LAUNCH_AT }],
+    ['the switch is on with no moment', { enabled: true }],
+    ['no document has been accepted', null]
+  ])('offers no switch after the moment while %s', (_label, countdown) => {
+    jest.setSystemTime(Date.parse('2026-10-26T00:00:00Z'));
+    mockCountdown = countdown;
+    render(<MainnetCountdownBanner />);
+
+    expect(screen.queryByTestId('mainnet-switch-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+  });
+
+  it('turns into the switch on the tick that reaches the launch moment', () => {
     jest.setSystemTime(Date.parse('2026-10-25T23:59:59Z'));
     render(<MainnetCountdownBanner />);
     expect(screen.getByTestId('mainnet-countdown')).toHaveTextContent('00:00:00:01');
@@ -368,5 +420,17 @@ describe('MainnetCountdownBanner', () => {
       jest.advanceTimersByTime(1_000);
     });
     expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-switch-banner')).toBeInTheDocument();
+  });
+
+  it('counts down again when the document moves the moment ahead after the launch', () => {
+    jest.setSystemTime(Date.parse('2026-10-26T00:00:00Z'));
+    const view = render(<MainnetCountdownBanner />);
+    expect(screen.getByTestId('mainnet-switch-banner')).toBeInTheDocument();
+
+    mockCountdown = { enabled: true, launchAt: LAUNCH_AT + DAY_MS };
+    view.rerender(<MainnetCountdownBanner />);
+    expect(screen.queryByTestId('mainnet-switch-banner')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-countdown')).toHaveTextContent('01:00:00:00');
   });
 });

@@ -156,6 +156,8 @@ const PositionCard: FC<{ position: EarnPosition; fullWidth?: boolean }> = ({ pos
 
 const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
+  const asset = vault.fundingAsset ?? vault.asset;
+  const network = vault.fundingAsset ? 'Miden' : vault.network;
 
   return (
     <CardButton
@@ -166,17 +168,24 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
     >
       <div className="flex w-full items-center gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-fill">
-          <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
+          <ProviderLogo protocol={vault.protocol} logoUrl={vault.logoUrl} className="h-8 w-8" />
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-row-title text-ink">{vault.protocol}</div>
+          {/* The document's name of the vault, as written in every language. */}
+          <div className="truncate text-row-title text-ink">{earnSubjectTitle(vault)}</div>
+          {/* A market with its own name (a Morpho market) says it first, so two markets of one protocol
+              read differently. */}
           <div className="truncate text-caption text-muted">
-            {t('earnVaultAssetOnNetwork', {
-              asset: vault.fundingAsset ?? vault.asset,
-              network: vault.fundingAsset ? 'Miden' : vault.network
-            })}
+            {vault.marketName
+              ? t('earnMarketAssetOnNetwork', { market: vault.marketName, asset, network })
+              : t('earnVaultAssetOnNetwork', { asset, network })}
           </div>
+          {vault.listedAbout && (
+            <div className="line-clamp-2 text-caption text-muted" data-testid={`earn-vault-row-about-${vault.id}`}>
+              {vault.listedAbout}
+            </div>
+          )}
         </div>
 
         <span className="shrink-0 text-value text-positive-tint-ink">{vault.apy}</span>

@@ -43,7 +43,7 @@ const config = (midenUsdcFaucet?: string): BridgeConfig => ({
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true, nearIntents: false }
 });
 const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
@@ -58,7 +58,12 @@ const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridg
       }
     },
     agglayer: { indexer: skipped },
-    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: { state: 'error', message: 'down' } }
+    epoch: {
+      allocator: skipped,
+      market: skipped,
+      midenUsdcFaucet: { state: 'error', message: 'down' },
+      vaults: skipped
+    }
   };
 };
 const registry = derived({

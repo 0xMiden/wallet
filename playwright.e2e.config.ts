@@ -31,6 +31,7 @@ export default defineConfig({
     '**/swap/**',
     '**/bridge/**',
     '**/earn/**',
+    '**/one-click/**',
     '**/resilience/**',
     '**/dapp/**',
     '**/usdcx/**',

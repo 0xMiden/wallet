@@ -8,11 +8,25 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { SelectAmount, SelectAmountProps } from './SelectAmount';
 import { UIToken } from './types';
+const mockQuotePrices: Record<string, number> = {};
+let mockQuoteObservedAt: number | undefined;
+jest.mock('lib/miden/swap/tokens', () => ({
+  tokenQuote: (_prices: unknown, id: string) =>
+    (mockQuotePrices[id] ?? 0) > 0
+      ? {
+          price: mockQuotePrices[id],
+          observedAt: mockQuoteObservedAt ?? Date.now(),
+          change24h: 0,
+          percentageChange24h: 0
+        }
+      : undefined
+}));
 
 // Hex -> the `rgb(r, g, b)` form jsdom normalizes an inline `style.backgroundColor` to.
 const asRgb = (hex: string): string => {
@@ -107,6 +121,7 @@ jest.mock('components/AmountInput', () => {
     error,
     invalid,
     helper,
+    secondary,
     tokenSelector,
     showDivider,
     onValueChange,
@@ -117,6 +132,7 @@ jest.mock('components/AmountInput', () => {
     error?: string;
     invalid?: boolean;
     helper?: React.ReactNode;
+    secondary?: React.ReactNode;
     tokenSelector?: React.ReactNode;
     showDivider?: boolean;
     onValueChange?: OnValueChange;
@@ -130,6 +146,7 @@ jest.mock('components/AmountInput', () => {
     >
       <div data-testid="ai-label">{label}</div>
       {error !== undefined && <div data-testid="ai-error">{error}</div>}
+      {secondary}
       {helper !== undefined && <div data-testid="ai-helper">{helper}</div>}
       <div data-testid="ai-token-selector">{tokenSelector}</div>
       <div data-testid="ai-value">{value}</div>
@@ -174,12 +191,15 @@ const renderComponent = (props: Partial<SelectAmountProps> = {}) => {
     onSelectToken: jest.fn(),
     onConfirm: jest.fn()
   };
+  const token = props.token ?? defaults.token;
+  if (token) mockQuotePrices[token.id] = token.fiatPrice ?? 0;
   return render(<SelectAmount {...defaults} {...props} />);
 };
 
 describe('SelectAmount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockQuoteObservedAt = undefined;
     (isMobile as jest.Mock).mockReturnValue(false);
   });
 
@@ -191,6 +211,25 @@ describe('SelectAmount', () => {
     expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
     expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 USDC');
     expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+  });
+
+  it('expires the available-balance USD estimate without a store update', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    mockQuotePrices.t1 = 0.2;
+    mockQuoteObservedAt = Date.now();
+    try {
+      renderComponent();
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+
+      act(() => jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS));
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('approxFiatValue:$40.00');
+      act(() => jest.advanceTimersByTime(1));
+
+      expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   describe('page variant', () => {
@@ -699,6 +738,8 @@ describe('SelectAmount', () => {
         onSelectToken: jest.fn(),
         onConfirm: jest.fn()
       };
+      mockQuotePrices[from.id] = from.fiatPrice ?? 0;
+      mockQuotePrices[to.id] = to.fiatPrice ?? 0;
       const { rerender } = render(<SelectAmount {...props} token={from} />);
       const helper = screen.getByTestId('ai-helper');
       const frames: Figures[] = [];

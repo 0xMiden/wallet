@@ -64,6 +64,20 @@ jest.mock('app/templates/OnboardingNetwork', () => ({
     children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
   }) => children(mockInviteOnly, mockUnlockInviteOnly)
 }));
+const setOnboardingRegistrationActive = jest.fn((active: boolean) => {
+  jest
+    .requireActual<typeof import('app/templates/onboarding-registration')>('app/templates/onboarding-registration')
+    .setOnboardingRegistrationActive(active);
+});
+jest.mock('app/templates/onboarding-registration', () => {
+  const actual = jest.requireActual<typeof import('app/templates/onboarding-registration')>(
+    'app/templates/onboarding-registration'
+  );
+  return {
+    ...actual,
+    setOnboardingRegistrationActive: (active: boolean) => setOnboardingRegistrationActive(active)
+  };
+});
 
 // Latest props handed to the stubbed OnboardingFlow (re-read after every render
 // so `onAction` always reflects the component's current closure/state).
@@ -327,6 +341,25 @@ jest.mock('lib/carried-mainnet-code', () => ({
   forgetCarriedMainnetAccessCode: () => mockForgetCarriedCode()
 }));
 
+// Default: countdown disabled, so a confirmation still registers. A test that has passed the moment
+// replaces this; nothing here advances a launch timer, and inviteOnly stays the rendered sample.
+let mockMainnetCountdown: { enabled: boolean; launchAt?: number } | null = { enabled: false };
+const mockPrepareMainnet = jest.fn(() => Promise.resolve());
+const mockWaitForMainnetPreparation = jest.fn(() => Promise.resolve());
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => ({
+    network: 'testnet',
+    status: 'ready',
+    config: mockMainnetCountdown === null ? null : { mainnetCountdown: mockMainnetCountdown },
+    derived: null,
+    lastFetch: null
+  })
+}));
+jest.mock('lib/miden/prepare-mainnet', () => ({
+  prepareMainnet: () => mockPrepareMainnet(),
+  waitForMainnetPreparation: () => mockWaitForMainnetPreparation()
+}));
+
 const READY = 2;
 const IDLE = 0;
 const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
@@ -382,6 +415,18 @@ async function setHash(h: string) {
     rerenderFn(<Welcome />);
     await Promise.resolve();
     await Promise.resolve();
+  });
+}
+
+// The router applies a hash before the next render. Replaying that here lets the in-flight guard
+// force Confirmation if the attempt has not released the ref yet.
+function followAccessStepNavigation(): void {
+  mockNavigate.mockImplementation((to: string) => {
+    if (to !== '/#mainnet-access') return;
+    mockHash = '#mainnet-access';
+    act(() => {
+      rerenderFn(<Welcome />);
+    });
   });
 }
 
@@ -475,6 +520,11 @@ beforeEach(() => {
   mockBackHandlerRef.current = null;
   mockTestNetworkKey = 'testnet';
   mockInviteOnly = false;
+  mockMainnetCountdown = { enabled: false };
+  mockPrepareMainnet.mockReset();
+  mockPrepareMainnet.mockImplementation(() => Promise.resolve());
+  mockWaitForMainnetPreparation.mockReset();
+  mockWaitForMainnetPreparation.mockImplementation(() => Promise.resolve());
   mockIsMobileFn.mockReturnValue(false);
   mockIsDesktopFn.mockReturnValue(false);
   mockDesktopHW.mockResolvedValue(false);
@@ -2063,6 +2113,216 @@ describe('Welcome — confirmation / register', () => {
     );
   });
 
+  describe('launch recheck at registration', () => {
+    const pastMoment = () => {
+      mockMainnetCountdown = { enabled: true, launchAt: Date.now() - 1_000 };
+    };
+
+    it('refuses a code-less confirmation once the moment has passed, before any launch wake', async () => {
+      pastMoment();
+      await renderWelcome();
+      await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+      mockNavigate.mockClear();
+      followAccessStepNavigation();
+      try {
+        await dispatch({ id: 'confirmation' });
+
+        expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
+        expect(mockPrepareMainnet).toHaveBeenCalledTimes(1);
+        expect(mockUnlockInviteOnly.mock.invocationCallOrder[0]).toBeLessThan(
+          mockPrepareMainnet.mock.invocationCallOrder[0]!
+        );
+        expect(mockRegisterWallet).not.toHaveBeenCalled();
+        expect(mockImportWalletFromClient).not.toHaveBeenCalled();
+        expect(mockRegisterWalletFromHotKey).not.toHaveBeenCalled();
+        expect(mockFlowProps.current.mainnetAccessRejected).toBe(false);
+        expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+        expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+        expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+      } finally {
+        mockNavigate.mockReset();
+      }
+    });
+
+    it('refuses a code-less side-panel auto-register once the moment has passed, before any launch wake', async () => {
+      pastMoment();
+      mockCanHandoff = true;
+      await renderWelcome();
+      await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+      mockNavigate.mockClear();
+      followAccessStepNavigation();
+      try {
+        await setHash('#confirmation');
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
+        expect(mockPrepareMainnet).toHaveBeenCalledTimes(1);
+        expect(mockUnlockInviteOnly.mock.invocationCallOrder[0]).toBeLessThan(
+          mockPrepareMainnet.mock.invocationCallOrder[0]!
+        );
+        expect(mockRegisterWallet).not.toHaveBeenCalled();
+        expect(mockFlowProps.current.mainnetAccessRejected).toBe(false);
+        expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+        expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+        expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+      } finally {
+        mockNavigate.mockReset();
+      }
+    });
+
+    it('prepares mainnet before registering a create that already holds a code', async () => {
+      pastMoment();
+      let finishPrepare: () => void = () => undefined;
+      mockPrepareMainnet.mockImplementation(
+        () =>
+          new Promise<void>(resolve => {
+            finishPrepare = resolve;
+          })
+      );
+      await renderWelcome();
+      await dispatch({ id: 'mainnet-access' });
+      await setHash('#mainnet-access');
+      await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
+
+      let pending: Promise<void> | undefined;
+      await act(async () => {
+        pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+      });
+      expect(mockPrepareMainnet).toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+      await act(async () => {
+        finishPrepare();
+        await pending;
+      });
+      expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet).toHaveBeenCalledWith(
+        WalletType.Guardian,
+        'pw',
+        expect.any(String),
+        false,
+        'https://g',
+        '8gKIgL0O6HcU'
+      );
+      expect(mockPrepareMainnet.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRegisterWallet.mock.invocationCallOrder[0]!
+      );
+      expect(mockFlowProps.current.mainnetAccessRejected).toBe(false);
+    });
+
+    it('registers a seed import after the moment without preparing mainnet', async () => {
+      pastMoment();
+      await renderWelcome();
+      await stageSeedRecovery({ walletType: WalletType.OnChain });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockRegisterWallet).toHaveBeenCalledWith(
+        WalletType.OnChain,
+        'pw',
+        'aa bb cc dd',
+        true,
+        undefined,
+        undefined
+      );
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it('registers a file import after the moment without preparing mainnet', async () => {
+      pastMoment();
+      await renderWelcome();
+      await stageFileRestore();
+      await dispatch({ id: 'create-password-submit', payload: { password: 'new-password' } });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+        'new-password',
+        'alpha beta gamma delta',
+        VERSION_TWO_PAYLOAD.accounts,
+        VERSION_TWO_PAYLOAD.importedAccounts
+      );
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      'waits for an already-started launch preparation before seed import registration (side panel: %s)',
+      async sidePanel => {
+        pastMoment();
+        mockCanHandoff = sidePanel;
+        let finishPreparation!: () => void;
+        mockWaitForMainnetPreparation.mockImplementation(
+          () => new Promise<void>(resolve => (finishPreparation = resolve))
+        );
+        await renderWelcome();
+        await stageSeedRecovery({ walletType: WalletType.OnChain });
+
+        let registration: Promise<void> | undefined;
+        if (sidePanel) {
+          await setHash('#confirmation');
+          await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+          });
+        } else {
+          await act(async () => {
+            registration = mockFlowProps.current.onAction({ id: 'confirmation' });
+            await Promise.resolve();
+          });
+        }
+
+        expect(mockWaitForMainnetPreparation).toHaveBeenCalledTimes(1);
+        expect(mockRegisterWallet).not.toHaveBeenCalled();
+        await act(async () => {
+          finishPreparation();
+          await registration;
+          await Promise.resolve();
+        });
+        expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('sends an active create draft to code entry and resumes its route afterward', async () => {
+      await renderWelcome();
+      await dispatch({ id: 'choose-protection' });
+      await setHash('#network-notice');
+      await dispatch({ id: 'network-notice-acknowledge' });
+      await setHash('#create-password');
+      await dispatch({ id: 'create-password-submit', payload: { password: 'draft-password' } });
+      await setHash('#guardian-intro');
+      const seedPhrase = mockFlowProps.current.seedPhrase;
+      expect(seedPhrase).toEqual(expect.any(Array));
+
+      pastMoment();
+      mockInviteOnly = true;
+      mockNavigate.mockClear();
+      await act(async () => {
+        rerenderFn(<Welcome />);
+        await Promise.resolve();
+      });
+
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+      expect(mockFlowProps.current.seedPhrase).toEqual(seedPhrase);
+      await setHash('#mainnet-access');
+      expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+
+      await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#guardian-intro');
+      await setHash('#guardian-intro');
+      expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+      expect(mockFlowProps.current.seedPhrase).toEqual(seedPhrase);
+    });
+  });
+
   it('restores a wallet file without the access code a create left held', async () => {
     await renderWelcome();
     await dispatch({ id: 'mainnet-access' });
@@ -3642,6 +3902,103 @@ describe('Welcome — back navigation', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('Welcome — registration holds preparation', () => {
+  function holdRegister() {
+    let settle!: (error?: unknown) => void;
+    let duringFailure: unknown;
+    mockRegisterWallet.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settle = (error?: unknown) => {
+            if (error === undefined) resolve();
+            else reject(error);
+          };
+          try {
+            expect(setOnboardingRegistrationActive).toHaveBeenCalledWith(true);
+          } catch (error) {
+            duringFailure = error;
+          }
+        })
+    );
+    return {
+      settle(error?: unknown) {
+        settle(error);
+      },
+      during() {
+        expect(mockRegisterWallet).toHaveBeenCalled();
+        if (duringFailure !== undefined) throw duringFailure;
+      }
+    };
+  }
+
+  async function reachConfirmationTap() {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await setHash('#choose-protection');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+  }
+
+  async function finishHeld(held: { settle: (error?: unknown) => void }, pending?: Promise<unknown>, error?: unknown) {
+    await act(async () => {
+      held.settle(error);
+      if (pending) await pending;
+    });
+    await waitFor(() => expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(false));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
+  }
+
+  it('marks a confirmation tap active until registration resolves', async () => {
+    await reachConfirmationTap();
+    const held = holdRegister();
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held, pending);
+  });
+
+  it('clears a confirmation tap when registration rejects', async () => {
+    await reachConfirmationTap();
+    const held = holdRegister();
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held, pending, new Error('boom'));
+  });
+
+  it('marks a side-panel auto-register active until registration resolves', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    const held = holdRegister();
+    await setHash('#confirmation');
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held);
+  });
+
+  it('clears a side-panel auto-register when registration rejects', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    const held = holdRegister();
+    await setHash('#confirmation');
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held, undefined, new Error('creation failed'));
   });
 });
 

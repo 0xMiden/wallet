@@ -114,7 +114,9 @@ jest.mock('lib/platform', () => ({
   isExtension: () => true
 }));
 
-const readySnapshot = (onboarding?: { inviteOnly: boolean }): BridgeConfigSnapshot => ({
+// A countdown whose moment has passed: mainnet has launched, so onboarding is invite-only.
+const LAUNCHED = { enabled: true, launchAt: Date.parse('2026-10-01T00:00:00Z') };
+const readySnapshot = (mainnetCountdown?: { enabled: boolean; launchAt?: number }): BridgeConfigSnapshot => ({
   network: 'testnet',
   status: 'ready',
   config: {
@@ -122,8 +124,8 @@ const readySnapshot = (onboarding?: { inviteOnly: boolean }): BridgeConfigSnapsh
     version: 1,
     'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
     supportedEvmChains: {},
-    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
-    ...(onboarding ? { onboarding } : {})
+    features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    ...(mainnetCountdown ? { mainnetCountdown } : {})
   },
   derived: null,
   lastFetch: null
@@ -1031,8 +1033,8 @@ describe('ForgotPassword on an invite-only network', () => {
     mockRealFlow = true;
   });
 
-  it('offers only recovery when the document sets inviteOnly: no code step and no new wallet', () => {
-    mockSnapshot = readySnapshot({ inviteOnly: true });
+  it('offers only recovery once mainnet has launched: no code step and no new wallet', () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
     renderPage();
     expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-have-code')).not.toBeInTheDocument();
@@ -1064,7 +1066,7 @@ describe('ForgotPassword recovery on an invite-only config', () => {
   };
 
   beforeEach(() => {
-    mockSnapshot = readySnapshot({ inviteOnly: true });
+    mockSnapshot = readySnapshot(LAUNCHED);
   });
 
   it('switches to mainnet and refreshes the realm before the recovery wipes and registers', async () => {
@@ -1116,20 +1118,15 @@ describe('ForgotPassword recovery on an invite-only config', () => {
  */
 describe('ForgotPassword probes the network it recovers into', () => {
   const cases: Array<
-    [string, { inviteOnly: boolean } | undefined, MIDEN_NETWORK_NAME, MIDEN_NETWORK_NAME | undefined]
+    [string, { enabled: boolean; launchAt?: number } | undefined, MIDEN_NETWORK_NAME, MIDEN_NETWORK_NAME | undefined]
   > = [
-    [
-      'an invite-only config on a testnet wallet',
-      { inviteOnly: true },
-      MIDEN_NETWORK_NAME.TESTNET,
-      MIDEN_NETWORK_NAME.MAINNET
-    ],
+    ['a launched mainnet on a testnet wallet', LAUNCHED, MIDEN_NETWORK_NAME.TESTNET, MIDEN_NETWORK_NAME.MAINNET],
     ['a mainnet wallet', undefined, MIDEN_NETWORK_NAME.MAINNET, MIDEN_NETWORK_NAME.MAINNET],
-    ['a testnet wallet that is not invite-only', undefined, MIDEN_NETWORK_NAME.TESTNET, undefined]
+    ['a testnet wallet before the launch', undefined, MIDEN_NETWORK_NAME.TESTNET, undefined]
   ];
 
-  it.each(cases)('names the recovery network for %s', (_case, onboarding, effective, expected) => {
-    mockSnapshot = readySnapshot(onboarding);
+  it.each(cases)('names the recovery network for %s', (_case, mainnetCountdown, effective, expected) => {
+    mockSnapshot = readySnapshot(mainnetCountdown);
     mockNetwork = effective;
     renderPage();
 
@@ -1138,7 +1135,7 @@ describe('ForgotPassword probes the network it recovers into', () => {
   });
 
   it('starts the probe before the switch, which still waits for Confirm', async () => {
-    mockSnapshot = readySnapshot({ inviteOnly: true });
+    mockSnapshot = readySnapshot(LAUNCHED);
     renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
@@ -1151,7 +1148,7 @@ describe('ForgotPassword probes the network it recovers into', () => {
   });
 
   it('starts the recovery-method step of an invite-only reset on the mainnet operator, with no testnet one', async () => {
-    mockSnapshot = readySnapshot({ inviteOnly: true });
+    mockSnapshot = readySnapshot(LAUNCHED);
     const { rerender } = renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
@@ -1176,7 +1173,7 @@ describe('ForgotPassword keeps the network a reset started on', () => {
     renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
-    mockSnapshot = readySnapshot({ inviteOnly: true });
+    mockSnapshot = readySnapshot(LAUNCHED);
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
     await dispatch({ id: 'confirmation' });
@@ -1189,7 +1186,7 @@ describe('ForgotPassword keeps the network a reset started on', () => {
   it('creates no mainnet wallet when the document turns invite-only during the backup', async () => {
     renderPage();
     await dispatch({ id: 'choose-protection' });
-    mockSnapshot = readySnapshot({ inviteOnly: true });
+    mockSnapshot = readySnapshot(LAUNCHED);
     await dispatch({ id: 'verify-seed-phrase' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({ id: 'confirmation' });
@@ -1202,7 +1199,7 @@ describe('ForgotPassword keeps the network a reset started on', () => {
     const { rerender } = renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
-    mockSnapshot = readySnapshot({ inviteOnly: true });
+    mockSnapshot = readySnapshot(LAUNCHED);
     await dispatch({ id: 'back' });
     await dispatch({ id: 'back' });
     mockRealFlow = true;
