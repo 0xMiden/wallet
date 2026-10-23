@@ -43,7 +43,7 @@ public class AuthTabCertificateSetupTest {
         clickText(device, "Encryption & credentials");
         clickText(device, "Install a certificate");
         clickText(device, "CA certificate");
-        clickText(device, "Install anyway");
+        clickPastMore(device, "Install anyway");
         confirmPinIfAsked(device, devicePin, "Downloads");
         clickText(device, "Downloads");
         clickText(device, CERTIFICATE_FILE);
@@ -101,6 +101,27 @@ public class AuthTabCertificateSetupTest {
         assertNotNull("Settings text not found: " + text, element);
         element.click();
         device.waitForIdle();
+    }
+
+    // The CA warning is a setup-wizard page: its primary button reads "More" until the text is scrolled to the end.
+    private static void clickPastMore(UiDevice device, String text) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
+        while (System.nanoTime() < deadline) {
+            UiObject2 element = device.findObject(By.text(text));
+            if (element != null) {
+                element.click();
+                device.waitForIdle();
+                return;
+            }
+            UiObject2 more = device.findObject(By.text("More"));
+            if (more != null) {
+                more.click();
+                device.waitForIdle();
+            } else {
+                device.waitForWindowUpdate(null, 500);
+            }
+        }
+        throw new AssertionError("Settings text not found: " + text);
     }
 
     private static void clickFirstAvailable(UiDevice device, String... labels) {
