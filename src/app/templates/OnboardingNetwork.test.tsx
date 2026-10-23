@@ -7,8 +7,8 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
 import { WelcomeScreen } from 'screens/onboarding/common/Welcome';
 
-import { OnboardingNetwork } from './OnboardingNetwork';
 import { setOnboardingRegistrationActive } from './onboarding-registration';
+import { OnboardingNetwork } from './OnboardingNetwork';
 
 let mockRequired = true;
 let mockStatus = WalletStatus.Idle;
