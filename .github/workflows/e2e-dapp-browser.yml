@@ -374,7 +374,7 @@ jobs:
       - name: Install SDK packages
         run: |
           sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-36" "system-images;android-36;google_apis_playstore;x86_64"
+            "platforms;android-37.0" "system-images;android-37.0;google_apis_playstore;x86_64"
 
       - name: Download pinned Firefox provider
         run: |
@@ -439,11 +439,11 @@ jobs:
         timeout-minutes: 80
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
+          api-level: 37.0
           target: google_apis_playstore
           arch: x86_64
           profile: pixel_6
-          avd-name: Pixel_API_36_AuthTab
+          avd-name: Pixel_API_37_AuthTab
           force-avd-creation: true
           emulator-boot-timeout: 600
           cores: 4
@@ -463,8 +463,8 @@ jobs:
           {
             echo "source_sha=$GITHUB_SHA"
             echo "emulator_step_outcome=${{ steps.auth-tab-emulator.outcome }}"
-            echo 'emulator_image=android-36;google_apis_playstore;x86_64'
-            echo 'emulator_avd=Pixel_API_36_AuthTab'
+            echo 'emulator_image=android-37.0;google_apis_playstore;x86_64'
+            echo 'emulator_avd=Pixel_API_37_AuthTab'
             echo 'firefox_package=org.mozilla.firefox version=158.0.2 authTabSupported=false'
             if [[ -f test-results-auth-tab/results.json ]]; then
               if ! node <<'NODE'
