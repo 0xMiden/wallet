@@ -2,6 +2,7 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
+import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
@@ -266,7 +267,8 @@ export const cancelTransaction = async (
       startup,
       error,
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
-      submitLegMs: submitLegMs(committed, returnedAtMs)
+      submitLegMs: submitLegMs(committed, returnedAtMs),
+      ...expiryWait(committed)
     });
   }
 
@@ -346,6 +348,20 @@ const hiddenDuringSubmit = (row: ITransaction, returnedAtMs: number): boolean | 
 const submitLegMs = (row: ITransaction, returnedAtMs: number): number | undefined => {
   const submittedAtMs = row.stageTimestamps?.submitting;
   return submittedAtMs === undefined ? undefined : returnedAtMs - submittedAtMs;
+};
+
+// What an expired-proof report measures: blocks from execution to submit at the estimated block time, and the blocks the
+// attempt's expiration allowed from its reference block. Either is left out when the row cannot say.
+const expiryWait = (row: ITransaction): { proofWaitBlocks?: number; expiryWindowBlocks?: number } => {
+  const { executing, submitting } = row.stageTimestamps ?? {};
+  const proofWaitBlocks =
+    executing === undefined || submitting === undefined ? undefined : (submitting - executing) / ESTIMATED_MS_PER_BLOCK;
+  const entry = row.submitEvidence?.find(({ attemptId }) => attemptId === row.attemptId);
+  const expiryWindowBlocks =
+    entry?.refBlock === undefined || entry.expirationBlock === undefined
+      ? undefined
+      : entry.expirationBlock - entry.refBlock;
+  return { proofWaitBlocks, expiryWindowBlocks };
 };
 
 /**

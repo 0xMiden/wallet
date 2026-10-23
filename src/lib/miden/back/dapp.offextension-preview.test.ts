@@ -167,8 +167,14 @@ const fungibleAsset = (faucetId: string, amount: bigint) => ({
   amount: () => amount
 });
 
-const noteCarrying = (assets: ReturnType<typeof fungibleAsset>[]) => ({
-  assets: () => ({ fungibleAssets: () => assets })
+/** The SDK's `NonFungibleAsset` reduced to what the sheet reads: its faucet and value word. */
+const nftAsset = (faucetId: string, wordHex: string) => ({
+  faucetId: () => ({ __faucet: faucetId }),
+  intoWord: () => ({ toHex: () => wordHex })
+});
+
+const noteCarrying = (assets: ReturnType<typeof fungibleAsset>[], nfts: ReturnType<typeof nftAsset>[] = []) => ({
+  assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => nfts })
 });
 
 /** The single `DAppConfirmationRequest` the wallet put in front of the user. */
@@ -210,21 +216,28 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     }) as unknown as Parameters<typeof requestSign>[1];
 
   /** A `SigningInputs` whose variant is a TransactionSummary moving `assets` out. */
-  const summarySigningInputs = (outgoing: ReturnType<typeof fungibleAsset>[]) => ({
+  const summarySigningInputs = (outgoing: ReturnType<typeof fungibleAsset>[], unlisted = 0) => ({
     variantType: 0,
     transactionSummaryPayload: () => ({
       accountDelta: () => ({
         id: () => ({ __faucet: 'miden-account-1' }),
-        vault: () => ({ removedFungibleAssets: () => outgoing, addedFungibleAssets: () => [] }),
+        vault: () => ({
+          removedFungibleAssets: () => outgoing,
+          addedFungibleAssets: () => [],
+          numAssets: () => outgoing.length + unlisted
+        }),
         storage: () => ({ isEmpty: () => true })
       }),
-      inputNotes: () => ({ numNotes: () => 0 }),
+      inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
       // `notes()` as well: summary output notes now go through the fee split, because
       // `fee::pay_fee` runs in auth BEFORE the summary is built.
       outputNotes: () => ({
         numNotes: () => 1,
         notes: () => [
-          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) }
+          {
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          }
         ]
       })
     })
@@ -261,6 +274,16 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     const rows = sheetRows();
     expect(rows).toContain('Assets, no fungible asset moves');
     expect(rows).toContain('Notes, 0 consumed / 1 created');
+  });
+
+  it('warns when the summary changes the vault by an asset it cannot list, instead of saying none moves', async () => {
+    sdk.SigningInputs = { deserialize: () => summarySigningInputs([], 1) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
+
+    const rows = sheetRows();
+    expect(rows).toEqual(expect.arrayContaining([expect.stringMatching(/^Warning, .*cannot list.*NFT/)]));
+    expect(rows).not.toContain('Assets, no fungible asset moves');
   });
 
   it('warns explicitly for an Arbitrary payload, which carries no readable summary', async () => {
@@ -325,6 +348,24 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     const rows = sheetRows();
     expect(rows).toContain('Sending, -2.5 USDC');
     expect(rows).toContain('Declared by the site, the wallet has not verified these amounts');
+  });
+
+  it('lists the NFT of an NFT-only output note by its faucet and short id', async () => {
+    sdk.TransactionRequest = {
+      deserialize: () => ({
+        expectedOutputOwnNotes: () => [
+          noteCarrying([], [nftAsset('mtst1nftfaucetaaaaaaaaaaaaaaaaaa', `0x${'ab'.repeat(32)}`)])
+        ]
+      })
+    };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toThrow(DECLINED);
+
+    const rows = sheetRows();
+    expect(rows).toContain('Sending, NFT 0xabababab\u2026ababab from faucet mtst1nftfaucetaaaaaaaaaaaaaaaaaa');
+    expect(rows).not.toContain('Assets, no fungible asset moves');
   });
 
   it('labels the dApp-declared recipient as declared instead of presenting it as the destination', async () => {
@@ -514,5 +555,40 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     await expect(requestTransaction(DAPP_ORIGIN, withImportedNote, 'session-1')).rejects.toThrow(DECLINED);
 
     expect(sheetRows()).toContain('Receiving, +4 USDC');
+  });
+
+  it('reports the NFT of a carried note as receiving', async () => {
+    sdk.TransactionRequest = { deserialize: () => ({ expectedOutputOwnNotes: () => [] }) };
+    sdk.NoteFile = {
+      deserialize: () => {
+        throw new Error('bare Note, not a NoteFile');
+      }
+    };
+    sdk.Note = {
+      deserialize: () => noteCarrying([], [nftAsset('mtst1nftfaucetaaaaaaaaaaaaaaaaaa', `0x${'cd'.repeat(32)}`)])
+    };
+
+    await expect(
+      requestTransaction(
+        DAPP_ORIGIN,
+        {
+          type: MidenDAppMessageType.TransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            type: 'custom',
+            payload: {
+              address: 'miden-account-1',
+              transactionRequest: 'dHhieXRlcw==',
+              recipientAddress: '',
+              inputNoteIds: [],
+              importNotes: ['bm90ZQ==']
+            }
+          }
+        } as unknown as Parameters<typeof requestTransaction>[1],
+        'session-1'
+      )
+    ).rejects.toThrow(DECLINED);
+
+    expect(sheetRows()).toContain('Receiving, NFT 0xcdcdcdcd\u2026cdcdcd from faucet mtst1nftfaucetaaaaaaaaaaaaaaaaaa');
   });
 });

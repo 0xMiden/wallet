@@ -4,6 +4,11 @@
 
 ### Fixes
 
+- [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when a stored WalletConnect session is still reconnecting at startup. After ten seconds Connect is freed and the stored session is left in place, so a restore that connects after those ten seconds is kept. Closing the connect modal starts those ten seconds again and does not forget or disconnect a pairing that is still connecting. A session that never connects stays stored, and the next open waits ten seconds again before Connect is freed.
+- [FIX][all] A crash report for a proof the node refused as expired now says whether the transaction waited under half, over half or past the blocks its expiration allowed before it was submitted, so slow proving can be told from a short window (#1768).
+- [FIX][all] A send that the token's issuer has blocked now says so in plain words, in every language, instead of showing the generic failure message (#1767).
+- [FIX][all] Importing a recovery phrase that has no Guardian backup says so and offers a new account with that phrase after a reused-phrase warning, instead of failing or silently creating one; a lookup that could not reach every Guardian offers a retry and is never treated as not found; a pasted phrase longer than 12 words is rejected instead of cut to 12 (#882, #1298).
+- [FIX][all] Approval screens list each NFT that leaves or enters the account by its faucet and a short asset id, warn when a transaction changes assets the wallet cannot list instead of saying no assets move, and no longer describe a note that carries only an NFT as carrying no assets (#1600).
 - [FEATURE][all] A wallet of Guardian accounts offers the Encrypted Wallet File in Settings, and restoring it rebuilds each Guardian account from the file and its recovery phrase without asking the Guardian operator; the account then replaces its everyday key, or takes a saved everyday key pair from the failed-rotation screen. The export names the accounts whose state the file holds, and the support and privacy pages describe it (#1617).
 - [FIX][all] A swap whose payout claim keeps failing now says so on its Activity row and receipt, with the reason and a Retry, instead of showing nothing while the daily retry runs (#1644).
 - [FIX][all] A dApp request to consume a P2ID note addressed to another account is refused before the approval sheet, instead of failing after approval (BREAD-WALLET-5D).
@@ -24,6 +29,7 @@
 
 - [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
 
+- [CHANGE][all] Show a warning above the review Swap button when no fill or only a partial fill is expected. Users can still continue.
 - [CHANGE][ci] The Guardian lifecycle E2E runs on every push to main instead of on every pull request; a pull request still runs it when its body names a linked Client, Guardian, Protocol or Web SDK PR, and the required gate reports green otherwise.
 - [CHANGE][all] A failed Guardian swap's crash report names which preparation step failed: building or saving the new swap order, rebuilding its request at the current network height, or saving the rebuilt request once the guardian prepared it, in fixed values only; the privacy policy lists them.
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.

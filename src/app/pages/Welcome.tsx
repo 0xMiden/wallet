@@ -160,6 +160,7 @@ function requiresCreateCode(hash: string, type: OnboardingType | null): boolean 
     case '#guardian-intro':
     case '#meet-guardian':
     case '#choose-guardian':
+    case '#reused-phrase':
       return true;
     case '#network-notice':
     case '#setup-passcode':
@@ -182,6 +183,9 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // others (a wallet file brings its own seed), so register() and back-navigation can branch on which one is live.
   const [keyPairPayload, setKeyPairPayload] = useState<string | null>(null);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
+  // The create flow is running on a phrase the user entered, because no backup was found for it. The phrase is
+  // the user's own, already backed up, so the create flow skips its backup prompt and Back returns to the lookup.
+  const [reusedPhrase, setReusedPhrase] = useState(false);
   // An import is a file restore exactly while it holds the file, so no step can see a restore without its file.
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
@@ -275,6 +279,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     setAccessCode(undefined);
     setAccessCodeRejected(false);
     setSeedPhrase(null);
+    setReusedPhrase(false);
     setKeyPairPayload(null);
     setPassword(null);
     setWalletFilePayload(null);
@@ -539,7 +544,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       // abandoned while the databases are written and the registration has landed (canLeaveConfirmation
       // covers what happens on a different file).
       if (walletFilePayload) setCommittedFileBinding(JSON.stringify(fileRegistrationBinding(walletFilePayload)));
-      if (!walletFilePayload && onboardingType === OnboardingType.Create) {
+      if (!walletFilePayload && onboardingType === OnboardingType.Create && !reusedPhrase) {
         // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
@@ -558,6 +563,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     importWalletFromClient,
     registerWalletFromHotKey,
     onboardingType,
+    reusedPhrase,
     walletType,
     guardianEndpoint
   ]);
@@ -894,6 +900,17 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         if (keyPairPayload) startGuardianProbeWithKey(keyPairPayload);
         else if (seedPhrase) startGuardianProbe(seedPhrase);
         break;
+      case 'create-with-phrase':
+        // Offered only from the recovery-method step of a seed-phrase import, where the lookup found no backup.
+        if (!seedPhrase || keyPairPayload || walletFilePayload || inviteOnly) break;
+        setReusedPhrase(true);
+        setOnboardingType(OnboardingType.Create);
+        navigate('/#reused-phrase');
+        break;
+      case 'reused-phrase-acknowledge':
+        if (!reusedPhrase) break;
+        navigate('/#guardian-intro');
+        break;
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
         // Capture the resolved endpoint for a Guardian import so register() can
@@ -994,8 +1011,15 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           }
         } else if (step === OnboardingStep.MeetGuardian) {
           navigate('/#guardian-intro');
+        } else if (step === OnboardingStep.ReusedPhrase) {
+          // Back to the lookup, as the import it came from.
+          setReusedPhrase(false);
+          setOnboardingType(OnboardingType.Import);
+          navigate('/#import-select-recovery-method');
         } else if (step === OnboardingStep.GuardianIntro) {
-          if (protectionMethod === 'biometric') {
+          if (reusedPhrase) {
+            navigate('/#reused-phrase');
+          } else if (protectionMethod === 'biometric') {
             navigate('/#setup-biometric');
           } else if (protectionMethod === 'password') {
             navigate('/#create-password');
@@ -1134,6 +1158,11 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         else if (hash === '#guardian-intro') setStep(OnboardingStep.GuardianIntro);
         else setStep(OnboardingStep.MeetGuardian);
         break;
+      case '#reused-phrase':
+        // In-memory only, like the create flow's seed: a reload or a history jump has nothing to continue.
+        if (!reusedPhrase || seedPhraseRef.current === null) navigate('/');
+        else setStep(OnboardingStep.ReusedPhrase);
+        break;
       case '#select-import-type':
         // Arriving keeps what the import holds, so Back and Forward resume it; the flow-state effect below says
         // what starts a new import instead.
@@ -1187,7 +1216,8 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     biometricProtectionSupported,
     protectionStepRoute,
     inviteOnly,
-    accessCode
+    accessCode,
+    reusedPhrase
   ]);
 
   // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
@@ -1214,8 +1244,12 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     } else if (hash === '#setup-biometric' && onboardingType !== OnboardingType.Create) {
       // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.
       resetFlowState();
+    } else if (hash === '#import-select-recovery-method' && reusedPhrase) {
+      // History returned to the lookup from the create flow it led to: this step is the import's.
+      setReusedPhrase(false);
+      setOnboardingType(OnboardingType.Import);
     }
-  }, [hash, onboardingType, resetFlowState, cancelOnLeavingOnboarding, accessCode]);
+  }, [hash, onboardingType, reusedPhrase, resetFlowState, cancelOnLeavingOnboarding, accessCode]);
 
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.
@@ -1277,6 +1311,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           guardianProbe={guardianProbeState}
           confirmCreating={confirmPhase === 'creating' || (autoRegisterDue && confirmPhase === 'idle')}
           importViaKey={Boolean(keyPairPayload)}
+          canCreateWithPhrase={!inviteOnly && Boolean(seedPhrase) && !keyPairPayload && !walletFilePayload}
           canGoBack={canLeaveConfirmation}
           onBiometricChange={setUseBiometric}
           onAction={onAction}

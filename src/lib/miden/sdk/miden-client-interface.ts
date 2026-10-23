@@ -86,6 +86,7 @@ import {
   type WasmLockHold
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { toNft, type NftAsset } from './nft-asset';
 import { normalizedCommitment, noteDetailsCommitment } from './note-details-commitment';
 import { beginProveAttempt } from './prove-telemetry';
 import { readPswapOrderNote } from './pswap-order-note';
@@ -219,6 +220,8 @@ export type InputNoteDetails = {
   noteId: string;
   senderAccountId: string | undefined;
   assets: FungibleAssetDetails[];
+  /** The note's NFTs, read by the dApp consume preview, never sent to a dApp (like `restriction`). */
+  nonFungibleAssets: NftAsset[];
   noteType: NoteType | undefined;
   nullifier: string;
   state: InputNoteState;
@@ -266,6 +269,7 @@ function reduceInputNoteDetails(note: InputNoteRecord): InputNoteDetails[] {
       nullifier,
       state: note.state(),
       assets,
+      nonFungibleAssets: note.details().assets().nonFungibleAssets().map(toNft),
       ...(restriction !== undefined && { restriction })
     }
   ];
