@@ -191,6 +191,7 @@
   "transactionRestoredHint": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it.",
   "submissionInterrupted": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
   "submissionRejectedByGuardian": "Your Guardian refused this submission. Try again.",
+  "submissionBlockedByIssuer": "The issuer of this token has blocked your account, so it cannot be sent.",
   "submissionRejectedByNetwork": "The network refused this submission. Try again.",
   "submissionUnanswered": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
   "showFullError": "Show full error",
