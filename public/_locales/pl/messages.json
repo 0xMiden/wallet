@@ -527,6 +527,30 @@
     "message": "Ryzyko",
     "englishSource": "Risk"
   },
+  "earnRiskLow": {
+    "message": "Niski",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "Wysoki",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "Depozyty są zamknięte",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "Ten skarbiec nie przyjmuje obecnie wpłat. Spróbuj ponownie później lub wybierz inny skarbiec.",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Portfel Miden wstrzymał wpłaty do tego skarbca. Nie ma to wpływu na istniejące wpłaty. Wybierz inny skarbiec.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Zweryfikowane",
     "englishSource": "Audited"
@@ -699,6 +723,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ w $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },

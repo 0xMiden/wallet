@@ -55,7 +55,12 @@ jest.mock('lib/remote-config/derive', () => ({
     derivedAt: Date.now(),
     chains: {},
     agglayer: { indexer: { state: 'skipped' } },
-    epoch: { allocator: { state: 'skipped' }, market: { state: 'skipped' }, midenUsdcFaucet: { state: 'skipped' } },
+    epoch: {
+      allocator: { state: 'skipped' },
+      market: { state: 'skipped' },
+      midenUsdcFaucet: { state: 'skipped' },
+      vaults: { state: 'skipped' }
+    },
     swap: { pairs: { state: 'skipped' } }
   })
 }));

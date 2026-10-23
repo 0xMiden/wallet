@@ -775,6 +775,39 @@ describe('transactions utilities', () => {
         [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
         authorization
       );
+      const queued = mockQueueOutgoingTransaction.mock.calls.at(-1)?.[0];
+      expect(queued?.extraInputs).not.toHaveProperty('protocol');
+      expect(queued?.extraInputs).not.toHaveProperty('chainId');
+    });
+
+    it('persists the deposit protocol and chain on the queued row', async () => {
+      await initiateEarnDepositTransaction(
+        'account-a',
+        10n,
+        '0xrecipient',
+        'market-a',
+        'faucet-a',
+        { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
+        true,
+        new Uint8Array([1, 2, 3]),
+        undefined,
+        'https://allocator.test',
+        '1delta',
+        8453
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'earn-deposit',
+          extraInputs: expect.objectContaining({
+            protocol: '1delta',
+            chainId: 8453,
+            epochAllocatorUrl: 'https://allocator.test'
+          })
+        }),
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        undefined
+      );
     });
 
     it.each<[string, Uint8Array | undefined]>([

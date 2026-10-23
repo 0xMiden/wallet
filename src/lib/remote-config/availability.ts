@@ -46,10 +46,17 @@ export function geoFeatureGate(feature: GeoFeature, geo: GeoLookup | undefined):
   return geo.allowed[feature] ? null : unavailable('restricted', 'blocked by a geo rule');
 }
 
-function enabled(feature: BridgeFeature, chain: SupportedEvmChainConfig): boolean {
+/** True when the document lists an Earn vault on `chain`'s Epoch route. */
+function listsEarnVault(config: BridgeConfig, chain: SupportedEvmChainConfig): boolean {
+  const usdc = chain.bridges.epoch?.tokens.USDC?.contractAddress;
+  const suffix = `:${chain.chainId}:${usdc ?? ''}`;
+  return usdc !== undefined && (config.earn?.vaults ?? []).some(vault => vault.marketUid.endsWith(suffix));
+}
+
+function enabled(feature: BridgeFeature, chain: SupportedEvmChainConfig, config: BridgeConfig): boolean {
   switch (feature) {
     case 'earnDeposit':
-      return true;
+      return listsEarnVault(config, chain);
     case 'fastBridgeOut':
       return chain.bridges.epoch?.withdrawalEnabled === true;
     case 'fastBridgeIn':
@@ -101,7 +108,11 @@ function chainAvailability(
 ): FeatureAvailability {
   const { config, derived } = snapshot;
   if (!config) return unavailable('not-configured', 'no accepted document');
-  if (!enabled(feature, chain)) return unavailable('off', 'route is off');
+  // A chain the document lists no vault on offers nothing to deposit into: no switch turns that on.
+  if (feature === 'earnDeposit' && !listsEarnVault(config, chain)) {
+    return unavailable('not-configured', 'no Earn vault is listed on the chain');
+  }
+  if (!enabled(feature, chain, config)) return unavailable('off', 'route is off');
   const providers = config['bridge-providers'];
   const reads = derived?.chains[chain.chainId];
   const checks: Array<FeatureAvailability | null> = [];
@@ -130,11 +141,8 @@ function chainAvailability(
       if (!derived) return { state: 'loading' };
       checks.push(checkProbe(derived.epoch.allocator, 'Epoch allocator'));
       if (feature !== 'earnDeposit') checks.push(checkProbe(reads?.epoch.evmUsdc, 'Epoch USDC'));
-      if (
-        feature !== 'fastBridgeOut' &&
-        !(feature === 'earnDeposit' && config.network === 'testnet') &&
-        !overrides.earnCollateralFaucet
-      ) {
+      // Earn spends the native USDCx on every network (selectEarnCollateral), never the legacy output faucet.
+      if (feature === 'fastBridgeIn' && !overrides.earnCollateralFaucet) {
         checks.push(checkProbe(derived.epoch.midenUsdcFaucet, 'Epoch output faucet'));
       }
       break;
@@ -179,7 +187,8 @@ export function featureAvailability(
   const chains = Object.values(snapshot.config.supportedEvmChains).filter(
     chain => chainId === undefined || chain.chainId === chainId
   );
-  const enabledChains = chains.filter(chain => enabled(feature, chain));
+  const config = snapshot.config;
+  const enabledChains = chains.filter(chain => enabled(feature, chain, config));
   const candidates = enabledChains.length > 0 ? enabledChains : chains;
   const results = candidates.map(chain => chainAvailability(feature, chain, snapshot, overrides));
   const available = results.find(result => result.state === 'available');

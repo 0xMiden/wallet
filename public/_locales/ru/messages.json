@@ -527,6 +527,30 @@
     "message": "Риск",
     "englishSource": "Risk"
   },
+  "earnRiskLow": {
+    "message": "Низкий",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "Высокий",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "Депозиты закрыты",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "В данный момент это хранилище не принимает депозиты. Попытайтесь позже или выберите другое хранилище.",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Кошелек Miden приостановил пополнение этого хранилища. Ваши существующие депозиты не затронуты. Выберите другое хранилище.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "Проверенный",
     "englishSource": "Audited"
@@ -699,6 +723,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ в $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },
