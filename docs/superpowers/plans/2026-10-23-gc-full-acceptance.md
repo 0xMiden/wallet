@@ -34,7 +34,7 @@
 - [x] Write failing backend/hook regressions; introduce separate checking status and automatic read continuation.
 - [ ] Test unknown submission, scan interruption, hidden/unmounted screen and week rollover without duplicate dispatch.
 - [x] Build/install preserving data, prove exact Guardian approval → request → 10 GC receipt → consumption → balance. Request committed at 471727, issuer issued at 471729 and receipt consumed at 472225. Bread shows 10 GC and Claimed this week. Request/collection fee quotes 133 units each; issuer used 112 of 210 and returned 98 native units.
-- [ ] Test cancelled approval, insufficient fee funds, repeated taps, restart and expiry/reclaim in the real wallet.
+- [ ] Test cancelled approval, insufficient fee funds and repeated taps in the real wallet. Restart retained the 10-GC trial balance. The duplicate request committed at472489 was rejected, became recoverable after472552 without reopening Coins, and its separately approved Guardian reclaim consumed it at473280. Review showed210 native base units before a133-unit network fee; GC remained10. See native-budget-recovery-review.png and native-budget-recovered-10gc.png in ../evidence/2026-10-23-gc/.
 
 ### 2. Balance, verification and transfers
 
