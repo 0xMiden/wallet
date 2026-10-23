@@ -11,6 +11,7 @@ import android.util.Log;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.By;
+import androidx.test.uiautomator.BySelector;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import androidx.test.uiautomator.Until;
@@ -109,7 +110,7 @@ public class AuthTabCertificateSetupTest {
                 return;
             }
             for (String label : nextLabels) {
-                if (device.findObject(By.text(label)) != null) return;
+                if (device.findObject(label(label)) != null) return;
             }
             device.waitForWindowUpdate(null, 500);
         }
@@ -126,13 +127,13 @@ public class AuthTabCertificateSetupTest {
     private static void clickPastMore(UiDevice device, String text) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
         while (System.nanoTime() < deadline) {
-            UiObject2 element = device.findObject(By.text(text));
+            UiObject2 element = device.findObject(label(text));
             if (element != null) {
                 element.click();
                 device.waitForIdle();
                 return;
             }
-            UiObject2 more = device.findObject(By.text("More"));
+            UiObject2 more = device.findObject(label("More"));
             if (more != null) {
                 more.click();
                 device.waitForIdle();
@@ -141,6 +142,11 @@ public class AuthTabCertificateSetupTest {
             }
         }
         throw new AssertionError("Settings text not found: " + text + "; on screen: " + visibleLabels(device));
+    }
+
+    // Settings renders some buttons in capitals ("INSTALL ANYWAY"), so labels match without case.
+    private static BySelector label(String text) {
+        return By.text(Pattern.compile("(?i)" + Pattern.quote(text)));
     }
 
     private static String visibleLabels(UiDevice device) {
@@ -159,7 +165,7 @@ public class AuthTabCertificateSetupTest {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
         while (System.nanoTime() < deadline) {
             for (String label : labels) {
-                UiObject2 element = device.findObject(By.text(label));
+                UiObject2 element = device.findObject(label(label));
                 if (element != null) {
                     element.click();
                     device.waitForIdle();
@@ -173,7 +179,7 @@ public class AuthTabCertificateSetupTest {
     private static UiObject2 findText(UiDevice device, String text, long timeoutMs) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         while (System.nanoTime() < deadline) {
-            UiObject2 element = device.findObject(By.text(text));
+            UiObject2 element = device.findObject(label(text));
             if (element != null) {
                 return element;
             }
