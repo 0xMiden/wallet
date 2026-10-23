@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][test] The mainnet nightly's AggLayer loop waits for its ETH balance to rise above what the account held before the night's deposit, instead of for any non-zero ETH balance.
 - [FIX][test] The mainnet nightly's bridge and 1Click specs load again: Playwright resolves the wallet sources' `@miden-sdk/miden-sdk/lazy` import to the SDK's Node entry instead of failing on a package export that only the `import` condition defines, and the executor-route bridge-in checks the registration at the config's Arc xReserve instead of the testnet one. The write-endpoint probe also recognizes publicnode's "reading transaction object failed" answer to a garbage transaction as a decode failure. The AggLayer loop waits for its ETH to reach the Miden account before bridging it out. The nightly checks out the ref it was dispatched on instead of always `main`.
 - [FIX][test] The dApp refusals suite expects a dApp consume of a note addressed to another account to be refused before any approval sheet, matching the wallet (#1764).
 - [FIX][all] Earn withdrawals work on mainnet: they are accepted on every chain the wallet-config document names an Epoch route on, not only Sepolia or the default market's chain; a 1delta withdraw leg that needs no allocation (the batch holds the delivery alone) is no longer refused as a changed quote; and the withdrawal receipt names the market's own chain in its route.
