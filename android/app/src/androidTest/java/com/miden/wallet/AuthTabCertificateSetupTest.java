@@ -95,7 +95,7 @@ public class AuthTabCertificateSetupTest {
         assertTrue("device is still locked behind its PIN keyguard", !keyguard.isKeyguardLocked());
     }
 
-    private static void confirmPinIfAsked(UiDevice device, String devicePin, String... nextLabels) {
+    private static void confirmPinIfAsked(UiDevice device, String devicePin, String... nextLabels) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
         while (System.nanoTime() < deadline) {
             UiObject2 pin = device.findObject(By.res("com.android.settings", "password_entry"));
@@ -106,6 +106,16 @@ public class AuthTabCertificateSetupTest {
                 else device.pressEnter();
                 assertTrue("device PIN confirmation still showing",
                     device.wait(Until.gone(By.res("com.android.settings", "password_entry")), UI_TIMEOUT_MS));
+                device.waitForIdle();
+                return;
+            }
+            // Android 14 confirms the credential with the system UI keypad, not a Settings field.
+            if (device.findObject(label("Re-enter your PIN")) != null
+                || device.findObject(label("Enter your device PIN to continue")) != null) {
+                device.executeShellCommand("input text " + devicePin);
+                device.executeShellCommand("input keyevent KEYCODE_ENTER");
+                assertTrue("device PIN confirmation still showing",
+                    device.wait(Until.gone(label("Re-enter your PIN")), UI_TIMEOUT_MS));
                 device.waitForIdle();
                 return;
             }
