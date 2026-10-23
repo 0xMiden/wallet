@@ -179,6 +179,9 @@ export function useSyncTrigger() {
           // A sync's WASM work would land mid-swipe; hold it until the pager settles (capped, never dropped).
           await whenInteractionIdle();
           if (cancelled) return;
+          // The swipe may have landed on Send (or a prove page) meanwhile; the guards above still apply.
+          if (isTestSyncPaused() || isInsideSendFlow() || window.location.href.includes('generating-transaction'))
+            return;
           // Consumed HERE, not at the top of the run: a run whose guards skip it never
           // reaches the node, so reading the grant before them SPENT it on nothing.
           // A user tapping the banner's Retry from the generating-transaction page got

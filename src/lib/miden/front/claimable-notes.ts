@@ -776,9 +776,13 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     let subscribed = true;
+    let pending = false;
     const unsubscribe = onNotesRefresh(() => {
-      // The revalidation re-renders the list; let a moving pager finish first.
+      // The revalidation re-renders the list; let a moving pager finish first. Events during one wait share it.
+      if (pending) return;
+      pending = true;
       void whenInteractionIdle().then(() => {
+        pending = false;
         if (subscribed) void mutate();
       });
     });

@@ -813,6 +813,26 @@ describe('the first read for an address (#1123)', () => {
       expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
     });
 
+    it('skips a deferred tick when sync was paused during the wait', async () => {
+      await mountSettled('paused-address');
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+      process.env.MIDEN_E2E_TEST = 'true';
+      try {
+        await act(async () => {
+          end();
+          jest.advanceTimersByTime(50);
+        });
+        expect(fetchBalancesMock()).not.toHaveBeenCalled();
+      } finally {
+        delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
+        delete process.env.MIDEN_E2E_TEST;
+      }
+    });
+
     it('does not read after unmount when the tick was deferred', async () => {
       await mountSettled('gone-address');
       const end = beginInteraction();

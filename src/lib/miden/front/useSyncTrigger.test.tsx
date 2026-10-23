@@ -1576,6 +1576,28 @@ describe('useSyncTrigger', () => {
       unmount();
     });
 
+    it('skips a tick deferred into the send flow, and syncs on a later Home tick', async () => {
+      const end = beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      window.location.hash = '#/send';
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(storeState.setSyncStatus).not.toHaveBeenCalled();
+
+      window.location.hash = '';
+      await act(async () => {
+        jest.advanceTimersByTime(3500);
+      });
+      expect(mockSyncState).toHaveBeenCalledTimes(1);
+      unmount();
+    });
+
     it('syncs at the cap when the interaction never ends', async () => {
       beginInteraction();
       const { unmount } = render(<HookHost />);

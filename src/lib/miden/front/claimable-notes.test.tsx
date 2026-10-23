@@ -1726,6 +1726,26 @@ describe('useClaimableNotes note refresh while the pager moves', () => {
     expect(mutate()).toHaveBeenCalledTimes(1);
   });
 
+  it('coalesces refreshes that arrive during one wait into a single revalidation', async () => {
+    setup();
+    const end = beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+      requestNotesRefresh();
+      requestNotesRefresh();
+    });
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      requestNotesRefresh();
+    });
+    expect(mutate()).toHaveBeenCalledTimes(2);
+  });
+
   it('does not revalidate a deferred refresh after unmount', async () => {
     const { unmount } = setup();
     const end = beginInteraction();

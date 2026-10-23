@@ -141,7 +141,7 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
       if (mountedRef.current && !isTestSyncPaused()) {
         // The poll's store write re-renders Home; wait out a moving pager (capped).
         void whenInteractionIdle().then(() => {
-          if (mountedRef.current) void fetchBalancesWithDeduping();
+          if (mountedRef.current && !isTestSyncPaused()) void fetchBalancesWithDeduping();
         });
       }
     }, REFRESH_INTERVAL);
