@@ -51,7 +51,7 @@ public class AuthTabCertificateSetupTest {
         clickPastMore(device, "Install anyway");
         confirmPinIfAsked(device, devicePin, "Downloads", CERTIFICATE_FILE);
         // The picker can open on Recent files with the certificate already listed.
-        if (findText(device, CERTIFICATE_FILE, 2000) == null) clickText(device, "Downloads");
+        if (!waitForEither(device, CERTIFICATE_FILE, "Downloads")) clickText(device, "Downloads");
         clickText(device, CERTIFICATE_FILE);
         confirmPinIfAsked(device, devicePin, "Install anyway", "Install", "OK", "Done");
         clickFirstAvailable(device, "Install anyway", "Install", "OK");
@@ -196,6 +196,17 @@ public class AuthTabCertificateSetupTest {
             }
             device.waitForWindowUpdate(null, 500);
         }
+    }
+
+    // True when `first` shows; false when only `second` does. Waits without scrolling, since the picker is still opening.
+    private static boolean waitForEither(UiDevice device, String first, String second) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
+        while (System.nanoTime() < deadline) {
+            if (device.findObject(label(first)) != null) return true;
+            if (device.findObject(label(second)) != null) return false;
+            device.waitForWindowUpdate(null, 500);
+        }
+        throw new AssertionError("neither " + first + " nor " + second + " showed; on screen: " + visibleLabels(device));
     }
 
     private static UiObject2 findText(UiDevice device, String text, long timeoutMs) {
