@@ -188,11 +188,11 @@ export interface BridgeConfig {
    */
   geo?: GeoBlocks;
   /**
-   * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
-   * way in directly. False or absent: Welcome shows the create and recover flows, and the logo taps
-   * unlock the invite-only way in.
+   * The mainnet launch. Before its moment Welcome shows the create and recover flows, with the logo taps
+   * as the unlock of the invite-only way in; from the moment on Welcome shows the invite-only way in
+   * directly and an existing test-network wallet is offered the switch to mainnet. The document's
+   * `onboarding.inviteOnly` is no longer read: the moment is the one switch.
    */
-  onboarding?: { inviteOnly: boolean };
   mainnetCountdown?: MainnetCountdownConfig;
   /** Only there when the document sets a `limits` section. */
   limits?: BridgeLimitsConfig;
@@ -230,7 +230,7 @@ const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
 // What this build does not know or cannot complete (a newer chain, route, token or output) is left out instead, so
-// only its own routes go unavailable. mainnetCountdown, which only drives a banner, is off when malformed.
+// only its own routes go unavailable. mainnetCountdown is off when malformed: no banner and no launch.
 const invalid = (): never => {
   throw new Error('invalid bridge config');
 };
@@ -604,7 +604,6 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       { faucetId: midenAccountId(section(output).faucetId) }
     ])
   );
-  const inviteOnly = read(section(body.onboarding), 'inviteOnly', requiredBoolean);
   const allocatorUrl = read(epoch, 'allocatorUrl', url);
   const positionsUrl = read(epoch, 'positionsUrl', url);
   const indexerUrl = read(agglayer, 'indexerUrl', url);
@@ -659,7 +658,6 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     swap: etaUrl === undefined ? {} : { etaUrl },
     ...(guardians === undefined ? {} : { guardians }),
     ...(earn === undefined ? {} : { earn }),
-    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } }),
     ...(geo === undefined ? {} : { geo })
   };
 }

@@ -4,6 +4,10 @@
 
 ### Fixes
 
+- [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read.
+- [FIX][all] The mainnet countdown and a new wallet's invite-only onboarding share one clock. Setup already underway stays on its step, with the seed, password, key and access code already entered, while mainnet is prepared when that moment arrives.
+- [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read. While launch is pending, the wallet checks the clock each second so a system clock change cannot leave the launch state out of date.
+
 - [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when a stored WalletConnect session is still reconnecting at startup. After ten seconds Connect is freed and the stored session is left in place, so a restore that connects after those ten seconds is kept. Closing the connect modal starts those ten seconds again and does not forget or disconnect a pairing that is still connecting. A session that never connects stays stored, and the next open waits ten seconds again before Connect is freed.
 - [FIX][all] A crash report for a proof the node refused as expired now says whether the transaction waited under half, over half or past the blocks its expiration allowed before it was submitted, so slow proving can be told from a short window (#1768).
 - [FIX][all] A send that the token's issuer has blocked now says so in plain words, in every language, instead of showing the generic failure message (#1767).

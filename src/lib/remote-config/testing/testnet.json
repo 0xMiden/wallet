@@ -5,9 +5,6 @@
     "enabled": false,
     "launchAt": "2026-10-26T16:00:00Z"
   },
-  "onboarding": {
-    "inviteOnly": false
-  },
   "swap": {
     "etaUrl": "https://35-175-40-181.sslip.io",
     "tokens": [

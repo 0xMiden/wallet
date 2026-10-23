@@ -31,7 +31,8 @@ import {
   selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
-  selectInviteOnlyOnboarding,
+  hasMainnetLaunched,
+  selectMainnetLaunchAt,
   selectMidenUsdc,
   selectMidenUsdcFaucetId,
   selectAgglayerDeliveryFaucets,
@@ -291,11 +292,26 @@ describe('selectors', () => {
     expect(selectMidenUsdc(snapshot())?.faucetId).toBe('0x537c15a622074e91188aa894456c52');
   });
 
-  it('select the Welcome variant the document sets, and null when it sets none', () => {
-    expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: true } }))).toBe(true);
-    expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: false } }))).toBe(false);
-    expect(selectInviteOnlyOnboarding(snapshot())).toBeNull();
-    expect(selectInviteOnlyOnboarding(EMPTY)).toBeNull();
+  it('selects the mainnet launch moment the document sets, and null while the countdown is off or absent', () => {
+    const launchAt = Date.parse('2026-10-26T14:00:00Z');
+    expect(selectMainnetLaunchAt(snapshot({ ...CONFIG, mainnetCountdown: { enabled: true, launchAt } }))).toBe(
+      launchAt
+    );
+    expect(selectMainnetLaunchAt(snapshot({ ...CONFIG, mainnetCountdown: { enabled: false, launchAt } }))).toBeNull();
+    expect(selectMainnetLaunchAt(snapshot({ ...CONFIG, mainnetCountdown: { enabled: true } }))).toBeNull();
+    expect(selectMainnetLaunchAt(snapshot())).toBeNull();
+    expect(selectMainnetLaunchAt(EMPTY)).toBeNull();
+  });
+
+  it('says mainnet has launched from the moment on, and never without one', () => {
+    const launchAt = Date.parse('2026-10-26T14:00:00Z');
+    const on = snapshot({ ...CONFIG, mainnetCountdown: { enabled: true, launchAt } });
+    expect(hasMainnetLaunched(on, launchAt - 1)).toBe(false);
+    expect(hasMainnetLaunched(on, launchAt)).toBe(true);
+    expect(hasMainnetLaunched(snapshot({ ...CONFIG, mainnetCountdown: { enabled: false, launchAt } }), launchAt)).toBe(
+      false
+    );
+    expect(hasMainnetLaunched(EMPTY, launchAt)).toBe(false);
   });
 
   it('selects the bridge-in balance ceiling the document sets, and null when it sets none', () => {
