@@ -576,7 +576,18 @@ const DOCUMENT = {
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true },
+  // Earn on needs a vault list on an Epoch route.
+  earn: {
+    vaults: [
+      {
+        id: 'dummy-lending-sepolia-usdc',
+        marketUid: `DUMMY_LENDING:11155111:${EVM_USDC}`,
+        name: 'Dummy Lending USDC',
+        protocol: 'dummy-lending'
+      }
+    ]
+  }
 };
 
 function epochProvider(fields: object) {
@@ -720,7 +731,9 @@ describe('the preflight reads what it probes from the network config document', 
 
   it('passes a document that leaves a switch out, which the wallet reads as off', () => {
     const features = {};
-    const res = preflight('bridge-out-epoch', { ...DOCUMENT, features });
+    // Earn read as off takes its vault list out too: the wallet refuses an earn section while Earn is off.
+    const { earn: _earn, ...withoutEarn } = DOCUMENT;
+    const res = preflight('bridge-out-epoch', { ...withoutEarn, features });
     expect(res.status).toBe(0);
     expect(res.requests).toContain(`${ALLOCATOR}/health`);
   }, 35_000);

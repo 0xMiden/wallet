@@ -148,6 +148,27 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     expect(senderArg).toBe('mlcl1sender');
     expect(requestBytesArg).toEqual(new Uint8Array([1, 2, 3]));
     expect(sendParams).toEqual({ recipientId: 'mlcl1allocator', noteType: 'public', recallBlocks: 5_000 });
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![10]).toBeUndefined();
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBeUndefined();
+  });
+
+  it('passes the deposit protocol and chain through to transaction initiation', async () => {
+    await createEarnP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      evmRecipient: '0xevm',
+      marketUid: 'AAVE_V3:8453:0xusdc',
+      protocol: '1delta',
+      chainId: 8453,
+      deps
+    });
+
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![10]).toBe('1delta');
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBe(8453);
   });
 
   it('threads exact spending-limit authorizations to both atomic row insertions', async () => {

@@ -19,6 +19,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { createEarnSubmissionLocks } from './earn-submission-lock';
 import {
+  type GaslessEarnWithdrawalArgs,
   gaslessEarnWithdrawalToMiden,
   pollEarnWithdrawDelivery,
   resumeEarnWithdrawal,
@@ -69,13 +70,14 @@ jest.mock('lib/miden/activity', () => ({
 }));
 jest.mock('lib/miden/repo', () => ({ transactions: { where: jest.fn(), filter: jest.fn() } }));
 
-const args = {
+const args: GaslessEarnWithdrawalArgs = {
   midenAccountPublicKey: PREPARED_RECIPIENT,
   evmAddress: PREPARED_OWNER,
   marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
   underlyingAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
   amount: '10',
-  underlyingDecimals: 18
+  underlyingDecimals: 18,
+  protocol: 'dummy-lending'
 };
 
 function harness() {

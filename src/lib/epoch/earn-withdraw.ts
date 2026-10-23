@@ -1,7 +1,6 @@
-import { EpochIntentSDK, TaskType, ActionType } from '@epoch-protocol/epoch-intents-sdk';
+import { EpochIntentSDK, TaskType, ActionType, type IntentTransactionStatus } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 } from 'uuid';
 import { type Address, getAddress } from 'viem';
-import { sepolia } from 'viem/chains';
 
 import {
   findPendingBridgeInByEarnWithdrawTxId,
@@ -31,6 +30,7 @@ import {
 } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
+import { epochChain } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { resolveEarnIntentOutcome } from './earn';
 import { type EarnSubmissionContext, tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
@@ -94,6 +94,13 @@ export interface GaslessEarnWithdrawalArgs {
    * so the caller can navigate to the generating-transaction screen, matching
    * `openEarnPosition`'s callback. */
   onRowCreated?: (txId: string) => void;
+  /**
+   * The protocol string a deposit hashes. Unresolved (no listing, catalogue field, or local deposit)
+   * the withdrawal is refused before a row, a smart-account setup, or a signature.
+   */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Source chain. Omitted, it is the chain in `marketUid`. */
+  chainId?: number;
 }
 
 export interface GaslessEarnWithdrawalResult {
@@ -176,6 +183,9 @@ export function buildEarnWithdrawTaskDataParams(args: {
 
 const UNSUPPORTED_MARKET = 'Gasless withdrawal only supports the configured USDC Earn market.';
 
+const isEpochProtocol = (value: unknown): value is '1delta' | 'dummy-lending' =>
+  value === '1delta' || value === 'dummy-lending';
+
 const positionLockKey = (owner: string, marketUid: string): string =>
   `position:${owner.toLowerCase()}:${marketUid.toLowerCase()}`;
 
@@ -222,6 +232,7 @@ async function submitEarnWithdrawal(
   // Withdraw is a recovery action: it needs the document's token, not a successful read of it. The token's decimals
   // are checked against the market chain's USDC when that read is known; otherwise the position's own stand.
   const chainId = Number(args.marketUid.split(':')[1]);
+  if (args.chainId !== undefined && args.chainId !== chainId) throw new Error(UNSUPPORTED_MARKET);
   const usdc = findEvmUsdc(chainId);
   if (
     (verifyMarket && underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase()) ||
@@ -231,10 +242,14 @@ async function submitEarnWithdrawal(
   ) {
     throw new Error(UNSUPPORTED_MARKET);
   }
-  if (chainId !== sepolia.id) throw new Error('Gasless withdrawal currently supports Sepolia only.');
   if (verifyMarket && findEpochUsdcAddress(chainId)?.toLowerCase() !== underlyingAddress.toLowerCase()) {
     throw new Error(UNSUPPORTED_MARKET);
   }
+  // The lender key is not a protocol. An unresolved one, or a chain this wallet cannot sign on, refuses
+  // before a row exists.
+  if (!isEpochProtocol(args.protocol)) throw new Error(UNSUPPORTED_MARKET);
+  const protocol = args.protocol;
+  const executionChain = epochChain(args.chainId ?? chainId);
   const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals, !verifyMarket);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
   // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
@@ -291,7 +306,9 @@ async function submitEarnWithdrawal(
       'USDC',
       attemptId,
       attemptStartedAt,
-      args.underlyingDecimals
+      args.underlyingDecimals,
+      protocol,
+      executionChain.id
     );
     assertCurrent();
     await Repo.transactions.where({ id: txId }).modify(row => {
@@ -299,6 +316,8 @@ async function submitEarnWithdrawal(
         ...row.extraInputs,
         epochAllocatorUrl: apiBaseUrl,
         underlyingAddress,
+        protocol,
+        chainId: executionChain.id,
         ...(args.review ? { reviewedMinimumReceivedAtomic: args.review.minimumAtomic } : {})
       };
     });
@@ -332,18 +351,18 @@ async function submitEarnWithdrawal(
       const walletClient = buildVaultEvmWalletClient(
         args.midenAccountPublicKey,
         sponsorAddress,
-        args.review ? assertBeforeSigning : undefined
+        args.review ? assertBeforeSigning : undefined,
+        executionChain
       );
       const sdk = deps.sdk ?? new EpochIntentSDK({ apiBaseUrl, walletClient, allowGaslessSmartAccount: true });
       const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
-      if (args.review) await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress, sdk);
-      else await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
+      await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress, sdk, executionChain.id);
       assertBeforeSigning();
-      const status = await sdk.getWalletGaslessStatus(chainId);
+      const status = await sdk.getWalletGaslessStatus(executionChain.id);
       assertBeforeSigning();
       if (!status.is7702Capable) throw new Error('Wallet/chain is not 7702-capable for a gasless withdrawal.');
       if (status.needsSetup) {
-        const setup = await sdk.convertToSmartAccount({ chainId });
+        const setup = await sdk.convertToSmartAccount({ chainId: executionChain.id });
         assertBeforeSigning();
         if (!setup.ok) throw new Error('Smart-account conversion failed for the gasless withdrawal.');
       }
@@ -351,7 +370,9 @@ async function submitEarnWithdrawal(
         action: ActionType.Withdraw,
         underlying: underlyingAddress,
         amount: amountAtomic.toString(),
-        protocol: 'dummy-lending',
+        protocol,
+        chainId: executionChain.id,
+        marketUid: args.marketUid,
         swapAndBridge: {
           toToken: normalizeMidenIdToHex(destinationFaucetId),
           toChainId: MIDEN_DESTINATION_CHAIN_ID,
@@ -364,7 +385,7 @@ async function submitEarnWithdrawal(
           const identity = {
             owner: sponsorAddress,
             attemptId,
-            sourceChainId: chainId,
+            sourceChainId: executionChain.id,
             destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
             recipientAccountId: args.midenAccountPublicKey,
             destinationFaucetId
@@ -471,19 +492,21 @@ function matchesPreparedExecution(row: ITransaction, captured: IEarnWithdrawPrep
 
 const allocationLockKey = (attemptId: string, nonce: string): string => `allocation:${attemptId}:${nonce}`;
 
-function positiveStatus(value: unknown): value is { chainId: number; status: string; transactionHash: string }[] {
+// A leg the chain has not recorded yet carries a null transaction hash.
+function positiveStatus(value: unknown): value is IntentTransactionStatus[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every(
-      entry =>
-        entry !== null &&
-        typeof entry === 'object' &&
+    value.every(entry => {
+      if (entry === null || typeof entry !== 'object') return false;
+      const transactionHash: unknown = Reflect.get(entry, 'transactionHash');
+      return (
         Number.isSafeInteger(Reflect.get(entry, 'chainId')) &&
         typeof Reflect.get(entry, 'status') === 'string' &&
         Reflect.get(entry, 'status').length > 0 &&
-        typeof Reflect.get(entry, 'transactionHash') === 'string'
-    )
+        (transactionHash === null || typeof transactionHash === 'string')
+      );
+    })
   );
 }
 
@@ -551,7 +574,7 @@ export function pollEarnWithdrawDelivery(args: {
             registrationBackoff = Math.min(registrationBackoff * 2, 300_000);
           });
       }
-      const applyDelivery = async (results: { chainId: number; status: string; transactionHash: string }[]) => {
+      const applyDelivery = async (results: IntentTransactionStatus[]) => {
         if (!context.isCurrent()) return;
         const fresh = await liveWithdrawal(txId, expected);
         if (!context.isCurrent()) return;
@@ -843,6 +866,10 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
     throw new Error('This withdrawal has no valid position owner recorded - start a new withdrawal.');
   }
   if (!ei.marketUid || !ei.sourceAmount) throw new Error(MISSING_RETRY_DETAILS);
+  // A legacy row has no stored protocol. Refuse it before a quote, account setup, or another execution.
+  // The chain may be derived from the saved market uid only once that protocol is present.
+  if (!isEpochProtocol(ei.protocol)) throw new Error(UNSUPPORTED_MARKET);
+  const protocol = ei.protocol;
   const previous: ExpectedEarnWithdrawIntent = {
     owner: ei.evmOwner,
     nonce: ei.withdrawIntentNonce,
@@ -850,6 +877,7 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
   };
   const [, marketChain, marketUnderlying] = ei.marketUid.split(':');
   const marketChainId = Number(marketChain);
+  const chainId = ei.chainId ?? marketChainId;
   const underlyingAddress = ei.underlyingAddress ?? marketUnderlying ?? findEpochUsdcAddress(marketChainId);
   if (!underlyingAddress) throw new Error(MISSING_RETRY_DETAILS);
   let review: EarnWithdrawalQuote | undefined;
@@ -875,6 +903,8 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
       allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
       underlyingDecimals: retryDecimals(marketChainId, underlyingAddress, ei.sourceDecimals),
+      protocol,
+      chainId,
       ...(review ? { review } : {})
     },
     {
