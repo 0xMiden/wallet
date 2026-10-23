@@ -33,7 +33,8 @@ run_instrumentation_test() {
   local test_class=$1
   local log_name=$2
   shift 2
-  local report="android/app/build/outputs/androidTest-results/connected/debug/TEST-${test_class}.xml"
+  # The report is named after the device (TEST-<device> - <api>-_app-.xml), not the test class.
+  local report_dir="android/app/build/outputs/androidTest-results/connected/debug"
   local gradle_status=0
 
   adb logcat -c
@@ -49,7 +50,7 @@ run_instrumentation_test() {
   if [[ $gradle_status -ne 0 ]]; then
     return "$gradle_status"
   fi
-  grep -h 'tests="[1-9]' "$report"
+  grep -h 'tests="[1-9]' "$report_dir"/TEST-*.xml
 }
 
 adb shell settings put global window_animation_scale 0
