@@ -302,6 +302,12 @@ describe('HistoryView empty state', () => {
     expect(screen.getByTestId('activity-spinner')).toBeInTheDocument();
   });
 
+  it("swaps the generic card for a filter's own empty state", () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState emptyState={<p>custom empty</p>} />);
+    expect(screen.getByText('custom empty')).toBeInTheDocument();
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+  });
+
   it('renders the Activity-tab empty state flush under the filters, not vertically centered', () => {
     const { container } = render(<HistoryView {...baseProps} entries={[]} centerEmptyState />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();

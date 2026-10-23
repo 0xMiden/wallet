@@ -30,6 +30,7 @@ function showsClaimCards(filter: ActivityFilter): boolean {
     case 'swap':
     case 'earn':
     case 'others':
+    case 'arcade':
       return false;
   }
 }
