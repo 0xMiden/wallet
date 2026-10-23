@@ -2,13 +2,15 @@ import { isRecord } from 'lib/update/guards';
 
 import type { OneClickAsset, OneClickEvmAssetConfig } from './types';
 
-export const ONE_CLICK_EVM_CHAIN_IDS: Readonly<Record<string, number>> = {
-  eth: 1,
-  base: 8453,
-  arb: 42161,
-  op: 10,
-  arc: 5042
-};
+export const ONE_CLICK_EVM_CHAIN_IDS: Readonly<Record<string, number>> = Object.freeze(
+  Object.assign(Object.create(null) as Record<string, number>, {
+    eth: 1,
+    base: 8453,
+    arb: 42161,
+    op: 10,
+    arc: 5042
+  })
+);
 
 const NATIVE_EVM_ASSETS: Readonly<
   Record<string, { blockchain: string; chainId: number; decimals: 18; symbol: 'ETH' }>
