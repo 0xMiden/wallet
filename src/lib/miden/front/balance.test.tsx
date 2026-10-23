@@ -10,6 +10,7 @@ import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chai
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
+import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 
 import { useAllBalances, getAllBalanceSWRKey, type TokenBalanceData } from './balance';
 
@@ -749,6 +750,83 @@ describe('the first read for an address (#1123)', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe('poll ticks while the Home pager is moving', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      _resetInteractionPriorityForTest();
+    });
+    afterEach(() => {
+      _resetInteractionPriorityForTest();
+      jest.useRealTimers();
+    });
+
+    const mountSettled = async (address: string) => {
+      await mount(address);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fetchBalancesMock().mockClear();
+      // The mount read took a dedupe slot; let the next tick read.
+      useWalletStore.setState({ balancesLastFetched: {} });
+    };
+
+    it('reads on the tick when idle', async () => {
+      await mountSettled('idle-address');
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    });
+
+    it('holds the tick read while an interaction is active, then reads once it ends', async () => {
+      await mountSettled('busy-address');
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads at the cap when the interaction never ends', async () => {
+      await mountSettled('held-address');
+      // The interaction begins just before the tick, so the 1500 ms cap lands after it.
+      await act(async () => {
+        jest.advanceTimersByTime(4_000);
+      });
+      beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+
+      await act(async () => {
+        jest.advanceTimersByTime(1_000);
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not read after unmount when the tick was deferred', async () => {
+      await mountSettled('gone-address');
+      const end = beginInteraction();
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+      });
+      testRoot!.unmount();
+      testRoot = null;
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(fetchBalancesMock()).not.toHaveBeenCalled();
+    });
   });
 
   it('stays loading when the read is skipped by the fuse', async () => {

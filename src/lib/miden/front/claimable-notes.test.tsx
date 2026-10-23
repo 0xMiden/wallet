@@ -10,6 +10,7 @@ import {
 } from 'lib/miden/front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 
 const _g = globalThis as any;
 _g.__cnTest = {
@@ -67,6 +68,8 @@ const swrConfigSeen: any[] = [];
 jest.mock('lib/swr', () => ({
   useRetryableSWR: jest.fn((_key: any, fetcher: any, config: any) => {
     swrConfigSeen.push(config);
+    // One stable mutate, so a test can see whether a refresh revalidated.
+    const mutate = ((globalThis as any).__cnMutate ??= jest.fn());
     if (!fetcher) return { data: undefined, mutate: jest.fn(), isLoading: false, isValidating: false };
     // Run the fetcher and expose its settlement promise so tests can await it.
     // On rejection, drive the onError callback like real SWR would.
@@ -86,7 +89,7 @@ jest.mock('lib/swr', () => ({
       // settled it wins for its own key, which is what SWR does on revalidation.
       const settled = (globalThis as any).__cnTest.liveDataByKey[JSON.stringify(_key)];
       const data = settled ?? config?.fallbackData;
-      return { data, mutate: jest.fn(), isLoading: data === undefined, isValidating: false };
+      return { data, mutate, isLoading: data === undefined, isValidating: false };
     }
     return { data: result, mutate: jest.fn(), isLoading: false, isValidating: false };
   })
@@ -204,6 +207,7 @@ jest.mock('./assets', () => ({
 
 import { selectAutoConsumeBatch } from './auto-managed-notes';
 import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
+import { requestNotesRefresh } from './note-refresh';
 
 // A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
 // going). Such a straggler still writes the module-level last-known-list cache, so it
@@ -1664,5 +1668,75 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([expect.objectContaining({ id: 'null-cache-note' })]);
+  });
+});
+
+describe('useClaimableNotes note refresh while the pager moves', () => {
+  const mutate = () => _g.__cnMutate as jest.Mock;
+  const setup = () => {
+    jest.useFakeTimers();
+    _resetInteractionPriorityForTest();
+    _g.__cnTest.isExtension = false;
+    const view = renderHook(() => useClaimableNotes('pk-1'));
+    mutate().mockClear();
+    return view;
+  };
+
+  afterEach(() => {
+    _resetInteractionPriorityForTest();
+    jest.useRealTimers();
+  });
+
+  it('revalidates at once when idle', async () => {
+    setup();
+    await act(async () => {
+      requestNotesRefresh();
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the revalidation while an interaction is active, then runs it once the interaction ends', async () => {
+    setup();
+    const end = beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mutate()).not.toHaveBeenCalled();
+
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+  });
+
+  it('revalidates at the cap when the interaction never ends', async () => {
+    setup();
+    beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+      jest.advanceTimersByTime(1400);
+    });
+    expect(mutate()).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    expect(mutate()).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not revalidate a deferred refresh after unmount', async () => {
+    const { unmount } = setup();
+    const end = beginInteraction();
+    await act(async () => {
+      requestNotesRefresh();
+    });
+    unmount();
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    expect(mutate()).not.toHaveBeenCalled();
   });
 });

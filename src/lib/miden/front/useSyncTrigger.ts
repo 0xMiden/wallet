@@ -20,6 +20,7 @@ import { runTrimTick } from 'lib/miden/transaction/trim-result-bytes';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
+import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 import { WalletType } from 'screens/onboarding/types';
 
 import { reconcileUnconfirmedInApp, syncGuardianAccounts } from './guardian-sync';
@@ -175,6 +176,9 @@ export function useSyncTrigger() {
         // remaining checks (the generating-transaction route and the send flow) are
         // what actually keep a sync from queueing behind a long prove.
         if (!onGeneratingTxPage && !inSendFlow && !isTestSyncPaused()) {
+          // A sync's WASM work would land mid-swipe; hold it until the pager settles (capped, never dropped).
+          await whenInteractionIdle();
+          if (cancelled) return;
           // Consumed HERE, not at the top of the run: a run whose guards skip it never
           // reaches the node, so reading the grant before them SPENT it on nothing.
           // A user tapping the banner's Retry from the generating-transaction page got

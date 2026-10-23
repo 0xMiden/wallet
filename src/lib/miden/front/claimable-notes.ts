@@ -11,6 +11,7 @@ import { hasExtensionRuntime, isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { faucetMetadataOf, getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
@@ -774,9 +775,17 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   const { mutate } = swrResult;
   useEffect(() => {
     if (!enabled) return;
-    return onNotesRefresh(() => {
-      void mutate();
+    let subscribed = true;
+    const unsubscribe = onNotesRefresh(() => {
+      // The revalidation re-renders the list; let a moving pager finish first.
+      void whenInteractionIdle().then(() => {
+        if (subscribed) void mutate();
+      });
     });
+    return () => {
+      subscribed = false;
+      unsubscribe();
+    };
   }, [enabled, mutate]);
 
   return {

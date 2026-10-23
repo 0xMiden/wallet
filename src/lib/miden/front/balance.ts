@@ -7,6 +7,7 @@ import type { TokenPrices } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
+import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { AssetMetadata } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
@@ -138,7 +139,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // No-op in production (tree-shaken).
     const intervalId = setInterval(() => {
       if (mountedRef.current && !isTestSyncPaused()) {
-        fetchBalancesWithDeduping();
+        // The poll's store write re-renders Home; wait out a moving pager (capped).
+        void whenInteractionIdle().then(() => {
+          if (mountedRef.current) void fetchBalancesWithDeduping();
+        });
       }
     }, REFRESH_INTERVAL);
 

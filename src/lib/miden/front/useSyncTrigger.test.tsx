@@ -21,6 +21,7 @@ import {
 } from 'lib/miden/sdk/wasm-client-poison';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_SYNC_BACKOFF_MS } from 'lib/miden/sync-backoff';
 import { WalletStatus } from 'lib/shared/types';
+import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 import { WalletType } from 'screens/onboarding/types';
 
 import { __resetSyncFuseStateForTests, requestImmediateSync, useSyncTrigger } from './useSyncTrigger';
@@ -1547,5 +1548,62 @@ describe('useSyncTrigger', () => {
     });
     expect(mockIntercomRequest.mock.calls.length).toBe(callsBefore);
     jest.useRealTimers();
+  });
+
+  describe('while the Home pager is moving', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      _resetInteractionPriorityForTest();
+    });
+    afterEach(() => _resetInteractionPriorityForTest());
+
+    it('does not start the sync, or flip the sync flag, until the interaction ends', async () => {
+      const end = beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(storeState.setSyncStatus).not.toHaveBeenCalled();
+      expect(wasmLockOptionsSeen).toHaveLength(0);
+
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(50);
+      });
+      expect(mockSyncState).toHaveBeenCalledTimes(1);
+      expect(storeState.setSyncStatus).toHaveBeenCalledWith(true);
+      unmount();
+    });
+
+    it('syncs at the cap when the interaction never ends', async () => {
+      beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(1400);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+
+      await act(async () => {
+        jest.advanceTimersByTime(200);
+      });
+      expect(mockSyncState).toHaveBeenCalledTimes(1);
+      unmount();
+    });
+
+    it('never syncs after an unmount that landed during the deferral', async () => {
+      const end = beginInteraction();
+      const { unmount } = render(<HookHost />);
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      unmount();
+      await act(async () => {
+        end();
+        jest.advanceTimersByTime(5000);
+      });
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(storeState.setSyncStatus).not.toHaveBeenCalled();
+    });
   });
 });
