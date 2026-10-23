@@ -41,6 +41,7 @@ public class AuthTabCertificateSetupTest {
         clickText(device, "Encryption & credentials");
         clickText(device, "Install a certificate");
         clickText(device, "CA certificate");
+        clickText(device, "Install anyway");
         clickText(device, "Downloads");
         clickText(device, CERTIFICATE_FILE);
         clickFirstAvailable(device, "Install anyway", "Install", "OK");
