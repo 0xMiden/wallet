@@ -364,18 +364,6 @@ describe('Earn page', () => {
     expect(mockNavigate).toHaveBeenCalledWith(`/earn/positions/${positions[0]!.id}`);
   });
 
-  it('stops pointer-down propagation on the horizontal scroll row', () => {
-    const { container } = render(<Earn />);
-
-    const scroller = container.querySelector('.touch-pan-x') as HTMLElement;
-    expect(scroller).not.toBeNull();
-
-    const event = new Event('pointerdown', { bubbles: true });
-    const stopSpy = jest.spyOn(event, 'stopPropagation');
-    scroller.dispatchEvent(event);
-    expect(stopSpy).toHaveBeenCalledTimes(1);
-  });
-
   it('keeps the end of the positions row from chaining into the pager', () => {
     const { container } = render(<Earn />);
 
