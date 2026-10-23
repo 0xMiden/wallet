@@ -497,6 +497,31 @@ describe('requestLoginSign', () => {
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
   });
 
+  it('rejects an oversized login word before decoding or prompting', async () => {
+    const atobSpy = jest.spyOn(globalThis, 'atob');
+    try {
+      for (const payload of ['A'.repeat(48), 'A'.repeat(45)]) {
+        await expect(dapp.requestLoginSign(ORIGIN, signRequest({ payload }))).rejects.toThrow(new Error(NOT_A_WORD));
+        expect(atobSpy).not.toHaveBeenCalled();
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+        expect(mockSignWithLoginKey).not.toHaveBeenCalled();
+      }
+    } finally {
+      atobSpy.mockRestore();
+    }
+  });
+
+  it('still signs a valid 43-character unpadded login word', async () => {
+    const payload = WORD.slice(0, -1);
+    expect(payload).toHaveLength(43);
+
+    await expect(dapp.requestLoginSign(ORIGIN, signRequest({ payload }))).resolves.toEqual({
+      type: MidenDAppMessageType.LoginSignResponse,
+      signature: SIGNATURE
+    });
+    expect(mockSignWithLoginKey).toHaveBeenCalledWith(ACCOUNT, DOMAIN, payload);
+  });
+
   it('refuses without a prompt when the account has no root key', async () => {
     mockLoginKeyCommitment.mockRejectedValue(new Error(UNAVAILABLE));
     await expect(dapp.requestLoginSign(ORIGIN, signRequest())).rejects.toThrow(new Error(UNAVAILABLE));

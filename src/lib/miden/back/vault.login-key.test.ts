@@ -628,6 +628,27 @@ describe('Vault login keys', () => {
     expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
   });
 
+  it('rejects an oversized login word before decoding or reading a key', async () => {
+    const atobSpy = jest.spyOn(globalThis, 'atob');
+    try {
+      for (const word of ['A'.repeat(48), 'A'.repeat(45)]) {
+        await expect(vault.signWithLoginKey(account.publicKey, DOMAIN, word)).rejects.toThrow(NOT_A_WORD);
+        expect(atobSpy).not.toHaveBeenCalled();
+        expect(mockStorageReads).toEqual([]);
+        expect(deriveLoginKeyScalar).not.toHaveBeenCalled();
+      }
+    } finally {
+      atobSpy.mockRestore();
+    }
+  });
+
+  it('still signs a valid 43-character unpadded login word', async () => {
+    const payload = u8ToB64(new Uint8Array(32).fill(7)).slice(0, -1);
+    expect(payload).toHaveLength(43);
+
+    await expect(vault.signWithLoginKey(account.publicKey, DOMAIN, payload)).resolves.toEqual(expect.any(String));
+  });
+
   it('refuses non-field elements before reading or decrypting a root key', async () => {
     await expect(
       vault.signWithLoginKey(account.publicKey, DOMAIN, u8ToB64(new Uint8Array(32).fill(0xff)))
