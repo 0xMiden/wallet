@@ -13,7 +13,9 @@ import EarnDepositAmount from './EarnDepositAmount';
 // `lib/woozie` reaches for browser history state on import; stub `navigate`
 // so we can assert the deposit-review push without running the real router.
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; vaultsPending?: boolean; error?: string; loadError?: string } = {
+  isLoading: false
+};
 const mockRefetch = jest.fn();
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
@@ -424,6 +426,22 @@ describe('EarnDepositAmount after a failed load', () => {
 
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByTestId('select-amount')).toBeNull();
+  });
+
+  it('waits for a vault catalogue still pending after the positions read landed', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('select-amount')).toBeNull();
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
+  });
+
+  it('draws a vault it has while the catalogue is pending', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByTestId('select-amount')).toBeInTheDocument();
   });
 
   it("shows no notice over a found vault when only one owner's positions failed", () => {

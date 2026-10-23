@@ -25,7 +25,9 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; vaultsPending?: boolean; error?: string; loadError?: string } = {
+  isLoading: false
+};
 const mockRefetch = jest.fn();
 
 jest.mock('react-i18next', () => ({
@@ -972,6 +974,22 @@ describe('EarnDepositReview after a failed load', () => {
     expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();
     act(() => jest.advanceTimersByTime(1000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('waits for a vault catalogue still pending after the positions read landed', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    renderReview('no-such-vault', '?amount=10');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
+    expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();
+  });
+
+  it('draws a vault it has while the catalogue is pending', () => {
+    mockLoadState = { isLoading: false, vaultsPending: true };
+    renderReview(AAVE_VAULT.id, '?amount=10');
+
+    expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeInTheDocument();
   });
 
   it("shows no notice over a found vault when only one owner's positions failed", () => {

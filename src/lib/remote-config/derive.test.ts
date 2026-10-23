@@ -1,12 +1,14 @@
 import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
 import { createPublicClient, getAddress, http, keccak256, toBytes } from 'viem';
 
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import {
   AAVE_V3_LISTING,
   AAVE_V3_USDC,
   BASE_CHAIN_ID,
   BASE_EARN_VAULTS,
   BASE_USDC,
+  COMPOUND_V3_LISTING,
   COMPOUND_V3_USDC,
   EULER_V2_USDC,
   listingFor,
@@ -27,6 +29,7 @@ import {
   NotAFaucetError,
   NotDeployedError
 } from './derive';
+import { parseStoredDerived } from './derived-snapshot';
 import type { BridgeConfig } from './schema';
 import { parseSwapPairs } from './swap-pairs';
 import type { EarnMarket } from './values';
@@ -181,6 +184,21 @@ function deps(overrides: Partial<DeriveDeps> = {}): Partial<DeriveDeps> {
 }
 
 const SEPOLIA = 11155111;
+// The testnet vault as the positions fallback serves it, with the token of the route's USDC read (USDC/18).
+const DUMMY_VAULT_INFO: EarnVaultInfo = {
+  marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+  lenderKey: 'DUMMY_LENDING',
+  lenderFamily: 'DUMMY_LENDING',
+  lenderName: 'Dummy Lending',
+  marketName: 'Dummy Lending',
+  logoUri: '',
+  chainId: '11155111',
+  underlying: { address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69', symbol: 'USDC', decimals: 18 },
+  depositApr: 2,
+  aprTotal: 2,
+  canOpen: true,
+  listing: DUMMY_VAULT
+};
 const HEALTHY_SEPOLIA: DerivedChainConfig = {
   agglayer: {
     rollupId: { state: 'ok', value: 86 },
@@ -209,7 +227,8 @@ const HEALTHY: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
+    vaults: { state: 'ok', value: [DUMMY_VAULT_INFO] }
   },
   // TESTNET names no solver.
   swap: { pairs: { state: 'skipped' } }
@@ -237,9 +256,10 @@ describe('deriveBridgeConfig', () => {
     expect(io.readBridgeRegistry).toHaveBeenCalledWith('0x3b66e20b5088f25133b69216484652', RPC);
     expect(io.readMidenFaucet).toHaveBeenCalledWith('0x537c15a622074e91188aa894456c52', RPC);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
-      SEPOLIA_POOLS_URL,
       'https://testnet-dev.epochprotocol.xyz/health',
       'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz',
+      // The catalogue waits for the route's USDC read, which gives the token of its positions fallback.
+      SEPOLIA_POOLS_URL,
       // The testnet host has no `/pools` route, so the catalogue falls back to the zero account's positions.
       SEPOLIA_CATALOG_URL
     ]);
@@ -256,7 +276,7 @@ describe('deriveBridgeConfig', () => {
       ...HEALTHY,
       chains: {},
       agglayer: { indexer: SKIPPED },
-      epoch: { market: SKIPPED, allocator: SKIPPED, midenUsdcFaucet: SKIPPED }
+      epoch: { market: SKIPPED, allocator: SKIPPED, midenUsdcFaucet: SKIPPED, vaults: SKIPPED }
     });
     expect(io.readBridgeRegistry).not.toHaveBeenCalled();
     expect(io.fetch).not.toHaveBeenCalled();
@@ -846,8 +866,130 @@ describe('the Earn market from /pools', () => {
   it('skips the market when no chain has an Epoch USDC route', async () => {
     const noRoute: BridgeConfig = { ...TESTNET, supportedEvmChains: { base: { chainId: BASE_CHAIN_ID, bridges: {} } } };
     const fetch = servingPools(() => answer(poolsPage([AAVE_V3_USDC])));
-    expect((await deriveBridgeConfig(noRoute, deps({ fetch }))).epoch.market).toEqual({ state: 'skipped' });
+    const { epoch } = await deriveBridgeConfig(noRoute, deps({ fetch }));
+    expect([epoch.market, epoch.vaults]).toEqual([{ state: 'skipped' }, { state: 'skipped' }]);
     expect(fetch.mock.calls.some(([requested]) => requested.startsWith(BASE_POOLS_PREFIX))).toBe(false);
+  });
+
+  it('keeps the listed vaults the catalogue serves, in the list order, from the request that gives the market', async () => {
+    const fetch = servingPools(() =>
+      answer(poolsPage([MORPHO_UNIBTC_USDC, EULER_V2_USDC, COMPOUND_V3_USDC, AAVE_V3_USDC]))
+    );
+    const { epoch } = await deriveBridgeConfig(onBase, deps({ fetch }));
+    // The collateral-only Morpho market is listed but not served, and Euler is served but not listed.
+    expect(epoch.vaults.state === 'ok' && epoch.vaults.value.map(vault => vault.listing.id)).toEqual([
+      'aave-v3-base-usdc',
+      'compound-v3-base-usdc',
+      'morpho-unibtc-base-usdc'
+    ]);
+    expect(epoch.vaults).toMatchObject({
+      state: 'ok',
+      value: [
+        {
+          marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}`,
+          lenderFamily: 'AAVE_V3',
+          marketName: 'Aave V3 USDC',
+          underlying: { address: BASE_USDC, symbol: 'USDC', decimals: 6 },
+          risk: { score: 2, label: 'low' },
+          canOpen: true,
+          listing: AAVE_V3_LISTING
+        },
+        {},
+        {}
+      ]
+    });
+    expect(epoch.market).toMatchObject({
+      state: 'ok',
+      value: { marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` }
+    });
+    expect(fetch.mock.calls.filter(([requested]) => requested.startsWith(BASE_POOLS_PREFIX))).toHaveLength(1);
+  });
+
+  it('keeps a catalogue that serves no listed vault as an empty one', async () => {
+    const fetch = servingPools(() => answer(poolsPage([EULER_V2_USDC])));
+    expect((await deriveBridgeConfig(onBase, deps({ fetch }))).epoch.vaults).toEqual({ state: 'ok', value: [] });
+  });
+
+  it('fails the catalogue with the market when a /pools request fails', async () => {
+    const fetch = servingPools(() => {
+      throw new TypeError('Failed to fetch');
+    });
+    const { epoch } = await deriveBridgeConfig(onBase, deps({ fetch }));
+    expect([epoch.vaults, epoch.market]).toEqual([
+      { state: 'error', message: 'Failed to fetch' },
+      { state: 'error', message: 'Failed to fetch' }
+    ]);
+  });
+});
+
+describe('the Earn vault catalogue over several routes', () => {
+  const BASE_POOLS_PREFIX = 'https://positions-testnet-dev.epochprotocol.xyz/pools?chainId=8453&';
+  // Base serves `/pools`; the Sepolia route has none, so its catalogue is the zero account's positions.
+  const twoRoutes: BridgeConfig = {
+    ...TESTNET,
+    supportedEvmChains: {
+      ...TESTNET.supportedEvmChains,
+      base: {
+        chainId: BASE_CHAIN_ID,
+        bridges: {
+          epoch: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            tokens: {
+              USDC: { contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', outputs: ['usdc-testnet-output'] }
+            }
+          }
+        }
+      }
+    },
+    earn: { vaults: [{ ...COMPOUND_V3_LISTING, depositsEnabled: false }, DUMMY_VAULT, AAVE_V3_LISTING] }
+  };
+  const serving = (catalog: () => JsonResponse = () => answer(EPOCH_CATALOG)) =>
+    jest.fn<ReturnType<JsonFetch>, Parameters<JsonFetch>>(async url => {
+      if (url.startsWith(BASE_POOLS_PREFIX)) return answer(poolsPage([AAVE_V3_USDC, COMPOUND_V3_USDC]));
+      if (url === SEPOLIA_CATALOG_URL) return catalog();
+      return url in HEALTH ? answer(HEALTH[url]) : answer(null, false);
+    });
+
+  it("merges every route's vaults in the list order, and takes the market from them", async () => {
+    const fetch = serving();
+    const { epoch } = await deriveBridgeConfig(twoRoutes, deps({ fetch }));
+    expect(epoch.vaults.state === 'ok' && epoch.vaults.value.map(vault => vault.listing.id)).toEqual([
+      'compound-v3-base-usdc',
+      'dummy-lending-sepolia-usdc',
+      'aave-v3-base-usdc'
+    ]);
+    // The document stops deposits into the first vault, so the market is the next one.
+    expect(epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch.mock.calls.filter(([url]) => url.startsWith(BASE_POOLS_PREFIX))).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([url]) => url === SEPOLIA_CATALOG_URL)).toHaveLength(1);
+  });
+
+  // A copy that did not read back would be derived again in every realm that opens it.
+  it('derives a catalogue that reads back whole from storage', async () => {
+    const derived = await deriveBridgeConfig(twoRoutes, deps({ fetch: serving() }));
+    expect(derived.epoch.vaults.state === 'ok' && derived.epoch.vaults.value).toHaveLength(3);
+    const stored = JSON.parse(JSON.stringify(derived));
+    expect(parseStoredDerived(stored, 'testnet', 1)).toStrictEqual(stored);
+  });
+
+  it('fails the whole catalogue, and the market, when one route read fails', async () => {
+    const { epoch } = await deriveBridgeConfig(twoRoutes, deps({ fetch: serving(() => answer(null, false)) }));
+    expect([epoch.vaults, epoch.market]).toEqual([
+      { state: 'error', message: 'Remote JSON request failed with HTTP 503' },
+      { state: 'error', message: 'Remote JSON request failed with HTTP 503' }
+    ]);
+  });
+
+  it.each([
+    ['fails', { evm: () => sepoliaReads({ erc20: jest.fn(async () => Promise.reject(new Error('offline'))) }) }],
+    ['has no RPC', { evm: () => null }]
+  ])("gives the positions fallback USDC/6 when the route's USDC read %s", async (_label, evm) => {
+    const { epoch } = await deriveBridgeConfig(TESTNET, deps(evm));
+    expect(epoch.vaults).toEqual({
+      state: 'ok',
+      value: [{ ...DUMMY_VAULT_INFO, underlying: { ...DUMMY_VAULT_INFO.underlying, decimals: 6 } }]
+    });
   });
 });
 

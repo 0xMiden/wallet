@@ -105,6 +105,24 @@ describe('mapEarnPosition', () => {
     expect(ui.name).toBe('Dummy Lending USDC');
   });
 
+  it("takes the listed vault's document logo, and none for an unlisted market or a listing without one", () => {
+    const logoUrlOf = jest.fn((listing: { logo?: string }) =>
+      listing.logo === undefined ? null : `https://config.test/${listing.logo}`
+    );
+    const withLogo = LISTED.map(listing => ({ ...listing, logo: 'icons/dummy-lending.svg' }));
+
+    expect(mapEarnPosition(libPosition(), withLogo, logoUrlOf).logoUrl).toBe(
+      'https://config.test/icons/dummy-lending.svg'
+    );
+    expect(mapEarnPosition(libPosition(), LISTED, logoUrlOf)).not.toHaveProperty('logoUrl');
+    logoUrlOf.mockClear();
+    const unlisted = mapEarnPosition(libPosition({ marketUid: 'AAVE_V3:1:0xother' }), withLogo, logoUrlOf);
+    expect(unlisted).not.toHaveProperty('logoUrl');
+    expect(logoUrlOf).not.toHaveBeenCalled();
+    // With no resolver, a listed position has no document logo either.
+    expect(mapEarnPosition(libPosition(), withLogo)).not.toHaveProperty('logoUrl');
+  });
+
   it('does not invent a vault id for an unlisted position', () => {
     const ui = mapEarnPosition(
       libPosition({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })
@@ -253,6 +271,14 @@ describe('mapEarnVault', () => {
     EARN_VAULT_INFOS.forEach((info, index) => {
       expect(mapEarnVault(info)).toEqual(EARN_DATA.vaults[index]);
     });
+  });
+
+  it('carries the document logo URL it is given, and none without one', () => {
+    expect(mapEarnVault(libVault(), undefined, 'https://config.test/icons/dummy-lending.svg')).toMatchObject({
+      logoUrl: 'https://config.test/icons/dummy-lending.svg'
+    });
+    expect(mapEarnVault(libVault(), undefined, null)).not.toHaveProperty('logoUrl');
+    expect(mapEarnVault(libVault())).not.toHaveProperty('logoUrl');
   });
 
   it('lists native USDCx funding while the asset stays the EVM underlying', () => {

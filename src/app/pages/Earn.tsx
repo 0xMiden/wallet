@@ -168,7 +168,7 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
     >
       <div className="flex w-full items-center gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-fill">
-          <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
+          <ProviderLogo protocol={vault.protocol} logoUrl={vault.logoUrl} className="h-8 w-8" />
         </span>
 
         <div className="min-w-0 flex-1">

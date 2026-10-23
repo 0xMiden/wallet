@@ -139,12 +139,21 @@ export function positionSlug(position: LibEarnPosition): string {
   return `${position.owner}-${position.chainId}-${position.marketUid}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
+/** The absolute URL of a listed vault's document logo (`selectEarnVaultLogoUrl`), or null when it names none. */
+export type EarnVaultLogoUrlOf = (listing: EarnVaultConfig) => string | null;
+
+const NO_LOGO_URL: EarnVaultLogoUrlOf = () => null;
+
 /**
  * The display position of one lending position. `listed` is the document's vault list (`selectEarnVaults`): a
- * position in a listed market takes that vault's name and route id. A market the document does not list has no
- * vault id; the id is never derived from the market uid.
+ * position in a listed market takes that vault's name, route id and document logo (`logoUrlOf`). A market the
+ * document does not list has no vault id; the id is never derived from the market uid.
  */
-export function mapEarnPosition(position: LibEarnPosition, listed: readonly EarnVaultConfig[] = []): EarnPosition {
+export function mapEarnPosition(
+  position: LibEarnPosition,
+  listed: readonly EarnVaultConfig[] = [],
+  logoUrlOf: EarnVaultLogoUrlOf = NO_LOGO_URL
+): EarnPosition {
   const network = networkName(position.chainId);
   const family = earnLenderFamily(position.lenderKey);
   const protocol = protocolName(family, position.lenderName);
@@ -152,6 +161,7 @@ export function mapEarnPosition(position: LibEarnPosition, listed: readonly Earn
   // A listed market's name identifies it on its own.
   const marketName = listing ? undefined : distinguishingMarketName(family, position.lenderName);
   const epochProtocol = position.epochProtocol ?? listing?.protocol;
+  const logoUrl = listing ? logoUrlOf(listing) : null;
   const yearlyUsd = (position.depositsUSD * position.depositApr) / 100;
   return {
     id: positionSlug(position),
@@ -166,6 +176,7 @@ export function mapEarnPosition(position: LibEarnPosition, listed: readonly Earn
     protocol,
     ...(epochProtocol ? { epochProtocol } : {}),
     ...(listing ? { name: listing.name } : {}),
+    ...(logoUrl ? { logoUrl } : {}),
     ...(marketName ? { marketName } : {}),
     asset: position.symbol,
     network,
@@ -204,9 +215,10 @@ export function vaultSlug(vault: EarnVaultInfo): string {
 /**
  * The display vault of one market, named as the document lists it: its `name`, and its `about` and `risk` in place
  * of the catalogue's when it sets them. The rate is `aprTotal` (base and rewards). `fundingAsset` is the Miden asset
- * that funds a deposit (USDCx on testnet); `asset` stays the EVM underlying.
+ * that funds a deposit (USDCx on testnet); `asset` stays the EVM underlying. `logoUrl` is the absolute URL of the
+ * entry's document logo (`selectEarnVaultLogoUrl`), drawn before the bundled mark.
  */
-export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string): EarnVault {
+export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string, logoUrl?: string | null): EarnVault {
   const { listing } = vault;
   const riskLabel = listing.risk ?? vault.risk?.label;
   const riskLevel = riskLabel === undefined ? undefined : riskLevelOf(riskLabel);
@@ -218,6 +230,7 @@ export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string): EarnV
     name: listing.name,
     ...(marketName ? { marketName } : {}),
     protocol: protocolName(vault.lenderFamily, vault.lenderName),
+    ...(logoUrl ? { logoUrl } : {}),
     ...(listedAbout ? { listedAbout } : {}),
     asset: vault.underlying.symbol,
     ...(fundingAsset ? { fundingAsset } : {}),

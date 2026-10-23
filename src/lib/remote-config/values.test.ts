@@ -1,7 +1,10 @@
+import { TEST_EARN_VAULT_INFO } from 'lib/epoch/testing/bridge-config';
+
 import type { DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { BridgeConfig } from './schema';
+import { bridgeConfigBaseUrl, bridgeConfigUrl } from './source';
 import {
   BridgeConfigUnavailableError,
   getAgglayerBridgeOut,
@@ -23,6 +26,8 @@ import {
   getMidenUsdc,
   selectEarnMarket,
   selectEarnVault,
+  selectEarnVaultCatalog,
+  selectEarnVaultLogoUrl,
   selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
@@ -129,7 +134,8 @@ const DERIVED: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
+    vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] }
   }
 };
 const RECOVERY = {
@@ -205,12 +211,18 @@ describe('selectors', () => {
     });
   });
 
+  it('select the Earn vault catalogue the derivation read', () => {
+    expect(selectEarnVaultCatalog(snapshot())).toEqual([TEST_EARN_VAULT_INFO]);
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'ok', value: [] } } }))).toEqual([]);
+  });
+
   it('select nothing without an accepted document', () => {
     for (const select of [
       selectMidenUsdc,
       selectMidenUsdcFaucetId,
       selectEvmUsdc,
       selectEarnMarket,
+      selectEarnVaultCatalog,
       selectNativeEthFaucet,
       selectNativeEthToken
     ]) {
@@ -220,6 +232,8 @@ describe('selectors', () => {
 
   it('select nothing whose read did not succeed, but still name the configured faucet', () => {
     const failed = withDerived({ epoch: { midenUsdcFaucet: ERROR, evmUsdc: { state: 'absent' } } });
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: ERROR } }))).toBeNull();
+    expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'skipped' } } }))).toBeNull();
     expect(selectMidenUsdc(failed)).toBeNull();
     expect(selectMidenUsdcFaucetId(failed)).toBe('0x537c15a622074e91188aa894456c52');
     expect(selectEvmUsdc(failed)).toBeNull();
@@ -325,6 +339,37 @@ describe('the Earn vaults', () => {
     expect(getEarnVaults()).toEqual([vault]);
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(getEarnVaults()).toEqual([]);
+  });
+});
+
+describe('selectEarnVaultLogoUrl', () => {
+  const [listed] = CONFIG.earn?.vaults ?? [];
+  if (!listed) throw new Error('the test document lists no vault');
+  const savedUrl = process.env.MIDEN_REMOTE_CONFIG_URL;
+  afterEach(() => {
+    if (savedUrl === undefined) delete process.env.MIDEN_REMOTE_CONFIG_URL;
+    else process.env.MIDEN_REMOTE_CONFIG_URL = savedUrl;
+  });
+
+  it("resolves the logo against the base URL the network's document is fetched from", () => {
+    // The document's own URL without its `/<network>.json`.
+    const base = bridgeConfigUrl('testnet').replace(/\/testnet\.json$/, '');
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/aave.svg' })).toBe(`${base}/icons/aave.svg`);
+    expect(bridgeConfigBaseUrl('testnet')).toBe(base);
+  });
+
+  it('resolves against the served base in an E2E build', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    process.env.MIDEN_REMOTE_CONFIG_URL = 'http://127.0.0.1:8550/config/';
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/dummy-lending.png' })).toBe(
+      'http://127.0.0.1:8550/config/icons/dummy-lending.png'
+    );
+  });
+
+  it('gives null for a listing with no logo, or one that is not an icons/ path', () => {
+    expect(selectEarnVaultLogoUrl(snapshot(), listed)).toBeNull();
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'https://evil.example/x.svg' })).toBeNull();
+    expect(selectEarnVaultLogoUrl(snapshot(), { ...listed, logo: 'icons/../x.svg' })).toBeNull();
   });
 });
 

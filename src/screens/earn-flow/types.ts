@@ -34,6 +34,8 @@ export interface EarnPosition {
   epochProtocol?: '1delta' | 'dummy-lending';
   /** The document's name of this position's vault, when the document lists its market. */
   name?: string;
+  /** The absolute URL of the listed vault's document logo. Unset for an unlisted market or a listing with no logo. */
+  logoUrl?: string;
   /** The name of the market when neither the document nor the protocol identifies it. */
   marketName?: string;
   asset: string;
@@ -84,6 +86,8 @@ export interface EarnVault {
   name?: string;
   /** The name of the lender family ("Aave V3", "Morpho"), or the lender's own name outside the known families. */
   protocol: string;
+  /** The absolute URL of the document's logo of the vault (`earn.vaults[].logo`). Unset when the entry names none. */
+  logoUrl?: string;
   /** The name of this market, when neither the document nor the protocol identifies it. */
   marketName?: string;
   /** The document's `about` sentence, shown under the name. Unset when the document gives none. */

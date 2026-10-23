@@ -4148,6 +4148,40 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(rowByLabel('note')?.textContent).toContain('note-delivered');
   });
 
+  it('links the owner and the settlement tx of a withdrawal to the explorer of its market chain', async () => {
+    setMockRow(
+      earnWithdrawTx(
+        {
+          phase: 'delivering',
+          marketUid: 'AAVE_V3:42161:0xaf88d065e77c8cc2239327c5edb3a432268e5831',
+          evmTxHash: '0xfeed'
+        },
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://arbiscan.io/address/0x1111111111111111111111111111111111111111'
+    );
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute('href', 'https://arbiscan.io/tx/0xfeed');
+  });
+
+  it('shows the owner and the settlement tx of a withdrawal on an unknown chain without a link', async () => {
+    setMockRow(
+      earnWithdrawTx(
+        { phase: 'delivering', marketUid: 'AAVE_V3:999999:0xunderlying', evmTxHash: '0xfeed' },
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).not.toHaveAttribute('href');
+    expect(rowByLabel('txIdLabel')?.textContent).toContain('0xfeed');
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).not.toHaveAttribute('href');
+  });
+
   it('falls back to the raw market uid when it has no protocol segment', async () => {
     setMockRow(earnWithdrawTx({ phase: 'redeeming', marketUid: ':11155111:0xabc' }));
     await renderAndLoad();
@@ -4266,6 +4300,78 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(screen.getByText('1000')).toBeInTheDocument();
     expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
+  // The EVM links go to the explorer of the market's own chain, which the market uid names.
+  it.each([
+    ['Base', 8453, 'https://basescan.org'],
+    ['Arbitrum', 42161, 'https://arbiscan.io'],
+    ['Ethereum', 1, 'https://etherscan.io'],
+    ['Base Sepolia', 84532, 'https://sepolia.basescan.org']
+  ])('links the owner and the tx of a deposit on %s to that chain explorer', async (_name, chainId, explorer) => {
+    setMockRow(
+      earnDepositTx(
+        {
+          evmRecipient: '0x9d981c9e8fa515d7fde5a58b9bf4e8c6cacacb16',
+          marketUid: `MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:${chainId}:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`,
+          evmTxHash: '0xe54c3744e9b319b21c9f3db739a29d07a547a76388a0f4fc23ff15dedb8b8428',
+          epochStatus: 'confirmed'
+        },
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      `${explorer}/address/0x9d981c9e8fa515d7fde5a58b9bf4e8c6cacacb16`
+    );
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      `${explorer}/tx/0xe54c3744e9b319b21c9f3db739a29d07a547a76388a0f4fc23ff15dedb8b8428`
+    );
+  });
+
+  it.each([
+    ['an empty market id', ''],
+    ['no market id', undefined]
+  ])('keeps the default chain explorer for a deposit with %s', async (_label, marketUid) => {
+    const extraInputs = {
+      evmRecipient: '0x2222222222222222222222222222222222222222',
+      sourceFaucetId: 'faucet-1',
+      evmTxHash: '0xbeef'
+    };
+    setMockRow(
+      earnDepositTx(
+        {},
+        { transactionId: undefined, extraInputs: marketUid === undefined ? extraInputs : { ...extraInputs, marketUid } }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://sepolia.etherscan.io/address/0x2222222222222222222222222222222222222222'
+    );
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://sepolia.etherscan.io/tx/0xbeef'
+    );
+  });
+
+  // A chain the registry does not know, or knows no explorer for, never falls back to another chain's explorer.
+  it.each([
+    ['a chain the registry does not know', 'MORPHO_BLUE_X:999999:0xunderlying'],
+    ['a chain with no explorer', `MORPHO_BLUE_X:${NO_EXPLORER_CHAIN.id}:0xunderlying`],
+    ['no chain id', 'MORPHO_BLUE_X:base:0xunderlying']
+  ])('shows the owner and the tx without a link for %s', async (_label, marketUid) => {
+    setMockRow(earnDepositTx({ marketUid, evmTxHash: '0xbeef' }, { transactionId: undefined }));
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.textContent).toContain('0x2222222222222222222222222222222222222222');
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).not.toHaveAttribute('href');
+    expect(rowByLabel('txIdLabel')?.textContent).toContain('0xbeef');
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).not.toHaveAttribute('href');
   });
 
   // The Review shows the amount exactly as typed; the page's 3-decimal pass would cut 10.6555 to 10.655.

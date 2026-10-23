@@ -62,6 +62,10 @@ it('reads each bridge from its listed chain and discovers the Earn market from E
       chainId: 11155111
     }
   });
+  expect(result.epoch.vaults).toMatchObject({
+    state: 'ok',
+    value: [{ marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' }]
+  });
   expect(evm).toHaveBeenCalledWith(11155111);
 });
 

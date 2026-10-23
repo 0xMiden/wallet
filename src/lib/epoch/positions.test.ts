@@ -1,15 +1,13 @@
-import { getEarnMarket, getEarnVaults, getEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEarnVaults, getEpochPositionsUrl, getEpochRoutes } from 'lib/remote-config/values';
 
 import {
   carryForward,
-  EARN_CATALOG_ERROR_OWNER,
   type EarnPosition,
   type EarnPositionsResult,
-  type EarnVaultInfo,
   fetchEarnPositions,
   getEarnDepositEvmAddresses
 } from './positions';
-import { TEST_EARN_MARKET, TEST_EARN_VAULT, TEST_POSITIONS_URL } from './testing/bridge-config';
+import { TEST_EARN_VAULT, TEST_POSITIONS_URL } from './testing/bridge-config';
 import { AAVE_V3_USDC, listingFor, poolsPage } from './testing/pools-fixtures';
 
 jest.mock('lib/remote-config/values', () =>
@@ -35,25 +33,6 @@ const ZERO_ACCOUNT = '0x0000000000000000000000000000000000000000';
 const SEPOLIA_USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
 const DUMMY_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
 const AAVE_UID = 'AAVE_V3:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
-
-/** A `/pools` market of `lenderKey` on the test route (Sepolia USDC), shaped as the mainnet host serves one. */
-function sepoliaPool(lenderKey: string, name: string, aprTotal: number) {
-  const address = SEPOLIA_USDC.toLowerCase();
-  return {
-    ...AAVE_V3_USDC,
-    marketUid: `${lenderKey}:11155111:${address}`,
-    chainId: '11155111',
-    lenderKey,
-    name,
-    depositRate: aprTotal,
-    lenderInfo: { key: lenderKey, name, logoURI: '' },
-    underlyingInfo: {
-      ...AAVE_V3_USDC.underlyingInfo,
-      asset: { ...AAVE_V3_USDC.underlyingInfo.asset, chainId: '11155111', address, decimals: 18 }
-    },
-    termSheet: { supply: { ...AAVE_V3_USDC.termSheet.supply, aprTotal } }
-  };
-}
 
 /** One chain item of a positions answer: `lenderKey`'s positions in `marketUid`. */
 function apiItem(deposits = '0', depositsUSD = 0, lenderKey = 'DUMMY_LENDING', marketUid = DUMMY_UID) {
@@ -95,29 +74,18 @@ type Answer = { ok: boolean; status: number; json: () => Promise<unknown> };
 const answer = (body: unknown, status = 200): Answer => ({ ok: status < 400, status, json: async () => body });
 const positionsAnswer = (items: unknown) => answer({ success: true, data: { items } });
 
-interface Routes {
-  /** The `/pools` answer. By default the Dummy and Aave markets of the test route. */
-  pools?: () => Answer | Promise<Answer>;
-  /** The zero account's positions, the catalogue fallback. */
-  catalog?: () => Answer;
-  /** One owner's positions. */
-  owner?: (owner: string, init?: { signal?: AbortSignal }) => Answer | Promise<Answer>;
-}
-
-function serve(routes: Routes = {}) {
+/** Serves an owner's positions with `owner`, and the catalogue routes, which a positions read must never ask for. */
+function serve(owner?: (owner: string, init?: { signal?: AbortSignal }) => Answer | Promise<Answer>) {
   const fetchMock = jest.fn();
   fetchMock.mockImplementation(async (url: string, init?: { signal?: AbortSignal }) => {
     const parsed = new URL(url);
     const account = parsed.searchParams.get('account') ?? '';
     switch (parsed.pathname) {
       case '/pools':
-        return (
-          routes.pools?.() ??
-          answer(poolsPage([sepoliaPool('AAVE_V3', 'Aave V3', 5), sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)]))
-        );
+        return answer(poolsPage([AAVE_V3_USDC]));
       case '/positions':
-        if (account === ZERO_ACCOUNT) return routes.catalog?.() ?? answer(null, 404);
-        return routes.owner?.(account, init) ?? positionsAnswer([]);
+        if (account === ZERO_ACCOUNT) return positionsAnswer([apiItem()]);
+        return owner?.(account, init) ?? positionsAnswer([]);
       default:
         return answer(null, 404);
     }
@@ -141,33 +109,27 @@ describe('fetchEarnPositions', () => {
     jest.restoreAllMocks();
   });
 
-  it('loads the vault catalogue for a wallet with no EVM owners, with no positions request', async () => {
+  it('makes no request for a wallet with no EVM owners', async () => {
     const fetchMock = serve();
 
     const result = await fetchEarnPositions({ owners: [] });
 
-    expect(requestedPaths(fetchMock)).toEqual(['/pools']);
-    const query = new URL(String(fetchMock.mock.calls[0]?.[0])).searchParams;
-    expect(query.get('chainId')).toBe('11155111');
-    expect(query.get('underlyings')).toBe(TEST_EARN_MARKET.underlying);
-    expect(result.owners).toEqual([]);
-    expect(result.positions).toEqual([]);
-    expect(result.errors).toEqual([]);
-    expect(result.vaults.map(vault => [vault.marketUid, vault.aprTotal])).toEqual([
-      [AAVE_UID, 5],
-      [DUMMY_UID, 2]
-    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ positions: [], totalDepositsUSD: 0, owners: [], errors: [] });
   });
 
-  it('reads the positions host and the market chain the config names', async () => {
+  it('reads only the positions of each owner on the host and chain the config names, never the catalogue', async () => {
     const fetchMock = serve();
 
-    await fetchEarnPositions({ owners: [OWNER] });
+    await fetchEarnPositions({ owners: [OWNER, OTHER_OWNER] });
 
     expect(fetchMock).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111`, {
       signal: expect.any(AbortSignal)
     });
-    expect(requestedPaths(fetchMock).sort()).toEqual(['/pools', `/positions?account=${OWNER}`]);
+    expect(requestedPaths(fetchMock).sort()).toEqual([
+      `/positions?account=${OWNER}`,
+      `/positions?account=${OTHER_OWNER}`
+    ]);
   });
 
   it('rejects before any request while the config names no positions host', async () => {
@@ -180,8 +142,16 @@ describe('fetchEarnPositions', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects before any request while the config names no Epoch route', async () => {
+    const fetchMock = serve();
+    jest.mocked(getEpochRoutes).mockReturnValueOnce([]);
+
+    await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toThrow('The bridge config names no Epoch route');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('maps funded positions and preserves withdrawal inputs', async () => {
-    serve({ owner: () => positionsAnswer([apiItem('12.5', 12.5)]) });
+    serve(() => positionsAnswer([apiItem('12.5', 12.5)]));
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
@@ -200,21 +170,19 @@ describe('fetchEarnPositions', () => {
         symbol: 'USDC',
         underlyingAddress: SEPOLIA_USDC,
         decimals: 6,
-        priceUsd: 1,
-        epochProtocol: 'dummy-lending'
+        priceUsd: 1
       }
     ]);
   });
 
-  it('keeps the funded positions of every catalogue market, matching the uid in any case', async () => {
-    serve({
-      owner: () =>
-        positionsAnswer([
-          apiItem('12.5', 12.5),
-          apiItem('3', 3, 'AAVE_V3', `AAVE_V3:11155111:${SEPOLIA_USDC}`),
-          apiItem('0', 0, 'AAVE_V3', AAVE_UID)
-        ])
-    });
+  it('keeps the funded positions of every market of the route, matching the uid in any case', async () => {
+    serve(() =>
+      positionsAnswer([
+        apiItem('12.5', 12.5),
+        apiItem('3', 3, 'AAVE_V3', `AAVE_V3:11155111:${SEPOLIA_USDC}`),
+        apiItem('0', 0, 'AAVE_V3', AAVE_UID)
+      ])
+    );
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
@@ -225,149 +193,53 @@ describe('fetchEarnPositions', () => {
     expect(result.totalDepositsUSD).toBe(15.5);
   });
 
-  it('keeps a funded known-family position when the catalogue does not list it', async () => {
-    serve({
-      pools: () => answer(poolsPage([sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])),
-      owner: () =>
-        positionsAnswer([
-          apiItem('12.5', 12.5),
-          apiItem('3', 3, 'AAVE_V3', AAVE_UID),
-          apiItem('4', 4, 'EULER_V2', 'EULER_V2:11155111:0x4c1aeda9b43efcf1da1d1755b18802aabe90f61e')
-        ])
-    });
+  it("keeps a position in any market of a route's USDC, listed or not, and leaves out one in another token or chain", async () => {
+    const unlisted =
+      'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+    jest.mocked(getEarnVaults).mockReturnValue([TEST_EARN_VAULT]);
+    serve(() =>
+      positionsAnswer([
+        apiItem('12.5', 12.5),
+        apiItem('3', 3, 'AAVE_V3', AAVE_UID),
+        apiItem('5', 5, 'MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D', unlisted),
+        apiItem('4', 4, 'EULER_V2', 'EULER_V2:11155111:0x4c1aeda9b43efcf1da1d1755b18802aabe90f61e'),
+        apiItem('6', 6, 'AAVE_V3', 'AAVE_V3:84532:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69')
+      ])
+    );
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
+    // The list gates deposits only: the unlisted Aave and Morpho positions stay withdrawable; the Euler one is in
+    // another token, and the last one is on a chain no Epoch route names.
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID, unlisted]);
   });
 
-  it("reads the testnet catalogue from the zero account's positions, where the host has no /pools route", async () => {
-    const fetchMock = serve({
-      pools: () => answer('Cannot GET /pools', 404),
-      catalog: () => positionsAnswer([apiItem()]),
-      owner: () => positionsAnswer([apiItem('12.5', 12.5)])
-    });
+  it('asks for the positions of every Epoch route in one request per owner, and keeps each route in its USDC', async () => {
+    const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+    const baseUid = `AAVE_V3:8453:${BASE_USDC.toLowerCase()}`;
+    jest.mocked(getEpochRoutes).mockReturnValue([
+      { chainId: 11155111, usdc: SEPOLIA_USDC },
+      { chainId: 8453, usdc: BASE_USDC }
+    ]);
+    const fetchMock = serve(() =>
+      positionsAnswer([
+        apiItem('12.5', 12.5),
+        { ...apiItem('3', 3, 'AAVE_V3', baseUid), chainId: '8453' },
+        { ...apiItem('4', 4, 'AAVE_V3', `AAVE_V3:8453:${SEPOLIA_USDC.toLowerCase()}`), chainId: '8453' }
+      ])
+    );
 
     const result = await fetchEarnPositions({ owners: [OWNER] });
 
-    expect(requestedPaths(fetchMock).sort()).toEqual([
-      '/pools',
-      `/positions?account=${ZERO_ACCOUNT}`,
-      `/positions?account=${OWNER}`
-    ]);
-    expect(result.errors).toEqual([]);
-    expect(result.vaults).toEqual([
-      {
-        marketUid: DUMMY_UID,
-        lenderKey: 'DUMMY_LENDING',
-        lenderFamily: 'DUMMY_LENDING',
-        lenderName: 'Dummy Lending',
-        marketName: 'Dummy Lending',
-        logoUri: '',
-        chainId: '11155111',
-        // The symbol and decimals the config's read of the token gives.
-        underlying: { address: SEPOLIA_USDC, symbol: 'USDC', decimals: 18 },
-        depositApr: 2,
-        aprTotal: 2,
-        canOpen: true,
-        listing: TEST_EARN_VAULT
-      }
-    ]);
-    // The listed Aave market the fallback does not serve is reported, so an earlier read's copy is kept.
-    expect(result.droppedVaultKeys).toEqual([AAVE_UID.toLowerCase()]);
-    expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, marketUid: DUMMY_UID })]);
-  });
-
-  it('reports a failed catalogue read under its own label, and keeps the positions of supported markets', async () => {
-    const fetchMock = serve({
-      pools: () => answer(null, 503),
-      catalog: () => answer(null, 503),
-      owner: () =>
-        positionsAnswer([
-          apiItem('12.5', 12.5),
-          apiItem('3', 3, 'AAVE_V3', AAVE_UID),
-          apiItem('4', 4, 'EULER_V2', 'EULER_V2:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'),
-          apiItem('5', 5, 'AAVE_V3', 'AAVE_V3:84532:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69')
-        ])
+    expect(fetchMock).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111,8453`, {
+      signal: expect.any(AbortSignal)
     });
-
-    const result = await fetchEarnPositions({ owners: [OWNER] });
-
-    expect(result.errors).toEqual([
-      { owner: EARN_CATALOG_ERROR_OWNER, error: 'Remote JSON request failed with HTTP 503' }
-    ]);
-    expect(result.vaults).toEqual([]);
-    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
-    expect(requestedPaths(fetchMock)).toEqual(['/pools', `/positions?account=${OWNER}`]);
-  });
-
-  it('reads no catalogue when told to skip it, and keeps the positions of supported markets', async () => {
-    const fetchMock = serve({
-      owner: () => positionsAnswer([apiItem('12.5', 12.5), apiItem('3', 3, 'AAVE_V3', AAVE_UID)])
-    });
-    const getMarket = jest.mocked(getEarnMarket);
-    getMarket.mockImplementation(() => {
-      throw new Error('The bridge config has no usable Earn market.');
-    });
-    getMarket.mockClear();
-
-    try {
-      const result = await fetchEarnPositions({ owners: [OWNER], chains: [11155111], skipCatalog: true });
-
-      expect(requestedPaths(fetchMock)).toEqual([`/positions?account=${OWNER}`]);
-      expect(result.errors).toEqual([]);
-      expect(result.vaults).toEqual([]);
-      expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, AAVE_UID]);
-      expect(getMarket).not.toHaveBeenCalled();
-    } finally {
-      getMarket.mockImplementation(() => TEST_EARN_MARKET);
-    }
-  });
-
-  it('rejects a skip-catalog read that names no chain before any request', async () => {
-    const fetchMock = serve();
-    const getMarket = jest.mocked(getEarnMarket);
-    getMarket.mockImplementation(() => {
-      throw new Error('The bridge config has no usable Earn market.');
-    });
-    getMarket.mockClear();
-
-    try {
-      await expect(fetchEarnPositions({ owners: [OWNER], skipCatalog: true })).rejects.toThrow(
-        'A skip-catalog positions read needs the chain of its market.'
-      );
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(getMarket).not.toHaveBeenCalled();
-    } finally {
-      getMarket.mockImplementation(() => TEST_EARN_MARKET);
-    }
-  });
-
-  it('names the catalogue vaults a read dropped, and says when one had no uid', async () => {
-    const malformed = { ...sepoliaPool('AAVE_V3', 'Aave V3', 5), depositRate: '5' };
-    serve({ pools: () => answer(poolsPage([malformed, sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])) });
-    const keyed = await fetchEarnPositions({ owners: [] });
-    expect(keyed.vaults.map(vault => vault.marketUid)).toEqual([DUMMY_UID]);
-    expect(keyed.droppedVaultKeys).toEqual([AAVE_UID.toLowerCase()]);
-    expect(keyed.vaultDroppedUnkeyed).toBeUndefined();
-    expect(keyed.errors).toEqual([]);
-
-    serve({ pools: () => answer(poolsPage([null, sepoliaPool('DUMMY_LENDING', 'Dummy Lending', 2)])) });
-    const unkeyed = await fetchEarnPositions({ owners: [] });
-    expect(unkeyed.vaultDroppedUnkeyed).toBe(true);
-    // No item served the listed Aave market.
-    expect(unkeyed.droppedVaultKeys).toEqual([AAVE_UID.toLowerCase()]);
-
-    serve();
-    const clean = await fetchEarnPositions({ owners: [] });
-    expect(clean.droppedVaultKeys).toBeUndefined();
-    expect(clean.vaultDroppedUnkeyed).toBeUndefined();
+    expect(requestedPaths(fetchMock)).toEqual([`/positions?account=${OWNER}`]);
+    expect(result.positions.map(position => position.marketUid)).toEqual([DUMMY_UID, baseUid]);
   });
 
   it('isolates malformed and failed API responses as per-owner errors', async () => {
-    serve({
-      owner: owner => (owner === OTHER_OWNER ? answer(null, 429) : answer({ success: true, data: { items: null } }))
-    });
+    serve(owner => (owner === OTHER_OWNER ? answer(null, 429) : answer({ success: true, data: { items: null } })));
 
     const result = await fetchEarnPositions({ owners: [OWNER, OTHER_OWNER] });
 
@@ -376,16 +248,14 @@ describe('fetchEarnPositions', () => {
       { owner: OWNER, error: 'positions request unsuccessful' },
       { owner: OTHER_OWNER, error: 'positions request failed (429)' }
     ]);
-    expect(result.vaults).toHaveLength(2);
   });
 
   it("settles an owner whose payload cannot be read as that owner's error, while the others load", async () => {
     // A readable item first, so keeping any of this owner's items would show here.
     const lackingLenderInfo = { ...apiItem('3', 3), lenderInfo: undefined };
-    serve({
-      owner: owner =>
-        positionsAnswer(owner === OTHER_OWNER ? [apiItem('7', 7), lackingLenderInfo] : [apiItem('12.5', 12.5)])
-    });
+    serve(owner =>
+      positionsAnswer(owner === OTHER_OWNER ? [apiItem('7', 7), lackingLenderInfo] : [apiItem('12.5', 12.5)])
+    );
 
     const result = await fetchEarnPositions({ owners: [OTHER_OWNER, OWNER] });
 
@@ -403,7 +273,7 @@ describe('fetchEarnPositions', () => {
       ...funded,
       data: funded.data.map(group => ({ positions: group.positions.map(pos => ({ ...pos, depositsUSD: null })) }))
     };
-    serve({ owner: owner => positionsAnswer(owner === OTHER_OWNER ? [noUsd] : [apiItem('12.5', 12.5)]) });
+    serve(owner => positionsAnswer(owner === OTHER_OWNER ? [noUsd] : [apiItem('12.5', 12.5)]));
 
     const result = await fetchEarnPositions({ owners: [OTHER_OWNER, OWNER] });
 
@@ -419,14 +289,11 @@ describe('fetchEarnPositions', () => {
   it("settles an owner whose request stalls as that owner's error at 15 s, while the others load", async () => {
     jest.useFakeTimers();
     // A stalled request ends only when its signal aborts, as a real fetch does.
-    serve({
-      owner: (owner, init) =>
-        owner === OTHER_OWNER
-          ? new Promise((_resolve, reject) =>
-              init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
-            )
-          : positionsAnswer([apiItem('12.5', 12.5)])
-    });
+    serve((owner, init) =>
+      owner === OTHER_OWNER
+        ? new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+        : positionsAnswer([apiItem('12.5', 12.5)])
+    );
     try {
       let settled = false;
       const read = fetchEarnPositions({ owners: [OWNER, OTHER_OWNER] }).finally(() => {
@@ -463,44 +330,18 @@ describe('carryForward', () => {
     decimals: 6,
     priceUsd: 1
   });
-  const vault = (lenderKey: string, aprTotal = 2): EarnVaultInfo => ({
-    marketUid: `${lenderKey}:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69`,
-    lenderKey,
-    lenderFamily: 'MORPHO_BLUE',
-    lenderName: lenderKey,
-    marketName: 'Loan USDC',
-    logoUri: '',
-    chainId: '11155111',
-    underlying: { address: SEPOLIA_USDC, symbol: 'USDC', decimals: 18 },
-    depositApr: aprTotal,
-    aprTotal,
-    canOpen: true,
-    listing: listingFor(
-      { marketUid: `${lenderKey}:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69` },
-      lenderKey.toLowerCase().replaceAll('_', '-'),
-      lenderKey
-    )
-  });
-  const uid = (lenderKey: string) => vault(lenderKey).marketUid.toLowerCase();
   const read = (over: Partial<EarnPositionsResult>): EarnPositionsResult => ({
     positions: [],
-    vaults: [],
     totalDepositsUSD: 0,
     owners: [OWNER, OTHER_OWNER],
     errors: [],
     ...over
   });
-  const catalogFailure = { owner: EARN_CATALOG_ERROR_OWNER, error: 'Remote JSON request failed with HTTP 503' };
 
-  it("brings back a failed owner's positions, and no vault while the catalogue loaded", () => {
-    const previous = read({
-      positions: [position(OWNER, 5), position(OTHER_OWNER, 7)],
-      vaults: [vault('MORPHO_BLUE_A', 1), vault('MORPHO_BLUE_B')],
-      totalDepositsUSD: 12
-    });
+  it("brings back a failed owner's positions", () => {
+    const previous = read({ positions: [position(OWNER, 5), position(OTHER_OWNER, 7)], totalDepositsUSD: 12 });
     const next = read({
       positions: [position(OWNER, 6)],
-      vaults: [vault('MORPHO_BLUE_A')],
       totalDepositsUSD: 6,
       errors: [{ owner: OTHER_OWNER, error: 'positions request failed (429)' }]
     });
@@ -509,73 +350,18 @@ describe('carryForward', () => {
 
     // The owner that loaded shows this read's positions alone.
     expect(carried.positions).toEqual([position(OWNER, 6), position(OTHER_OWNER, 7)]);
-    expect(carried.vaults).toEqual([vault('MORPHO_BLUE_A')]);
     expect(carried.totalDepositsUSD).toBe(13);
     expect(carried.owners).toBe(next.owners);
     expect(carried.errors).toBe(next.errors);
   });
 
-  it('brings back every vault shown before when the catalogue read failed, in their earlier order', () => {
-    const previous = read({
-      positions: [position(OWNER, 5)],
-      vaults: [vault('MORPHO_BLUE_A', 9), vault('MORPHO_BLUE_B', 3)],
-      totalDepositsUSD: 5
-    });
-    const next = read({ positions: [position(OWNER, 6)], totalDepositsUSD: 6, errors: [catalogFailure] });
-
-    const carried = carryForward(previous, next);
-
-    expect(carried.vaults).toEqual([vault('MORPHO_BLUE_A', 9), vault('MORPHO_BLUE_B', 3)]);
-    // The catalogue failure hides no position: this read's positions stand.
-    expect(carried.positions).toEqual([position(OWNER, 6)]);
-    expect(carried.totalDepositsUSD).toBe(6);
-    expect(carried.errors).toBe(next.errors);
-  });
-
   it('returns the read as it is when nothing failed, or nothing was loaded before', () => {
-    const previous = read({ positions: [position(OTHER_OWNER, 7)], vaults: [vault('MORPHO_BLUE_B')] });
-    const loaded = read({ positions: [position(OWNER, 6)], vaults: [vault('MORPHO_BLUE_A')], totalDepositsUSD: 6 });
-    const failed = read({ errors: [catalogFailure] });
+    const previous = read({ positions: [position(OTHER_OWNER, 7)], totalDepositsUSD: 7 });
+    const loaded = read({ positions: [position(OWNER, 6)], totalDepositsUSD: 6 });
+    const failed = read({ errors: [{ owner: OWNER, error: 'positions request failed (429)' }] });
 
     expect(carryForward(previous, loaded)).toBe(loaded);
     expect(carryForward(undefined, failed)).toBe(failed);
-  });
-
-  describe('when a read that keeps one of three vaults dropped the second', () => {
-    const [first, second, third] = [vault('MORPHO_BLUE_A', 9), vault('MORPHO_BLUE_B', 5), vault('MORPHO_BLUE_C', 1)];
-    const previous = read({ vaults: [first, second, third] });
-    const dropped = read({ vaults: [first], droppedVaultKeys: [uid('MORPHO_BLUE_B')] });
-
-    it('brings back that vault alone, with no positions', () => {
-      const carried = carryForward(previous, dropped);
-
-      expect(carried.vaults).toEqual([first, second]);
-      expect(carried.positions).toEqual([]);
-    });
-
-    it('brings back every vault the read lacks when a dropped vault had no key', () => {
-      expect(carryForward(previous, { ...dropped, vaultDroppedUnkeyed: true }).vaults).toEqual([first, second, third]);
-    });
-
-    it('brings back only that vault when an owner failed', () => {
-      const failed = { ...dropped, errors: [{ owner: OTHER_OWNER, error: 'positions request failed (429)' }] };
-
-      expect(carryForward(previous, failed).vaults).toEqual([first, second]);
-    });
-
-    it('puts a vault it brings back at its earlier place in the list', () => {
-      const loadedThird = read({ vaults: [third], droppedVaultKeys: [uid('MORPHO_BLUE_A')] });
-
-      expect(carryForward(previous, loadedThird).vaults).toEqual([first, third]);
-    });
-
-    it('keeps the list order, not the rate order', () => {
-      const [low, high] = [vault('MORPHO_BLUE_A', 1), vault('MORPHO_BLUE_B', 9)];
-      const before = read({ vaults: [low, high] });
-      const loadedHigh = read({ vaults: [high], droppedVaultKeys: [uid('MORPHO_BLUE_A')] });
-
-      expect(carryForward(before, loadedHigh).vaults).toEqual([low, high]);
-    });
   });
 });
 

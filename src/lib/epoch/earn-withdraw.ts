@@ -885,14 +885,7 @@ async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
     // Source retries get fresh availability and a fresh quote for the saved selected amount.
     // Retain the original floor; a worse route requires the user to start another review.
     if (!/^\d+$/.test(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
-    // No catalogue read and no default market: the saved position's chain is enough, and a failed catalogue read
-    // must not stop a retry.
-    const fresh = await fetchEarnPositions({
-      accountId: row.accountId,
-      owners: [ei.evmOwner],
-      chains: [Number(ei.marketUid.split(':')[1])],
-      skipCatalog: true
-    });
+    const fresh = await fetchEarnPositions({ accountId: row.accountId, owners: [ei.evmOwner] });
     const position = fresh.positions.find(
       p =>
         p.owner.toLowerCase() === ei.evmOwner.toLowerCase() && p.marketUid.toLowerCase() === ei.marketUid.toLowerCase()

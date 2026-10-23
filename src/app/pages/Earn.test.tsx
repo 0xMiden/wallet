@@ -28,8 +28,8 @@ jest.mock('screens/earn-flow/components', () => ({
     `${subject.asset} on ${subject.network}`
 }));
 jest.mock('screens/earn-flow/ProviderLogo', () => ({
-  ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
-    <span data-testid="provider-logo" data-protocol={protocol} className={className} />
+  ProviderLogo: ({ protocol, logoUrl, className }: { protocol: string; logoUrl?: string; className?: string }) => (
+    <span data-testid="provider-logo" data-protocol={protocol} data-logo-url={logoUrl} className={className} />
   )
 }));
 
@@ -400,6 +400,17 @@ describe('Earn page', () => {
 
     // Each row also renders a ProviderLogo probe with the vault's protocol.
     expect(within(firstRow).getByTestId('provider-logo')).toHaveAttribute('data-protocol', first.protocol);
+  });
+
+  it('hands each vault row its document logo, and none to a vault whose listing names none', () => {
+    const logoUrl = 'https://config.test/icons/aave.svg';
+    const withLogo = vaults.map((vault, index) => (index === 0 ? { ...vault, logoUrl } : vault));
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: withLogo });
+    render(<Earn />);
+
+    const logos = within(vaultsSection()).getAllByTestId('provider-logo');
+    expect(logos[0]).toHaveAttribute('data-logo-url', logoUrl);
+    expect(logos[1]).not.toHaveAttribute('data-logo-url');
   });
 
   it("titles each row with the document's name, so two Morpho USDC vaults on one chain read differently", () => {

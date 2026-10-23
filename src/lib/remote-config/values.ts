@@ -1,5 +1,6 @@
 import { getAddress } from 'viem';
 
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import type { AgglayerDepositToken, BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
@@ -7,10 +8,12 @@ import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import {
   type AgglayerRecoveryConfig,
+  EARN_VAULT_LOGO,
   type EarnVaultConfig,
   epochCollateralFaucetId,
   type SupportedEvmChainConfig
 } from './schema';
+import { bridgeConfigBaseUrl } from './source';
 import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
@@ -83,6 +86,23 @@ export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
 }
 
 /** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
+/** One Epoch route the document names: a chain and its USDC contract, checksummed, as the positions service keys markets. */
+export interface EpochRoute {
+  chainId: number;
+  usdc: `0x${string}`;
+}
+
+/**
+ * Every Epoch route the document names (`supportedEvmChains.<chain>.bridges.epoch` with a USDC token), in document
+ * order. Positions live on any of them, whatever the default market, so a positions read asks for all of them.
+ */
+export function selectEpochRoutes(s: BridgeConfigSnapshot): EpochRoute[] {
+  return Object.values(s.config?.supportedEvmChains ?? {}).flatMap(chain => {
+    const address = chain.bridges.epoch?.tokens.USDC?.contractAddress;
+    return address ? [{ chainId: chain.chainId, usdc: getAddress(address) }] : [];
+  });
+}
+
 export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
   return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
 }
@@ -99,6 +119,14 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
   return okValue(s.derived?.epoch.market);
 }
 
+/**
+ * The Earn vault catalogue the derivation read (`derived.epoch.vaults`): the listed vaults the service serves, in the
+ * document's order. Null while no derivation holds one, or while its read failed or was skipped.
+ */
+export function selectEarnVaultCatalog(s: BridgeConfigSnapshot): EarnVaultInfo[] | null {
+  return okValue(s.derived?.epoch.vaults);
+}
+
 const NO_EARN_VAULTS: readonly EarnVaultConfig[] = [];
 
 /**
@@ -107,6 +135,16 @@ const NO_EARN_VAULTS: readonly EarnVaultConfig[] = [];
  */
 export function selectEarnVaults(s: BridgeConfigSnapshot): readonly EarnVaultConfig[] {
   return s.config?.earn?.vaults ?? NO_EARN_VAULTS;
+}
+
+/**
+ * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
+ * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
+ * never runs.
+ */
+export function selectEarnVaultLogoUrl(s: BridgeConfigSnapshot, listing: EarnVaultConfig): string | null {
+  const { logo } = listing;
+  return logo !== undefined && EARN_VAULT_LOGO.test(logo) ? `${bridgeConfigBaseUrl(s.network)}/${logo}` : null;
 }
 
 /** The listed Earn vault of `marketUid` (in any case), or null when the document lists none for it. */
@@ -248,6 +286,11 @@ export function getEvmUsdcAddress(): `0x${string}` {
 /** The EVM USDC on `chainId` (else the first Epoch chain) with symbol and decimals, or null until that read works. */
 export function findEvmUsdc(chainId?: number): EvmUsdc | null {
   return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
+}
+
+/** Every Epoch route the accepted document names (`selectEpochRoutes`); empty with no document. Never throws. */
+export function getEpochRoutes(): EpochRoute[] {
+  return selectEpochRoutes(getBridgeConfigSnapshot());
 }
 
 /** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */
