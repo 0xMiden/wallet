@@ -36,7 +36,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
-import { isUnconfirmedRotation, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
+import { isUnconfirmedRotation, rotationRowTitleKey, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -99,6 +99,8 @@ import { useTransactionActions } from './useTransactionActions';
 import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
 import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
+/** The message History gives a failed row, so the detail heading matches its Activity row. */
+const FAILED_ROW_MESSAGE = 'Transaction failed';
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
@@ -440,6 +442,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
           guardianSwitchVerdict: rotationVerdict(tx)?.kind,
+          guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
           errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
@@ -599,6 +602,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // A settled rotation's verdict names it; an in-flight one has no verdict title and keeps its own message.
+  const guardianSwitchTitleKey = entry?.guardianSwitchVerdict
+    ? rotationRowTitleKey(entry.guardianSwitchVerdict)
+    : undefined;
+  // The heading reads as the Activity row does (HistoryView's title, History's failed message): an unknown
+  // outcome, a cancel and a failure first, then a recovered row's action, then the rotation's verdict.
+  const guardianSwitchTitle = !isGuardianSwitch
+    ? undefined
+    : entry.isUnconfirmed
+      ? t('notConfirmed')
+      : entry.isCancelled
+        ? t('cancelled')
+        : entry.status === ITransactionStatus.Failed
+          ? FAILED_ROW_MESSAGE
+          : !entry.guardianRecovered && guardianSwitchTitleKey
+            ? t(guardianSwitchTitleKey)
+            : entry.message;
   const isUnconfirmedSwitch =
     isGuardianSwitch &&
     !entry?.isCancelled &&
@@ -801,7 +821,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   {/* Titled like the activity row; the status pill follows it and the change card comes last. */}
                   {/* The same Guardian avatar as the Activity row, at the 72px transaction-icon size. */}
                   <img src={guardianSwitchAvatarUrl} alt="" className="mb-3 h-18 w-18 rounded-full" />
-                  <h2 className="text-center text-hero-name text-ink">{t('guardianSwitchedRowTitle')}</h2>
+                  <h2 className="text-center text-hero-name text-ink">{guardianSwitchTitle}</h2>
                   <GuardianChangeSummary
                     kind="switch"
                     previousEndpoint={entry.previousGuardianEndpoint}
