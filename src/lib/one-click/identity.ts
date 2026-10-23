@@ -24,8 +24,15 @@ const NATIVE_EVM_ASSETS: Readonly<
   }
 };
 
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 const isSafeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
 
 export function parseOneClickEvmAssets(
   value: unknown,
@@ -41,7 +48,7 @@ export function parseOneClickEvmAssets(
       typeof entry.assetId !== 'string' ||
       !entry.assetId.trim() ||
       entry.assetId.length > 256 ||
-      CONTROL_CHARACTER.test(entry.assetId) ||
+      hasControlCharacter(entry.assetId) ||
       typeof entry.blockchain !== 'string' ||
       !Object.prototype.hasOwnProperty.call(ONE_CLICK_EVM_CHAIN_IDS, entry.blockchain) ||
       !isSafeInteger(entry.chainId) ||
@@ -54,7 +61,7 @@ export function parseOneClickEvmAssets(
       typeof entry.symbol !== 'string' ||
       !entry.symbol.trim() ||
       entry.symbol.length > 32 ||
-      CONTROL_CHARACTER.test(entry.symbol)
+      hasControlCharacter(entry.symbol)
     ) {
       throw new Error('Invalid 1Click EVM asset configuration');
     }

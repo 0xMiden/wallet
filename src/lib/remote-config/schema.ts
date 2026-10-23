@@ -1,10 +1,10 @@
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
-import { parseOneClickEvmAssets } from '../one-click/identity';
-import type { OneClickEvmAssetConfig } from '../one-click/types';
 import { evmChainSlug } from './chains';
 import { type GeoBlocks, readGeoBlocks } from './geo';
+import { parseOneClickEvmAssets } from '../one-click/identity';
+import type { OneClickEvmAssetConfig } from '../one-click/types';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];

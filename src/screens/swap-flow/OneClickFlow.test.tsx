@@ -802,7 +802,7 @@ describe('OneClickFlow', () => {
     mockPersistedRows = [
       unresolvedInboundRow({
         phase: 'failed',
-        evmSubmission: 'attempted',
+        evmSubmission: 'not-started',
         depositAddress: '0x6666666666666666666666666666666666666666'
       }),
       unresolvedInboundRow({

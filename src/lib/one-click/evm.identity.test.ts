@@ -2,14 +2,14 @@
 
 import type { EIP1193Provider } from 'viem';
 
+import { assertOneClickQuoteBinding } from './client';
+import { submitEvmOneClickDeposit } from './evm';
+import { verifyOneClickQuoteSignature } from './signature';
+import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest } from './types';
 import {
   FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY,
   signFakeOneClickQuote
 } from '../../../playwright/e2e/helpers/fake-one-click-service';
-import { assertOneClickQuoteBinding } from './client';
-import { verifyOneClickQuoteSignature } from './signature';
-import { submitEvmOneClickDeposit } from './evm';
-import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest } from './types';
 
 const mockAssertFunded = jest.fn();
 

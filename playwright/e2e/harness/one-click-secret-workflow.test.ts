@@ -4,10 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const workflow = readFileSync(
-  resolve(__dirname, '../../../.github/workflows/pr-e2e-bridge-guardian.yml'),
-  'utf8'
-);
+const workflow = readFileSync(resolve(__dirname, '../../../.github/workflows/pr-e2e-bridge-guardian.yml'), 'utf8');
 
 type Context = {
   'github.event_name': string;
@@ -17,7 +14,7 @@ type Context = {
   'github.actor': string;
 };
 
-const contexts: Record<string, Context> = {
+const contexts = {
   'fork pull request': {
     'github.event_name': 'pull_request',
     'github.repository': 'miden/wallet',
@@ -46,7 +43,7 @@ const contexts: Record<string, Context> = {
     'github.event.pull_request.base.ref': '',
     'github.actor': 'wallet-maintainer'
   }
-};
+} satisfies Record<string, Context>;
 
 const secretSteps = [
   'Validate dedicated OneClick Reown project',

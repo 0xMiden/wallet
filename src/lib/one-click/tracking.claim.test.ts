@@ -1,8 +1,6 @@
 import { BridgedReceiveTransaction, IOneClickTrackingData } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { fetchOneClickStatus } from 'lib/one-click/client';
-
-import type { OneClickStatusResponse } from './types';
 import {
   claimOneClickEvmDepositAttempt,
   OneClickEvmDepositAlreadyAttemptedError,
@@ -10,6 +8,7 @@ import {
   recordOneClickOriginTransactionHash,
   retireOneClickEvmPreflightFailure
 } from './tracking';
+import type { OneClickStatusResponse } from './types';
 
 jest.mock('lib/one-click/client', () => ({
   ...jest.requireActual('lib/one-click/client'),

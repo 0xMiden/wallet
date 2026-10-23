@@ -107,7 +107,13 @@ export interface OneClickQuoteResponse {
 }
 
 export type OneClickProviderStatus =
-  'KNOWN_DEPOSIT_TX' | 'PENDING_DEPOSIT' | 'INCOMPLETE_DEPOSIT' | 'PROCESSING' | 'SUCCESS' | 'REFUNDED' | 'FAILED';
+  | 'KNOWN_DEPOSIT_TX'
+  | 'PENDING_DEPOSIT'
+  | 'INCOMPLETE_DEPOSIT'
+  | 'PROCESSING'
+  | 'SUCCESS'
+  | 'REFUNDED'
+  | 'FAILED';
 
 export interface OneClickTransactionDetails {
   hash: string;
