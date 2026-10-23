@@ -139,6 +139,21 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(emulator).toContain("const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';");
   });
 
+  it('stops the Auth Tab Gradle daemon after the Firefox probe and before Playwright', () => {
+    const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
+    const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
+    const stop = authTab.indexOf('name: Stop Gradle daemon');
+    const firefox = authTab.indexOf('name: Probe Firefox Custom Tab fallback capability');
+    const playwright = authTab.indexOf('yarn playwright test --config playwright.android.auth-tab.config.ts');
+    const nextStep = authTab.indexOf('\n      - name:', stop);
+
+    expect(stop).toBeGreaterThan(firefox);
+    expect(stop).toBeLessThan(playwright);
+    expect(authTab.match(/name: Stop Gradle daemon/g)).toHaveLength(1);
+    expect(authTab.slice(stop, nextStep)).toContain('working-directory: android');
+    expect(authTab.slice(stop, nextStep)).toContain('run: ./gradlew --stop');
+  });
+
   it('assigns every in-app browser spec to the mobile leg of its platform', () => {
     const inapp = (dir: string): string[] =>
       readdirSync(resolve(__dirname, dir)).filter(name => /^dapp-inapp\..+\.spec\.ts$/.test(name));

@@ -428,10 +428,6 @@ jobs:
       - name: Build debug APK
         run: yarn test:e2e:android:build
 
-      - name: Stop Gradle daemon
-        working-directory: android
-        run: ./gradlew --stop
-
       - name: Generate run-scoped fixture CA and TLS certificate
         shell: bash
         run: |
@@ -511,6 +507,11 @@ jobs:
           adb logcat -d -s AuthTabAcceptance:I '*:S' > test-results-auth-tab/firefox-capability.log
           grep -F 'selectedProvider=org.mozilla.firefox' test-results-auth-tab/firefox-capability.log
           grep -F 'provider=org.mozilla.firefox ' test-results-auth-tab/firefox-capability.log | grep -F 'authTabSupported=false'
+
+      # Release org.gradle.jvmargs=-Xmx6144m before Playwright shares the runner with the -memory 4096 emulator.
+      - name: Stop Gradle daemon
+        working-directory: android
+        run: ./gradlew --stop
 
       - name: Run Auth Tab browser acceptance
         run: |
