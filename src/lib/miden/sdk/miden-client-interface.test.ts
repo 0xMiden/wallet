@@ -1058,6 +1058,77 @@ describe('MidenClientInterface', () => {
     expect(buildSendTransactionRequest.mock.calls[0][6]).toBe(600);
   });
 
+  it('refuses an expired 1Click send after its final stage stamp and does not submit or rebuild', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const providerDeadline = new Date(now + 60_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+    const prove = jest.fn(async () => ({ submit }));
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        executeRequest: jest.fn(async () => ({ id: 'tx-id', result: fakeTransactionResult, prove }))
+      }
+    });
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: string) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 'Private', Public: 'Public' },
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+    const stages: string[] = [];
+
+    try {
+      await expect(
+        client.sendTransaction(
+          {
+            accountId: 'sender',
+            secondaryAccountId: 'deposit',
+            faucetId: 'faucet',
+            noteType: 'public' as any,
+            amount: BigInt(1),
+            extraInputs: {
+              oneClick: {
+                fundingDeadline,
+                request: { deadline: fundingDeadline },
+                quote: {
+                  quoteRequest: { deadline: fundingDeadline },
+                  quote: { deadline: providerDeadline }
+                }
+              }
+            }
+          } as any,
+          stage => {
+            stages.push(stage);
+            if (stage === 'submitting') now = Date.parse(fundingDeadline);
+          }
+        )
+      ).rejects.toThrow(/expired/i);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(stages).toEqual(['executing', 'proving', 'submitting']);
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    expect(prove).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it('reports executing/proving/submitting stages through the onStage callback', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

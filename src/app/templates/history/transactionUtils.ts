@@ -393,9 +393,14 @@ const bridgeInProviderLabel = (provider: IHistoryEntry['bridgeInProvider']): str
       return 'Agglayer';
     case 'usdcx':
       return 'Circle xReserve';
+    case 'near-intents':
+      return '1Click';
     case 'epoch':
-    default:
       return 'Epoch';
+    case undefined:
+      return 'Epoch';
+    default:
+      return 'Bridge';
   }
 };
 

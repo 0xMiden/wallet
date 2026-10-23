@@ -16,6 +16,7 @@ export interface TokenBalanceData {
   tokenSlug: string;
   metadata: AssetMetadata;
   balance: number;
+  balanceBaseUnits?: string;
   fiatPrice: number;
   change24h: number;
 }
@@ -42,7 +43,8 @@ function buildDefaultZeroBalance(
       tokenSlug: nativeMetadata.symbol,
       metadata: nativeMetadata,
       ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-      balance: 0
+      balance: 0,
+      balanceBaseUnits: '0'
     }
   ];
 }

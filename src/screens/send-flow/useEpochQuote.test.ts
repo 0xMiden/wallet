@@ -41,7 +41,7 @@ const configFor = ({
         }
       }
     },
-    features: { earn: false }
+    features: { earn: false, nearIntents: false }
   },
   derived: {
     network: 'testnet',

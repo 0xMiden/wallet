@@ -3952,6 +3952,8 @@ describe('Welcome — registration holds preparation', () => {
   }
 
   it('marks a confirmation tap active until registration resolves', async () => {
+    // The assertions live in `held.during` and `finishHeld`.
+    expect.hasAssertions();
     await reachConfirmationTap();
     const held = holdRegister();
     let pending!: Promise<unknown>;
@@ -3959,11 +3961,13 @@ describe('Welcome — registration holds preparation', () => {
       pending = mockFlowProps.current.onAction({ id: 'confirmation' });
     });
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending);
   });
 
   it('clears a confirmation tap when registration rejects', async () => {
+    expect.hasAssertions();
     await reachConfirmationTap();
     const held = holdRegister();
     let pending!: Promise<unknown>;
@@ -3971,28 +3975,33 @@ describe('Welcome — registration holds preparation', () => {
       pending = mockFlowProps.current.onAction({ id: 'confirmation' });
     });
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending, new Error('boom'));
   });
 
   it('marks a side-panel auto-register active until registration resolves', async () => {
+    expect.hasAssertions();
     mockCanHandoff = true;
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
     const held = holdRegister();
     await setHash('#confirmation');
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held);
   });
 
   it('clears a side-panel auto-register when registration rejects', async () => {
+    expect.hasAssertions();
     mockCanHandoff = true;
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
     const held = holdRegister();
     await setHash('#confirmation');
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, undefined, new Error('creation failed'));
   });

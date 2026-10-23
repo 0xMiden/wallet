@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][test] The dApp refusals suite expects a dApp consume of a note addressed to another account to be refused before any approval sheet, matching the wallet (#1764).
+- [FIX][all] Earn withdrawals work on mainnet: they are accepted on every chain the wallet-config document names an Epoch route on, not only Sepolia or the default market's chain; a 1delta withdraw leg that needs no allocation (the batch holds the delivery alone) is no longer refused as a changed quote; and the withdrawal receipt names the market's own chain in its route.
 - [FIX][all] The mainnet countdown and a new wallet's invite-only onboarding share one clock. Setup already underway stays on its step, with the seed, password, key and access code already entered, while mainnet is prepared when that moment arrives.
 - [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read. While launch is pending, the wallet checks the clock each second so a system clock change cannot leave the launch state out of date.
 - [FIX][test] The USDCx burn suites read the faucet's burn fee from an account proof for that one entry instead of downloading the whole faucet account, which the node refuses to build now that the nonce registry has grown past its inline limit.
@@ -68,6 +69,8 @@
 - [CHANGE][ci] The dApp E2E harness also runs the test dApp in the wallet's iOS and Android in-app browsers, on two simulators and two emulators against the branch's network, on single-sig and Guardian accounts: the page takes its commands over a long poll, its requests are answered on the approval sheet by test id, and a slim set of connect, read, sign, write, refusal and 120 s auto-decline cells is judged by the same records and gate as the Chrome legs, each mobile leg labelled with the presentation path its in-app browser ran.
 
 ### Features
+
+- [FEATURE][all] Add cross-chain swaps through a configured 1Click quote service, with signed quotes, ordinary Guardian send approval, persistent delivery tracking and a cost-bounded mainnet round trip. The wallet-config `features.nearIntents` switch defaults to false, and swaps remain unavailable unless it is true and verified Miden asset mappings are configured.
 
 - [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. It runs nightly at 05:30 UTC (#1629).
 - [FEATURE][all] Verified tokens can show USD prices from Binance, using a USDT market first and a USDC market second, with the quote currency converted to USD. If neither market exists, the wallet uses a direct USD market on Kraken, including PYUSD. Totals and token order use the current verified price assets. The wallet checks the saved token list once when it opens and keeps the saved list if the check fails.
