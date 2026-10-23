@@ -48,8 +48,9 @@ public class AuthTabCertificateSetupTest {
         clickText(device, "Install a certificate");
         clickText(device, "CA certificate");
         clickPastMore(device, "Install anyway");
-        confirmPinIfAsked(device, devicePin, "Downloads");
-        clickText(device, "Downloads");
+        confirmPinIfAsked(device, devicePin, "Downloads", CERTIFICATE_FILE);
+        // The picker can open on Recent files with the certificate already listed.
+        if (findText(device, CERTIFICATE_FILE, 2000) == null) clickText(device, "Downloads");
         clickText(device, CERTIFICATE_FILE);
         confirmPinIfAsked(device, devicePin, "Install anyway", "Install", "OK", "Done");
         clickFirstAvailable(device, "Install anyway", "Install", "OK");
