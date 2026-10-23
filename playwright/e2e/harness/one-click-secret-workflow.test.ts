@@ -65,7 +65,10 @@ function stepBlocks(): Map<string, string> {
   const lines = guardianJobBlock().split('\n');
   const stepsAt = lines.indexOf('    steps:');
   if (stepsAt < 0) throw new Error('bridge-guardian job has no steps');
-  const blocks = lines.slice(stepsAt + 1).join('\n').split(/\n(?=      - )/);
+  const blocks = lines
+    .slice(stepsAt + 1)
+    .join('\n')
+    .split(/\n(?=      - )/);
   return new Map(
     blocks.flatMap(block => {
       const name = /^      - name: (.+)$/m.exec(block)?.[1];
