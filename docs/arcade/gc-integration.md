@@ -1,9 +1,8 @@
 # GC integration contract
 
-The approved product is a **fixed purchase package with a conditional 10-GC starter allocation**. It replaces the
-weekly allowance. Coins shows GC balance and **Buy more GC**; there is no weekly claim, reset or
-next-claim countdown. This branch disables the purchase entry point until a backed native route has
-passed acceptance. It does not implement a gift, purchase or Mainnet activation.
+The current release scope is **Arcade discovery, game details, catalog-scoped Activity and synchronized GC balance display**, retaining the existing Arcade design. Coins shows GC balance and a disabled **Buy more GC** entry point; there is no weekly claim, reset, next-claim countdown or global GC balance leaderboard.
+
+Actual PSWAP purchasing is deferred to a separate follow-up next week. The fixed package and purchase acceptance requirements below describe that future work; they do not block review of this UI change. Buying stays unconditionally disabled. This branch does not implement a gift, purchase or Mainnet activation. The optional starter gift is not a release gate.
 
 ## Asset and price
 
@@ -108,7 +107,7 @@ name/tagline, URL, category and `isExchange`, with optional icon/brand color. Pu
 [source](../../src/lib/explore-config/source.ts). A listing does not certify scoring or payout security.
 A new game implementation needs separately agreed scope and repository.
 
-## Retained history and release gates
+## Retained history and review boundaries
 
 Keep completed weekly protocol, tests, deployment records and PRs for reference. The weekly product
 scope is superseded; do not delete operations or blindly close dependent PRs. Existing claim recovery
@@ -118,5 +117,4 @@ access decision before release.
 
 [Historical weekly Testnet evidence](https://github.com/0xMiden/wallet/blob/2f0af8d2856ff22af9ffc0a22a2a8eb48c0fd16d/docs/arcade/canonical-gc-claims.md) proves that implementation's native iOS
 flows, not starter gifts or purchases. Interactive purchase acceptance has not occurred on any surface.
-Local Android remains skipped/unvalidated. Unit checks, builds, current-head CI, maintainer review,
-stack reconciliation, registry/catalog publication and release acceptance remain separate gates.
+Local Android remains skipped/unvalidated. Unit checks, builds, current-head CI and maintainer review apply to this UI change. Purchase, starter-gift, registry publication and release acceptance remain separate follow-up decisions; old weekly stack PRs are not dependencies of this branch.
