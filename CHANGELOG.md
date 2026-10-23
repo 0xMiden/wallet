@@ -68,6 +68,8 @@
 
 ### Features
 
+- [FEATURE][all] Add cross-chain swaps through a configured 1Click quote service, with signed quotes, ordinary Guardian send approval, persistent delivery tracking and a cost-bounded mainnet round trip. The wallet-config `features.nearIntents` switch defaults to false, and swaps remain unavailable unless it is true and verified Miden asset mappings are configured.
+
 - [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. It runs nightly at 05:30 UTC (#1629).
 - [FEATURE][all] Verified tokens can show USD prices from Binance, using a USDT market first and a USDC market second, with the quote currency converted to USD. If neither market exists, the wallet uses a direct USD market on Kraken, including PYUSD. Totals and token order use the current verified price assets. The wallet checks the saved token list once when it opens and keeps the saved list if the check fails.
 - [FEATURE][all] Every error message the wallet shows is reported to the team as a crash report naming only which message it was and where, never its text (#1616).

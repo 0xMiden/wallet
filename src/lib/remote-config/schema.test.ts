@@ -140,7 +140,7 @@ const withSection = (name: Section, fields: Record<string, ConfigValue>) => {
   }
 };
 
-const ALL_OFF = { earn: false };
+const ALL_OFF = { earn: false, nearIntents: false };
 
 it('parses the testnet document and normalizes addresses', () => {
   const parsed = parseBridgeConfig(doc(), 'testnet');
@@ -155,9 +155,22 @@ it('parses the testnet document and normalizes addresses', () => {
     contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     outputs: ['usdc-testnet-output']
   });
-  expect(parsed?.features).toEqual({ earn: true });
+  expect(parsed?.features).toEqual({ earn: true, nearIntents: false });
   expect(parsed?.mainnetCountdown).toEqual({ enabled: true, launchAt: Date.UTC(2026, 9, 26) });
   expect(parsed?.swap).toEqual({});
+});
+
+describe('features.nearIntents', () => {
+  it('defaults to false when absent and accepts an explicit true', () => {
+    expect(parseBridgeConfig(doc(), 'testnet')?.features.nearIntents).toBe(false);
+    expect(
+      parseBridgeConfig(doc({ features: { earn: true, nearIntents: true } }), 'testnet')?.features.nearIntents
+    ).toBe(true);
+  });
+
+  it.each([null, 0, 1, 'true', {}])('rejects a nonboolean nearIntents switch: %j', nearIntents => {
+    expect(parseBridgeConfig(doc({ features: { earn: true, nearIntents } }), 'testnet')).toBeNull();
+  });
 });
 
 describe('swap section', () => {
@@ -178,6 +191,114 @@ describe('swap section', () => {
   it('ignores a token list the document still carries', () => {
     const swap = { etaUrl: 'https://quotes.example', tokens: [{ symbol: 'iEth', faucetId: 'not-an-id' }] };
     expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
+  });
+
+  it('accepts an explicit mainnet one-click mapping and fixed app fees', () => {
+    const swap = {
+      oneClick: {
+        serviceUrl: 'https://swap.example',
+        midenAssets: [{ assetId: 'miden:token', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
+        appFees: [{ recipient: 'wallet.near', fee: 25 }]
+      }
+    };
+    expect(parseBridgeConfig({ ...doc({ swap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
+      ...swap,
+      oneClick: { ...swap.oneClick, evmAssets: [] }
+    });
+    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({});
+  });
+
+  it.each([
+    {
+      serviceUrl: 'http://swap.example',
+      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }]
+    },
+    {
+      serviceUrl: 'https://swap.example/?key=x',
+      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }]
+    },
+    { serviceUrl: 'https://swap.example', midenAssets: [{ assetId: 'm', faucetId: 'bad id', decimals: 6 }] },
+    {
+      serviceUrl: 'https://swap.example',
+      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 9007199254740992 }]
+    },
+    {
+      serviceUrl: 'https://swap.example',
+      midenAssets: [
+        { assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 },
+        { assetId: 'm', faucetId: '0x567890123456789012345678901234', decimals: 6 }
+      ]
+    },
+    {
+      serviceUrl: 'https://swap.example',
+      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
+      appFees: [{ recipient: 'wallet.near', fee: 10001 }]
+    },
+    {
+      serviceUrl: 'https://swap.example',
+      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
+      appFees: [
+        { recipient: 'wallet.near', fee: 600 },
+        { recipient: 'wallet2.near', fee: 500 }
+      ]
+    }
+  ])('disables malformed one-click config: %j', oneClick => {
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  });
+});
+
+describe('OneClick trusted EVM asset identities', () => {
+  const midenAssets = [{ assetId: 'miden:usdc', faucetId: '0x123456789012345678901234567890', decimals: 6 }];
+  const evmAsset = {
+    assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
+    blockchain: 'base',
+    chainId: 8453,
+    contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+    decimals: 6,
+    symbol: 'USDC'
+  };
+
+  it('defaults missing EVM asset mappings to an empty list while preserving Miden mappings', () => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets };
+    const parsed = parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet');
+
+    expect(parsed?.swap?.oneClick).toStrictEqual({ ...oneClick, evmAssets: [] });
+  });
+
+  it('accepts a configured EVM asset identity binding', () => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [evmAsset] };
+    const parsed = parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet');
+
+    expect(parsed?.swap?.oneClick).toStrictEqual(oneClick);
+  });
+
+  it.each([
+    ['missing asset ID', { ...evmAsset, assetId: undefined }],
+    ['unsupported chain', { ...evmAsset, blockchain: 'polygon', chainId: 137 }],
+    ['chain ID does not match its chain', { ...evmAsset, chainId: 1 }],
+    ['malformed contract address', { ...evmAsset, contractAddress: '0xnot-an-address' }],
+    ['invalid decimals', { ...evmAsset, decimals: 39 }],
+    ['missing display symbol', { ...evmAsset, symbol: '' }]
+  ])('disables an invalid EVM asset binding: %s', (_label, mapping) => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [mapping] };
+
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  });
+
+  it('disables duplicate EVM asset IDs', () => {
+    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [evmAsset, { ...evmAsset }] };
+
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  });
+
+  it('disables duplicate EVM chain and contract bindings', () => {
+    const oneClick = {
+      serviceUrl: 'https://swap.example',
+      midenAssets,
+      evmAssets: [evmAsset, { ...evmAsset, assetId: 'another-provider-id' }]
+    };
+
+    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
   });
 });
 
@@ -278,6 +399,7 @@ it('leaves absent provider fields out', () => {
   };
   expect(parseBridgeConfig(partial, 'testnet')).toEqual({
     ...partial,
+    features: { earn: false, nearIntents: false },
     'bridge-providers': { epoch: partial['bridge-providers'].epoch, agglayer: {}, usdcx: {} },
     supportedEvmChains: {},
     mainnetCountdown: { enabled: false },
@@ -535,7 +657,7 @@ it.each([
   const parsed = parseBridgeConfig(body, 'testnet');
   expect(parsed).not.toBeNull();
   expect(parsed?.mainnetCountdown).toStrictEqual({ enabled: false });
-  expect(parsed?.features).toStrictEqual({ earn: true });
+  expect(parsed?.features).toStrictEqual({ earn: true, nearIntents: false });
   expect(parsed?.supportedEvmChains.sepolia?.chainId).toBe(11155111);
   expect(parsed?.['bridge-providers'].epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
 });
@@ -875,6 +997,81 @@ describe('the E2E local http allowance', () => {
   it.each(['http://allocator.example', 'http://10.0.2.2:8548'])('still rejects %s', input => {
     const body = withSection('epoch', { allocatorUrl: input });
     expect(parseBridgeConfig(body, 'testnet', { allowLocalHttp: true })).toBeNull();
+  });
+});
+
+describe('the 1Click local E2E gate', () => {
+  const configured = doc({
+    swap: {
+      oneClick: {
+        serviceUrl: 'https://one-click.example',
+        midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+      }
+    }
+  });
+
+  it('hides 1Click outside mainnet unless the explicit local E2E option is enabled', () => {
+    expect(parseBridgeConfig(configured, 'testnet')?.swap?.oneClick).toBeUndefined();
+    const localnet = {
+      ...configured,
+      network: 'localnet',
+      swap: {
+        oneClick: {
+          serviceUrl: 'http://127.0.0.1:8550',
+          midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+        }
+      }
+    };
+    expect(parseBridgeConfig(localnet, 'localnet')?.swap?.oneClick).toBeUndefined();
+    expect(
+      parseBridgeConfig(localnet, 'localnet', { allowLocalHttp: true, allowOneClickLocalE2E: true })?.swap?.oneClick
+    ).toMatchObject({ serviceUrl: 'http://127.0.0.1:8550' });
+  });
+
+  it('does not allow the local E2E option to enable 1Click on testnet or another network', () => {
+    expect(parseBridgeConfig(configured, 'testnet', { allowOneClickLocalE2E: true })?.swap?.oneClick).toBeUndefined();
+    expect(
+      parseBridgeConfig({ ...configured, network: 'devnet' }, 'devnet', { allowOneClickLocalE2E: true })?.swap?.oneClick
+    ).toBeUndefined();
+  });
+
+  it('allows loopback HTTP for 1Click only when both local E2E allowances are enabled', () => {
+    const local = {
+      ...configured,
+      network: 'localnet',
+      swap: {
+        oneClick: {
+          serviceUrl: 'http://127.0.0.1:8550',
+          midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+        }
+      }
+    };
+    expect(parseBridgeConfig(local, 'localnet', { allowLocalHttp: true })?.swap?.oneClick).toBeUndefined();
+    expect(parseBridgeConfig(local, 'localnet', { allowOneClickLocalE2E: true })?.swap).toBeUndefined();
+    expect(
+      parseBridgeConfig(local, 'localnet', { allowLocalHttp: true, allowOneClickLocalE2E: true })?.swap?.oneClick
+    ).toMatchObject({ serviceUrl: 'http://127.0.0.1:8550' });
+    expect(
+      parseBridgeConfig({ ...local, network: 'mainnet' }, 'mainnet', {
+        allowLocalHttp: true,
+        allowOneClickLocalE2E: true
+      })
+    ).toBeNull();
+    expect(
+      parseBridgeConfig(
+        {
+          ...local,
+          swap: {
+            oneClick: {
+              ...local.swap.oneClick,
+              serviceUrl: 'https://one-click.example'
+            }
+          }
+        },
+        'localnet',
+        { allowLocalHttp: true, allowOneClickLocalE2E: true }
+      )
+    ).toBeNull();
   });
 });
 

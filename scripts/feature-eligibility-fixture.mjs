@@ -40,7 +40,12 @@ function hasControlCharacters(value) {
 function hasOneClickSwap(document) {
   if (document.features?.nearIntents !== true) return false;
   const config = document.swap?.oneClick;
-  if (!record(config) || !Array.isArray(config.midenAssets) || config.midenAssets.length < 1 || config.midenAssets.length > 64) {
+  if (
+    !record(config) ||
+    !Array.isArray(config.midenAssets) ||
+    config.midenAssets.length < 1 ||
+    config.midenAssets.length > 64
+  ) {
     return false;
   }
   if (typeof config.serviceUrl !== 'string' || config.serviceUrl.length > 512) return false;

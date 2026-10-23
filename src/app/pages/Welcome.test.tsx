@@ -3959,6 +3959,7 @@ describe('Welcome — registration holds preparation', () => {
       pending = mockFlowProps.current.onAction({ id: 'confirmation' });
     });
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending);
   });
@@ -3971,6 +3972,7 @@ describe('Welcome — registration holds preparation', () => {
       pending = mockFlowProps.current.onAction({ id: 'confirmation' });
     });
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending, new Error('boom'));
   });
@@ -3982,6 +3984,7 @@ describe('Welcome — registration holds preparation', () => {
     const held = holdRegister();
     await setHash('#confirmation');
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held);
   });
@@ -3993,6 +3996,7 @@ describe('Welcome — registration holds preparation', () => {
     const held = holdRegister();
     await setHash('#confirmation');
     held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, undefined, new Error('creation failed'));
   });

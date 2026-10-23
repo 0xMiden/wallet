@@ -111,7 +111,7 @@ const config = (version: number, network = 'testnet'): BridgeConfig => ({
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true, nearIntents: false }
 });
 const SEPOLIA_SKIPPED: DerivedChainConfig = {
   agglayer: {

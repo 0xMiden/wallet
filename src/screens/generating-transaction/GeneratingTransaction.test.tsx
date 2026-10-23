@@ -8,7 +8,11 @@ import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/t
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 
-import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
+import {
+  GeneratingTransaction,
+  GeneratingTransactionPage,
+  isRecoverableExpiredOneClick
+} from './GeneratingTransaction';
 
 jest.mock('lib/telemetry/user-visible-error', () => ({
   ...jest.requireActual('lib/telemetry/user-visible-error'),
@@ -138,6 +142,9 @@ jest.mock('lib/miden/activity', () => ({
 let mockRowState: { row: any; loaded: boolean } = { row: undefined, loaded: false };
 jest.mock('./useTransactionRow', () => ({
   useTransactionRow: () => mockRowState
+}));
+jest.mock('screens/swap-flow/OneClickRecovery', () => ({
+  OneClickRecovery: () => <div data-testid="restored-flow" />
 }));
 
 // Minimal ITransaction factory for container tests.
@@ -361,6 +368,55 @@ describe('GeneratingTransactionPage container effects', () => {
 
     expect(container.querySelector('[data-testid="redirect"]')?.textContent).toBe('redirect:/');
     act(() => root.unmount());
+  });
+
+  it('only recovers definite pre-submit OneClick deadline failures', () => {
+    const failedOneClick = {
+      status: ITransactionStatus.Failed,
+      type: 'send',
+      error: 'The 1Click quote has expired. Request a new quote before depositing.',
+      extraInputs: { oneClick: { direction: 'miden-to-evm' } }
+    };
+
+    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.Failed)).toBe(true);
+    expect(isRecoverableExpiredOneClick({ ...failedOneClick, mayHaveSubmitted: true }, ITransactionStatus.Failed)).toBe(
+      false
+    );
+    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.GeneratingTransaction)).toBe(false);
+  });
+
+  it('routes a persisted inbound attempted row to recovery after reload', async () => {
+    const oneClick = Object.assign(
+      {
+        direction: 'evm-to-miden',
+        request: { originAsset: { blockchain: 'eth' }, destinationAsset: { blockchain: 'miden' } },
+        quote: { quote: { depositAddress: '0x8888888888888888888888888888888888888888' } },
+        config: { serviceUrl: 'https://quotes.example', midenAssets: [] },
+        network: 'mainnet',
+        accountId: 'acc-1',
+        accountAddress: 'acc-1',
+        originAsset: { assetId: 'eth:token', blockchain: 'eth' },
+        destinationAsset: { assetId: 'miden:token', blockchain: 'miden' },
+        faucetId: 'miden-faucet',
+        depositAddress: '0x8888888888888888888888888888888888888888',
+        phase: 'pending-deposit'
+      },
+      { evmSubmission: 'attempted' }
+    );
+    mockRowState = {
+      row: makeTx({ type: 'bridged-receive', status: ITransactionStatus.Completed, extraInputs: { oneClick } }),
+      loaded: true
+    };
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    try {
+      await act(async () => {
+        for (let index = 0; index < 8; index++) await Promise.resolve();
+      });
+      expect(container.querySelector('[data-testid="restored-flow"]')).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
   });
 
   // #602 — the processing screen nests a fixed-height full-screen page
