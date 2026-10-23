@@ -49,6 +49,11 @@ const sourceFiles = (relative: string): string[] => {
 
 const PANE_SOURCES = PANE_TREES.flatMap(sourceFiles);
 
+/** Overview and the shell itself: scanned for overscroll only, since Overview is no action pane. */
+const OVERVIEW_SOURCES = ['app/pages/Explore.tsx', 'app/layouts/HomeGroupPane.tsx', 'app/templates'].flatMap(
+  sourceFiles
+);
+
 describe('home-group panes', () => {
   it('covers the four panes and the frame they share', () => {
     // A tree renamed out of the list above would silently stop being checked.
@@ -71,6 +76,28 @@ describe('home-group panes', () => {
         .map(({ index }) => `${path.relative(SRC, file)}:${index + 1}`)
     );
 
+    expect(offenders).toEqual([]);
+  });
+
+  it('contains only vertical overscroll, so a sideways pan still chains to the pager', () => {
+    // `overscroll-contain` is both axes: a horizontal wheel or pan over a vertical body then stops
+    // at the body and never chains to the pager, which is how trackpad paging and the swipe died
+    // in Chromium. Bodies contain the y axis; only a declared sideways row contains x.
+    const offenders = [...PANE_SOURCES, ...OVERVIEW_SOURCES].flatMap(file =>
+      fs
+        .readFileSync(file, 'utf8')
+        .split('\n')
+        .map((line, index) => ({ line, index }))
+        .filter(
+          ({ line }) =>
+            /overscrollBehaviorX?\s*:/.test(line) ||
+            /(^|[\s"'`])overscroll-contain\b|(^|[\s"'`])overscroll-none\b/.test(line) ||
+            (/(^|[\s"'`])overscroll-x-(contain|none)\b/.test(line) && !/touch-pan-x/.test(line))
+        )
+        .map(({ index }) => `${path.relative(SRC, file)}:${index + 1}`)
+    );
+
+    expect(OVERVIEW_SOURCES.some(file => file.endsWith('Explore.tsx'))).toBe(true);
     expect(offenders).toEqual([]);
   });
 

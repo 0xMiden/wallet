@@ -26,6 +26,8 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
  *   Send pane once lost its swipe). A pane that genuinely wants a sideways scroller (Earn's position
  *   row) sets `overscroll-behavior-x: contain` on it, so the end of its scroll does not chain into
  *   the pager.
+ *   The body itself contains only vertical overscroll: both-axis containment would stop a
+ *   sideways pan or trackpad swipe at the body, so it would never chain to the pager.
  * - **The page margin**: 16px, the design system's, the same on all four, on the body and on the
  *   pinned CTA alike.
  * - **The top offset**, one per kind of pane: 36px to a titled pane's first line (Send, Earn,
@@ -111,7 +113,7 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
         // The body is the page's scroller: a flex child that clips (`overflow-hidden`, as reveal
         // animations need) would otherwise shrink to the space left and hide its overflow instead
         // of letting the body scroll (#1291).
-        'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain [&>*]:shrink-0',
+        'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain [&>*]:shrink-0',
         PANE_GUTTER,
         PANE_TOP[top],
         // With a footer the cushion is the footer's; without one it is the body's, from the same

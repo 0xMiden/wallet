@@ -48,7 +48,9 @@ describe('HomeGroupPaneBody', () => {
     expect(el.style.touchAction).toBe('pan-x pan-y');
     // `overflow-y-auto` alone computes `overflow-x` to `auto`, which makes the body itself a
     // horizontal scroll container the moment anything inside it bleeds past the page margin.
-    expect(el).toHaveClass('overflow-y-auto', 'overflow-x-hidden', 'overscroll-contain');
+    expect(el).toHaveClass('overflow-y-auto', 'overflow-x-hidden', 'overscroll-y-contain');
+    // Both-axis containment would stop a sideways pan or wheel here instead of chaining it to the pager.
+    expect(el).not.toHaveClass('overscroll-contain');
   });
 
   it('puts every pane on the one page margin, and a titled pane at the root top offset', () => {
