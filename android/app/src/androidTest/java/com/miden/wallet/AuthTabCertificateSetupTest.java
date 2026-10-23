@@ -98,7 +98,7 @@ public class AuthTabCertificateSetupTest {
 
     private static void clickText(UiDevice device, String text) {
         UiObject2 element = findText(device, text, UI_TIMEOUT_MS);
-        assertNotNull("Settings text not found: " + text, element);
+        assertNotNull("Settings text not found: " + text + "; on screen: " + visibleLabels(device), element);
         element.click();
         device.waitForIdle();
     }
@@ -121,7 +121,18 @@ public class AuthTabCertificateSetupTest {
                 device.waitForWindowUpdate(null, 500);
             }
         }
-        throw new AssertionError("Settings text not found: " + text);
+        throw new AssertionError("Settings text not found: " + text + "; on screen: " + visibleLabels(device));
+    }
+
+    private static String visibleLabels(UiDevice device) {
+        StringBuilder labels = new StringBuilder();
+        for (UiObject2 node : device.findObjects(By.pkg("com.android.settings"))) {
+            String label = node.getText() != null ? node.getText() : node.getContentDescription();
+            if (label != null && !label.isEmpty()) {
+                labels.append('[').append(label).append(node.isClickable() ? "*" : "").append(']');
+            }
+        }
+        return labels.toString();
     }
 
     private static void clickFirstAvailable(UiDevice device, String... labels) {
