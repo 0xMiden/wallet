@@ -51,6 +51,8 @@ export interface IHistoryEntry {
   txType: ITransactionType;
 
   // Optional properties
+  /** Recorded request origins; display classification only, not proof of a valid game result. */
+  dappOrigins?: string[];
   /** Raw transaction status; set by the detail page for the status pill. */
   status?: ITransactionStatus;
   /** Failure reason (`tx.error`); set for failed transactions. */

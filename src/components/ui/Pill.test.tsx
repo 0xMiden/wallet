@@ -226,6 +226,7 @@ describe('variants', () => {
     ['xs', ['h-5', 'gap-1', 'px-2', 'text-badge', 'font-semibold'], ['-ml-0.5', 'h-3', 'w-3']],
     ['sm', ['h-6', 'gap-1', 'px-2', 'text-badge'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
     ['md', ['h-8', 'gap-1.5', 'px-3', 'text-pill'], ['-ml-1', 'h-4', 'w-4']],
+    ['lg', ['h-10', 'gap-1.5', 'px-3.5', 'text-pill'], ['-ml-1', 'h-4', 'w-4']],
     ['tag', ['h-4.5', 'gap-1', 'px-1.5', 'text-tag'], ['-ml-0.5', 'h-3', 'w-3']]
   ] as const)('sizes the %s pill and its icon box', (size, pillClasses, iconClasses) => {
     render(
