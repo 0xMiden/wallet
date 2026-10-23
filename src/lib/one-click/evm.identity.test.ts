@@ -6,6 +6,8 @@ import {
   FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY,
   signFakeOneClickQuote
 } from '../../../playwright/e2e/helpers/fake-one-click-service';
+import { assertOneClickQuoteBinding } from './client';
+import { verifyOneClickQuoteSignature } from './signature';
 import { submitEvmOneClickDeposit } from './evm';
 import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest } from './types';
 
@@ -34,6 +36,22 @@ const configuredAsset = {
   contractAddress: trustedAsset.contractAddress,
   decimals: trustedAsset.decimals,
   symbol: trustedAsset.symbol
+};
+const destinationAsset: OneClickAsset = {
+  assetId: 'nep141:eth-0x7777777777777777777777777777777777777777.omft.near',
+  blockchain: 'eth',
+  chainId: 1,
+  contractAddress: '0x7777777777777777777777777777777777777777',
+  decimals: 6,
+  symbol: 'TOKEN'
+};
+const destinationMapping = {
+  assetId: destinationAsset.assetId,
+  blockchain: destinationAsset.blockchain,
+  chainId: destinationAsset.chainId,
+  contractAddress: destinationAsset.contractAddress,
+  decimals: destinationAsset.decimals,
+  symbol: destinationAsset.symbol
 };
 
 function signedDeposit(originAsset: OneClickAsset = trustedAsset, mappings = [configuredAsset]) {
@@ -95,7 +113,16 @@ function signedDeposit(originAsset: OneClickAsset = trustedAsset, mappings = [co
     }
     return null;
   });
-  return { request, quote, trustedConfig, calls, provider, get sendCount() { return sendCount; } };
+  return {
+    request,
+    quote,
+    trustedConfig,
+    calls,
+    provider,
+    get sendCount() {
+      return sendCount;
+    }
+  };
 }
 
 describe('EVM 1Click trusted asset identity', () => {
@@ -136,6 +163,39 @@ describe('EVM 1Click trusted asset identity', () => {
 
     expect(input.sendCount).toBe(1);
     expect(mockAssertFunded).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a correctly signed route with trusted EVM identity on both sides', () => {
+    const input = signedDeposit();
+    const request = { ...input.request, destinationAsset };
+    const quote = signFakeOneClickQuote({
+      correlationId: input.quote.correlationId,
+      timestamp: input.quote.timestamp,
+      quoteRequest: { ...input.quote.quoteRequest, destinationAsset: destinationAsset.assetId },
+      quote: input.quote.quote
+    });
+    const trustedConfig = Object.assign(input.trustedConfig, { evmAssets: [configuredAsset, destinationMapping] });
+
+    expect(verifyOneClickQuoteSignature(quote)).toBe(true);
+    expect(() => assertOneClickQuoteBinding(request, quote, false, trustedConfig)).not.toThrow();
+  });
+
+  it('rejects a correctly signed route when destination EVM metadata differs from its trusted identity', () => {
+    const input = signedDeposit();
+    const request = {
+      ...input.request,
+      destinationAsset: { ...destinationAsset, contractAddress: '0x8888888888888888888888888888888888888888' }
+    };
+    const quote = signFakeOneClickQuote({
+      correlationId: input.quote.correlationId,
+      timestamp: input.quote.timestamp,
+      quoteRequest: { ...input.quote.quoteRequest, destinationAsset: destinationAsset.assetId },
+      quote: input.quote.quote
+    });
+    const trustedConfig = Object.assign(input.trustedConfig, { evmAssets: [configuredAsset, destinationMapping] });
+
+    expect(verifyOneClickQuoteSignature(quote)).toBe(true);
+    expect(() => assertOneClickQuoteBinding(request, quote, false, trustedConfig)).toThrow('trusted identity');
   });
 
   it('rejects a correctly signed quote before funding when EVM asset has no trusted configuration', async () => {

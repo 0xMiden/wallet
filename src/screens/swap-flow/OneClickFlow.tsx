@@ -95,7 +95,6 @@ function sameDepositReference(
 
 function blocksEvmDepositRetry(tracking: IOneClickTrackingData): boolean {
   if (tracking.originTransactionHash || tracking.evmSubmission === 'known') return true;
-  if (tracking.phase === 'failed') return false;
   if (tracking.evmSubmission === 'not-started') return false;
   return true;
 }
@@ -141,8 +140,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const [externalAddress, setExternalAddress] = useState(() => initialRecovery?.request.recipient ?? '');
   const recoveredEvmAttempt =
     initialRecovery?.direction === 'evm-to-miden' &&
-    (initialRecovery.evmSubmission === 'known' ||
-      (initialRecovery.evmSubmission === 'attempted' && initialRecovery.phase !== 'failed'));
+    (initialRecovery.evmSubmission === 'known' || initialRecovery.evmSubmission === 'attempted');
   const [wetQuote, setWetQuote] = useState<OneClickQuoteResponse | undefined>(
     recoveredEvmAttempt ? initialRecovery?.quote : undefined
   );

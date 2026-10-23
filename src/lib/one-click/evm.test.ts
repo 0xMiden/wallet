@@ -28,7 +28,20 @@ const deposit = '0x2222222222222222222222222222222222222222';
 const account = '0x3333333333333333333333333333333333333333';
 const refundAccount = '0x4444444444444444444444444444444444444444';
 const txHash = `0x${'a'.repeat(64)}`;
-const config: OneClickConfig = { serviceUrl: 'https://proxy.example', midenAssets: [] };
+const config: OneClickConfig = {
+  serviceUrl: 'https://proxy.example',
+  midenAssets: [],
+  evmAssets: [
+    {
+      assetId: token.assetId,
+      blockchain: token.blockchain,
+      chainId: token.chainId!,
+      contractAddress: token.contractAddress!,
+      decimals: token.decimals,
+      symbol: token.symbol
+    }
+  ]
+};
 function signedDeposit(deadline = '2099-10-22T12:00:00.000Z'): {
   request: OneClickQuoteRequest;
   quote: OneClickQuoteResponse;

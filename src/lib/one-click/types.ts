@@ -17,6 +17,15 @@ export interface OneClickMidenAssetConfig {
   decimals: number;
 }
 
+export interface OneClickEvmAssetConfig {
+  assetId: string;
+  blockchain: string;
+  chainId: number;
+  contractAddress: string;
+  decimals: number;
+  symbol: string;
+}
+
 export interface OneClickAppFee {
   recipient: string;
   fee: number;
@@ -25,6 +34,7 @@ export interface OneClickAppFee {
 export interface OneClickConfig {
   serviceUrl: string;
   midenAssets: OneClickMidenAssetConfig[];
+  evmAssets?: OneClickEvmAssetConfig[];
   appFees?: OneClickAppFee[];
 }
 
@@ -97,13 +107,7 @@ export interface OneClickQuoteResponse {
 }
 
 export type OneClickProviderStatus =
-  | 'KNOWN_DEPOSIT_TX'
-  | 'PENDING_DEPOSIT'
-  | 'INCOMPLETE_DEPOSIT'
-  | 'PROCESSING'
-  | 'SUCCESS'
-  | 'REFUNDED'
-  | 'FAILED';
+  'KNOWN_DEPOSIT_TX' | 'PENDING_DEPOSIT' | 'INCOMPLETE_DEPOSIT' | 'PROCESSING' | 'SUCCESS' | 'REFUNDED' | 'FAILED';
 
 export interface OneClickTransactionDetails {
   hash: string;

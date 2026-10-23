@@ -50,6 +50,7 @@ let mockBalanceRows: Array<{
 let mockPersistedRows: unknown[] = [];
 let mockEvmProvider: { request: jest.Mock; on: jest.Mock; removeListener: jest.Mock };
 let mockSpendingLimitAssessment: SpendingLimitAssessment | undefined;
+let mockOneClickReviewState: { correlationId?: string; recipient?: string } = {};
 const mockConnectExternal = jest.fn(async () => undefined);
 let mockEvmBalanceSnapshot = {
   chainId: 1,
@@ -187,6 +188,8 @@ jest.mock('./OneClickAmounts', () => ({
 }));
 jest.mock('./OneClickReview', () => ({
   OneClickReview: (props: {
+    quote: OneClickQuoteResponse;
+    recipient: string;
     onConfirm: () => void;
     onRefresh: () => void;
     error?: string;
@@ -195,20 +198,23 @@ jest.mock('./OneClickReview', () => ({
     confirmDisabled?: boolean;
     fundingError?: string;
     recoveryNotice?: boolean;
-  }) => (
-    <div>
-      {props.error && <span data-testid="one-click-review-error">{props.error}</span>}
-      {props.errorId && <span data-testid="one-click-review-error-id">{props.errorId}</span>}
-      {props.recoveryNotice && <p>Quote refreshed after the previous quote expired</p>}
-      {props.fundingError && <p>{props.fundingError}</p>}
-      <button type="button" disabled={props.submitting || props.confirmDisabled} onClick={props.onConfirm}>
-        Confirm route
-      </button>
-      <button type="button" onClick={props.onRefresh}>
-        Refresh route
-      </button>
-    </div>
-  )
+  }) => {
+    mockOneClickReviewState = { correlationId: props.quote.correlationId, recipient: props.recipient };
+    return (
+      <div>
+        {props.error && <span data-testid="one-click-review-error">{props.error}</span>}
+        {props.errorId && <span data-testid="one-click-review-error-id">{props.errorId}</span>}
+        {props.recoveryNotice && <p>Quote refreshed after the previous quote expired</p>}
+        {props.fundingError && <p>{props.fundingError}</p>}
+        <button type="button" disabled={props.submitting || props.confirmDisabled} onClick={props.onConfirm}>
+          Confirm route
+        </button>
+        <button type="button" onClick={props.onRefresh}>
+          Refresh route
+        </button>
+      </div>
+    );
+  }
 }));
 jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: SpendingLimitChallengeProps) => (
@@ -234,7 +240,20 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   )
 }));
 
-const config: OneClickConfig = { serviceUrl: 'https://quotes.example', midenAssets: [] };
+const config: OneClickConfig = {
+  serviceUrl: 'https://quotes.example',
+  midenAssets: [],
+  evmAssets: [
+    {
+      assetId: 'eth:token',
+      blockchain: 'eth',
+      chainId: 1,
+      contractAddress: '0x5555555555555555555555555555555555555555',
+      decimals: 6,
+      symbol: 'USDC'
+    }
+  ]
+};
 const midenAsset: OneClickAsset = {
   assetId: 'miden:token',
   blockchain: 'miden',
@@ -423,6 +442,7 @@ beforeEach(() => {
           : null
   );
   mockSpendingLimitAssessment = undefined;
+  mockOneClickReviewState = {};
   mockEvmBalanceSnapshot = {
     chainId: 1,
     account: mockOriginAddress,
@@ -981,6 +1001,61 @@ describe('OneClickFlow', () => {
     expect(initiateOneClickMidenDeposit).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm route' }));
     await waitFor(() => expect(initiateOneClickMidenDeposit).toHaveBeenCalledTimes(1));
+  });
+
+  it('preserves the original intent and quote for a failed attempted EVM recovery', async () => {
+    const request: OneClickQuoteRequest = {
+      amount: '1000000',
+      originAsset: ethereumAsset,
+      destinationAsset: midenAsset,
+      refundTo: mockOriginAddress,
+      recipient: mockMidenAddress,
+      deadline: new Date(Date.now() + 60_000).toISOString(),
+      slippageTolerance: 100
+    };
+    const quote = quoteFor(request, false);
+    quote.correlationId = 'persisted-attempt-quote';
+    const recoveryConfig = Object.assign({}, config, {
+      midenAssets: [{ assetId: midenAsset.assetId, faucetId: midenAsset.faucetId!, decimals: midenAsset.decimals }]
+    });
+    const recovery: IOneClickTrackingData = {
+      direction: 'evm-to-miden',
+      request,
+      quote,
+      config: recoveryConfig,
+      network: 'mainnet',
+      accountId: mockAccountId,
+      accountAddress: mockMidenAddress,
+      originAsset: ethereumAsset,
+      destinationAsset: midenAsset,
+      faucetId: midenAsset.faucetId!,
+      amount: request.amount,
+      phase: 'failed',
+      providerStatus: 'FAILED',
+      evmSubmission: 'attempted',
+      depositAddress: quote.quote.depositAddress
+    };
+
+    render(
+      <OneClickFlow
+        config={recoveryConfig}
+        assets={[midenAsset, ethereumAsset]}
+        networks={networks.slice(0, 2)}
+        offerNetwork={networkFor('eth')}
+        requestNetwork={networkFor('miden')}
+        midenAddress={mockMidenAddress}
+        initialRecovery={recovery}
+        onBackToSwap={jest.fn()}
+      />
+    );
+
+    expect(await screen.findByRole('button', { name: 'Confirm route' })).toBeDisabled();
+    expect(mockOneClickReviewState).toEqual({
+      correlationId: 'persisted-attempt-quote',
+      recipient: mockMidenAddress
+    });
+    expect(requestOneClickQuote).not.toHaveBeenCalled();
+    expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
   });
 
   it('requires a manual refund address and shows instructions for a non-EVM origin', async () => {

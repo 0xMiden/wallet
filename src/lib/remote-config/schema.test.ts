@@ -179,7 +179,10 @@ describe('swap section', () => {
         appFees: [{ recipient: 'wallet.near', fee: 25 }]
       }
     };
-    expect(parseBridgeConfig({ ...doc({ swap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual(swap);
+    expect(parseBridgeConfig({ ...doc({ swap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
+      ...swap,
+      oneClick: { ...swap.oneClick, evmAssets: [] }
+    });
     expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({});
   });
 

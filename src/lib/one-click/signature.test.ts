@@ -77,9 +77,18 @@ describe('OneClick quote signature', () => {
         assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
         blockchain: 'eth',
         symbol: 'USDC',
-        decimals: 6
+        decimals: 6,
+        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        chainId: 1
       },
-      destinationAsset: { assetId: 'nep141:base.omft.near', blockchain: 'base', symbol: 'ETH', decimals: 18 },
+      destinationAsset: {
+        assetId: 'nep141:base.omft.near',
+        blockchain: 'base',
+        symbol: 'ETH',
+        decimals: 18,
+        contractAddress: 'native',
+        chainId: 8453
+      },
       refundTo: '0x1111111111111111111111111111111111111111',
       recipient: '0x2222222222222222222222222222222222222222',
       deadline: '2026-10-22T12:15:00.000Z',
@@ -89,6 +98,16 @@ describe('OneClick quote signature', () => {
       assertOneClickQuoteBinding(request, response, true, {
         serviceUrl: 'https://proxy.example',
         midenAssets: [],
+        evmAssets: [
+          {
+            assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
+            blockchain: 'eth',
+            chainId: 1,
+            contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            decimals: 6,
+            symbol: 'USDC'
+          }
+        ],
         appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
       })
     ).not.toThrow();
@@ -100,6 +119,16 @@ describe('OneClick quote signature', () => {
         {
           serviceUrl: 'https://proxy.example',
           midenAssets: [],
+          evmAssets: [
+            {
+              assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
+              blockchain: 'eth',
+              chainId: 1,
+              contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+              decimals: 6,
+              symbol: 'USDC'
+            }
+          ],
           appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
         }
       )
@@ -122,9 +151,18 @@ describe('OneClick quote signature', () => {
         assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
         blockchain: 'eth',
         symbol: 'USDC',
-        decimals: 6
+        decimals: 6,
+        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        chainId: 1
       },
-      destinationAsset: { assetId: 'nep141:base.omft.near', blockchain: 'base', symbol: 'ETH', decimals: 18 },
+      destinationAsset: {
+        assetId: 'nep141:base.omft.near',
+        blockchain: 'base',
+        symbol: 'ETH',
+        decimals: 18,
+        contractAddress: 'native',
+        chainId: 8453
+      },
       refundTo: '0x1111111111111111111111111111111111111111',
       recipient: '0x2222222222222222222222222222222222222222',
       deadline: '2026-10-22T12:15:00.000Z',
@@ -133,6 +171,16 @@ describe('OneClick quote signature', () => {
     const config = {
       serviceUrl: 'https://proxy.example',
       midenAssets: [],
+      evmAssets: [
+        {
+          assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
+          blockchain: 'eth',
+          chainId: 1,
+          contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          decimals: 6,
+          symbol: 'USDC'
+        }
+      ],
       appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
     };
     const requestPayload = JSON.stringify(response.quoteRequest);

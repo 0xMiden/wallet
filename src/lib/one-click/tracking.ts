@@ -144,7 +144,6 @@ function samePersistedDepositReference(left: IOneClickTrackingData, right: IOneC
 
 function blocksEvmDepositRetry(tracking: IOneClickTrackingData): boolean {
   if (tracking.originTransactionHash || tracking.evmSubmission === 'known') return true;
-  if (tracking.phase === 'failed') return false;
   if (tracking.evmSubmission === 'not-started') return false;
   return true;
 }
@@ -302,28 +301,37 @@ export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClic
     });
 }
 
-async function updateTracking(rowId: string, tracking: IOneClickTrackingData): Promise<void> {
+const isTerminal = (phase: IOneClickTrackingData['phase']): boolean =>
+  phase === 'delivered' || phase === 'refunded' || phase === 'failed';
+
+async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingData>): Promise<void> {
   await Repo.transactions
     .where('id')
     .equals(rowId)
     .modify(transaction => {
       const current = oneClickOf(transaction);
       if (!current) return false;
+      if (isTerminal(current.phase)) return false;
+      const next: IOneClickTrackingData = {
+        ...current,
+        ...patch,
+        evmSubmission: current.evmSubmission ?? patch.evmSubmission,
+        originTransactionHash: current.originTransactionHash ?? patch.originTransactionHash,
+        providerSubmitted: current.providerSubmitted || patch.providerSubmitted,
+        updatedAt: Math.max(current.updatedAt ?? 0, patch.updatedAt ?? 0)
+      };
       transaction.extraInputs = {
         ...transaction.extraInputs,
         ...(transaction.type === 'bridged-receive'
           ? {
-              phase: tracking.phase === 'delivered' ? 'received' : tracking.phase === 'failed' ? 'failed' : 'delivering'
+              phase: next.phase === 'delivered' ? 'received' : next.phase === 'failed' ? 'failed' : 'delivering'
             }
           : {}),
-        oneClick: tracking
+        oneClick: next
       };
       return undefined;
     });
 }
-
-const isTerminal = (phase: IOneClickTrackingData['phase']): boolean =>
-  phase === 'delivered' || phase === 'refunded' || phase === 'failed';
 
 async function reconcileRow(transaction: ITransaction): Promise<void> {
   const tracking = oneClickOf(transaction);
@@ -348,15 +356,26 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
         tracking.depositMemo,
         tracking.quote
       );
+      const submittedPhase =
+        submitted.status === 'SUCCESS' && tracking.direction === 'miden-to-evm'
+          ? 'delivered'
+          : phaseForProviderStatus(submitted.status);
       updated = {
         ...updated,
         providerSubmitted: true,
         providerStatus: submitted.status,
         statusResponse: submitted,
-        phase: phaseForProviderStatus(submitted.status),
+        phase: submittedPhase,
         updatedAt: Date.now()
       };
-      await updateTracking(transaction.id, updated);
+      await updateTracking(transaction.id, {
+        providerSubmitted: true,
+        providerStatus: submitted.status,
+        statusResponse: submitted,
+        phase: submittedPhase,
+        updatedAt: updated.updatedAt
+      });
+      if (submittedPhase === 'delivered') return;
     } catch (error) {
       console.warn('[one-click-tracking] deposit submission failed', transaction.id, error);
     }
@@ -379,7 +398,12 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
         statusResponse: status,
         updatedAt: Date.now()
       };
-      await updateTracking(transaction.id, updated);
+      await updateTracking(transaction.id, {
+        phase,
+        providerStatus: status.status,
+        statusResponse: status,
+        updatedAt: updated.updatedAt
+      });
       try {
         const hashes = status.swapDetails.destinationChainTxHashes.map(item => item.hash);
         if (hashes.length > 0) {
@@ -420,6 +444,8 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
       } catch (error) {
         console.warn('[one-click-tracking] destination delivery check failed', transaction.id, error);
       }
+    } else if (status.status === 'SUCCESS' && tracking.direction === 'miden-to-evm') {
+      phase = 'delivered';
     }
     updated = {
       ...updated,
@@ -431,7 +457,15 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
       ...(status.status === 'FAILED' ? { error: status.swapDetails.refundReason ?? 'The 1Click swap failed.' } : {}),
       updatedAt: Date.now()
     };
-    await updateTracking(transaction.id, updated);
+    await updateTracking(transaction.id, {
+      ...(actualOutputAmount !== undefined ? { amount: actualOutputAmount.toString() } : {}),
+      phase,
+      providerStatus: status.status,
+      statusResponse: status,
+      ...(destinationNoteIds !== undefined ? { destinationNoteIds } : {}),
+      error: status.status === 'FAILED' ? (status.swapDetails.refundReason ?? 'The 1Click swap failed.') : undefined,
+      updatedAt: updated.updatedAt
+    });
   } catch (error) {
     console.warn('[one-click-tracking] status reconciliation failed', transaction.id, error);
   }

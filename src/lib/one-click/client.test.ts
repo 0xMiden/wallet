@@ -21,7 +21,7 @@ const config: OneClickConfig = {
 const input: OneClickQuoteRequest = {
   amount: '1000000',
   originAsset: {
-    assetId: 'eth:native',
+    assetId: 'nep141:eth.omft.near',
     blockchain: 'eth',
     symbol: 'ETH',
     decimals: 18,
@@ -55,7 +55,21 @@ const wetDepositAddress = '0xe5E9d98Ee5e8E8d379fa7bEb302f33E94261f21B';
 const submitTransactionHash = `0x${'1'.repeat(64)}`;
 
 function configWithFees(appFees: OneClickAppFee[] = []): OneClickConfig {
-  return { serviceUrl: 'https://proxy.example', midenAssets: [], appFees };
+  return {
+    serviceUrl: 'https://proxy.example',
+    midenAssets: [],
+    evmAssets: [
+      {
+        assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
+        blockchain: 'eth',
+        chainId: 1,
+        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        decimals: 6,
+        symbol: 'USDC'
+      }
+    ],
+    appFees
+  };
 }
 
 function quoteWithFees(quote: OneClickQuoteResponse, appFees: OneClickAppFee[]): OneClickQuoteResponse {
@@ -66,8 +80,22 @@ function requestForFixture(quote: OneClickQuoteResponse): OneClickQuoteRequest {
   const signed = quote.quoteRequest;
   return {
     amount: signed.amount,
-    originAsset: { assetId: signed.originAsset, blockchain: 'eth', symbol: 'USDC', decimals: 6 },
-    destinationAsset: { assetId: signed.destinationAsset, blockchain: 'base', symbol: 'ETH', decimals: 18 },
+    originAsset: {
+      assetId: signed.originAsset,
+      blockchain: 'eth',
+      symbol: 'USDC',
+      decimals: 6,
+      contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      chainId: 1
+    },
+    destinationAsset: {
+      assetId: signed.destinationAsset,
+      blockchain: 'base',
+      symbol: 'ETH',
+      decimals: 18,
+      contractAddress: 'native',
+      chainId: 8453
+    },
     refundTo: signed.refundTo,
     recipient: signed.recipient,
     deadline: signed.deadline,
@@ -160,7 +188,6 @@ describe('1Click client', () => {
   it('does not invent a Miden asset absent from the live provider catalog', async () => {
     fetchMock.mockResolvedValue(
       Response.json([
-        { assetId: 'eth:native', blockchain: 'eth', symbol: 'ETH', decimals: 18 },
         { assetId: 'nep141:eth.omft.near', blockchain: 'eth', symbol: 'ETH', decimals: 18 },
         { assetId: 'eth:unverified-native', blockchain: 'eth', symbol: 'ETH', decimals: 18, contractAddress: 'native' },
         {
@@ -174,8 +201,7 @@ describe('1Click client', () => {
     );
     const resolver = jest.fn(async () => ({ decimals: 6, symbol: 'USDC' }));
     const assets = await fetchOneClickAssets(config, resolver);
-    expect(assets.map(asset => asset.assetId)).toEqual(['eth:native', 'nep141:eth.omft.near', 'sol:token']);
-    expect(assets.find(asset => asset.assetId === 'eth:native')?.contractAddress).toBeUndefined();
+    expect(assets.map(asset => asset.assetId)).toEqual(['nep141:eth.omft.near', 'sol:token']);
     expect(assets.find(asset => asset.assetId === 'nep141:eth.omft.near')?.contractAddress).toBe('native');
     expect(resolver).not.toHaveBeenCalled();
   });
@@ -276,6 +302,16 @@ describe('1Click client', () => {
   it('keeps independently verified mappings when another Miden metadata lookup fails or mismatches', async () => {
     const metadataConfig: OneClickConfig = {
       serviceUrl: 'https://proxy.example',
+      evmAssets: [
+        {
+          assetId: 'eth:token',
+          blockchain: 'eth',
+          chainId: 1,
+          contractAddress: `0x${'a'.repeat(40)}`,
+          decimals: 18,
+          symbol: 'TOKEN'
+        }
+      ],
       midenAssets: [
         { assetId: 'miden:verified', faucetId: `0x${'1'.repeat(30)}`, decimals: 6 },
         { assetId: 'miden:unavailable', faucetId: `0x${'2'.repeat(30)}`, decimals: 6 },
@@ -372,14 +408,48 @@ describe('1Click client', () => {
   });
 
   it('preserves canonical IDs from the provider catalog and matches underlying assets without symbols', async () => {
+    const catalogConfig: OneClickConfig = {
+      ...config,
+      evmAssets: [
+        {
+          assetId: 'nep141:usdc',
+          blockchain: 'eth',
+          chainId: 1,
+          contractAddress: `0x${'a'.repeat(40)}`,
+          decimals: 6,
+          symbol: 'USDC'
+        },
+        {
+          assetId: 'nep141:other',
+          blockchain: 'eth',
+          chainId: 1,
+          contractAddress: `0x${'b'.repeat(40)}`,
+          decimals: 6,
+          symbol: 'USDC'
+        }
+      ]
+    };
     fetchMock.mockResolvedValue(
       Response.json([
         { assetId: 'miden:usdc', blockchain: 'miden', symbol: 'USD Coin', decimals: 6, coingeckoId: 'usd-coin' },
-        { assetId: 'nep141:usdc', blockchain: 'eth', symbol: 'USDC', decimals: 6, coingeckoId: 'usd-coin' },
-        { assetId: 'nep141:other', blockchain: 'eth', symbol: 'USDC', decimals: 6 }
+        {
+          assetId: 'nep141:usdc',
+          blockchain: 'eth',
+          symbol: 'USDC',
+          decimals: 6,
+          contractAddress: `0x${'a'.repeat(40)}`,
+          coingeckoId: 'usd-coin'
+        },
+        {
+          assetId: 'nep141:other',
+          blockchain: 'eth',
+          symbol: 'USDC',
+          decimals: 6,
+          contractAddress: `0x${'b'.repeat(40)}`
+        }
       ])
     );
-    const assets = await fetchOneClickAssets(config, async () => ({ decimals: 6, symbol: 'USDC' }));
+    const assets = await fetchOneClickAssets(catalogConfig, async () => ({ decimals: 6, symbol: 'USDC' }));
     const miden = assets.find(asset => asset.blockchain === 'miden');
     const evm = assets.find(asset => asset.assetId === 'nep141:usdc');
     const other = assets.find(asset => asset.assetId === 'nep141:other');

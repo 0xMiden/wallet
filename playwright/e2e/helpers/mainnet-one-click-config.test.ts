@@ -25,6 +25,6 @@ describe('mainnet 1Click config rollout gate', () => {
   });
 
   it('uses the configured route only when the wallet-config switch is explicitly true', () => {
-    expect(mainnetOneClickConfig(mainnetDocument(true))).toEqual(oneClick);
+    expect(mainnetOneClickConfig(mainnetDocument(true))).toEqual({ ...oneClick, evmAssets: [] });
   });
 });

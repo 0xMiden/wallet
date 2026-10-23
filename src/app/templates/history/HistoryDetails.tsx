@@ -1232,13 +1232,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('oneClickProviderStatus')}>
                       {oneClickProviderStatus(t, entry.oneClickTracking.providerStatus)}
                     </DetailRow>
-                    {(entry.oneClickTracking.phase === 'arriving' || entry.oneClickTracking.phase === 'delivered') && (
-                      <DetailRow label={t('oneClickDeliveryStatus')}>
-                        {entry.oneClickTracking.phase === 'delivered'
-                          ? t('oneClickStatusDelivered')
-                          : t('oneClickDeliveryArriving')}
-                      </DetailRow>
-                    )}
+                    {entry.oneClickTracking.direction === 'evm-to-miden' &&
+                      (entry.oneClickTracking.phase === 'arriving' || entry.oneClickTracking.phase === 'delivered') && (
+                        <DetailRow label={t('oneClickDeliveryStatus')}>
+                          {entry.oneClickTracking.phase === 'delivered'
+                            ? t('oneClickStatusDelivered')
+                            : t('oneClickDeliveryArriving')}
+                        </DetailRow>
+                      )}
                     <DetailRow label={t('oneClickNetwork')}>{entry.oneClickTracking.network}</DetailRow>
                     <DetailRow label={t('oneClickOriginNetwork')}>
                       {oneClickNetworkLabel(t, entry.oneClickTracking.originAsset.blockchain)}

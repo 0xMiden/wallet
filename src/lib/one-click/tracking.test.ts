@@ -12,6 +12,7 @@ const addTransaction = jest.fn();
 const initiateSend = jest.fn();
 const storedRows: any[] = [];
 const fetchStatus = jest.fn();
+const submitDeposit = jest.fn();
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -32,7 +33,7 @@ jest.mock('lib/one-click/client', () => ({
   assertOneClickQuoteBinding: jest.fn(),
   fetchOneClickStatus: (...args: unknown[]) => fetchStatus(...args),
   resolveOneClickDestinationReceipts: jest.fn(),
-  submitOneClickDeposit: jest.fn()
+  submitOneClickDeposit: (...args: unknown[]) => submitDeposit(...args)
 }));
 jest.mock('lib/miden/activity', () => ({ initiateSendTransaction: (...args: unknown[]) => initiateSend(...args) }));
 
@@ -126,6 +127,7 @@ beforeEach(() => {
   addTransaction.mockResolvedValue('row-id');
   initiateSend.mockResolvedValue('send-row-id');
   fetchStatus.mockResolvedValue({ status: 'PENDING_DEPOSIT', swapDetails: {} });
+  submitDeposit.mockResolvedValue({ status: 'PENDING_DEPOSIT', swapDetails: {} });
 });
 
 describe('1Click durable tracking', () => {
@@ -273,6 +275,45 @@ describe('1Click durable tracking', () => {
     await reconcileOneClickSwaps();
 
     expect(fetchStatus).toHaveBeenCalledTimes(1);
+    expect(outboundRow.extraInputs.oneClick.phase).toBe('delivered');
+  });
+
+  it('stops after an outbound deposit submission reports success', async () => {
+    const outboundRow = {
+      id: 'outbound-submit-success-row',
+      type: 'send',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      transactionId: 'miden-send-hash',
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request,
+          quote,
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset,
+          destinationAsset,
+          faucetId: 'miden-faucet',
+          amount: request.amount,
+          phase: 'processing',
+          depositAddress: 'miden-deposit-address',
+          providerSubmitted: false
+        }
+      }
+    };
+    storedRows.push(outboundRow);
+    submitDeposit.mockResolvedValue({ status: 'SUCCESS', swapDetails: {} });
+    fetchStatus.mockRejectedValue(new Error('status must not be fetched after terminal submit success'));
+
+    await reconcileOneClickSwaps();
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).toHaveBeenCalledTimes(1);
+    expect(fetchStatus).not.toHaveBeenCalled();
     expect(outboundRow.extraInputs.oneClick.phase).toBe('delivered');
   });
 

@@ -1,6 +1,8 @@
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
+import { parseOneClickEvmAssets } from '../one-click/identity';
+import type { OneClickEvmAssetConfig } from '../one-click/types';
 import { evmChainSlug } from './chains';
 import { type GeoBlocks, readGeoBlocks } from './geo';
 
@@ -22,6 +24,7 @@ export interface OneClickAppFeeConfig {
 export interface OneClickConfig {
   serviceUrl: string;
   midenAssets: OneClickMidenAssetConfig[];
+  evmAssets?: OneClickEvmAssetConfig[];
   appFees?: OneClickAppFeeConfig[];
 }
 
@@ -275,6 +278,7 @@ function oneClick(
     faucets.add(faucetId);
     return { assetId, faucetId, decimals: asset.decimals };
   });
+  const evmAssets = parseOneClickEvmAssets(config.evmAssets, ids);
   let appFees: OneClickAppFeeConfig[] | undefined;
   if (config.appFees !== undefined) {
     if (!Array.isArray(config.appFees) || config.appFees.length > 3) return invalid();
@@ -292,7 +296,7 @@ function oneClick(
     });
     if (appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000) return invalid();
   }
-  return { serviceUrl, midenAssets, ...(appFees === undefined ? {} : { appFees }) };
+  return { serviceUrl, midenAssets, evmAssets, ...(appFees === undefined ? {} : { appFees }) };
 }
 
 function isSafeIntegerInRange(value: unknown, min: number, max: number): value is number {

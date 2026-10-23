@@ -1,10 +1,11 @@
 import { toHex } from 'viem';
 import type { EIP1193Provider } from 'viem';
 
-import { assertOneClickQuoteBinding, ONE_CLICK_EVM_CHAIN_IDS } from './client';
+import { assertOneClickQuoteBinding } from './client';
 import { assertOneClickFundingDeadline } from './deadline';
 import { assertOneClickEvmDepositFunded } from './evm-balance';
 import { buildEvmOneClickTransaction } from './evm-transfer';
+import { assertOneClickAssetIdentity, ONE_CLICK_EVM_CHAIN_IDS, parseOneClickEvmAssets } from './identity';
 import type { OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
 export { buildEvmOneClickTransaction } from './evm-transfer';
@@ -71,6 +72,7 @@ export async function submitEvmOneClickDeposit({
   const depositAddress = quote.quote.depositAddress;
   let transaction: ReturnType<typeof buildEvmOneClickTransaction>;
   try {
+    assertOneClickAssetIdentity(asset, parseOneClickEvmAssets(config.evmAssets));
     assertOneClickQuoteBinding(request, quote, false, config);
     if (
       !chainId ||

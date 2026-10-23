@@ -201,6 +201,13 @@ test('settles the smallest observed funded 1Click round trip and returns the rec
     if (!resumablePreflight) assertMainnetOneClickMayStart(checkpoint);
   } else if (checkpoint?.phase !== 'execution-authorized' || checkpoint.sourceRunId !== sourceRunId) {
     throw new Error('A same-run execution marker is required before any funded 1Click action');
+  } else {
+    saveMainnetOneClickCheckpoint(CHECKPOINT_PATH, {
+      ...checkpoint,
+      phase: 'preflight',
+      updatedAt: new Date().toISOString(),
+      note: 'Execution authorization consumed before wallet recovery and read-only checks; no funding request was submitted.'
+    });
   }
   const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR;
   if (!keyPair) throw new Error('E2E_MAINNET_GUARDIAN_KEY_PAIR is unset');

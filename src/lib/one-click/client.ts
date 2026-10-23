@@ -2,6 +2,12 @@ import { isRecord } from 'lib/update/guards';
 
 import { assertOneClickDeadline } from './deadline';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
+import {
+  assertOneClickAssetIdentity,
+  isOneClickNativeAssetId,
+  ONE_CLICK_EVM_CHAIN_IDS,
+  parseOneClickEvmAssets
+} from './identity';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
 import type {
   OneClickAsset,
@@ -27,20 +33,7 @@ export function createMidenAssetMetadataResolver(
   };
 }
 
-const NATIVE_EVM_ASSETS: Readonly<Record<string, { blockchain: string; decimals: number }>> = {
-  'nep141:eth.omft.near': { blockchain: 'eth', decimals: 18 },
-  'nep141:arb.omft.near': { blockchain: 'arb', decimals: 18 },
-  'nep141:base.omft.near': { blockchain: 'base', decimals: 18 },
-  'nep245:v2_1.omni.hot.tg:10_11111111111111111111': { blockchain: 'op', decimals: 18 }
-};
-
-export const ONE_CLICK_EVM_CHAIN_IDS: Readonly<Record<string, number>> = {
-  eth: 1,
-  base: 8453,
-  arb: 42161,
-  op: 10,
-  arc: 5042
-};
+export { ONE_CLICK_EVM_CHAIN_IDS } from './identity';
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -89,6 +82,7 @@ function validateConfig(config: OneClickConfig): string {
     assetIds.add(asset.assetId);
     faucetIds.add(asset.faucetId.toLowerCase());
   }
+  parseOneClickEvmAssets(config.evmAssets, assetIds);
   if (config.appFees !== undefined) {
     if (
       !Array.isArray(config.appFees) ||
@@ -366,6 +360,12 @@ export function assertOneClickQuoteBinding(
   ) {
     throw new Error('1Click quote does not match the requested route');
   }
+  const trustedEvmAssets = parseOneClickEvmAssets(
+    config.evmAssets,
+    new Set(config.midenAssets.map(asset => asset.assetId))
+  );
+  assertOneClickAssetIdentity(request.originAsset, trustedEvmAssets);
+  assertOneClickAssetIdentity(request.destinationAsset, trustedEvmAssets);
   validateProviderFees(signed.appFees ?? [], config.appFees ?? []);
   if (response.quote.amountIn !== request.amount) throw new Error('1Click quote changed the exact input amount');
   if (!dry) {
@@ -388,6 +388,10 @@ export async function fetchOneClickAssets(
 ): Promise<OneClickAsset[]> {
   const raw = await requestJson(config, '/v0/tokens', undefined, fetcher);
   if (!Array.isArray(raw) || raw.length > 5000) throw new Error('Invalid 1Click token response');
+  const trustedEvmAssets = parseOneClickEvmAssets(
+    config.evmAssets,
+    new Set(config.midenAssets.map(asset => asset.assetId))
+  );
   const assets: OneClickAsset[] = [];
   const byId = new Map<string, Record<string, unknown>>();
   for (const item of raw) {
@@ -411,10 +415,9 @@ export async function fetchOneClickAssets(
     const decimals = item.decimals;
     byId.set(item.assetId, item);
     const isSupportedEvm = Object.prototype.hasOwnProperty.call(ONE_CLICK_EVM_CHAIN_IDS, item.blockchain);
-    if (item.blockchain === 'miden') continue;
-    const pinnedNative = NATIVE_EVM_ASSETS[item.assetId];
-    if (pinnedNative && (item.blockchain !== pinnedNative.blockchain || decimals !== pinnedNative.decimals)) continue;
-    if (item.contractAddress === 'native' && !pinnedNative) continue;
+    const chainId = ONE_CLICK_EVM_CHAIN_IDS[item.blockchain];
+    const pinnedNative = isOneClickNativeAssetId(item.assetId);
+    if (pinnedNative && item.contractAddress !== undefined && item.contractAddress !== 'native') continue;
     if (
       item.contractAddress !== undefined &&
       (typeof item.contractAddress !== 'string' ||
@@ -422,7 +425,7 @@ export async function fetchOneClickAssets(
         (isSupportedEvm && item.contractAddress !== 'native' && !EVM_ADDRESS.test(item.contractAddress)))
     )
       continue;
-    assets.push({
+    const candidate: OneClickAsset = {
       assetId: item.assetId,
       blockchain: item.blockchain,
       symbol: item.symbol,
@@ -433,8 +436,16 @@ export async function fetchOneClickAssets(
         : typeof item.contractAddress === 'string'
           ? { contractAddress: isSupportedEvm ? item.contractAddress.toLowerCase() : item.contractAddress }
           : {}),
-      ...(ONE_CLICK_EVM_CHAIN_IDS[item.blockchain] ? { chainId: ONE_CLICK_EVM_CHAIN_IDS[item.blockchain] } : {})
-    });
+      ...(chainId ? { chainId } : {})
+    };
+    try {
+      assertOneClickAssetIdentity(candidate, trustedEvmAssets);
+    } catch {
+      continue;
+    }
+    if (item.contractAddress === 'native' && !pinnedNative) continue;
+    if (item.blockchain === 'miden') continue;
+    assets.push(candidate);
   }
   const candidates = config.midenAssets.flatMap(configured => {
     const listed = byId.get(configured.assetId);
