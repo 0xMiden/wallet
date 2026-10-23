@@ -83,6 +83,7 @@ export interface FiatCurrencySlice {
   fiatRates: ExchangeRateRecord | null;
   fiatRatesLoading: boolean;
   tokenPrices: TokenPrices;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
 }
 
 /**

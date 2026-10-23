@@ -1703,5 +1703,13 @@
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
-  "availableAmount": "사용 가능: $amount$ $symbol$"
+  "availableAmount": "사용 가능: $amount$ $symbol$",
+  "amountExceedsTokenDecimals": "이 금액은 해당 토큰이 허용하는 소수점 자리 수보다 더 많은 소수점 자릿수를 가지고 있습니다.",
+  "amountUsdUnavailable": "USD 추정치 없음",
+  "amountUsdStale": "USD 호가가 만료되었습니다. 가격을 새로 고침 중…",
+  "amountInputUnit": "$unit$ 단위의 금액",
+  "amountSwitchUnit": "$unit$ 입력",
+  "amountUsdLoading": "USD 가격 불러오는 중…",
+  "amountUsdError": "USD 가격이 갱신되지 않았습니다",
+  "amountUsdEstimate": "USD 추정치"
 }

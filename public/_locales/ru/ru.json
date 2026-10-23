@@ -1703,5 +1703,13 @@
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
-  "availableAmount": "Доступно: $amount$ $symbol$"
+  "availableAmount": "Доступно: $amount$ $symbol$",
+  "amountExceedsTokenDecimals": "В этой сумме больше десятичных знаков, чем допускает данный токен.",
+  "amountUsdUnavailable": "Оценка в долларах США недоступна",
+  "amountUsdStale": "Срок действия котировки в долларах США истек. Обновление цены…",
+  "amountInputUnit": "Сумма в $unit$",
+  "amountSwitchUnit": "Введите $unit$",
+  "amountUsdLoading": "Загрузка цены в долларах США…",
+  "amountUsdError": "Цена в долларах США не может быть обновлена",
+  "amountUsdEstimate": "Оценка в долларах США"
 }

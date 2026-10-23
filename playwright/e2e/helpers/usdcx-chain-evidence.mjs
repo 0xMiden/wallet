@@ -98,8 +98,20 @@ const subcommands = {
           `(status ${status.status}, attempts ${status.attemptCount}, last error ${status.lastError ?? 'none'})`
       );
       const header = await rpc.getBlockHeaderByNumber(consumeBlock);
-      const storage = (await rpc.getAccountDetails(faucet)).account().storage();
-      const schedule = storage.getMapItem(FEE_SCHEDULE_SLOT, sdk.NoteScript.burn().root());
+      // Not getAccountDetails: the faucet's nonce registry has outgrown the node's inline limit, which makes the full
+      // account unbuildable. A proof for the one fee_schedule key never touches that map.
+      const burnRootHex = sdk.NoteScript.burn().root().toHex();
+      // The key word is consumed by SlotAndKeys, so it is built from a fresh script handle.
+      const proof = await rpc.getAccountProof(
+        faucet,
+        sdk.AccountStorageRequirements.fromSlotAndKeysArray([
+          new sdk.SlotAndKeys(FEE_SCHEDULE_SLOT, [sdk.NoteScript.burn().root()])
+        ])
+      );
+      const schedule = proof
+        .getStorageMapEntries(FEE_SCHEDULE_SLOT)
+        ?.find(entry => entry.key().toHex() === burnRootHex)
+        ?.value();
       assert.ok(schedule, 'the USDCx faucet has a fee_schedule entry for the burn script');
       return {
         noteId,

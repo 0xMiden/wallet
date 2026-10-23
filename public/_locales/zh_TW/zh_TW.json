@@ -1703,5 +1703,13 @@
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
-  "availableAmount": "可用：$amount$ $symbol$"
+  "availableAmount": "可用：$amount$ $symbol$",
+  "amountExceedsTokenDecimals": "此金額的小數位數超過該代幣所允許的範圍。",
+  "amountUsdUnavailable": "無法提供美元估算值",
+  "amountUsdStale": "美元報價已過期。正在刷新價格……",
+  "amountInputUnit": "金額以 $unit$ 計",
+  "amountSwitchUnit": "輸入 $unit$",
+  "amountUsdLoading": "正在載入美元價格……",
+  "amountUsdError": "無法更新 USD 價格",
+  "amountUsdEstimate": "美元估算"
 }

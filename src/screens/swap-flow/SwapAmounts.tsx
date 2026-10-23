@@ -9,10 +9,12 @@ import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
-import { SwapToken } from 'lib/miden/swap/tokens';
+import { amountExceedsTokenDecimals, typedAmountExceedsBalance } from 'lib/i18n/numbers';
+import { SwapToken, tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useWalletStore } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
@@ -90,6 +92,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   onRequestNetworkChange
 }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
   useUserVisibleError(statusMessage && statusIsError ? (statusErrorId ?? null) : null, 'inline');
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const reduceMotion = useReducedMotion();
@@ -110,14 +113,18 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
   const awaitingAmount = !(offerAmountValue > 0);
-  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
+  const offerExceedsPrecision = amountExceedsTokenDecimals(offerAmount, offerToken.decimals);
+  const requestExceedsPrecision = amountExceedsTokenDecimals(requestAmount, requestToken.decimals);
+  const offerAmountExceedsBalance = typedAmountExceedsBalance(offerAmount, offerBalance, offerToken.decimals);
   // Missing the fee asset outranks an over-balance amount: no amount at all is
   // sendable, so telling the user to lower it would send them in a loop.
   const offerAmountError = feeAssetMissing
     ? 'insufficientFeeAsset'
-    : offerAmountExceedsBalance
-      ? 'amountMustBeLessThanBalance'
-      : undefined;
+    : offerExceedsPrecision
+      ? 'amountExceedsTokenDecimals'
+      : offerAmountExceedsBalance
+        ? 'amountMustBeLessThanBalance'
+        : undefined;
 
   return (
     // The shared home-group pane body: the page margin, the offset to the first line ("You Pay",
@@ -160,11 +167,14 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             label={t('youPay')}
             showAmountDivider={false}
             accent="swap"
-            token={swapTokenToUIToken(offerToken, offerBalance)}
+            token={{
+              ...swapTokenToUIToken(offerToken, offerBalance),
+              fiatPrice: tokenQuote(prices, offerToken.faucetId, offerToken.symbol)?.price ?? 0
+            }}
             tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
             logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
-            isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
+            isValidAmount={offerAmountValue > 0 && !offerExceedsPrecision && !offerAmountExceedsBalance}
             error={offerAmountError}
             errorId={feeAssetMissing ? null : offerAmountError}
             // The fee shortfall keeps the amount red but says so under the token.
@@ -226,11 +236,15 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             label={t('youReceive')}
             showAmountDivider={false}
             accent="swap"
-            token={swapTokenToUIToken(requestToken)}
+            token={{
+              ...swapTokenToUIToken(requestToken),
+              fiatPrice: tokenQuote(prices, requestToken.faucetId, requestToken.symbol)?.price ?? 0
+            }}
             tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
             logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
-            isValidAmount={Number(requestAmount) > 0}
+            isValidAmount={Number(requestAmount) > 0 && !requestExceedsPrecision}
+            error={requestExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined}
             loading={requestLoading}
             onAmountChange={onRequestAmountChange}
             onSelectToken={onSelectRequestToken}

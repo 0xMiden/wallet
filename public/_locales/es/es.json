@@ -1703,5 +1703,13 @@
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
-  "availableAmount": "Disponible: $amount$ $symbol$"
+  "availableAmount": "Disponible: $amount$ $symbol$",
+  "amountExceedsTokenDecimals": "Esta cantidad tiene más decimales de los que permite este token.",
+  "amountUsdUnavailable": "Estimación en USD no disponible",
+  "amountUsdStale": "La cotización en USD ha caducado. Actualizando el precio…",
+  "amountInputUnit": "Importe en $unit$",
+  "amountSwitchUnit": "Introduce $unit$",
+  "amountUsdLoading": "Cargando el precio en USD…",
+  "amountUsdError": "No se ha podido actualizar el precio en USD",
+  "amountUsdEstimate": "Estimación en USD"
 }

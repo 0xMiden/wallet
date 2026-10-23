@@ -7707,5 +7707,47 @@
         "content": "$2"
       }
     }
+  },
+  "amountExceedsTokenDecimals": {
+    "message": "此金額的小數位數超過該代幣所允許的範圍。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
+  "amountUsdUnavailable": {
+    "message": "無法提供美元估算值",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "美元報價已過期。正在刷新價格……",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "金額以 $unit$ 計",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "輸入 $unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "正在載入美元價格……",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "無法更新 USD 價格",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "美元估算",
+    "englishSource": "USD estimate"
   }
 }

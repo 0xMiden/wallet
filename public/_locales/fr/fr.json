@@ -1703,5 +1703,13 @@
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
-  "availableAmount": "Disponible : $amount$ $symbol$"
+  "availableAmount": "Disponible : $amount$ $symbol$",
+  "amountExceedsTokenDecimals": "Ce montant comporte plus de décimales que ne le permet ce jeton.",
+  "amountUsdUnavailable": "Estimation en USD indisponible",
+  "amountUsdStale": "Cotation en USD expirée. Actualisation du cours…",
+  "amountInputUnit": "Montant en $unit$",
+  "amountSwitchUnit": "Saisissez $unit$",
+  "amountUsdLoading": "Chargement du cours en USD…",
+  "amountUsdError": "Le cours en USD n’a pas pu être actualisé",
+  "amountUsdEstimate": "Estimation en USD"
 }

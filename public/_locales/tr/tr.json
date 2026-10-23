@@ -1703,5 +1703,13 @@
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
-  "availableAmount": "Mevcut: $amount$ $symbol$"
+  "availableAmount": "Mevcut: $amount$ $symbol$",
+  "amountExceedsTokenDecimals": "Bu tutarın ondalık basamak sayısı, bu tokenin izin verdiği sayıdan fazladır.",
+  "amountUsdUnavailable": "USD tahmini mevcut değil",
+  "amountUsdStale": "USD fiyat teklifi süresi doldu. Fiyat yenileniyor…",
+  "amountInputUnit": "$unit$ cinsinden tutar",
+  "amountSwitchUnit": "$unit$ girin",
+  "amountUsdLoading": "USD fiyatı yükleniyor…",
+  "amountUsdError": "USD fiyatı yenilenemedi",
+  "amountUsdEstimate": "USD tahmini"
 }

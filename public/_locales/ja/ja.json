@@ -1703,5 +1703,13 @@
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
-  "availableAmount": "利用可能：$amount$ $symbol$"
+  "availableAmount": "利用可能：$amount$ $symbol$",
+  "amountExceedsTokenDecimals": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
+  "amountUsdUnavailable": "USDの見積もりは利用不可",
+  "amountUsdStale": "USDの相場が期限切れとなりました。価格を更新中…",
+  "amountInputUnit": "$unit$単位の金額",
+  "amountSwitchUnit": "$unit$を入力してください",
+  "amountUsdLoading": "USD価格を読み込み中…",
+  "amountUsdError": "USDの価格が更新できませんでした",
+  "amountUsdEstimate": "米ドルの推定額"
 }
