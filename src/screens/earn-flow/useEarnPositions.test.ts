@@ -48,6 +48,16 @@ jest.mock('lib/epoch', () => {
   };
 });
 
+let mockServiceRequestTotal = 0;
+let mockServiceRequestsLastMinute = 0;
+jest.mock('lib/epoch/pools-read', () => ({
+  ...jest.requireActual<typeof import('lib/epoch/pools-read')>('lib/epoch/pools-read'),
+  getPositionsServiceRequestStats: jest.fn(() => ({
+    total: mockServiceRequestTotal,
+    lastMinute: mockServiceRequestsLastMinute
+  }))
+}));
+
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: unknown[]) => mockUseRetryableSWR(...args)
 }));
@@ -860,6 +870,8 @@ describe('useEarnPositions', () => {
 
       beforeEach(() => {
         jest.useFakeTimers();
+        mockServiceRequestTotal = 0;
+        mockServiceRequestsLastMinute = 0;
         jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
       });
 
@@ -877,6 +889,22 @@ describe('useEarnPositions', () => {
         expect(reads()).toBe(1);
         await advance(200);
         expect(reads()).toBe(2);
+      });
+
+      it('waits before polling when its previous read used six positions-service requests', async () => {
+        jest.mocked(fetchEarnPositions).mockImplementation(async () => {
+          mockServiceRequestTotal += 6;
+          mockServiceRequestsLastMinute += 6;
+          return liveResult;
+        });
+        const { result } = renderOnPage();
+        await advance(0);
+        expect(reads()).toBe(1);
+        expect(result.current.positions).toHaveLength(1);
+
+        await advance(30_000);
+        expect(reads()).toBe(1);
+        expect(result.current.positions).toHaveLength(1);
       });
 
       it('a Retry moves the next poll to 30 s after it', async () => {

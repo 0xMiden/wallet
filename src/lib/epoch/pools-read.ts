@@ -119,6 +119,42 @@ export interface EarnVaultsRead {
 export const EARN_POOLS_PAGE_SIZE = 200;
 /** The maximum number of `/pools` pages one read requests. */
 export const EARN_POOLS_MAX_PAGES = 5;
+
+/**
+ * Every positions-service request, counted at the moment it is issued: one `/pools` page, the zero-account
+ * catalogue fallback, or one owner `/positions` read. `total` never decreases. `lastMinute` is how many of those
+ * were issued in the last 60 seconds. Recording does not delay the read; the Earn poll is what waits on the count.
+ */
+const POSITIONS_SERVICE_WINDOW_MS = 60_000;
+let positionsServiceRequestTotal = 0;
+const positionsServiceRequestAt: number[] = [];
+
+function prunePositionsServiceRequests(now: number): void {
+  const cutoff = now - POSITIONS_SERVICE_WINDOW_MS;
+  let drop = 0;
+  while (drop < positionsServiceRequestAt.length) {
+    const requestedAt = positionsServiceRequestAt[drop];
+    if (requestedAt === undefined || requestedAt > cutoff) break;
+    drop += 1;
+  }
+  if (drop > 0) positionsServiceRequestAt.splice(0, drop);
+}
+
+/** Count one positions-service request as it is issued. A failure counts the same as a success. */
+export function notePositionsServiceRequest(): void {
+  const now = Date.now();
+  positionsServiceRequestTotal += 1;
+  prunePositionsServiceRequests(now);
+  positionsServiceRequestAt.push(now);
+}
+
+/** The monotonic request total, and how many requests were issued in the last 60 seconds. */
+export function getPositionsServiceRequestStats(): { total: number; lastMinute: number } {
+  const now = Date.now();
+  prunePositionsServiceRequests(now);
+  return { total: positionsServiceRequestTotal, lastMinute: positionsServiceRequestAt.length };
+}
+
 // An item is about 5 KB, so a full page is about 1 MB.
 const POOLS_PAGE_MAX_BYTES = 4 * 1024 * 1024;
 const POSITIONS_MAX_BYTES = 512 * 1024;
@@ -159,6 +195,7 @@ function envelopeItems(body: unknown): unknown[] | null {
  * body that is not the expected JSON envelope rejects. A network failure, timeout and oversized body also reject.
  */
 async function readPoolsPage(fetchFn: JsonFetch, url: string, timeoutMs: number): Promise<PageRead> {
+  notePositionsServiceRequest();
   const seen = { refused: false };
   const watching: JsonFetch = async (requestUrl, init) => {
     const response = await fetchFn(requestUrl, init);
@@ -356,6 +393,7 @@ async function readPositionsFallbackCatalog(
   listing: RouteListing,
   timeoutMs: number
 ): Promise<EarnVaultsRead> {
+  notePositionsServiceRequest();
   const body = await fetchBoundedJson(
     fetchFn,
     `${route.positionsUrl}/positions?account=${ZERO_ACCOUNT}&chains=${route.chainId}`,
@@ -370,7 +408,7 @@ async function readPositionsFallbackCatalog(
  * The vaults of `route` the document lists, in the list's order: its token's markets on its chain that an entry of
  * `route.listed` names. With no entry on the route it makes no request and gives no vault. Reads `/pools` page by
  * page until a page is short (at most EARN_POOLS_MAX_PAGES pages), each request bounded by `timeoutMs`. When the
- * first page returns HTTP 404, reads the positions fallback.
+ * first page returns HTTP 404, reads the positions fallback. Each page and that fallback is counted as it is issued.
  * Rejects when a request fails or times out, or when a later page or the fallback fails. A malformed item does not
  * fail the read: it is dropped and logged, as is a listed vault the catalogue does not serve.
  */

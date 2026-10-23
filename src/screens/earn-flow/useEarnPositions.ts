@@ -10,6 +10,7 @@ import {
   fetchEarnPositions,
   getEarnDepositEvmAddresses
 } from 'lib/epoch';
+import { getPositionsServiceRequestStats } from 'lib/epoch/pools-read';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
@@ -22,15 +23,25 @@ import { useLastData } from 'lib/swr/last-data';
 import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
-// The poll, the spacing of the reads a page starts on its own, and the error retry: the Epoch positions service
-// allows 10 requests per minute, and each read sends one request for each owner.
+// The poll's shortest gap. A timer-driven reread also waits while the positions service's last minute, plus the
+// requests this key's last read noted, is already more than 10.
 const READ_INTERVAL_MS = 30_000;
+const POSITIONS_REQUESTS_PER_MINUTE = 10;
+// The minute ledger ages a stamp out on its own. A poll that does not fit yet looks again on this cadence.
+const POSITIONS_BUDGET_RECHECK_MS = 1_000;
 
 interface KeyReads {
   /** When the key's last read began, whoever started it. */
   at?: number;
-  /** Each on-screen hook's re-arm, called as a read begins, so its next automatic read waits 30 s after it. */
+  /** Requests the key's last completed fetch noted: the monotonic counter's change across that fetch. */
+  cost?: number;
+  /** Each on-screen hook's re-arm, called as a read begins, so its next automatic read is measured from that start. */
   rearms: Set<() => void>;
+}
+
+/** True when another read that notes `cost` requests still fits in the positions service's last minute. */
+function minuteHasRoomFor(cost: number): boolean {
+  return getPositionsServiceRequestStats().lastMinute + cost <= POSITIONS_REQUESTS_PER_MINUTE;
 }
 // Per SWR cache, so a test's fresh cache starts with none.
 const keyReads = new WeakMap<object, Map<string, KeyReads>>();
@@ -76,11 +87,13 @@ export function earnItemLoadState(
  * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
  * set, because the key carries the account and it would serve the previous
  * account's positions after a switch. The hook, not SWR, times every read it starts on its own from when the key's
- * last read began, whoever started it: the poll and the retry of a failed read fire 30 s after it, and a return or a
- * mount reads only once it is 30 s old (a key with no data always reads). Nothing is read on a timer while the page
+ * last read began, whoever started it. The poll and the retry of a failed read wait 30 s after it, and longer while
+ * the positions service's last 60 s plus the requests that read noted would pass 10. That cost is the monotonic
+ * counter's change across the key's last completed fetch; a read that noted nothing costs nothing, so the next poll
+ * stays at 30 s. While that wait runs, the positions and vaults already on screen stay. A return or a mount reads
+ * only once the same wait has passed (a key with no data always reads). Nothing is read on a timer while the page
  * is off screen (another tab, a page above it, or another Home page), the document is hidden or the device is
- * offline, and reconnect and focus never read. A Retry is the one read outside that, and the next poll waits 30 s
- * after it too.
+ * offline, and reconnect and focus never read. A Retry starts immediately, and the next poll waits again after it.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
@@ -132,12 +145,15 @@ export function useEarnPositions(): {
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
-  // mounts, so a key with data reads again then only once its last read is 30 s old. The read goes to the configured
-  // host and market, so the key names them: none reads nothing, and a config that lands or moves them reads anew.
+  // mounts, so a key with data reads again then only once its last read is 30 s old and another read of that cost
+  // fits in the positions service's minute. The read goes to the configured host and market, so the key names them:
+  // none reads nothing, and a config that lands or moves them reads anew.
   const key = ['earn-positions', account.publicKey, account.evmAddress, positionsUrl, marketUid];
   const id = JSON.stringify(key);
-  const lastRead = keyReads.get(cache)?.get(id)?.at;
-  const due = lastRead === undefined || Date.now() - lastRead >= READ_INTERVAL_MS;
+  const recorded = keyReads.get(cache)?.get(id);
+  const lastRead = recorded?.at;
+  const due =
+    lastRead === undefined || (Date.now() - lastRead >= READ_INTERVAL_MS && minuteHasRoomFor(recorded?.cost ?? 0));
   const {
     data: liveData,
     error: swrError,
@@ -147,14 +163,19 @@ export function useEarnPositions(): {
     onScreen && positionsUrl && marketUid ? key : null,
     async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
+      const totalBefore = getPositionsServiceRequestStats().total;
       reads.at = Date.now();
       reads.rearms.forEach(rearm => rearm());
-      const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
-      const walletAddress = account.evmAddress?.toLowerCase();
-      const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
-      // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
-      // SWR calls the fetcher of the last render.
-      return carryForward(data, await fetchEarnPositions({ accountId: account.publicKey, owners }));
+      try {
+        const fromActivity = await getEarnDepositEvmAddresses(account.publicKey);
+        const walletAddress = account.evmAddress?.toLowerCase();
+        const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
+        // An owner this read fails for keeps what it last loaded: `data` is what this render shows for this key, and
+        // SWR calls the fetcher of the last render.
+        return carryForward(data, await fetchEarnPositions({ accountId: account.publicKey, owners }));
+      } finally {
+        reads.cost = getPositionsServiceRequestStats().total - totalBefore;
+      }
     },
     {
       revalidateIfStale: due,
@@ -168,15 +189,20 @@ export function useEarnPositions(): {
     }
   );
 
-  // One timer per on-screen hook, for its current key: it fires 30 s after the key's last read began, re-arming from
-  // every read that begins meanwhile. A read that fails is retried by it too, which SWR's poll never does while the
-  // key holds an error.
+  // One timer per on-screen hook, for its current key: it fires 30 s after the key's last read began, and later
+  // while another read of that cost would put the positions service's last minute over 10. It re-arms from every
+  // read that begins meanwhile. A read that fails is retried by it too, which SWR's poll never does while the key
+  // holds an error. The wait does not clear the positions or vaults on screen.
   useEffect(() => {
     if (!onScreen) return;
     const reads = readsOf(cache, id);
     const armedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const fire = () => {
+      if (!minuteHasRoomFor(reads.cost ?? 0)) {
+        timer = setTimeout(fire, POSITIONS_BUDGET_RECHECK_MS);
+        return;
+      }
       // Armed first: a read that begins re-arms from its own start, and one that does not leaves this in place.
       timer = setTimeout(fire, READ_INTERVAL_MS);
       if (document.visibilityState === 'hidden' || navigator.onLine === false) return;

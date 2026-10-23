@@ -12,7 +12,7 @@ import {
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { type EarnVaultsResult, fetchEarnVaults } from './pools';
-import { earnLenderFamily, type EarnVaultInfo } from './pools-read';
+import { earnLenderFamily, type EarnVaultInfo, notePositionsServiceRequest } from './pools-read';
 
 export type { EarnVaultInfo };
 
@@ -210,7 +210,7 @@ const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
  * failure, a request or body read past 15 s included, it resolves to an empty
  * `items` array plus an `error` string, so the `Promise.all` in
  * `fetchEarnPositions` can't be torn down by a single bad address or transient
- * network error.
+ * network error. The request is counted when it is issued, success or failure.
  */
 async function fetchPositionsForOwner(
   positionsUrl: string,
@@ -218,6 +218,7 @@ async function fetchPositionsForOwner(
   chains: number[]
 ): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string }> {
   const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}`;
+  notePositionsServiceRequest();
   try {
     return await withRequestTimeout(POSITIONS_REQUEST_TIMEOUT_MS, async signal => {
       const res = await fetch(url, { signal });
