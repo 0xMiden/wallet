@@ -3,6 +3,7 @@ package com.miden.wallet;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
@@ -17,6 +18,7 @@ import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -34,6 +36,7 @@ public class AuthTabCertificateSetupTest {
 
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
+        unlockWithPin(device, devicePin);
         Intent settings = new Intent(Settings.ACTION_SETTINGS)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         context.startActivity(settings);
@@ -75,6 +78,22 @@ public class AuthTabCertificateSetupTest {
     }
 
     // A user-CA install on a PIN-locked device asks for the screen lock before it continues.
+    // The runner sets the device PIN just before this test, so the screen can already be on the PIN keyguard.
+    private static void unlockWithPin(UiDevice device, String devicePin) throws Exception {
+        device.wakeUp();
+        KeyguardManager keyguard = (KeyguardManager) InstrumentationRegistry.getInstrumentation()
+            .getTargetContext().getSystemService(Context.KEYGUARD_SERVICE);
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
+        while (keyguard.isKeyguardLocked() && System.nanoTime() < deadline) {
+            device.executeShellCommand("wm dismiss-keyguard");
+            device.waitForIdle();
+            device.executeShellCommand("input text " + devicePin);
+            device.executeShellCommand("input keyevent KEYCODE_ENTER");
+            device.waitForWindowUpdate(null, 1000);
+        }
+        assertTrue("device is still locked behind its PIN keyguard", !keyguard.isKeyguardLocked());
+    }
+
     private static void confirmPinIfAsked(UiDevice device, String devicePin, String... nextLabels) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
         while (System.nanoTime() < deadline) {
@@ -126,7 +145,8 @@ public class AuthTabCertificateSetupTest {
 
     private static String visibleLabels(UiDevice device) {
         StringBuilder labels = new StringBuilder();
-        for (UiObject2 node : device.findObjects(By.pkg("com.android.settings"))) {
+        labels.append("pkg=").append(device.getCurrentPackageName()).append(' ');
+        for (UiObject2 node : device.findObjects(By.text(Pattern.compile("(?s).+")))) {
             String label = node.getText() != null ? node.getText() : node.getContentDescription();
             if (label != null && !label.isEmpty()) {
                 labels.append('[').append(label).append(node.isClickable() ? "*" : "").append(']');
