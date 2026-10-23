@@ -94,7 +94,12 @@ const DenominatedAmountInput: React.FC<TokenAmountInputProps> = ({
     exactToken.current = value;
     emitted.current = value;
     enteredPrice.current = price;
-    if (usdMode) setUsdText(price === undefined ? '' : tokenToUsd(value, price));
+    if (usdMode) {
+      // Without a ready quote the dollar field is inert and blank: leave it for the token field, which shows the
+      // amount the parent now holds, rather than a submit-ready amount behind an empty USD input.
+      if (price === undefined) setUsdMode(false);
+      else setUsdText(tokenToUsd(value, price));
+    }
     // USD edits are handled synchronously; this effect observes parent/asset changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, price, usdMode, assetId, decimals, tokenIntentKey]);

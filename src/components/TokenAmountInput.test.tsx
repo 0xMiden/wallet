@@ -281,6 +281,41 @@ describe('TokenAmountInput', () => {
     expect(field()).toHaveValue('12.123456789123456789');
   });
 
+  it('shows an external MAX in the token field when the quote has already expired in USD mode', () => {
+    function MaxOwner() {
+      const [value, setValue] = React.useState('1');
+      return (
+        <>
+          <TokenAmountInput
+            assetId="token"
+            symbol="TOK"
+            decimals={18}
+            scaleIsKnown
+            value={value}
+            onValueChange={next => {
+              changed(next);
+              setValue(next);
+            }}
+            data-testid="amount"
+          />
+          <button onClick={() => setValue('12.5')}>MAX</button>
+          <output data-testid="canonical">{value}</output>
+        </>
+      );
+    }
+    render(<MaxOwner />);
+    fireEvent.click(toggle());
+    act(() => jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS + 15_000));
+    expect(field()).toBeDisabled();
+    expect(screen.getByTestId('canonical')).toBeEmptyDOMElement();
+
+    fireEvent.click(screen.getByRole('button', { name: 'MAX' }));
+
+    expect(field()).not.toBeDisabled();
+    expect(field()).toHaveValue('12.5');
+    expect(screen.getByTestId('canonical')).toHaveTextContent('12.5');
+  });
+
   it('treats a same-value MAX signal as token intent and lets a later USD edit restore dollar intent', () => {
     const { rerender } = render(<Owner initial="" decimals={6} tokenIntentKey={0} />);
     fireEvent.click(toggle());
