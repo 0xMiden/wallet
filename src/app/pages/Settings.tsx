@@ -29,6 +29,7 @@ import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayou
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
 import { getCurrentLocale } from 'lib/i18n/core';
+import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
@@ -102,8 +103,8 @@ type Tab = {
   /** The page has no meaning for a Guardian account: blocks the route as well as the row. */
   standardOnly?: boolean;
   /**
-   * Offered only while the wallet holds a non-Guardian account, whichever account is
-   * current: blocks the route as well as the row. See the encrypted-wallet-file tab.
+   * Offered only while the wallet holds an account a wallet file restores (anything but a
+   * key-imported Guardian account), whichever account is current: blocks the route as well as the row. See the encrypted-wallet-file tab.
    */
   requiresFileBackup?: boolean;
   requiresSeedPhrase?: boolean;
@@ -201,9 +202,10 @@ const TAB_GROUPS: TabGroup[] = [
       },
       {
         // The file is the only backup of an OffChain account's private state and of an
-        // imported key; the recovery phrase restores neither. A wallet of Guardian
-        // accounts only has nothing the file could restore (a seed-derived one comes
-        // back from the phrase, a hot-key one is not restored from the file), so it gets no row.
+        // imported key; the recovery phrase restores neither. It is also the only copy of a
+        // Guardian account's state outside the device that does not depend on the Guardian
+        // operator, so a seed-derived Guardian account gets the row too. A wallet whose
+        // accounts are all key-imported Guardian accounts has nothing the file restores, so it gets none.
         slug: 'encrypted-wallet-file',
         titleI18nKey: 'encryptedWalletFile',
         Component: EncryptedFileFlow,
@@ -378,7 +380,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
-  const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => a.type !== WalletType.Guardian));
+  const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => !isExcludedFromWalletFile(a)));
 
   // Whether the account HAS this page at all. A non-Guardian account has no
   // Guardian page in any sense, so these gates block the route as well as the row.

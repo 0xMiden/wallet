@@ -17,8 +17,10 @@ import { bridgeEthToMiden, claimAgglayerOnEthereum, depositXReserve } from '../.
 import {
   agglayerShortfall,
   bridgeLoops,
+  landedVaultSample,
   LOOP_USDC,
   midenFeeReserve,
+  UNLANDED_VAULT_SAMPLE,
   usdcxShortfall,
   type UsdcxLoop
 } from '../../helpers/mainnet-bridge-plan';
@@ -50,6 +52,7 @@ function key(): Hex {
 }
 
 test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
+  test.setTimeout(2_400_000);
   const seed = process.env.E2E_MAINNET_PLAIN_SEED;
   if (!seed) throw new Error('E2E_MAINNET_PLAIN_SEED is unset');
   const signer = key();
@@ -60,15 +63,40 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
   const accountId = await accountHex(imported.address);
   const problems: string[] = [];
   await walletA.triggerSync(true);
+  // Same as the round trip: consume the plain account's notes before reading the vault. The
+  // Guardian account is consumed in the round trip, which this job runs first.
+  await walletA.claimAllNotes(600_000);
   const baseFee = await walletDiscoveredBaseFee(walletA.page);
   const nativeId = await walletDiscoveredNativeFaucetId(walletA.page);
   if (baseFee === null || baseFee < 1 || !nativeId) {
     problems.push('the Miden account has not discovered its fee');
   } else {
     // Four USDCx burns, plus four claims and the AggLayer claim and return.
+    // Same in-flight balance read as the round trip: one refresh can still see the pre-claim vault.
+    // A non-land resolves the sentinel so this poll continues.
     const need = midenFeeReserve(BigInt(baseFee), 4n, 6n);
-    const held = await vaultBalanceByFaucetId(walletA.page, nativeId);
-    if (held < need) {
+    let held = 0n;
+    let funded = false;
+    try {
+      await expect
+        .poll(
+          async () => {
+            const sample = await landedVaultSample(
+              () => walletA.refreshBalances(),
+              () => vaultBalanceByFaucetId(walletA.page, nativeId)
+            );
+            if (sample !== UNLANDED_VAULT_SAMPLE) held = sample;
+            return sample;
+          },
+          { timeout: 60_000 }
+        )
+        .toBeGreaterThanOrEqual(need);
+      funded = true;
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (held >= need || (!text.includes('Timeout') && !text.includes('toBeGreaterThanOrEqual'))) throw error;
+    }
+    if (!funded) {
       problems.push(
         `${imported.address} holds ${held} native base units, short of ${need} for two nights of bridge fees`
       );

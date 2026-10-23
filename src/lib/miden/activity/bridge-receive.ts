@@ -6,7 +6,11 @@ import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { type BridgeReceiveFailureStep } from 'lib/telemetry/bridge-receive-failure';
+import {
+  type BridgeOrphanCheck,
+  type BridgeReceiveFailureStep,
+  type BridgeSourceRoute
+} from 'lib/telemetry/bridge-receive-failure';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -68,12 +72,16 @@ function firstString(source: unknown, key: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+async function reconcileAgglayerRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
   if (!inputs.evmTxHash) {
     if (inputs.phase === 'submitting') {
       await updateBridgedReceivePhase(row.id, 'failed', {
         error: INTERRUPTED_BEFORE_HASH,
-        failure: { step: 'submission_interrupted' }
+        failure: { step: 'submission_interrupted', orphanCheck }
       });
     }
     return;
@@ -121,12 +129,16 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
   }
 }
 
-async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+async function reconcileEpochRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
   if (!inputs.intentNonce) {
     if (inputs.phase === 'submitting') {
       await updateBridgedReceivePhase(row.id, 'failed', {
         error: 'Bridge submission was interrupted before an intent was recorded.',
-        failure: { step: 'submission_interrupted' }
+        failure: { step: 'submission_interrupted', orphanCheck }
       });
     }
     return;
@@ -229,12 +241,16 @@ async function matchUsdcxDeposit(
  * screen before the source-chain receipt settles the same way. The consume of the minted note then moves the row to
  * `received` (`takeUsdcxBridgeInInfo`).
  */
-async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+async function reconcileUsdcxRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
   // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on.
   if (inputs.phase === 'submitting' && !inputs.evmTxHash) {
     await updateBridgedReceivePhase(row.id, 'failed', {
       error: INTERRUPTED_BEFORE_HASH,
-      failure: { step: 'submission_interrupted' }
+      failure: { step: 'submission_interrupted', orphanCheck, sourceRoute: recordedSourceRoute(inputs) }
     });
     return;
   }
@@ -371,7 +387,19 @@ async function reconcileUsdcxExecutorRow(
   });
 }
 
-async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans: boolean): Promise<void> {
+// Only the route the row itself recorded, never one the current config would pick for its chain.
+function recordedSourceRoute(inputs: IBridgedReceiveExtraInputs): BridgeSourceRoute {
+  const route: unknown = inputs.usdcxSource?.route;
+  if (route === 'xreserve') return 'xreserve';
+  return route === 'cctp-executor' ? 'cctp_executor' : 'unrecorded';
+}
+
+async function reconcileRow(
+  row: ITransaction,
+  cutoffSec: number,
+  resumeOrphans: boolean,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
   const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
   if (inputs === undefined) return;
   // Terminalize rather than skip. Resuming would register a pending bridge-in
@@ -398,14 +426,14 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
 
   switch (inputs.provider) {
     case 'agglayer':
-      await reconcileAgglayerRow(row, inputs);
+      await reconcileAgglayerRow(row, inputs, orphanCheck);
       return;
     case 'usdcx':
-      await reconcileUsdcxRow(row, inputs);
+      await reconcileUsdcxRow(row, inputs, orphanCheck);
       return;
     case 'epoch':
     default:
-      await reconcileEpochRow(row, inputs);
+      await reconcileEpochRow(row, inputs, orphanCheck);
   }
 }
 
@@ -478,12 +506,18 @@ export function createBridgeReceiveReconciler({
     });
   }
 
-  async function readRows(): Promise<{ rows: ITransaction[]; resumeOrphans: boolean }> {
+  interface RowsRead {
+    rows: ITransaction[];
+    resumeOrphans: boolean;
+    orphanCheck: BridgeOrphanCheck;
+  }
+
+  async function readRows(): Promise<RowsRead> {
     const locks = getLocks();
     if (locks) {
-      let read: { rows: ITransaction[]; resumeOrphans: boolean } = { rows: [], resumeOrphans: false };
+      let read: RowsRead = { rows: [], resumeOrphans: false, orphanCheck: 'origin_lock' };
       await locks.request(SUBMISSION_LOCK, { ifAvailable: true }, async lock => {
-        read = { rows: await readUnsettledRows(), resumeOrphans: lock !== null };
+        read = { rows: await readUnsettledRows(), resumeOrphans: lock !== null, orphanCheck: 'origin_lock' };
       });
       return read;
     }
@@ -492,7 +526,11 @@ export function createBridgeReceiveReconciler({
     const idle = liveSubmissions === 0;
     const started = startedSubmissions;
     const rows = await readUnsettledRows();
-    return { rows, resumeOrphans: idle && liveSubmissions === 0 && startedSubmissions === started };
+    return {
+      rows,
+      resumeOrphans: idle && liveSubmissions === 0 && startedSubmissions === started,
+      orphanCheck: 'realm_idle'
+    };
   }
 
   /**
@@ -506,14 +544,14 @@ export function createBridgeReceiveReconciler({
     // The watcher's first pass can run before this realm read its stored copy, and a row with no saved route is
     // classified (and timed out) by the document; from storage, never the network.
     await initBridgeConfig();
-    const { rows, resumeOrphans } = await readRows();
+    const { rows, resumeOrphans, orphanCheck } = await readRows();
     const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
     // All at once: each row waits only on its own provider, so a slow receipt or a timed-out status read never delays
     // another row. Each row writes only itself, and registry writes take the registry lock.
     await Promise.all(
       rows.map(row =>
-        reconcileRow(row, cutoffSec, resumeOrphans).catch((error: unknown) => {
+        reconcileRow(row, cutoffSec, resumeOrphans, orphanCheck).catch((error: unknown) => {
           // One row's failing write or registry call must not end the pass for the other rows.
           console.warn('[bridge-receive] reconcile failed', row.id, row.extraInputs?.provider, error);
         })

@@ -20,6 +20,7 @@ import { MainnetAccessScreen } from './common/MainnetAccess';
 import { MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
+import { ReusedPhraseScreen } from './common/ReusedPhrase';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -89,6 +90,11 @@ export interface OnboardingFlowProps {
    * Guardian multisig account).
    */
   importViaKey?: boolean;
+  /**
+   * Whether the recovery-method step may offer a new account from the entered phrase when no backup is
+   * found. Off where the host cannot create one (a password reset, an invite-only network).
+   */
+  canCreateWithPhrase?: boolean;
   /**
    * Whether the header offers back. Hosts turn it off on a step that cannot be left safely (the
    * wallet is being created, or already exists). Welcome never shows it: nothing comes before it.
@@ -168,6 +174,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   guardianNetwork,
   confirmCreating = false,
   importViaKey = false,
+  canCreateWithPhrase = false,
   canGoBack = true,
   onBiometricChange,
   onAction
@@ -352,6 +359,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.ImportFromSeed:
         return (
           <ImportSeedPhraseScreen
+            descriptionKey="importSeedPhraseHint"
             wordslist={wordslist}
             onSubmit={onImportSeedPhraseSubmit}
             onImportWithKey={() => onForwardAction?.({ id: 'import-with-key' })}
@@ -380,9 +388,12 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             guardianOnly={importViaKey}
             network={guardianNetwork}
             onRetryProbe={guardianProbe ? () => onForwardAction?.({ id: 'retry-guardian-probe' }) : undefined}
+            onCreateNew={canCreateWithPhrase ? () => onForwardAction?.({ id: 'create-with-phrase' }) : undefined}
             onSubmit={payload => onForwardAction?.({ id: 'import-select-recovery-method', payload })}
           />
         );
+      case OnboardingStep.ReusedPhrase:
+        return <ReusedPhraseScreen onSubmit={() => onForwardAction?.({ id: 'reused-phrase-acknowledge' })} />;
       case OnboardingStep.SelectTransactionType:
         return <SelectTransactionTypeScreen onSubmit={onSelectTransactionTypeSubmit} />;
       case OnboardingStep.Confirmation:
@@ -429,6 +440,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     guardianNetwork,
     confirmCreating,
     importViaKey,
+    canCreateWithPhrase,
     onboardingType
   ]);
 

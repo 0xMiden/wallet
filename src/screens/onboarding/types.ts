@@ -60,6 +60,8 @@ export enum OnboardingStep {
    */
   MeetGuardian = 'meet-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
+  /** Between "no backup found" and the create flow: the entered phrase will seed a NEW account. */
+  ReusedPhrase = 'reused-phrase',
   Confirmation = 'confirmation'
 }
 /** Every onboarding action id, derived from the action union so the two cannot drift. */
@@ -218,6 +220,16 @@ export type RetryGuardianProbeAction = {
   id: 'retry-guardian-probe';
 };
 
+/** From "no backup found": create a new account with the phrase already entered. */
+export type CreateWithPhraseAction = {
+  id: 'create-with-phrase';
+};
+
+/** The reused-phrase warning was acknowledged. */
+export type ReusedPhraseAcknowledgeAction = {
+  id: 'reused-phrase-acknowledge';
+};
+
 export type OnboardingAction =
   | CreateWalletAction
   | ChooseProtectionAction
@@ -248,6 +260,8 @@ export type OnboardingAction =
   | ImportWithKeyAction
   | ImportHotKeySubmitAction
   | RetryGuardianProbeAction
+  | CreateWithPhraseAction
+  | ReusedPhraseAcknowledgeAction
   | SwitchToPasswordAction;
 
 // TODO: Potentially make this into what the onboarding flows use to render the

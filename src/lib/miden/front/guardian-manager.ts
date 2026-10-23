@@ -5,7 +5,12 @@ import { annotateCrash, withProposalStep, type ProposalGuard } from 'lib/telemet
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
+import {
+  getSignerCommitmentsFromAccount,
+  getSignerDetailsFromAccount,
+  resolveGuardianEndpoint
+} from '../guardian/account';
+import { readGuardianAuthFacts, withGuardianAuthFacts } from '../guardian/auth-facts';
 import { canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
@@ -206,13 +211,14 @@ export async function getOrCreateMultisigService(
     const buildLockOptions = boundAtSyncCeiling
       ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
       : { label: 'guardian-service-build' };
-    const { sdkAccount, commitment, accountIdHex } = await withWasmClientLock(async hold => {
+    const { sdkAccount, commitment, accountIdHex, signerCommitments } = await withWasmClientLock(async hold => {
       // Use the matched account's stored publicKey (the form the in-wallet path
       // uses) rather than the possibly-bare dApp-supplied id.
       const sdkAccount = await withProposalStep('service_account_read', () =>
         midenClientProxy.getAccount(account.publicKey)
       );
-      if (!sdkAccount) return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined };
+      if (!sdkAccount)
+        return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined, signerCommitments: [] };
       assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
       // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
       const { commitment } = await withProposalStep('service_signer_read', () =>
@@ -230,7 +236,12 @@ export async function getOrCreateMultisigService(
       // comment above forbids - and a `console.log` is a silly place to take a
       // double borrow: an eviction in the gap made it throw `isDisposed` and
       // aborted a service build that had otherwise succeeded.
-      return { sdkAccount, commitment, accountIdHex: sdkAccount.id().toString() };
+      return {
+        sdkAccount,
+        commitment,
+        accountIdHex: sdkAccount.id().toString(),
+        signerCommitments: getSignerCommitmentsFromAccount(sdkAccount)
+      };
     }, buildLockOptions);
 
     if (!sdkAccount || commitment === undefined) {
@@ -241,18 +252,29 @@ export async function getOrCreateMultisigService(
 
     // Bind the service to the hot signer — the popup signs with the hot key.
     console.log('creating guardian service', accountIdHex);
+    // The signer commitment above is the chain's, so it always matches; the Guardian checks the key this device signs
+    // with, which is the vault's and can differ.
+    const authFacts = await readGuardianAuthFacts(
+      hotPublicKey,
+      signerCommitments,
+      'hot',
+      account.requiresHotKeyRotation === true
+    );
     const service = await withProposalStep('service_load', () =>
-      MultisigService.init(
-        sdkAccount,
-        `0x${hotPublicKey}`,
-        `0x${commitment}`,
-        provider.signWord,
-        currentEndpoint,
-        boundAtSyncCeiling
-          ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
-          : { label: 'guardian-service-init' }
+      withGuardianAuthFacts(authFacts, () =>
+        MultisigService.init(
+          sdkAccount,
+          `0x${hotPublicKey}`,
+          `0x${commitment}`,
+          provider.signWord,
+          currentEndpoint,
+          boundAtSyncCeiling
+            ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+            : { label: 'guardian-service-init' }
+        )
       )
     );
+    service.authFacts = authFacts;
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
     // next access can detect rotation and force a re-init, and with the client

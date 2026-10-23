@@ -631,6 +631,30 @@ describe('EncryptedWalletFileWalletPassword', () => {
       );
     });
 
+    it('says what the file holds for a seed-derived Guardian account, before the consent', async () => {
+      mockAccounts = [
+        account('Seed account', WalletType.OnChain, 0),
+        account('Seed Guardian', WalletType.Guardian, 0),
+        account('Key Guardian', WalletType.Guardian, -1)
+      ];
+      await renderComp(makeProps());
+
+      const notice = screen.getByTestId('encrypted-file-guardian-accounts');
+      expect(notice).toHaveAttribute('data-tone', 'warning');
+      expect(notice).toHaveTextContent('encryptedWalletFileGuardianTitle: Seed Guardian');
+      expect(notice).not.toHaveTextContent('Key Guardian');
+      expect(
+        notice.compareDocumentPosition(screen.getByRole('checkbox')) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
+
+    it('shows no Guardian notice when the wallet holds no seed-derived Guardian account', async () => {
+      mockAccounts = [account('Seed account', WalletType.OnChain, 0), account('Key Guardian', WalletType.Guardian, -1)];
+      await renderComp(makeProps());
+
+      expect(screen.queryByTestId('encrypted-file-guardian-accounts')).not.toBeInTheDocument();
+    });
+
     it('shows no notice when every account is in the file, a seed-derived Guardian included (#1114)', async () => {
       mockAccounts = [
         account('Seed account', WalletType.OnChain, 0),
