@@ -982,7 +982,12 @@ describe('getCompletedTransactions', () => {
     expect(newest.transactions.map(tx => tx.id)).toEqual(['unconf', 'tie-b', 'tie-a']);
     expect(newest.rawCount).toBe(3);
     expect(newest.hasMore).toBe(true);
-    expect(newest.nextCursor).toEqual({ effectiveTimestamp: 20, transactionId: 'tie-a' });
+    expect(newest.nextCursor).toEqual({
+      effectiveTimestamp: 20,
+      transactionId: 'tie-a',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 3
+    });
     expect(transactionQueryMetrics.rowsVisited).toBeLessThanOrEqual(rows.length);
 
     const older = await getCompletedTransactionsPage({
@@ -993,7 +998,12 @@ describe('getCompletedTransactions', () => {
       cursor: newest.nextCursor
     });
     expect(older.transactions.map(tx => tx.id)).toEqual(['prim', 'fall-20', 'fail']);
-    expect(older.nextCursor).toEqual({ effectiveTimestamp: 15, transactionId: 'fail' });
+    expect(older.nextCursor).toEqual({
+      effectiveTimestamp: 15,
+      transactionId: 'fail',
+      status: ITransactionStatus.Failed,
+      initiatedAt: 1
+    });
     expect(older.hasMore).toBe(true);
 
     const rest = await getCompletedTransactionsPage({
@@ -1022,6 +1032,114 @@ describe('getCompletedTransactions', () => {
       'tie-b'
     ]);
     expect(repo.transactions.filter).not.toHaveBeenCalled();
+  });
+
+  it('preserves unlimited equal-time order when paging across status groups', async () => {
+    txStore.push(
+      {
+        id: 'z-completed',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 1,
+        completedAt: 50
+      },
+      {
+        id: 'a-failed',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 2,
+        completedAt: 50
+      },
+      {
+        id: 'b-unconfirmed',
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 3,
+        completedAt: 50
+      }
+    );
+
+    const unlimited = await getCompletedTransactions('acc-1', undefined, undefined, true);
+    const newestFirst: ITransaction[] = [];
+    let page = await getCompletedTransactionsPage({ accountId: 'acc-1', includeFailed: true, fromEnd: true, limit: 1 });
+    for (;;) {
+      newestFirst.push(...page.transactions);
+      if (!page.hasMore || page.nextCursor === null) break;
+      page = await getCompletedTransactionsPage({
+        accountId: 'acc-1',
+        includeFailed: true,
+        limit: 1,
+        cursor: page.nextCursor
+      });
+    }
+
+    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(unlimited.map(tx => tx.id));
+    const newestLimited = await getCompletedTransactions('acc-1', undefined, 1, true, undefined, true);
+    expect(newestLimited.map(tx => tx.id)).toEqual(['b-unconfirmed']);
+  });
+
+  it('pages equal-time fallback and failed rows in unlimited order', async () => {
+    txStore.push(
+      {
+        id: 'z-done',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 1,
+        completedAt: 50
+      },
+      {
+        id: 'a-fail',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 2,
+        completedAt: 50
+      },
+      {
+        id: 'b-fall',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 50,
+        completedAt: 0
+      },
+      {
+        id: 'm-open',
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 3,
+        completedAt: 50
+      }
+    );
+
+    const unlimited = await getCompletedTransactions('acc-1', undefined, undefined, true);
+    const newest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      includeFailed: true,
+      fromEnd: true,
+      limit: 1
+    });
+    expect(newest.transactions.map(tx => tx.id)).toEqual(['m-open']);
+
+    const newestFirst: ITransaction[] = [...newest.transactions];
+    let page = newest;
+    for (;;) {
+      if (!page.hasMore || page.nextCursor === null) break;
+      page = await getCompletedTransactionsPage({
+        accountId: 'acc-1',
+        includeFailed: true,
+        limit: 1,
+        cursor: page.nextCursor
+      });
+      newestFirst.push(...page.transactions);
+    }
+
+    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(unlimited.map(tx => tx.id));
   });
 
   it('reads the whole table when history is not bounded', async () => {

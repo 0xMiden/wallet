@@ -27,9 +27,12 @@ import {
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import * as Repo from 'lib/miden/repo';
 import { getPaybackClaimStates, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import {
+  compareCompletedHistory,
   getCompletedTransactionsPage,
+  historyCursorOf,
   readLinkedSwapOrderRows,
   type CompletedHistoryCursor
 } from 'lib/miden/transaction/get';
@@ -119,7 +122,7 @@ export interface HistoryEntriesView {
   onRetry: () => void;
   /**
    * False once the history is exhausted, and also while the settled read is not running (off screen, or under
-   * Pending), so it is final only for a page on screen off Pending. The Groups view passes its own false.
+   * Pending), so it is final only for a page on screen off Pending. The Groups view passes this through.
    */
   hasMore: boolean;
   loadMore: (page: number) => Promise<void>;
@@ -164,6 +167,8 @@ function matchesActivityFilter(filter: ActivityFilter, entry: IHistoryEntry): bo
 
 type HistoryEntriesPage = {
   entries: IHistoryEntry[];
+  /** Ids from the store page, before linked-consume suppression. */
+  rawIds: readonly string[];
   rawCount: number;
   hasMore: boolean;
   nextCursor: CompletedHistoryCursor | null;
@@ -172,6 +177,8 @@ type HistoryEntriesPage = {
 type ScopedEntries = {
   key: string;
   entries: IHistoryEntry[];
+  /** Raw ids of pages already merged below the head. The head's ids stay on that page. */
+  rawIds: ReadonlySet<string>;
   cursor: CompletedHistoryCursor | null;
   cursorInitialized: boolean;
   hasMore: boolean;
@@ -180,14 +187,65 @@ type ScopedEntries = {
 const NO_SCOPED_ENTRIES: ScopedEntries = {
   key: '',
   entries: [],
+  rawIds: new Set(),
   cursor: null,
   cursorInitialized: false,
   hasMore: true
 };
 
-const isOlderThanCursor = (entry: IHistoryEntry, cursor: CompletedHistoryCursor): boolean =>
-  entry.timestamp < cursor.effectiveTimestamp ||
-  (entry.timestamp === cursor.effectiveTimestamp && entry.txId !== undefined && entry.txId < cursor.transactionId);
+type HistoryGap = {
+  /** Raw ids that already formed a contiguous history when the gap opened. Backfill pages do not join it. */
+  boundary: ReadonlySet<string>;
+  latestCursor: CompletedHistoryCursor;
+  activeCursors: CompletedHistoryCursor[];
+  blockedCursor: CompletedHistoryCursor | null;
+};
+
+const rawTransactionIds = (transactions: readonly { id?: string }[]): string[] => {
+  const ids: string[] = [];
+  for (const tx of transactions) {
+    if (typeof tx.id === 'string') ids.push(tx.id);
+  }
+  return ids;
+};
+
+const sharesRawId = (ids: readonly string[], known: ReadonlySet<string>): boolean => {
+  for (const id of ids) {
+    if (known.has(id)) return true;
+  }
+  return false;
+};
+
+const unionRawIds = (current: ReadonlySet<string>, more: readonly string[]): ReadonlySet<string> => {
+  let next: Set<string> | undefined;
+  for (const id of more) {
+    if ((next ?? current).has(id)) continue;
+    next ??= new Set(current);
+    next.add(id);
+  }
+  return next ?? current;
+};
+
+const sameHistoryCursor = (left: CompletedHistoryCursor, right: CompletedHistoryCursor): boolean =>
+  left.effectiveTimestamp === right.effectiveTimestamp &&
+  left.transactionId === right.transactionId &&
+  left.status === right.status &&
+  left.initiatedAt === right.initiatedAt;
+
+const completeHistoryOrder = (
+  order: CompletedHistoryCursor | undefined
+): order is CompletedHistoryCursor & { status: ITransactionStatus; initiatedAt: number } =>
+  order?.status !== undefined && order.initiatedAt !== undefined;
+
+const isOlderThanCursor = (entry: IHistoryEntry, cursor: CompletedHistoryCursor): boolean => {
+  if (completeHistoryOrder(entry.historyOrder) && completeHistoryOrder(cursor)) {
+    return compareCompletedHistory(entry.historyOrder, cursor) < 0;
+  }
+  return (
+    entry.timestamp < cursor.effectiveTimestamp ||
+    (entry.timestamp === cursor.effectiveTimestamp && entry.txId !== undefined && entry.txId < cursor.transactionId)
+  );
+};
 
 const NO_NOTES: ReadonlySet<string> = new Set();
 
@@ -220,6 +278,8 @@ const History = memo<HistoryProps>(
     // Rows and their raw continuation cursor share a scope. Reset them during
     // layout so a page from the previous account or token cannot be rendered.
     const [scopedRest, setScopedRest] = useSafeState<ScopedEntries>(NO_SCOPED_ENTRIES);
+    const scopedRestRef = useRef(scopedRest);
+    scopedRestRef.current = scopedRest;
     const activeRest = scopedRest.key === safeStateKey ? scopedRest : { ...NO_SCOPED_ENTRIES, key: safeStateKey };
     const restEntries = activeRest.entries;
     const hasMore = activeRest.hasMore;
@@ -227,8 +287,39 @@ const History = memo<HistoryProps>(
     // A layout effect invalidates page requests before paint when the account
     // or token changes. The counter rejects an A → B → A round trip too.
     const scopeRef = useRef(0);
+    const swapRefreshGen = useRef(0);
+    // Set when a refresh does not meet the loaded raw ids. Backfill pages must not replace `boundary`.
+    const historyGapRef = useRef<HistoryGap | null>(null);
+    const latestPageRef = useRef<{ key: string; page: HistoryEntriesPage } | null>(null);
+    const startGapFill = (gap: HistoryGap, cursor: CompletedHistoryCursor) => {
+      if (
+        gap.activeCursors.some(active => sameHistoryCursor(active, cursor)) ||
+        (gap.blockedCursor && sameHistoryCursor(gap.blockedCursor, cursor))
+      ) {
+        return;
+      }
+      gap.activeCursors.push(cursor);
+      const scope = scopeRef.current;
+      void fillHistoryGap(
+        address,
+        tokenId,
+        cursor,
+        gap.boundary,
+        safeStateKey,
+        () => historyGapRef.current === gap && scopeRef.current === scope,
+        setScopedRest,
+        outcome => {
+          gap.activeCursors = gap.activeCursors.filter(active => !sameHistoryCursor(active, cursor));
+          if (historyGapRef.current !== gap || !sameHistoryCursor(gap.latestCursor, cursor)) return;
+          if (outcome === 'finished') historyGapRef.current = null;
+          if (outcome === 'stalled') gap.blockedCursor = cursor;
+        }
+      );
+    };
     useLayoutEffect(() => {
       scopeRef.current += 1;
+      swapRefreshGen.current += 1;
+      historyGapRef.current = null;
       setIsLoading(false);
     }, [safeStateKey]);
 
@@ -253,18 +344,60 @@ const History = memo<HistoryProps>(
       mutate: mutateLatest
     } = useRetryableSWR(
       readingCompleted ? completedKey : null,
-      // Newest page only. The 10s refresh re-reads that window; older pages keep
-      // the progress captured when `loadMore` loaded them.
+      // The head page refresh also refreshes swaps already loaded on older pages below.
       async () => fetchTransactionsAsHistoryEntries(address, undefined, tokenId, true),
       {
         revalidateOnMount: true,
         revalidateIfStale: true,
         refreshInterval: 10_000,
-        dedupingInterval: 3_000
+        dedupingInterval: 3_000,
+        // SWR keeps a deeply equal head and still calls this. The layout effect on `latestHistoryPage`
+        // is not a refresh: it only initializes the cursor, records the page, and merges the displaced one.
+        onSuccess: page => {
+          const generation = ++swapRefreshGen.current;
+          const loaded = scopedRestRef.current.key === safeStateKey ? scopedRestRef.current : NO_SCOPED_ENTRIES;
+          const olderSwapIds = loaded.cursorInitialized ? loadedSwapTxIds(loaded.entries) : [];
+          const scope = scopeRef.current;
+          const key = safeStateKey;
+          if (olderSwapIds.length > 0) {
+            const olderSwapIdSet = new Set(olderSwapIds);
+            void readLoadedSwapSettlement(olderSwapIds).then(fresh => {
+              if (fresh === null || generation !== swapRefreshGen.current || scopeRef.current !== scope) return;
+              setScopedRest(state => patchLoadedSwapSettlement(state, key, olderSwapIdSet, fresh));
+            });
+          }
+          if (!loaded.cursorInitialized) return;
+          const previous = latestPageRef.current;
+          if (previous?.key !== key) return;
+          const gap = historyGapRef.current;
+          if (gap) {
+            if (sharesRawId(page.rawIds, gap.boundary) || page.nextCursor == null) {
+              historyGapRef.current = null;
+              return;
+            }
+            if (!sameHistoryCursor(page.nextCursor, gap.latestCursor)) {
+              gap.latestCursor = page.nextCursor;
+              gap.blockedCursor = null;
+            }
+            startGapFill(gap, page.nextCursor);
+            return;
+          }
+          const previousIds = new Set(previous.page.rawIds);
+          if (sharesRawId(page.rawIds, previousIds) || page.nextCursor == null) return;
+          for (const id of loaded.rawIds) previousIds.add(id);
+          const boundary = previousIds;
+          const nextGap: HistoryGap = {
+            boundary,
+            latestCursor: page.nextCursor,
+            activeCursors: [],
+            blockedCursor: null
+          };
+          historyGapRef.current = nextGap;
+          startGapFill(nextGap, page.nextCursor);
+        }
       }
     );
     const latestHistoryPage = useLastData(completedKey, readingCompleted, liveTransactions);
-    const latestPageRef = useRef<{ key: string; page: HistoryEntriesPage } | null>(null);
     useLayoutEffect(() => {
       if (latestHistoryPage === undefined) return;
       const previous = latestPageRef.current;
@@ -283,7 +416,12 @@ const History = memo<HistoryProps>(
         const displaced = latestHistoryPage.nextCursor
           ? previous.page.entries.filter(entry => isOlderThanCursor(entry, latestHistoryPage.nextCursor!))
           : previous.page.entries;
-        return { ...current, entries: mergeAndSort(current.entries, displaced) };
+        // Recording the page does not move a frozen gap boundary or cancel its walk.
+        return {
+          ...current,
+          entries: mergeAndSort(current.entries, displaced),
+          rawIds: unionRawIds(current.rawIds, previous.page.rawIds)
+        };
       });
     }, [latestHistoryPage, safeStateKey, setScopedRest]);
 
@@ -382,6 +520,7 @@ const History = memo<HistoryProps>(
           return {
             ...currentRest,
             entries: mergeAndSort(currentRest.entries, olderPage.entries),
+            rawIds: unionRawIds(currentRest.rawIds, olderPage.rawIds),
             cursor: olderPage.nextCursor,
             cursorInitialized: true,
             hasMore: olderPage.hasMore
@@ -483,6 +622,8 @@ const History = memo<HistoryProps>(
     }
 
     const onRetry = () => {
+      const gap = historyGapRef.current;
+      if (gap) historyGapRef.current = { ...gap, activeCursors: [], blockedCursor: null };
       void mutateLatest();
       void mutateTx();
     };
@@ -564,6 +705,97 @@ async function enrichCompletedSwapHistory(txs: ITransaction[]): Promise<{
   };
 }
 
+const loadedSwapTxIds = (entries: readonly IHistoryEntry[]): string[] => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (entry.txType !== 'swap' || entry.txId === undefined || seen.has(entry.txId)) continue;
+    seen.add(entry.txId);
+    ids.push(entry.txId);
+  }
+  return ids;
+};
+
+const isStoredSwap = (row: ITransaction | undefined): row is ITransaction => row?.type === 'swap';
+
+type LoadedSwapSettlement = {
+  row: ITransaction;
+  progress: { swapFillProgress?: string } | undefined;
+  paybackStuck: IHistoryEntry['paybackClaimStuck'];
+};
+
+/** Null means a read failed, so the caller keeps fields already shown. */
+async function readLoadedSwapSettlement(ids: readonly string[]): Promise<Map<string, LoadedSwapSettlement> | null> {
+  if (ids.length === 0) return new Map();
+  let rows: (ITransaction | undefined)[];
+  try {
+    rows = await Repo.transactions.bulkGet([...ids]);
+  } catch {
+    return null;
+  }
+  const swaps = rows.filter(isStoredSwap);
+  if (swaps.length === 0) return new Map();
+  let enriched: Awaited<ReturnType<typeof enrichCompletedSwapHistory>>;
+  try {
+    enriched = await enrichCompletedSwapHistory(swaps);
+  } catch {
+    return null;
+  }
+  const completed = swaps.filter(tx => tx.status === ITransactionStatus.Completed);
+  // Missing states for all completed swaps means the shared read failed.
+  if (completed.length > 0 && completed.every(tx => !enriched.paybackStates.has(tx.id))) return null;
+  const fresh = new Map<string, LoadedSwapSettlement>();
+  for (const row of swaps) {
+    fresh.set(row.id, {
+      row,
+      progress: enriched.swapProgress.get(row.id),
+      paybackStuck: stuckPaybackClaim(enriched.paybackStates.get(row.id))
+    });
+  }
+  return fresh;
+}
+
+const replaceSwapSettlementFields = (entry: IHistoryEntry, fresh: LoadedSwapSettlement): IHistoryEntry => {
+  const settlement = swapSettlementOf(fresh.row);
+  const progress = fresh.progress?.swapFillProgress;
+  const stuck = fresh.paybackStuck;
+  if (
+    entry.swapSettlement === settlement &&
+    entry.swapFillProgress === progress &&
+    entry.paybackClaimStuck?.failedClaimId === stuck?.failedClaimId &&
+    entry.paybackClaimStuck?.reason === stuck?.reason
+  ) {
+    return entry;
+  }
+  const next: IHistoryEntry = { ...entry };
+  if (settlement === undefined) delete next.swapSettlement;
+  else next.swapSettlement = settlement;
+  if (progress === undefined) delete next.swapFillProgress;
+  else next.swapFillProgress = progress;
+  if (stuck === undefined) delete next.paybackClaimStuck;
+  else next.paybackClaimStuck = stuck;
+  return next;
+};
+
+const patchLoadedSwapSettlement = (
+  state: ScopedEntries,
+  key: string,
+  ids: ReadonlySet<string>,
+  fresh: ReadonlyMap<string, LoadedSwapSettlement>
+): ScopedEntries => {
+  if (state.key !== key) return state;
+  let changed = false;
+  const entries = state.entries.map(entry => {
+    if (entry.txType !== 'swap' || entry.txId === undefined || !ids.has(entry.txId)) return entry;
+    const row = fresh.get(entry.txId);
+    if (row === undefined) return entry;
+    const next = replaceSwapSettlementFields(entry, row);
+    if (next !== entry) changed = true;
+    return next;
+  });
+  return changed ? { ...state, entries } : state;
+};
+
 async function fetchTransactionsAsHistoryEntries(
   address: string,
   cursor?: CompletedHistoryCursor | null,
@@ -577,6 +809,7 @@ async function fetchTransactionsAsHistoryEntries(
     tokenId,
     ...(fromEnd ? { fromEnd: true } : { cursor })
   });
+  const rawIds = rawTransactionIds(page.transactions);
   const visibleTransactions = await suppressLinkedConsumes(page.transactions);
   // One linked-row read for the page. Fill progress keeps completed consumes from it, and payback state keeps
   // the failed and in-flight rows, then its note-coverage reads. A failed read leaves both absent.
@@ -622,6 +855,7 @@ async function fetchTransactionsAsHistoryEntries(
       // `completedAt`, and the day grouping builds a Date from this with no
       // fallback of its own — one missing value takes down the whole list.
       timestamp: tx.completedAt || tx.initiatedAt,
+      ...(typeof tx.initiatedAt === 'number' ? { historyOrder: historyCursorOf(tx) } : {}),
       message: updateMessageForFailed,
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
@@ -704,10 +938,64 @@ async function fetchTransactionsAsHistoryEntries(
 
   return {
     entries: await Promise.all(entries),
+    rawIds,
     rawCount: page.rawCount,
     hasMore: page.hasMore,
     nextCursor: page.nextCursor
   };
+}
+
+/**
+ * Pages from `cursor` until one raw id is already in `boundary`, or the store has no further page.
+ * Merges visible rows only. Does not write the older cursor or `hasMore` when the boundary is met,
+ * and does not add the fetched ids to `boundary`.
+ */
+async function fillHistoryGap(
+  address: string,
+  tokenId: string | undefined,
+  cursor: CompletedHistoryCursor,
+  boundary: ReadonlySet<string>,
+  key: string,
+  isCurrent: () => boolean,
+  setScopedRest: (update: (state: ScopedEntries) => ScopedEntries) => void,
+  onFinish: (outcome: 'finished' | 'stalled' | 'failed') => void
+): Promise<void> {
+  let next: CompletedHistoryCursor | null = cursor;
+  while (next) {
+    if (!isCurrent()) return;
+    const requestCursor = next;
+    let page: HistoryEntriesPage;
+    try {
+      page = await fetchTransactionsAsHistoryEntries(address, requestCursor, tokenId);
+    } catch {
+      onFinish('failed');
+      return;
+    }
+    if (!isCurrent()) return;
+    const reached = sharesRawId(page.rawIds, boundary);
+    setScopedRest(state => {
+      if (state.key !== key) return state;
+      return {
+        ...state,
+        entries: mergeAndSort(state.entries, page.entries),
+        rawIds: unionRawIds(state.rawIds, page.rawIds)
+      };
+    });
+    if (!isCurrent()) return;
+    const stalled = page.nextCursor != null && sameHistoryCursor(page.nextCursor, requestCursor);
+    if (stalled) {
+      onFinish('stalled');
+      return;
+    }
+    if (reached || !page.hasMore || page.nextCursor == null) {
+      if (!reached && !page.hasMore) {
+        setScopedRest(state => (state.key === key ? { ...state, hasMore: false } : state));
+      }
+      if (isCurrent()) onFinish('finished');
+      return;
+    }
+    next = page.nextCursor;
+  }
 }
 
 async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId?: string): Promise<IHistoryEntry[]> {
@@ -812,6 +1100,11 @@ function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {
       uniques.push(entry);
     }
   }
-  uniques.sort((r1, r2) => r2.timestamp - r1.timestamp || r2.type - r1.type);
+  uniques.sort((r1, r2) => {
+    if (completeHistoryOrder(r1.historyOrder) && completeHistoryOrder(r2.historyOrder)) {
+      return compareCompletedHistory(r2.historyOrder, r1.historyOrder);
+    }
+    return r2.timestamp - r1.timestamp || r2.type - r1.type;
+  });
   return uniques;
 }

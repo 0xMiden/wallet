@@ -11,6 +11,8 @@ import {
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
+import { ITransactionStatus } from 'lib/miden/db/types';
+import type { ITransaction } from 'lib/miden/db/types';
 // The real strings, not mocked (this module is not replaced by any `jest.mock` in this file) -
 // used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
 // call reads (#1250).
@@ -85,7 +87,13 @@ const mockUseRetryableSWR = jest.fn(
       let active = true;
       Promise.resolve(fetcher()).then(
         data => {
-          if (active) setState({ data, isLoading: false });
+          if (active) {
+            setState({ data, isLoading: false });
+            const onSuccess = config?.onSuccess;
+            if (typeof onSuccess === 'function') {
+              (onSuccess as (...args: unknown[]) => void)(data, key, config);
+            }
+          }
         },
         error => {
           if (active) setState({ data: undefined, isLoading: false, error });
@@ -379,8 +387,21 @@ beforeEach(() => {
   mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
     const offset = request.fromEnd ? undefined : (offsetsByCursor.get(cursorKey(request.cursor)) ?? 0);
     const rows: Array<{ id?: string; completedAt?: number; initiatedAt?: number }> = await (request.fromEnd
-      ? mockGetCompletedTransactions(request.accountId, undefined, request.limit, true, request.tokenId, true)
-      : mockGetCompletedTransactions(request.accountId, offset, request.limit, true, request.tokenId));
+      ? mockGetCompletedTransactions(
+          request.accountId,
+          undefined,
+          request.limit,
+          request.includeFailed === true,
+          request.tokenId,
+          true
+        )
+      : mockGetCompletedTransactions(
+          request.accountId,
+          offset,
+          request.limit,
+          request.includeFailed === true,
+          request.tokenId
+        ));
     const ordered = [...rows].sort((a, b) => {
       const timestampDiff = (a.completedAt || a.initiatedAt || 0) - (b.completedAt || b.initiatedAt || 0);
       return timestampDiff || (a.id ?? '').localeCompare(b.id ?? '');
@@ -854,6 +875,7 @@ describe('History', () => {
     ];
 
     let swapOrderReads = 0;
+    const requestedSwapIds: string[][] = [];
     const originalWhere = Repo.transactions.where.bind(Repo.transactions);
     const where = jest.spyOn(Repo.transactions, 'where');
     where.mockImplementation(((index: string) => {
@@ -861,13 +883,14 @@ describe('History', () => {
         return { anyOf: () => ({ toArray: async () => [] }) } as unknown as ReturnType<typeof Repo.transactions.where>;
       }
       if (index !== 'extraInputs.swapOrderTxId') return originalWhere(index as never);
-      const query: { filter: () => typeof query; toArray: () => Promise<never[]> } = {
-        filter: () => query,
-        toArray: async () => linkedRows as never[]
-      };
       return {
-        anyOf: (_ids: string[]) => {
+        anyOf: (ids: string[]) => {
           swapOrderReads += 1;
+          requestedSwapIds.push([...ids]);
+          const query: { filter: () => typeof query; toArray: () => Promise<never[]> } = {
+            filter: () => query,
+            toArray: async () => linkedRows.filter(row => ids.includes(row.extraInputs.swapOrderTxId)) as never[]
+          };
           return query;
         }
       } as unknown as ReturnType<typeof Repo.transactions.where>;
@@ -884,6 +907,8 @@ describe('History', () => {
       await waitFor(() => expect(mockHistoryViewProps?.entries).toHaveLength(2));
 
       expect(swapOrderReads).toBe(1);
+      expect(requestedSwapIds).toHaveLength(1);
+      expect(requestedSwapIds.flat().sort()).toEqual(['SWAP-A', 'SWAP-B']);
       expect(mockHistoryViewProps.entries.find((entry: any) => entry.key === 'completed-SWAP-A').swapFillProgress).toBe(
         '40'
       );
@@ -973,6 +998,114 @@ describe('History', () => {
     }
   });
 
+  it('refreshes settlement fields on an older loaded swap from its current stored row', async () => {
+    await Repo.transactions.clear();
+
+    const latest: ITransaction = {
+      id: 'LATEST-HEAD',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const olderSwap: ITransaction = {
+      id: 'OLDER-SWAP',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'swap',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SWAP',
+      faucetId: 'fa1',
+      amount: 5n,
+      outputNoteIds: ['order-note'],
+      extraInputs: {
+        orderId: 'order-1',
+        autoConsume: true,
+        expiresAt: 4_000_000_000,
+        requestedAmount: 10n,
+        requestedFaucetId: 'fa2'
+      }
+    };
+    const fill: ITransaction = {
+      id: 'OLDER-FILL',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 1100,
+      completedAt: 1100,
+      displayIcon: 'RECEIVE',
+      noteIds: ['fill-note'],
+      amount: 4n,
+      faucetId: 'fa2',
+      extraInputs: { swapOrderTxId: olderSwap.id, swapSettleKind: 'settle' }
+    };
+    await Repo.transactions.bulkPut([latest, olderSwap, fill]);
+
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        return {
+          transactions: [latest],
+          rawCount: 1,
+          hasMore: true,
+          nextCursor: { effectiveTimestamp: 5000, transactionId: latest.id }
+        };
+      }
+      return {
+        transactions: [olderSwap],
+        rawCount: 1,
+        hasMore: false,
+        nextCursor: { effectiveTimestamp: 1000, transactionId: olderSwap.id }
+      };
+    });
+
+    const actualResolveSwapHistoryProgress =
+      jest.requireActual<typeof import('./resolveSwapHistoryProgress')>(
+        './resolveSwapHistoryProgress'
+      ).resolveSwapHistoryProgress;
+    jest.mocked(resolveSwapHistoryProgress).mockImplementation(actualResolveSwapHistoryProgress);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    try {
+      await renderHistory();
+      await waitFor(() => expect(mockHistoryViewProps?.entries).toHaveLength(1));
+      await act(async () => {
+        await mockHistoryViewProps.loadMore(0);
+      });
+      await waitFor(() =>
+        expect(
+          mockHistoryViewProps?.entries.find((entry: any) => entry.key === 'completed-OLDER-SWAP')?.swapFillProgress
+        ).toBe('40')
+      );
+      expect(
+        mockHistoryViewProps.entries.find((entry: any) => entry.key === 'completed-OLDER-SWAP')?.swapSettlement
+      ).toBe('pending');
+
+      await Repo.transactions.put({
+        ...olderSwap,
+        extraInputs: { ...olderSwap.extraInputs, reclaimedAt: 1200 }
+      });
+      await Repo.transactions.put({ ...fill, amount: 10n });
+
+      await act(async () => {
+        mockSwrMutates['latest-transactions']?.();
+      });
+      await waitFor(() =>
+        expect(
+          mockHistoryViewProps?.entries.find((entry: any) => entry.key === 'completed-OLDER-SWAP')?.swapFillProgress
+        ).toBe('100')
+      );
+      expect(
+        mockHistoryViewProps.entries.find((entry: any) => entry.key === 'completed-OLDER-SWAP')?.swapSettlement
+      ).toBe('reclaimed');
+    } finally {
+      await Repo.transactions.clear();
+      jest.mocked(resolveSwapHistoryProgress).mockImplementation(async () => new Map());
+    }
+  });
+
   it('enriches only the newest refresh page and only the older loadMore page', async () => {
     const newest = {
       id: 'REFRESH',
@@ -1052,6 +1185,9 @@ describe('History', () => {
 
     // Failed rows are fetched at all: the completed fetch runs with includeFailed=true.
     expect(mockGetCompletedTransactions).toHaveBeenCalledWith('0xme', undefined, 1000, true, undefined, true);
+    expect(mockGetCompletedTransactionsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: '0xme', includeFailed: true, fromEnd: true })
+    );
     // Completed: Swap → swapFields drive amount/token/requested*, icon from displayIcon.
     expect(rowText('completed-S')).toContain('completed-S|swap msg|S-tok|S-amt|SWAP|');
     expect(rowText('completed-S')).toContain('|S-req|S-reqtok');
@@ -1669,6 +1805,384 @@ describe('History', () => {
     expect(
       mockHistoryViewProps.entries.find((entry: { key: string }) => entry.key === 'completed-page-0000')?.timestamp
     ).toBe(100);
+  });
+
+  it('backfills every row between a refreshed head and the older-page cursor', async () => {
+    const makeRow = (id: string, timestamp: number) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: id,
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: timestamp,
+      initiatedAt: timestamp
+    });
+    const oldRows = Array.from({ length: HISTORY_PAGE_SIZE * 2 + 17 }, (_, index) =>
+      makeRow(`old-${String(index).padStart(4, '0')}`, index + 100)
+    );
+    const insertedRows = Array.from({ length: HISTORY_PAGE_SIZE * 2 + 1 }, (_, index) =>
+      makeRow(`inserted-${String(index).padStart(4, '0')}`, 10_000 + index)
+    );
+    const records = [...oldRows];
+    const cursorFor = (row: (typeof records)[number]) => ({
+      effectiveTimestamp: row.completedAt || row.initiatedAt,
+      transactionId: row.id,
+      status: row.status,
+      initiatedAt: row.initiatedAt
+    });
+    const newestFirst = (a: (typeof records)[number], b: (typeof records)[number]) =>
+      (b.completedAt || b.initiatedAt) - (a.completedAt || a.initiatedAt) || b.id.localeCompare(a.id);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      const ordered = [...records].sort(newestFirst);
+      const eligible = request.fromEnd
+        ? ordered
+        : ordered.filter(row => {
+            const cursor = request.cursor;
+            const timestamp = row.completedAt || row.initiatedAt;
+            return (
+              !cursor ||
+              timestamp < cursor.effectiveTimestamp ||
+              (timestamp === cursor.effectiveTimestamp && row.id < cursor.transactionId)
+            );
+          });
+      const page = eligible.slice(0, request.limit);
+      const oldest = page[page.length - 1];
+      return {
+        transactions: page,
+        rawIds: page.map(row => row.id),
+        rawCount: page.length,
+        hasMore: eligible.length > page.length,
+        nextCursor: oldest ? cursorFor(oldest) : (request.cursor ?? null)
+      };
+    });
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain(`completed-${oldRows[oldRows.length - 1]!.id}`));
+    records.push(...insertedRows);
+
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+    await waitFor(() => expect(entryKeys()).toContain(`completed-${insertedRows[insertedRows.length - 1]!.id}`));
+
+    let page = 1;
+    while (mockHistoryViewProps.hasMore && page <= 5) {
+      const loadMore = mockHistoryViewProps.loadMore;
+      const currentPage = page++;
+      await act(async () => {
+        await loadMore(currentPage);
+      });
+    }
+
+    const loadedIds = entryKeys().filter((key): key is string => key?.startsWith('completed-') ?? false);
+    const expectedIds = [...oldRows, ...insertedRows].map(row => `completed-${row.id}`).sort();
+    expect(mockHistoryViewProps.hasMore).toBe(false);
+    expect(loadedIds).toContain('completed-inserted-0000');
+    expect(loadedIds.sort()).toEqual(expectedIds);
+    expect(new Set(loadedIds).size).toBe(expectedIds.length);
+  });
+
+  it('stops a gap backfill when a suppressed consume page still carries a known raw id', async () => {
+    const row = (id: string, timestamp: number) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: id,
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: timestamp,
+      initiatedAt: timestamp
+    });
+    const anchor = row('anchor', 2000);
+    const head = row('head', 5000);
+    const gapVisible = row('gap-visible', 4000);
+    const linkedKnown = row('linked-known', 1500);
+    const tail = row('tail-older', 1000);
+    const cursorFor = (entry: ReturnType<typeof row>): CompletedHistoryCursor => ({
+      effectiveTimestamp: entry.completedAt,
+      transactionId: entry.id,
+      status: entry.status,
+      initiatedAt: entry.initiatedAt
+    });
+    let refreshed = false;
+    const olderCursors: unknown[] = [];
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        const page = refreshed ? [head] : [anchor, linkedKnown];
+        return {
+          transactions: page,
+          rawCount: page.length,
+          hasMore: true,
+          nextCursor: cursorFor(page[page.length - 1]!)
+        };
+      }
+      olderCursors.push(request.cursor);
+      if (olderCursors.length === 1) {
+        const page = [gapVisible, linkedKnown];
+        return {
+          transactions: page,
+          rawCount: page.length,
+          hasMore: true,
+          nextCursor: cursorFor(linkedKnown)
+        };
+      }
+      return { transactions: [tail], rawCount: 1, hasMore: false, nextCursor: cursorFor(tail) };
+    });
+    mockSuppressedLinkedConsumeIds.mockImplementation(
+      async (transactions: Array<{ id: string }>) =>
+        new Set(transactions.filter(tx => tx.id.startsWith('linked-')).map(tx => tx.id))
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-anchor'));
+    refreshed = true;
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+
+    await waitFor(() => expect(entryKeys()).toContain('completed-gap-visible'));
+    expect(entryKeys()).toContain('completed-head');
+    expect(entryKeys()).toContain('completed-anchor');
+    expect(entryKeys().some(key => key?.includes('linked-'))).toBe(false);
+    expect(entryKeys()).not.toContain('completed-tail-older');
+    expect(olderCursors).toHaveLength(1);
+  });
+
+  it('does not retry a gap backfill when its cursor stops advancing', async () => {
+    const row = (id: string, timestamp: number) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: id,
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: timestamp,
+      initiatedAt: timestamp
+    });
+    const anchor = row('stalled-anchor', 1000);
+    const head = row('stalled-head', 5000);
+    const pageRow = row('stalled-page-row', 4000);
+    const cursorFor = (entry: ReturnType<typeof row>): CompletedHistoryCursor => ({
+      effectiveTimestamp: entry.completedAt,
+      transactionId: entry.id,
+      status: entry.status,
+      initiatedAt: entry.initiatedAt
+    });
+    let refreshed = false;
+    const olderCursors: unknown[] = [];
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        const page = refreshed ? [head] : [anchor];
+        return {
+          transactions: page,
+          rawCount: page.length,
+          hasMore: true,
+          nextCursor: cursorFor(page[page.length - 1]!)
+        };
+      }
+      olderCursors.push(request.cursor);
+      return {
+        transactions: [pageRow],
+        rawCount: 1,
+        hasMore: true,
+        nextCursor: cursorFor(head)
+      };
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-stalled-anchor'));
+    refreshed = true;
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-stalled-page-row'));
+    expect(olderCursors).toHaveLength(1);
+
+    await act(() => new Promise(resolve => setTimeout(resolve, 3_100)));
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+    expect(olderCursors).toHaveLength(1);
+  });
+
+  it('continues the gap backfill without restarting on a same-head refresh', async () => {
+    const row = (id: string, timestamp: number) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: id,
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: timestamp,
+      initiatedAt: timestamp
+    });
+    const anchor = row('old-anchor', 1000);
+    const head = row('inserted-head', 4000);
+    const mid = row('inserted-mid', 3000);
+    const oldest = row('inserted-0000', 2000);
+    const cursorFor = (entry: ReturnType<typeof row>): CompletedHistoryCursor => ({
+      effectiveTimestamp: entry.completedAt,
+      transactionId: entry.id,
+      status: entry.status,
+      initiatedAt: entry.initiatedAt
+    });
+    const pageOf = (transactions: ReturnType<typeof row>[], hasMore = true) => ({
+      transactions,
+      rawCount: transactions.length,
+      hasMore,
+      nextCursor: cursorFor(transactions[transactions.length - 1]!)
+    });
+    const tail = row('tail-older', 500);
+    let refreshed = false;
+    const pending: Array<{
+      cursor: CompletedHistoryCursor | null | undefined;
+      resolve: (page: ReturnType<typeof pageOf>) => void;
+    }> = [];
+    const olderCursors: Array<CompletedHistoryCursor | null | undefined> = [];
+    const pageForCursor = (cursor: CompletedHistoryCursor | null | undefined) => {
+      if (cursor?.transactionId === head.id) return pageOf([mid]);
+      if (cursor?.transactionId === mid.id) return pageOf([oldest, anchor]);
+      return pageOf([tail], false);
+    };
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) return pageOf(refreshed ? [head] : [anchor]);
+      olderCursors.push(request.cursor);
+      return await new Promise(resolve => {
+        pending.push({ cursor: request.cursor, resolve });
+      });
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-old-anchor'));
+    refreshed = true;
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-inserted-head'));
+    await waitFor(() => expect(pending).toHaveLength(1));
+
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+    expect(pending).toHaveLength(1);
+    expect(olderCursors).toEqual([cursorFor(head)]);
+
+    const first = pending[0]!;
+    await act(async () => {
+      first.resolve(pageForCursor(first.cursor));
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-inserted-mid'));
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(olderCursors[1]).toEqual(cursorFor(mid));
+
+    const next = pending[1]!;
+    await act(async () => {
+      next.resolve(pageForCursor(next.cursor));
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-inserted-0000'));
+    expect(entryKeys()).toContain('completed-old-anchor');
+    expect(entryKeys()).not.toContain('completed-tail-older');
+    expect(pending).toHaveLength(2);
+  });
+
+  it('keeps an earlier-initiated failed row whose id sorts after the refresh cursor', async () => {
+    const stamp = 50_000;
+    const failed = (id: string, initiatedAt: number) => ({
+      id,
+      status: STATUS.Failed,
+      displayMessage: id,
+      displayIcon: 'FAILED',
+      type: 'send',
+      completedAt: stamp,
+      initiatedAt
+    });
+    const earlier = failed('z-earlier', 1);
+    const later = failed('a-later', 5);
+    const cursorFor = (row: ReturnType<typeof failed>): CompletedHistoryCursor => ({
+      effectiveTimestamp: stamp,
+      transactionId: row.id,
+      status: STATUS.Failed,
+      initiatedAt: row.initiatedAt
+    });
+    let refreshed = false;
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (!request.fromEnd) {
+        return { transactions: [], rawCount: 0, hasMore: false, nextCursor: null };
+      }
+      if (!refreshed) {
+        return {
+          transactions: [later, earlier],
+          rawCount: 2,
+          hasMore: false,
+          nextCursor: cursorFor(earlier)
+        };
+      }
+      return { transactions: [later], rawCount: 1, hasMore: false, nextCursor: cursorFor(later) };
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-z-earlier'));
+    refreshed = true;
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+
+    await waitFor(() => expect(entryKeys()).toContain('completed-a-later'));
+    const loadedIds = entryKeys().map(key => key?.replace(/^completed-/, ''));
+    expect(loadedIds).toContain('z-earlier');
+    expect(loadedIds.filter(id => id === 'a-later' || id === 'z-earlier')).toEqual(['a-later', 'z-earlier']);
+  });
+
+  it('orders equal-time failed rows by initiatedAt across head, displaced page, and older rest', async () => {
+    const stamp = 40_000;
+    const failed = (id: string, initiatedAt: number) => ({
+      id,
+      status: STATUS.Failed,
+      displayMessage: id,
+      displayIcon: 'FAILED',
+      type: 'send',
+      completedAt: stamp,
+      initiatedAt
+    });
+    const row1 = failed('row-a', 1);
+    const row2 = failed('row-z', 2);
+    const row3 = failed('row-m', 3);
+    const cursorFor = (row: ReturnType<typeof failed>): CompletedHistoryCursor => ({
+      effectiveTimestamp: stamp,
+      transactionId: row.id,
+      status: STATUS.Failed,
+      initiatedAt: row.initiatedAt
+    });
+    let refreshed = false;
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        if (!refreshed) {
+          return { transactions: [row2], rawCount: 1, hasMore: true, nextCursor: cursorFor(row2) };
+        }
+        return { transactions: [row3], rawCount: 1, hasMore: true, nextCursor: cursorFor(row3) };
+      }
+      return { transactions: [row1], rawCount: 1, hasMore: false, nextCursor: cursorFor(row1) };
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-row-z'));
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(1);
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-row-a'));
+    refreshed = true;
+    await act(async () => {
+      mockSwrMutates['latest-transactions']?.();
+    });
+    await waitFor(() => expect(entryKeys()[0]).toBe('completed-row-m'));
+
+    const equalTimeIds = entryKeys()
+      .filter(key => key?.startsWith('completed-row-'))
+      .map(key => key?.slice('completed-'.length));
+    expect(equalTimeIds).toEqual(['row-m', 'row-z', 'row-a']);
   });
 
   it('advances past a full raw page of linked consumes', async () => {
@@ -2975,6 +3489,192 @@ describe('History on the real SWR cache', () => {
     </PageActiveContext.Provider>
   );
   const visibleView = () => mockHistoryViewCalls.filter(props => props.fullHistory).at(-1);
+
+  it('refreshes older swaps after an equal SWR head and retries a failed row read', async () => {
+    await Repo.transactions.clear();
+
+    const latest: ITransaction = {
+      id: 'LATEST-HEAD',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const olderSwap: ITransaction = {
+      id: 'OLDER-SWAP',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'swap',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SWAP',
+      faucetId: 'fa1',
+      amount: 5n,
+      outputNoteIds: ['order-note'],
+      extraInputs: {
+        orderId: 'order-1',
+        autoConsume: true,
+        expiresAt: 4_000_000_000,
+        requestedAmount: 10n,
+        requestedFaucetId: 'fa2'
+      }
+    };
+    const fill: ITransaction = {
+      id: 'OLDER-FILL',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 1100,
+      completedAt: 1100,
+      displayIcon: 'RECEIVE',
+      noteIds: ['fill-note'],
+      amount: 4n,
+      faucetId: 'fa2',
+      extraInputs: { swapOrderTxId: olderSwap.id, swapSettleKind: 'settle' }
+    };
+    await Repo.transactions.bulkPut([latest, olderSwap, fill]);
+
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? {
+            transactions: [latest],
+            rawCount: 1,
+            hasMore: true,
+            nextCursor: { effectiveTimestamp: 5000, transactionId: latest.id }
+          }
+        : {
+            transactions: [olderSwap],
+            rawCount: 1,
+            hasMore: false,
+            nextCursor: { effectiveTimestamp: 1000, transactionId: olderSwap.id }
+          }
+    );
+    const actualResolveSwapHistoryProgress =
+      jest.requireActual<typeof import('./resolveSwapHistoryProgress')>(
+        './resolveSwapHistoryProgress'
+      ).resolveSwapHistoryProgress;
+    jest.mocked(resolveSwapHistoryProgress).mockImplementation(actualResolveSwapHistoryProgress);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    const originalBulkGet = Repo.transactions.bulkGet.bind(Repo.transactions);
+    const bulkGet = jest.spyOn(Repo.transactions, 'bulkGet').mockImplementation(originalBulkGet);
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => {
+        await visibleView().loadMore(0);
+      });
+      const olderEntry = () => visibleView().entries.find((entry: any) => entry.key === 'completed-OLDER-SWAP');
+      await waitFor(() => expect(olderEntry()?.swapFillProgress).toBe('40'));
+      expect(olderEntry()?.swapSettlement).toBe('pending');
+
+      await Repo.transactions.put({ ...olderSwap, extraInputs: { ...olderSwap.extraInputs, reclaimedAt: 1200 } });
+      await Repo.transactions.put({ ...fill, amount: 10n });
+      bulkGet.mockRejectedValueOnce(new Error('older row read failed'));
+
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(bulkGet).toHaveBeenCalledTimes(1));
+      expect(olderEntry()?.swapFillProgress).toBe('40');
+      expect(olderEntry()?.swapSettlement).toBe('pending');
+
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(bulkGet).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(olderEntry()?.swapFillProgress).toBe('100'));
+      expect(olderEntry()?.swapSettlement).toBe('reclaimed');
+    } finally {
+      bulkGet.mockRestore();
+      await Repo.transactions.clear();
+      jest.mocked(resolveSwapHistoryProgress).mockImplementation(async () => new Map());
+    }
+  }, 15_000);
+
+  it('restarts a gap backfill from an equal SWR head without the layout effect', async () => {
+    const anchor = {
+      id: 'old-anchor',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      displayMessage: 'anchor',
+      displayIcon: 'RECEIVE',
+      completedAt: 1000,
+      initiatedAt: 1000
+    };
+    const inserted = Array.from({ length: HISTORY_PAGE_SIZE + 1 }, (_, index) => ({
+      id: `inserted-${String(index).padStart(4, '0')}`,
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      displayMessage: 'inserted',
+      displayIcon: 'RECEIVE',
+      completedAt: 20_000 + index,
+      initiatedAt: 20_000 + index
+    }));
+    const newestFirst = [...inserted].sort((a, b) => b.completedAt - a.completedAt || b.id.localeCompare(a.id));
+    const head = newestFirst.slice(0, HISTORY_PAGE_SIZE);
+    const oldest = newestFirst[newestFirst.length - 1]!;
+    const cursorFor = (row: { id: string; completedAt: number; initiatedAt: number; status: ITransactionStatus }) => ({
+      effectiveTimestamp: row.completedAt,
+      transactionId: row.id,
+      status: row.status,
+      initiatedAt: row.initiatedAt
+    });
+    const tail = { ...anchor, id: 'tail-older', completedAt: 0, initiatedAt: 0 };
+    const restartCursor = cursorFor(head[head.length - 1]!);
+    let gapped = false;
+    let olderCalls = 0;
+    const olderCursors: Array<CompletedHistoryCursor | null | undefined> = [];
+    let releaseStale: (page: unknown) => void = () => {};
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        const page = gapped ? head : [anchor];
+        return {
+          transactions: page,
+          rawCount: page.length,
+          hasMore: true,
+          nextCursor: cursorFor(page[page.length - 1]!)
+        };
+      }
+      olderCalls += 1;
+      olderCursors.push(request.cursor);
+      if (olderCalls === 1) {
+        return await new Promise(resolve => {
+          releaseStale = resolve;
+        });
+      }
+      if (request.cursor?.transactionId === restartCursor.transactionId) {
+        return {
+          transactions: [oldest, anchor],
+          rawCount: 2,
+          hasMore: true,
+          nextCursor: cursorFor(anchor)
+        };
+      }
+      return { transactions: [tail], rawCount: 1, hasMore: false, nextCursor: cursorFor(tail) };
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      const keysOf = () => visibleView()?.entries.map((entry: { key: string }) => entry.key) ?? [];
+      await waitFor(() => expect(keysOf()).toContain('completed-old-anchor'));
+      gapped = true;
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(olderCalls).toBe(1));
+      await waitFor(() => expect(keysOf()).toContain('completed-inserted-1000'));
+
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(olderCalls).toBe(2));
+      expect(olderCursors[1]).toEqual(restartCursor);
+      await waitFor(() => expect(keysOf()).toContain('completed-inserted-0000'));
+      expect(keysOf()).not.toContain('completed-tail-older');
+    } finally {
+      releaseStale({ transactions: [], rawCount: 0, hasMore: false, nextCursor: null });
+    }
+  }, 20_000);
 
   it('retries on the page that is showing when an off-screen page of the same account mounted first', async () => {
     // The first settled read, which only the page on screen runs, fails; later ones succeed.

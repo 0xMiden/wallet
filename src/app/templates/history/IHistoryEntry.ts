@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/db/types';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
 import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
+import type { CompletedHistoryCursor } from 'lib/miden/transaction/get';
 import type { SubmissionMessageKey } from 'lib/miden/transaction/submission-feedback';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
@@ -46,6 +47,13 @@ export interface IHistoryEntry {
   key: string;
   address: string;
   timestamp: number;
+  /**
+   * Completed-history key from the source transaction. Newest-first display order is the reverse of
+   * unlimited `getCompletedTransactions`: Completed, then Failed, then Unconfirmed, with Failed and
+   * Unconfirmed ordered by `initiatedAt` and then id. Absent on pending rows and when the source has
+   * no `initiatedAt`; those keep the timestamp and type comparison.
+   */
+  historyOrder?: CompletedHistoryCursor;
   message: string;
   type: HistoryEntryType;
   txType: ITransactionType;

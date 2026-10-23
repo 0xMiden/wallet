@@ -90,10 +90,16 @@ export const getUnconfirmedTransactions = async () => {
   return transactions;
 };
 
-/** `(completedAt || initiatedAt, id)`. `id` is the primary key, which is what a stable sort of an index scan kept. */
+/**
+ * Page boundary. `effectiveTimestamp` is `(completedAt || initiatedAt)`.
+ * `status` and `initiatedAt` resume inside an equal timestamp in unlimited order:
+ * Completed, then Failed, then Unconfirmed. A cursor with no `status` keeps the id comparison.
+ */
 export interface CompletedHistoryCursor {
   effectiveTimestamp: number;
   transactionId: string;
+  status?: ITransactionStatus;
+  initiatedAt?: number;
 }
 
 export interface CompletedTransactionsPageRequest {
@@ -139,10 +145,44 @@ interface BoundedHistoryRead {
 
 const effectiveHistoryTimestamp = (tx: ITransaction): number => tx.completedAt || tx.initiatedAt;
 
-const historyCursorOf = (tx: ITransaction): CompletedHistoryCursor => ({
+export const historyCursorOf = (tx: ITransaction): CompletedHistoryCursor => ({
   effectiveTimestamp: effectiveHistoryTimestamp(tx),
-  transactionId: tx.id
+  transactionId: tx.id,
+  status: tx.status,
+  initiatedAt: tx.initiatedAt
 });
+
+const compareHistoryId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Oldest-first rank inside one effective timestamp: the unlimited concatenation order. */
+const historyStatusRank = (status: ITransactionStatus | undefined): number => {
+  if (status === ITransactionStatus.Completed) return 0;
+  if (status === ITransactionStatus.Failed) return 1;
+  if (status === ITransactionStatus.Unconfirmed) return 2;
+  return 3;
+};
+
+/**
+ * Oldest-first order of unlimited `getCompletedTransactions`. Negative when `a` is older.
+ * Equal timestamps follow Completed, then Failed, then Unconfirmed; Failed and Unconfirmed
+ * break ties by `initiatedAt`, then id. Completed, and a cursor with no `status`, break ties by id.
+ */
+export const compareCompletedHistory = (a: CompletedHistoryCursor, b: CompletedHistoryCursor): number => {
+  const time = a.effectiveTimestamp - b.effectiveTimestamp;
+  if (time !== 0) return time;
+  if (a.transactionId === b.transactionId) return 0;
+  if (a.status === undefined || b.status === undefined || a.initiatedAt === undefined || b.initiatedAt === undefined) {
+    return compareHistoryId(a.transactionId, b.transactionId);
+  }
+  const rank = historyStatusRank(a.status) - historyStatusRank(b.status);
+  if (rank !== 0) return rank;
+  if (a.status !== ITransactionStatus.Failed && a.status !== ITransactionStatus.Unconfirmed) {
+    return compareHistoryId(a.transactionId, b.transactionId);
+  }
+  const initiated = a.initiatedAt - b.initiatedAt;
+  if (initiated !== 0) return initiated;
+  return compareHistoryId(a.transactionId, b.transactionId);
+};
 
 const hasRecordedCompletion = (tx: ITransaction): boolean => Boolean(tx.completedAt);
 
@@ -156,11 +196,8 @@ const isNegativeCompletion = (tx: ITransaction): boolean => {
   return typeof completedAt === 'number' && completedAt < 0;
 };
 
-const earlierHistoryRow = (a: ITransaction, b: ITransaction): boolean => {
-  const time = effectiveHistoryTimestamp(a) - effectiveHistoryTimestamp(b);
-  if (time !== 0) return time < 0;
-  return a.id < b.id;
-};
+const earlierHistoryRow = (a: ITransaction, b: ITransaction): boolean =>
+  compareCompletedHistory(historyCursorOf(a), historyCursorOf(b)) < 0;
 
 const historyPrefers = (row: ITransaction, other: ITransaction, direction: HistoryDirection): boolean =>
   direction === 'asc' ? earlierHistoryRow(row, other) : earlierHistoryRow(other, row);
@@ -171,11 +208,9 @@ const onHistorySide = (
   bound: CompletedHistoryCursor | null
 ): boolean => {
   if (bound === null) return true;
-  const time = effectiveHistoryTimestamp(tx) - bound.effectiveTimestamp;
-  if (time !== 0) return direction === 'asc' ? time > 0 : time < 0;
-  if (tx.id === bound.transactionId) return false;
-  const idBefore = tx.id < bound.transactionId;
-  return direction === 'asc' ? !idBefore : idBefore;
+  const order = compareCompletedHistory(historyCursorOf(tx), bound);
+  if (order === 0) return false;
+  return direction === 'asc' ? order > 0 : order < 0;
 };
 
 const completedHistoryRowMatches = (
@@ -257,6 +292,58 @@ const alignFallbackSource = async (
   source.cursor = null;
 };
 
+const historyIndexKey = (tx: ITransaction, indexName: 'completedAt' | 'initiatedAt'): number | undefined => {
+  const value = indexName === 'completedAt' ? tx.completedAt : tx.initiatedAt;
+  return typeof value === 'number' && !Number.isNaN(value) ? value : undefined;
+};
+
+/** The effective time the next group must emit. Heads already sit on this side of `bound`. */
+const extremeHistoryTime = (
+  sources: readonly HistorySource[],
+  direction: HistoryDirection,
+  bound: CompletedHistoryCursor | null
+): number | null => {
+  let groupTime: number | null = null;
+  for (const source of sources) {
+    const row = historyCandidate(source, direction, bound);
+    if (row === null) continue;
+    const time = effectiveHistoryTimestamp(row);
+    if (groupTime === null || (direction === 'asc' ? time < groupTime : time > groupTime)) groupTime = time;
+  }
+  return groupTime;
+};
+
+/**
+ * Every on-side row of this stream at `groupTime`. The index yields `(timestamp, id)`, so the
+ * caller sorts the union. The cursor stops on the first row of the next index key.
+ */
+const takeTimestampGroup = async (
+  source: HistorySource,
+  direction: HistoryDirection,
+  bound: CompletedHistoryCursor | null,
+  groupTime: number
+): Promise<ITransaction[]> => {
+  const head = historyCandidate(source, direction, bound);
+  if (head === null || effectiveHistoryTimestamp(head) !== groupTime) return [];
+  const indexName = source.stream === 'fallback' ? 'initiatedAt' : 'completedAt';
+  const taken: ITransaction[] = [];
+  while (source.cursor !== null && !source.cursor.done) {
+    const row = source.cursor.value;
+    const key = historyIndexKey(row, indexName);
+    if (key !== groupTime && (taken.length > 0 || effectiveHistoryTimestamp(row) !== groupTime)) break;
+    if (
+      inHistoryStream(source, row) &&
+      onHistorySide(row, direction, bound) &&
+      effectiveHistoryTimestamp(row) === groupTime
+    ) {
+      taken.push(row);
+    }
+    source.cursor = await source.cursor.next();
+  }
+  retireDoneCursor(source);
+  return taken;
+};
+
 const pickHistorySource = (
   sources: readonly HistorySource[],
   direction: HistoryDirection,
@@ -274,8 +361,11 @@ const pickHistorySource = (
 const pullHistoryRow = async (
   sources: HistorySource[],
   direction: HistoryDirection,
-  bound: CompletedHistoryCursor | null
+  bound: CompletedHistoryCursor | null,
+  buffered: ITransaction[]
 ): Promise<ITransaction | null> => {
+  const ready = buffered.shift();
+  if (ready !== undefined) return ready;
   const positive = sources[0];
   const negative = sources[1];
   const fallback = sources[2];
@@ -284,11 +374,20 @@ const pullHistoryRow = async (
   await alignCompletedSource(negative, direction, bound);
   const rival = pickHistorySource([positive, negative], direction, bound);
   await alignFallbackSource(fallback, direction, bound, rival === null ? null : effectiveHistoryTimestamp(rival.row));
-  const picked = pickHistorySource(sources, direction, bound);
-  if (picked === null || picked.source.cursor === null) return null;
-  const row = picked.row;
-  picked.source.cursor = await picked.source.cursor.next();
-  return row;
+  const groupTime = extremeHistoryTime(sources, direction, bound);
+  if (groupTime === null) return null;
+  const grouped: ITransaction[] = [];
+  for (const source of sources) {
+    grouped.push(...(await takeTimestampGroup(source, direction, bound, groupTime)));
+  }
+  if (grouped.length === 0) return null;
+  grouped.sort((a, b) =>
+    direction === 'asc'
+      ? compareCompletedHistory(historyCursorOf(a), historyCursorOf(b))
+      : compareCompletedHistory(historyCursorOf(b), historyCursorOf(a))
+  );
+  buffered.push(...grouped);
+  return buffered.shift() ?? null;
 };
 
 const positiveIndexBound = (direction: HistoryDirection, bound: CompletedHistoryCursor | null) => {
@@ -345,17 +444,18 @@ const openHistorySources = async (
 
 /**
  * Bounded history. Unlimited reads stay on `filter().toArray()`. A page walks `completedAt` for
- * nonzero completions and `initiatedAt` for the rest, merging by the same effective timestamp the
- * full sort uses, and stops once `limit` matches (plus one, when the caller needs `hasMore`) have
- * passed the account, token and status predicates.
+ * nonzero completions and `initiatedAt` for the rest. Each effective timestamp is buffered from
+ * all three streams and emitted in the unlimited order, and the walk stops once `limit` matches
+ * (plus one, when the caller needs `hasMore`) have passed the account, token and status predicates.
  */
 const readBoundedHistory = async (read: BoundedHistoryRead): Promise<{ rows: ITransaction[]; hasMore: boolean }> =>
   read.table.db.transaction('r', read.table, async () => {
     const sources = await openHistorySources(read.table, read.direction, read.bound);
+    const buffered: ITransaction[] = [];
     const rows: ITransaction[] = [];
     let skipped = read.offset;
     for (;;) {
-      const row = await pullHistoryRow(sources, read.direction, read.bound);
+      const row = await pullHistoryRow(sources, read.direction, read.bound, buffered);
       if (row === null) return { rows, hasMore: false };
       if (!completedHistoryRowMatches(row, read.accountId, read.tokenId, read.includeFailed)) continue;
       if (skipped > 0) {

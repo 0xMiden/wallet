@@ -2189,9 +2189,19 @@ describe('bounded transaction history', () => {
       expect(newest.transactions.map(tx => tx.id)).toEqual(['unconf', 'tie-b', 'tie-a']);
       expect(newest.rawCount).toBe(3);
       expect(newest.hasMore).toBe(true);
-      expect(newest.nextCursor).toEqual({ effectiveTimestamp: 20, transactionId: 'tie-a' });
+      expect(newest.nextCursor).toEqual({
+        effectiveTimestamp: 20,
+        transactionId: 'tie-a',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 3
+      });
       expect(older.transactions.map(tx => tx.id)).toEqual(['prim', 'fall-20', 'fail']);
-      expect(older.nextCursor).toEqual({ effectiveTimestamp: 15, transactionId: 'fail' });
+      expect(older.nextCursor).toEqual({
+        effectiveTimestamp: 15,
+        transactionId: 'fail',
+        status: ITransactionStatus.Failed,
+        initiatedAt: 1
+      });
       expect(rest.hasMore).toBe(false);
       expect(rest.rawCount).toBe(4);
       expect([...seen].reverse()).toEqual(legacy);
