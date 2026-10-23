@@ -57,6 +57,7 @@ let networkDomain: string;
 let entry: bigint[] | undefined;
 let tooMany: boolean;
 let proofBlock: number;
+let inventory: { faucet: string; amount: bigint }[] | undefined;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -68,15 +69,23 @@ beforeEach(() => {
   entry = [0n, 0n, 0n, 0n];
   tooMany = false;
   proofBlock = 123;
+  inventory = [{ faucet: '0x97924b9a77ed54917ff6d6364ae661', amount: 10_000_000n }];
   mockGetHeader.mockImplementation(async (block?: number) => ({
     commitment: () => ({ toHex: () => (block === 0 ? genesis : `0x${'03'.repeat(32)}`) }),
     blockNum: () => (block === 0 ? 0 : 123),
     timestamp: () => timestamp,
     verificationBaseFee: () => 7
   }));
-  mockGetProof.mockImplementation(async () => {
+  mockGetProof.mockImplementation(async (_account, _requirements, _block, vaultRequest) => {
     const storedEntry = entry;
     return {
+      vaultFungibleAssets: () =>
+        vaultRequest === undefined
+          ? undefined
+          : inventory?.map(asset => ({
+              faucetId: () => ({ toString: () => asset.faucet }),
+              amount: () => asset.amount
+            })),
       accountId: () => ({ toString: () => ISSUER }),
       accountHeader: () => ({ codeCommitment: () => ({ toHex: () => code }) }),
       getStorageSlotValue: () => ({ toHex: () => networkDomain }),
@@ -155,6 +164,7 @@ it('reads the distributor weekly map for v2 and never reuses the legacy map', as
   mockGetProof.mockImplementationOnce(async (_account, requirements) => {
     const requestedSlot = requirements[0].name;
     return {
+      vaultFungibleAssets: () => [],
       accountId: () => ({ toString: () => ISSUER }),
       accountHeader: () => ({ codeCommitment: () => ({ toHex: () => CODE }) }),
       getStorageSlotValue: () => ({ toHex: () => GENESIS }),
@@ -175,4 +185,45 @@ it('reads the distributor weekly map for v2 and never reuses the legacy map', as
   await expect(
     readGcEntitlement({ ...config, distribution: { ...distribution, distributorId: ACCOUNT } }, ACCOUNT)
   ).rejects.toThrow();
+});
+
+const fundedDistribution: CanonicalGcDistribution = {
+  protocolVersion: 2,
+  distributorId: ISSUER,
+  distributorCodeCommitment: CODE,
+  gcFaucetId: '0x97924b9a77ed54917ff6d6364ae661',
+  weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+};
+it.each([
+  [0n, false],
+  [9_999_999n, false],
+  [10_000_000n, true],
+  [20_000_000n, true]
+])('checks %s GC base units against one weekly payout', async (units, available) => {
+  inventory = [{ faucet: fundedDistribution.gcFaucetId, amount: units }];
+  await expect(readGcEntitlement({ ...config, distribution: fundedDistribution }, ACCOUNT)).resolves.toMatchObject({
+    inventoryAvailable: available
+  });
+});
+it('does not treat another asset as distributor GC inventory', async () => {
+  inventory = [{ faucet: ISSUER, amount: 10_000_000n }];
+  await expect(readGcEntitlement({ ...config, distribution: fundedDistribution }, ACCOUNT)).resolves.toMatchObject({
+    inventoryAvailable: false
+  });
+});
+it('fails closed when requested distributor vault data is unavailable', async () => {
+  inventory = undefined;
+  await expect(readGcEntitlement({ ...config, distribution: fundedDistribution }, ACCOUNT)).rejects.toThrow(
+    'GC inventory'
+  );
+});
+
+it('rejects duplicate GC inventory entries instead of overstating available funds', async () => {
+  inventory = [
+    { faucet: fundedDistribution.gcFaucetId, amount: 5_000_000n },
+    { faucet: fundedDistribution.gcFaucetId, amount: 5_000_000n }
+  ];
+  await expect(readGcEntitlement({ ...config, distribution: fundedDistribution }, ACCOUNT)).rejects.toThrow(
+    'duplicate assets'
+  );
 });

@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "Your weekly 10 GC is ready, whatever your balance.",
   "arcadeClaimState_pending": "Awaiting confirmation and receipt. Check status before trying again.",
   "arcadeClaimState_failed": "The claim was confirmed unsuccessful. You can try again.",
-  "arcadeClaimState_unavailable": "Weekly claims and GC balance are not configured for this network yet. You can still play for free.",
+  "arcadeClaimState_unavailable": "Weekly claims are unavailable right now. You can still play for free.",
   "arcadeClaim": "Claim 10 GC",
   "arcadeClaimed": "Claimed this week",
   "arcadeAwaitingReceipt": "Awaiting receipt",

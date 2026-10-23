@@ -543,3 +543,32 @@ it('invalidates a captured v1 quote when canonical v2 configuration becomes acti
   await expect(service.submit(scope, quote.quoteId)).resolves.toMatchObject({ status: { kind: 'failed' } });
   expect(d.queueClaim).not.toHaveBeenCalled();
 });
+
+it('does not prepare a funded request when distributor inventory is below an allowance', async () => {
+  const d = deps();
+  d.entitlement = async () => ({ ...entitlement, inventoryAvailable: false });
+  const service = createGcClaimBackendService(d);
+  expect((await service.read(scope)).status.kind).toBe('unavailable');
+  await expect(service.prepare(scope)).rejects.toThrow();
+  expect(d.prepareClaim).not.toHaveBeenCalled();
+  expect(d.queueClaim).not.toHaveBeenCalled();
+});
+it('rechecks inventory at confirmation without queueing a stale funded approval', async () => {
+  const d = deps();
+  const service = createGcClaimBackendService(d);
+  const quote = await service.prepare(scope);
+  d.entitlement = async () => ({ ...entitlement, inventoryAvailable: false });
+  expect((await service.submit(scope, quote.quoteId)).status.kind).toBe('failed');
+  expect(d.queueClaim).not.toHaveBeenCalled();
+});
+it('allows receipt collection even when the last payout emptied the distributor', async () => {
+  const { d } = issuedDependencies();
+  d.entitlement = async () => ({ ...entitlement, inventoryAvailable: false, claimed: true });
+  const service = createGcClaimBackendService(d);
+  expect((await service.read(scope)).status.kind).toBe('receivable');
+  const quote = await service.prepare(scope);
+  expect(quote.mode).toBe('receive');
+  await service.submit(scope, quote.quoteId);
+  expect(d.queueReceive).toHaveBeenCalledTimes(1);
+  expect(d.queueClaim).not.toHaveBeenCalled();
+});

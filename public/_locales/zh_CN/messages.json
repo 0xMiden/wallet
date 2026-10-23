@@ -7619,8 +7619,8 @@
     "englishSource": "The claim was confirmed unsuccessful. You can try again."
   },
   "arcadeClaimState_unavailable": {
-    "message": "该网络目前尚未配置每周奖励和 GC 余额功能。您仍可免费参与游戏。",
-    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+    "message": "目前无法领取每周代币。你仍然可以免费游玩。",
+    "englishSource": "Weekly claims are unavailable right now. You can still play for free."
   },
   "arcadeClaim": {
     "message": "申领 10 GC",

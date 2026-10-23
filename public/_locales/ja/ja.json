@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "残高に関わらず、毎週10 GCが受け取れるようになっています。",
   "arcadeClaimState_pending": "確認と受領待ちです。再試行する前にステータスを確認してください。",
   "arcadeClaimState_failed": "この請求は失敗したことが確認されました。再度お試しください。",
-  "arcadeClaimState_unavailable": "週次クレームおよびGC残高は、このネットワークではまだ設定されていません。引き続き無料でプレイできます。",
+  "arcadeClaimState_unavailable": "現在、毎週の受け取りは利用できません。引き続き無料でプレイできます。",
   "arcadeClaim": "10 GCを請求",
   "arcadeClaimed": "今週の主張",
   "arcadeAwaitingReceipt": "受領待ち",

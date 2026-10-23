@@ -240,7 +240,7 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
     else if (delivered) snapshot.status = { kind: 'claimed', nextEligibleAt: entitlement.nextEligibleAt };
     else if (receipt) snapshot.status = { kind: 'receivable' };
     else if (unresolved || entitlement.claimed) snapshot.status = { kind: 'pending' };
-    else if (blocked) snapshot.status = { kind: 'unavailable' };
+    else if (blocked || entitlement.inventoryAvailable === false) snapshot.status = { kind: 'unavailable' };
     else if (page.complete && !blocked && !unresolved)
       snapshot.status =
         currentResults.length > 0

@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "無論您的餘額為何，每週 10 GC 已準備就緒。",
   "arcadeClaimState_pending": "等待確認與收據。請先檢查狀態，再嘗試重新操作。",
   "arcadeClaimState_failed": "該請求已確認失敗。您可以再次嘗試。",
-  "arcadeClaimState_unavailable": "本網路目前尚未設定每週獎勵與 GC 餘額功能。您仍可免費遊玩。",
+  "arcadeClaimState_unavailable": "目前無法領取每週代幣。你仍然可以免費遊玩。",
   "arcadeClaim": "申領 10 GC",
   "arcadeClaimed": "本週聲明",
   "arcadeAwaitingReceipt": "待收",

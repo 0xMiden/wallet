@@ -80,3 +80,16 @@ setup was explicitly skipped. CI retains the repository coverage threshold.
 The initial 10-GC distributor inventory is exhausted by this acceptance claim. Further payouts require
 replenishment using the protocol's funded deposit path; a fresh weekly ledger does not create token
 supply. This is a deployment funding requirement, separate from the confirmed wallet flows above.
+
+## Inventory preflight
+
+Before offering or confirming a new v2 funded claim, Bread requests the distributor's vault alongside
+the weekly map at the same reference block. Only the configured GC faucet counts toward the 10-GC
+minimum. Missing vault data or duplicate asset entries fail closed. An empty or insufficient vault
+disables new requests; existing receipts, refundable budgets and completed claims remain accessible.
+Confirmation rechecks inventory before queue admission. This prevents fees for known empty inventory;
+it does not reserve tokens against another claimant between review and network inclusion.
+
+The live SDK query at block 474848 returned an empty vault and `inventoryAvailable: false` after the
+acceptance claim. The generic unavailable message covers both unconfigured networks and temporary
+claim unavailability without incorrectly saying that a known GC balance is unconfigured.

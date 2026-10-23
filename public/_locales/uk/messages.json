@@ -7619,8 +7619,8 @@
     "englishSource": "The claim was confirmed unsuccessful. You can try again."
   },
   "arcadeClaimState_unavailable": {
-    "message": "Щотижневі виплати та баланс GC ще не налаштовані для цієї мережі. Ви все ще можете грати безкоштовно.",
-    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+    "message": "Щотижневе отримання зараз недоступне. Ви все ще можете грати безкоштовно.",
+    "englishSource": "Weekly claims are unavailable right now. You can still play for free."
   },
   "arcadeClaim": {
     "message": "Претензія 10 GC",

@@ -21,6 +21,8 @@ export interface GcIssuerIdentity extends GcClaimBinding {
 export interface GcEntitlement {
   approvedWeek: number;
   claimed: boolean;
+  /** v2 inventory can fund a full allocation; omitted for the minting v1 issuer. */
+  inventoryAvailable?: boolean;
   referenceBlock: number;
   referenceTimestamp: number;
   verificationBaseFee: number;
@@ -69,7 +71,8 @@ export async function readGcEntitlement(config: GcIssuerIdentity, accountId: str
         const proof = await rpc.getAccountProof(
           issuer,
           AccountStorageRequirements.fromSlotAndKeysArray([new SlotAndKeys(claimsSlot, [key])]),
-          referenceBlock
+          referenceBlock,
+          config.distribution === undefined ? undefined : new Word(new BigUint64Array(4))
         );
         if (
           proof.blockNum() !== referenceBlock ||
@@ -93,9 +96,18 @@ export async function readGcEntitlement(config: GcIssuerIdentity, accountId: str
         ) {
           throw new Error('Invalid GC weekly entitlement value');
         }
+        let inventoryAvailable: boolean | undefined;
+        if (config.distribution !== undefined) {
+          const assets = proof.vaultFungibleAssets();
+          if (assets === undefined) throw new Error('GC inventory is unavailable');
+          const gc = assets.filter(asset => asset.faucetId().toString() === config.distribution?.gcFaucetId);
+          if (gc.length > 1) throw new Error('GC inventory contains duplicate assets');
+          inventoryAvailable = (gc[0]?.amount() ?? 0n) >= 10_000_000n;
+        }
         return {
           approvedWeek,
           claimed: values[0] === 1n,
+          ...(inventoryAvailable === undefined ? {} : { inventoryAvailable }),
           referenceBlock,
           referenceTimestamp,
           verificationBaseFee,

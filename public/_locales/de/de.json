@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "Ihre wöchentlichen 10 GC stehen bereit, unabhängig von Ihrem Kontostand.",
   "arcadeClaimState_pending": "Warten auf Bestätigung und Empfang. Überprüfen Sie den Status, bevor Sie es erneut versuchen.",
   "arcadeClaimState_failed": "Die Anfrage wurde als erfolglos bestätigt. Sie können es erneut versuchen.",
-  "arcadeClaimState_unavailable": "Wöchentliche Ansprüche und der GC-Saldo sind für dieses Netzwerk noch nicht konfiguriert. Sie können weiterhin kostenlos spielen.",
+  "arcadeClaimState_unavailable": "Wöchentliche Ansprüche sind derzeit nicht verfügbar. Du kannst weiterhin kostenlos spielen.",
   "arcadeClaim": "Anspruch 10 GC",
   "arcadeClaimed": "Diese Woche behauptet",
   "arcadeAwaitingReceipt": "Warten auf den Eingang",

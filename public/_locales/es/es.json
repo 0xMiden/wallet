@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "Tus 10 GC semanales están listos, sea cual sea tu saldo.",
   "arcadeClaimState_pending": "A la espera de confirmación y acuse de recibo. Comprueba el estado antes de volver a intentarlo.",
   "arcadeClaimState_failed": "Se ha confirmado que la solicitud no ha tenido éxito. Puedes volver a intentarlo.",
-  "arcadeClaimState_unavailable": "Las reclamaciones semanales y el saldo de GC aún no están configurados para esta red. Aún así, puedes jugar gratis.",
+  "arcadeClaimState_unavailable": "Las reclamaciones semanales no están disponibles ahora. Puedes seguir jugando gratis.",
   "arcadeClaim": "Reclamación 10 GC",
   "arcadeClaimed": "Afirmado esta semana",
   "arcadeAwaitingReceipt": "A la espera de recepción",

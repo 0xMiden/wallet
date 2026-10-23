@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "Bakiyeniz ne olursa olsun, haftalık 10 GC'niz hazır.",
   "arcadeClaimState_pending": "Onay ve makbuz bekleniyor. Tekrar denemeden önce durumu kontrol edin.",
   "arcadeClaimState_failed": "Talebin başarısız olduğu onaylandı. Tekrar deneyebilirsiniz.",
-  "arcadeClaimState_unavailable": "Haftalık talepler ve GC bakiyesi henüz bu ağ için yapılandırılmamıştır. Yine de ücretsiz olarak oynayabilirsiniz.",
+  "arcadeClaimState_unavailable": "Haftalık talepler şu anda kullanılamıyor. Ücretsiz oynamaya devam edebilirsiniz.",
   "arcadeClaim": "10 GC talep et",
   "arcadeClaimed": "Bu hafta iddia edildi",
   "arcadeAwaitingReceipt": "Alınmayı bekliyor",

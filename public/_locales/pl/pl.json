@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "Twoje cotygodniowe 10 GC jest gotowe, niezależnie od stanu Twojego salda.",
   "arcadeClaimState_pending": "Oczekuje się na potwierdzenie i odbiór. Przed ponowną próbą sprawdź status.",
   "arcadeClaimState_failed": "Zgłoszenie zostało uznane za nieudane. Możesz spróbować ponownie.",
-  "arcadeClaimState_unavailable": "Cotygodniowe roszczenia i saldo GC nie są jeszcze skonfigurowane dla tej sieci. Nadal można grać za darmo.",
+  "arcadeClaimState_unavailable": "Cotygodniowe odbiory są teraz niedostępne. Nadal możesz grać za darmo.",
   "arcadeClaim": "Roszczenie 10 GC",
   "arcadeClaimed": "Ogłoszono w tym tygodniu",
   "arcadeAwaitingReceipt": "Oczekiwanie na potwierdzenie odbioru",

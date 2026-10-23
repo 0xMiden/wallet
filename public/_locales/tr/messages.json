@@ -7619,8 +7619,8 @@
     "englishSource": "The claim was confirmed unsuccessful. You can try again."
   },
   "arcadeClaimState_unavailable": {
-    "message": "Haftalık talepler ve GC bakiyesi henüz bu ağ için yapılandırılmamıştır. Yine de ücretsiz olarak oynayabilirsiniz.",
-    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+    "message": "Haftalık talepler şu anda kullanılamıyor. Ücretsiz oynamaya devam edebilirsiniz.",
+    "englishSource": "Weekly claims are unavailable right now. You can still play for free."
   },
   "arcadeClaim": {
     "message": "10 GC talep et",

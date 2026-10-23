@@ -7619,8 +7619,8 @@
     "englishSource": "The claim was confirmed unsuccessful. You can try again."
   },
   "arcadeClaimState_unavailable": {
-    "message": "Les récompenses hebdomadaires et le solde GC ne sont pas encore configurés pour ce réseau. Vous pouvez toutefois continuer à jouer gratuitement.",
-    "englishSource": "Weekly claims and GC balance are not configured for this network yet. You can still play for free."
+    "message": "Les demandes hebdomadaires sont indisponibles pour le moment. Vous pouvez toujours jouer gratuitement.",
+    "englishSource": "Weekly claims are unavailable right now. You can still play for free."
   },
   "arcadeClaim": {
     "message": "Réclamer 10 GC",

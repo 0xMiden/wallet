@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "Vos 10 GC hebdomadaires sont prêts, quel que soit votre solde.",
   "arcadeClaimState_pending": "En attente de confirmation et de réception. Vérifiez le statut avant de réessayer.",
   "arcadeClaimState_failed": "La demande a été jugée infructueuse. Vous pouvez réessayer.",
-  "arcadeClaimState_unavailable": "Les récompenses hebdomadaires et le solde GC ne sont pas encore configurés pour ce réseau. Vous pouvez toutefois continuer à jouer gratuitement.",
+  "arcadeClaimState_unavailable": "Les demandes hebdomadaires sont indisponibles pour le moment. Vous pouvez toujours jouer gratuitement.",
   "arcadeClaim": "Réclamer 10 GC",
   "arcadeClaimed": "Annoncé cette semaine",
   "arcadeAwaitingReceipt": "En attente de réception",

@@ -1688,7 +1688,7 @@
   "arcadeClaimState_eligible": "无论您的余额多少，每周 10 GC 已为您准备就绪。",
   "arcadeClaimState_pending": "正在等待确认和收据。请先检查状态，然后再试一次。",
   "arcadeClaimState_failed": "该请求已确认失败。您可以重试。",
-  "arcadeClaimState_unavailable": "该网络目前尚未配置每周奖励和 GC 余额功能。您仍可免费参与游戏。",
+  "arcadeClaimState_unavailable": "目前无法领取每周代币。你仍然可以免费游玩。",
   "arcadeClaim": "申领 10 GC",
   "arcadeClaimed": "本周声明",
   "arcadeAwaitingReceipt": "待收",
