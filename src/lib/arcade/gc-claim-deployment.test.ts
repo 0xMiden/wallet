@@ -1,3 +1,4 @@
+import type { GcClaimDeploymentData } from './gc-claim-deployment';
 import { resolveGcClaimDeployment } from './gc-claim-deployment';
 
 let mockNetwork = 'testnet';
@@ -29,4 +30,34 @@ it('does not let a caller mutate the next prepared script', async () => {
   first.claimScriptBytes[0] = initial ^ 255;
   const second = await resolveGcClaimDeployment();
   expect(second?.claimScriptBytes[0]).toBe(initial);
+});
+
+it('materializes reviewed v2 configuration without enabling the construction fixture', async () => {
+  const { decodeGcClaimDeployment } = await import('./gc-claim-deployment');
+  const raw: GcClaimDeploymentData = {
+    network: 'testnet',
+    genesisCommitment: `0x${'aa'.repeat(32)}`,
+    issuerId: '0x97924b9a77ed54917ff6d6364ae661',
+    issuerCodeCommitment: `0x${'bb'.repeat(32)}`,
+    nativeAssetId: '0x4cbdcaffe75f0a317482224dae6436',
+    claimScriptRoot: `0x${'cc'.repeat(32)}`,
+    claimScriptHex: '010203',
+    deploymentBlock: 500000,
+    reclaimDelayBlocks: 100,
+    nativeSymbol: 'USDCX',
+    nativeDecimals: 6,
+    distribution: {
+      protocolVersion: 2,
+      distributorId: '0x97924b9a77ed54917ff6d6364ae661',
+      distributorCodeCommitment: `0x${'bb'.repeat(32)}`,
+      gcFaucetId: '0xe1f2c48d5bfa8d5173dfcfdc8ac977',
+      weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+    }
+  };
+  const decoded = decodeGcClaimDeployment(raw);
+  raw.distribution!.gcFaucetId = raw.issuerId;
+  expect(decoded.distribution?.gcFaucetId).toBe('0xe1f2c48d5bfa8d5173dfcfdc8ac977');
+  expect(decoded.claimScriptBytes).toEqual(new Uint8Array([1, 2, 3]));
+  expect(() => decodeGcClaimDeployment(raw)).toThrow();
+  expect((await resolveGcClaimDeployment())?.distribution).toBeUndefined();
 });

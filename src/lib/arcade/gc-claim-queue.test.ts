@@ -3,7 +3,7 @@ import * as Repo from 'lib/miden/repo';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 
 import { recordGcClaimEvidence } from './gc-claim-evidence';
-import type { GcClaimContext, PreparedGcClaim } from './gc-claim-operation';
+import type { CanonicalGcDistribution, GcClaimContext, PreparedGcClaim } from './gc-claim-operation';
 import {
   listGcClaimOperations,
   queuePreparedGcClaim,
@@ -432,4 +432,52 @@ it('blocks renewal when verified history rediscovers a supposedly never-committe
   expect((await readGcClaimOperation(context(), 123))?.phase).toBe('pending');
   await expect(queueRenewedGcClaim(context(), prepared({ requestNoteId: CODE }), REQUEST)).rejects.toThrow();
   expect(await Repo.transactions.count()).toBe(1);
+});
+
+const distribution: CanonicalGcDistribution = {
+  protocolVersion: 2,
+  distributorId: ISSUER,
+  distributorCodeCommitment: CODE,
+  gcFaucetId: `0x${'44'.repeat(15)}`,
+  weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+};
+
+it('persists canonical v2 identity, deduplicates its own scope and leaves legacy rows recoverable', async () => {
+  const legacy = await queuePreparedGcClaim(context(), prepared());
+  const canonical = context({ distribution });
+  const material = prepared({ scope: { ...prepared().scope, distribution }, requestNoteId: `0x${'ee'.repeat(32)}` });
+  const result = await queuePreparedGcClaim(canonical, material);
+  expect(result.transactionId).not.toBe(legacy.transactionId);
+  expect((await Repo.transactions.get(result.transactionId))?.gcClaim).toMatchObject({
+    version: 2,
+    scope: { distribution }
+  });
+  expect(await queuePreparedGcClaim(canonical, material)).toMatchObject({
+    created: false,
+    transactionId: result.transactionId
+  });
+  expect((await listGcClaimOperations(context())).map(item => item.transaction.id)).toEqual([legacy.transactionId]);
+  Repo.db.close();
+  await Repo.db.open();
+  expect((await listGcClaimOperations(canonical)).map(item => item.transaction.id)).toEqual([result.transactionId]);
+});
+
+it('rejects stale v1 approvals and changed canonical bindings before inserting work', async () => {
+  const canonical = context({ distribution });
+  await expect(queuePreparedGcClaim(canonical, prepared())).rejects.toThrow();
+  for (const delta of [
+    { gcFaucetId: ACCOUNT },
+    { distributorId: ACCOUNT },
+    { distributorCodeCommitment: GENESIS },
+    { protocolVersion: 1 },
+    { weeklyClaimsSlot: 'bread::gc::weekly_claims' }
+  ]) {
+    await expect(
+      queuePreparedGcClaim(
+        canonical,
+        prepared({ scope: { ...prepared().scope, distribution: Object.assign({}, distribution, delta) } })
+      )
+    ).rejects.toThrow();
+  }
+  expect(await Repo.transactions.count()).toBe(0);
 });

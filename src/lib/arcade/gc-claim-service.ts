@@ -2,7 +2,7 @@ import type { ITransaction } from 'lib/miden/db/types';
 
 import type { GcEntitlement } from './entitlement';
 import type { GcClaimDeployment } from './gc-claim-deployment';
-import { gcClaimPhase as classifyPhase } from './gc-claim-operation';
+import { gcClaimAssetId, gcClaimBindingKey, gcClaimScope, gcClaimPhase as classifyPhase } from './gc-claim-operation';
 import type {
   GcClaimContext,
   GcClaimEvidence,
@@ -336,6 +336,12 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
       } else {
         const result = await deps.prepareClaim(context, deployment, entitlement);
         if (
+          gcClaimBindingKey(result.prepared.scope) !== gcClaimBindingKey(context) ||
+          result.prepared.scope.genesisCommitment !== context.genesisCommitment ||
+          result.prepared.scope.accountId !== context.accountId ||
+          result.prepared.scope.issuerId !== context.issuerId ||
+          result.prepared.issuerCodeCommitment !== context.issuerCodeCommitment ||
+          result.prepared.nativeAssetId !== context.nativeAssetId ||
           result.prepared.scope.approvedWeek !== entitlement.approvedWeek ||
           result.prepared.approvalExpiresAt > expires
         )
@@ -349,7 +355,14 @@ export function createGcClaimBackendService(deps: GcClaimServiceDependencies): W
         quote.receiptReserve = result.receiptFeeBudget;
         quote.prepared = {
           ...result.prepared,
-          scope: { ...result.prepared.scope },
+          scope: {
+            ...result.prepared.scope,
+            ...(result.prepared.scope.distribution === undefined
+              ? {}
+              : {
+                  distribution: { ...result.prepared.scope.distribution }
+                })
+          },
           requestBytes: new Uint8Array(result.prepared.requestBytes)
         };
         quote.review.expiresAt = new Date(result.prepared.approvalExpiresAt * 1000).toISOString();
@@ -573,12 +586,7 @@ const production: GcClaimServiceDependencies = {
     const measured = await measureRequest(context, built.requestBytes, nativeBudget, false);
     return {
       prepared: {
-        scope: {
-          genesisCommitment: context.genesisCommitment,
-          accountId: context.accountId,
-          issuerId: context.issuerId,
-          approvedWeek: entitlement.approvedWeek
-        },
+        scope: gcClaimScope(context, entitlement.approvedWeek),
         issuerCodeCommitment: context.issuerCodeCommitment,
         nativeAssetId: context.nativeAssetId,
         requestNoteId: built.requestNoteId,
@@ -671,7 +679,7 @@ export async function readVerifiedGcBalances(
       const assets = account.vault().fungibleAssets();
       const balance = (faucet: string) =>
         assets.filter(asset => asset.faucetId().toString() === faucet).reduce((sum, asset) => sum + asset.amount(), 0n);
-      return { commitment, gc: balance(context.issuerId), native: balance(context.nativeAssetId) };
+      return { commitment, gc: balance(gcClaimAssetId(context)), native: balance(context.nativeAssetId) };
     },
     { label: 'gc-claim-balance' }
   );

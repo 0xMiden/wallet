@@ -1,4 +1,5 @@
 import { readGcEntitlement } from './entitlement';
+import type { CanonicalGcDistribution } from './gc-claim-operation';
 
 const GENESIS = `0x${'01'.repeat(32)}`;
 const CODE = `0x${'02'.repeat(32)}`;
@@ -17,7 +18,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     }
   }
   class SlotAndKeys {
-    constructor(_name: string, keys: Word[]) {
+    constructor(
+      readonly name: string,
+      keys: Word[]
+    ) {
       mockRequirements.push(...keys.map(key => Array.from(key.values)));
     }
   }
@@ -138,4 +142,37 @@ it('propagates an unavailable node without turning the balance or entitlement in
   mockGetProof.mockRejectedValueOnce(new Error('offline'));
   await expect(readGcEntitlement(config, ACCOUNT)).rejects.toThrow('offline');
   expect(mockFree).toHaveBeenCalledTimes(1);
+});
+
+it('reads the distributor weekly map for v2 and never reuses the legacy map', async () => {
+  const distribution: CanonicalGcDistribution = {
+    protocolVersion: 2,
+    distributorId: ISSUER,
+    distributorCodeCommitment: CODE,
+    gcFaucetId: '0xe1f2c48d5bfa8d5173dfcfdc8ac977',
+    weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+  };
+  mockGetProof.mockImplementationOnce(async (_account, requirements) => {
+    const requestedSlot = requirements[0].name;
+    return {
+      accountId: () => ({ toString: () => ISSUER }),
+      accountHeader: () => ({ codeCommitment: () => ({ toHex: () => CODE }) }),
+      getStorageSlotValue: () => ({ toHex: () => GENESIS }),
+      blockNum: () => 123,
+      hasStorageMapTooManyEntries: (slot: string) => (slot === distribution.weeklyClaimsSlot ? false : undefined),
+      getStorageMapEntries: (slot: string) =>
+        slot === requestedSlot && slot === distribution.weeklyClaimsSlot
+          ? [
+              {
+                key: () => ({ toHex: () => mockRequirements.at(-1)?.join(',') }),
+                value: () => ({ toU64s: () => new BigUint64Array([1n, 0n, 0n, 0n]) })
+              }
+            ]
+          : undefined
+    };
+  });
+  await expect(readGcEntitlement({ ...config, distribution }, ACCOUNT)).resolves.toMatchObject({ claimed: true });
+  await expect(
+    readGcEntitlement({ ...config, distribution: { ...distribution, distributorId: ACCOUNT } }, ACCOUNT)
+  ).rejects.toThrow();
 });

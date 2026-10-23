@@ -5,7 +5,14 @@ import { accountRefToSdk, canonicalWalletAccountId } from 'lib/miden/sdk/helpers
 import { queueOutgoingTransaction } from 'lib/miden/spending-limits/queue';
 import { isProvable } from 'lib/miden/transaction/verdict-rules';
 
-import { GcClaimContext, GcClaimIssuanceEvidence, gcClaimWord, normalizeGcClaimContext } from './gc-claim-operation';
+import {
+  GcClaimContext,
+  GcClaimIssuanceEvidence,
+  gcClaimAssetId,
+  gcClaimBindingKey,
+  gcClaimWord,
+  normalizeGcClaimContext
+} from './gc-claim-operation';
 
 /** Completed, unknown and even locally Failed consumes retain their receipt until a node verdict proves death. */
 function retryable(row: ITransaction): boolean {
@@ -89,7 +96,7 @@ export function verifyGcReceiptEffects(
   for (const asset of view.incoming) {
     const faucet = accountRefToSdk(asset.faucetId).toString();
     if (asset.amount < 0n) throw new Error('GC receipt invalid incoming asset');
-    if (faucet === context.issuerId) gc += asset.amount;
+    if (faucet === gcClaimAssetId(context)) gc += asset.amount;
     else if (faucet === context.nativeAssetId) native += asset.amount;
     else throw new Error('GC receipt moved another asset');
   }
@@ -135,6 +142,9 @@ export async function prepareGcReceipt(
         issuance.accountId !== context.accountId ||
         issuance.genesisCommitment !== context.genesisCommitment ||
         issuance.issuerId !== context.issuerId ||
+        (context.distribution !== undefined &&
+          note.metadata().sender().toString() !== context.distribution.distributorId) ||
+        gcClaimBindingKey(issuance) !== gcClaimBindingKey(context) ||
         issuance.gcAmount !== 10_000_000n
       )
         throw new Error('GC receipt identity changed');

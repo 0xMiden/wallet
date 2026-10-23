@@ -32,6 +32,8 @@ import {
   PreparedGcClaim,
   assertGcClaimIdentity,
   gcClaimAccount,
+  gcClaimAssetId,
+  gcClaimScope,
   gcClaimHistoryTransactionId,
   gcClaimPhase,
   gcClaimTransactionId,
@@ -208,8 +210,16 @@ function decodeRequest(session: ReadSession, note: Note): GcClaimHistoryPage['re
     wordFrom(fields.slice(32, 36)).toHex() !== identity.genesisCommitment ||
     fields[20] !== sender.suffix().asInt() ||
     fields[21] !== sender.prefix().asInt() ||
-    fields[29] !== 1n ||
-    [17, 18, 19, 30, 31].some(index => fields[index] !== 0n) ||
+    fields[29] !== BigInt(identity.distribution?.protocolVersion ?? 1) ||
+    fields[30] !==
+      (identity.distribution === undefined
+        ? 0n
+        : accountRefToSdk(identity.distribution.distributorId).suffix().asInt()) ||
+    fields[31] !==
+      (identity.distribution === undefined
+        ? 0n
+        : accountRefToSdk(identity.distribution.distributorId).prefix().asInt()) ||
+    [17, 18, 19].some(index => fields[index] !== 0n) ||
     note.assets().nonFungibleAssets().length !== 0 ||
     assets.length !== 1 ||
     gcClaimAccount(assets[0]!.faucetId().toString()) !== identity.nativeAssetId ||
@@ -217,7 +227,10 @@ function decodeRequest(session: ReadSession, note: Note): GcClaimHistoryPage['re
   )
     throw new Error('GC request does not match the approved funded ABI');
   const allocation = FungibleAsset.fromVaultEntry(wordFrom(fields.slice(8, 12)), wordFrom(fields.slice(12, 16)));
-  if (gcClaimAccount(allocation.faucetId().toString()) !== identity.issuerId || allocation.amount() !== 10_000_000n) {
+  if (
+    gcClaimAccount(allocation.faucetId().toString()) !== gcClaimAssetId(identity) ||
+    allocation.amount() !== 10_000_000n
+  ) {
     throw new Error('Invalid GC request allocation');
   }
   const approvedWeek = gcClaimU32(Number(fields[22]));
@@ -226,6 +239,7 @@ function decodeRequest(session: ReadSession, note: Note): GcClaimHistoryPage['re
   if (reclaimHeight === 0) throw new Error('GC request is not reclaimable');
   gcClaimU32(Number(fields[16]));
   const canonical = buildFundedGcClaimRequest({
+    distribution: identity.distribution,
     issuerId: identity.issuerId,
     nativeAssetId: identity.nativeAssetId,
     issuerCodeCommitment: identity.issuerCodeCommitment,
@@ -245,12 +259,7 @@ function decodeRequest(session: ReadSession, note: Note): GcClaimHistoryPage['re
     throw new Error('GC request is not the canonical approved preimage');
   }
   return {
-    scope: {
-      genesisCommitment: identity.genesisCommitment,
-      accountId: identity.accountId,
-      issuerId: identity.issuerId,
-      approvedWeek
-    },
+    scope: gcClaimScope(identity, approvedWeek),
     issuerCodeCommitment: identity.issuerCodeCommitment,
     nativeAssetId: identity.nativeAssetId,
     requestNoteId: gcClaimWord(note.id().toString()),
@@ -405,7 +414,9 @@ export async function reconcileGcClaim(
       )
         continue;
       const assets = receipt.note.assets().fungibleAssets();
-      const gc = assets.filter(asset => gcClaimAccount(asset.faucetId().toString()) === session.identity.issuerId);
+      const gc = assets.filter(
+        asset => gcClaimAccount(asset.faucetId().toString()) === gcClaimAssetId(session.identity)
+      );
       const native = assets.filter(
         asset => gcClaimAccount(asset.faucetId().toString()) === session.identity.nativeAssetId
       );
@@ -465,6 +476,7 @@ export async function reconcileGcClaim(
     const issuance: GcClaimIssuanceEvidence = {
       ...anchor,
       kind: 'issued',
+      ...(session.identity.distribution === undefined ? {} : { distribution: { ...session.identity.distribution } }),
       requestNoteId: requestedId,
       requestNullifier,
       issuerId: session.identity.issuerId,

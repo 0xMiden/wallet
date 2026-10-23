@@ -2,6 +2,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import { recordGcClaimEvidence } from './gc-claim-evidence';
+import type { CanonicalGcDistribution } from './gc-claim-operation';
 import {
   GcClaimContext,
   GcClaimDeliveryEvidence,
@@ -177,4 +178,26 @@ it('does not treat local failures, unresolvable submits or imported evidence as 
       submitEvidence: [...proven.submitEvidence!, { attemptId: 'unknown', capturedAt: 100, source: 'pin' }]
     })
   ).toBe('pending');
+});
+
+it('requires v2 issuance to bind the canonical faucet and distributor before persistence', async () => {
+  const distribution: CanonicalGcDistribution = {
+    protocolVersion: 2,
+    distributorId: ISSUER,
+    distributorCodeCommitment: word('b'),
+    gcFaucetId: `0x${'44'.repeat(15)}`,
+    weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+  };
+  const canonical = { ...context, distribution };
+  const queued = await queuePreparedGcClaim(canonical, { ...request, scope: { ...request.scope, distribution } });
+  await expect(recordGcClaimEvidence(canonical, queued.transactionId, issuance())).rejects.toThrow();
+  await expect(
+    recordGcClaimEvidence(
+      canonical,
+      queued.transactionId,
+      issuance({ distribution: { ...distribution, gcFaucetId: ACCOUNT } })
+    )
+  ).rejects.toThrow();
+  await recordGcClaimEvidence(canonical, queued.transactionId, issuance({ distribution }));
+  expect((await Repo.transactions.get(queued.transactionId))?.gcClaim?.issuance).toMatchObject({ distribution });
 });

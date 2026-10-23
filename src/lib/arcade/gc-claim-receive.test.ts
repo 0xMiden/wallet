@@ -124,3 +124,20 @@ it('renews once only after the node proved the previous consume never committed'
   expect(rows.filter(item => item.status === ITransactionStatus.Queued)).toHaveLength(1);
   expect((await Repo.transactions.get(row.id))?.requestBytes).toEqual(new Uint8Array([5]));
 });
+
+it('receives only canonical GC for v2, rejecting experimental assets from the distributor', () => {
+  const canonical: GcClaimContext = {
+    ...context,
+    distribution: {
+      protocolVersion: 2,
+      distributorId: context.issuerId,
+      distributorCodeCommitment: context.issuerCodeCommitment,
+      gcFaucetId: `0x${'44'.repeat(15)}`,
+      weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+    }
+  };
+  const view = goodView();
+  view.incoming[0]!.faucetId = canonical.distribution!.gcFaucetId;
+  expect(verifyGcReceiptEffects(canonical, view, 25n)).toBe(3n);
+  expect(() => verifyGcReceiptEffects(canonical, goodView(), 25n)).toThrow();
+});

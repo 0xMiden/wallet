@@ -5,6 +5,7 @@ import { prepareGcReceipt } from './gc-claim-receive';
 const mockSimulate = jest.fn();
 const mockView = jest.fn();
 const mockInputId = jest.fn();
+const mockReceiptSender = jest.fn();
 const mockRunsHere = jest.fn(() => true);
 const mockBuild = jest.fn((..._args: unknown[]) => ({ serialize: () => new Uint8Array([4]) }));
 const word = `0x${'aa'.repeat(32)}`;
@@ -22,6 +23,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     deserialize: () => ({
       note: () => ({
         id: () => ({ toString: () => RECEIPT }),
+        metadata: () => ({ sender: () => ({ toString: () => mockReceiptSender() }) }),
         recipient: () => ({ digest: () => ({ toHex: () => word }) })
       })
     })
@@ -76,6 +78,7 @@ const issuance: GcClaimIssuanceEvidence = {
 };
 beforeEach(() => {
   mockRunsHere.mockReturnValue(true);
+  mockReceiptSender.mockReturnValue(ISSUER);
   mockInputId.mockReturnValue(RECEIPT);
   mockSimulate.mockResolvedValue({ summaryBytes: 'AQ==', preparedRequestBytes: 'Bg==' });
   const view: TxAssetView = {
@@ -113,7 +116,40 @@ it('fails closed in another owning realm or when authenticated receipt identity 
   mockRunsHere.mockReturnValue(false);
   await expect(prepareGcReceipt(context, issuance, new Uint8Array([9]))).rejects.toThrow('realm');
   mockRunsHere.mockReturnValue(true);
+  mockReceiptSender.mockReturnValue(ISSUER);
   await expect(prepareGcReceipt(context, { ...issuance, receiptNoteId: word }, new Uint8Array([9]))).rejects.toThrow(
     'identity'
   );
+});
+
+it('prepares proof-backed v2 receipts only from the bound distributor with the canonical asset', async () => {
+  const canonical: GcClaimContext = {
+    ...context,
+    distribution: {
+      protocolVersion: 2,
+      distributorId: ISSUER,
+      distributorCodeCommitment: word,
+      gcFaucetId: `0x${'44'.repeat(15)}`,
+      weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+    }
+  };
+  const boundIssuance = { ...issuance, distribution: canonical.distribution };
+  const view: TxAssetView = {
+    account: ACCOUNT,
+    incoming: [
+      { faucetId: canonical.distribution!.gcFaucetId, amount: 10_000_000n },
+      { faucetId: NATIVE, amount: 91n }
+    ],
+    outgoing: [],
+    fee: { faucetId: NATIVE, amount: 119n },
+    inputNotesConsumed: 1,
+    outputNotesCreated: 0,
+    storageChanged: false
+  };
+  mockView.mockReturnValue(view);
+  await expect(prepareGcReceipt(canonical, boundIssuance, new Uint8Array([9]))).resolves.toMatchObject({
+    requestFee: 119n
+  });
+  mockReceiptSender.mockReturnValue(canonical.distribution!.gcFaucetId);
+  await expect(prepareGcReceipt(canonical, boundIssuance, new Uint8Array([9]))).rejects.toThrow();
 });

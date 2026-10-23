@@ -1,6 +1,7 @@
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
+import type { CanonicalGcDistribution } from './gc-claim-operation';
 import { GcClaimContext, GcClaimOperation, gcClaimTransactionId } from './gc-claim-operation';
 import { reconcileGcClaim, scanGcClaimHistoryPage } from './gc-claim-reconcile';
 
@@ -45,6 +46,7 @@ const mockGetNullifier = jest.fn();
 const mockSync = jest.fn();
 const mockFree = jest.fn();
 const mockBuild = jest.fn();
+let mockAllocationFaucet = ISSUER;
 jest.mock('./funded-claim-request', () => ({ buildFundedGcClaimRequest: (input: unknown) => mockBuild(input) }));
 
 function account(id: string) {
@@ -107,7 +109,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
       return w(7);
     }
   },
-  FungibleAsset: { fromVaultEntry: () => new TestAsset(ISSUER, 10_000_000n) },
+  FungibleAsset: { fromVaultEntry: () => new TestAsset(mockAllocationFaucet, 10_000_000n) },
   NetworkAccountTarget: {
     fromAttachment: (attachment: { target: string }) => ({ targetId: () => account(attachment.target) })
   },
@@ -258,6 +260,7 @@ let tip: number;
 beforeEach(() => {
   jest.clearAllMocks();
   tip = 210;
+  mockAllocationFaucet = ISSUER;
   requestNote = new PublicFixture(REQUEST, 10, true);
   receiptNote = new PublicFixture(RECEIPT, 20, false);
   notes = new Map([
@@ -505,4 +508,43 @@ it('holds recovery pending while a captured reclaim may still submit, even if it
   expect((await reconcileGcClaim(context, operation, config)).state).toBe('pending');
   await Repo.transactions.update('own-consume', { status: ITransactionStatus.Failed });
   expect((await reconcileGcClaim(context, operation, config)).state).toBe('pending');
+});
+
+it('recovers v2 request and receipt with distinct distributor sender and canonical GC asset', async () => {
+  const GC = `0x${'44'.repeat(15)}`;
+  const distribution: CanonicalGcDistribution = {
+    protocolVersion: 2,
+    distributorId: ISSUER,
+    distributorCodeCommitment: CODE,
+    gcFaucetId: GC,
+    weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+  };
+  const canonical = { ...context, distribution };
+  const material: GcClaimOperation = { ...operation, version: 2, scope: { ...operation.scope, distribution } };
+  requestNote.fields[29] = 2n;
+  requestNote.fields[30] = 2n;
+  requestNote.fields[31] = 3n;
+  mockAllocationFaucet = GC;
+  receiptNote.assetsList[0] = new TestAsset(GC, 10_000_000n);
+  const result = await reconcileGcClaim(canonical, material, config);
+  expect(result.state).toBe('issued');
+  expect(result.evidence[0]).toMatchObject({ kind: 'issued', issuerId: ISSUER, distribution });
+  syncNotes = [requestNote];
+  const history = await scanGcClaimHistoryPage(canonical, config);
+  expect(history.requests[0]?.material.scope).toMatchObject({ distribution, approvedWeek: 123 });
+  expect(history.unrecognizedRequestIds).toEqual([]);
+  const invalidWords: [number, bigint][] = [
+    [29, 1n],
+    [30, 0n],
+    [31, 0n]
+  ];
+  for (const [index, changed] of invalidWords) {
+    const previous = requestNote.fields[Number(index)]!;
+    requestNote.fields[Number(index)] = BigInt(changed);
+    await expect(reconcileGcClaim(canonical, material, config)).rejects.toThrow();
+    requestNote.fields[Number(index)] = previous;
+  }
+  syncNotes = [receiptNote];
+  receiptNote.assetsList[0] = new TestAsset(ISSUER, 10_000_000n);
+  await expect(reconcileGcClaim(canonical, material, config)).rejects.toThrow();
 });

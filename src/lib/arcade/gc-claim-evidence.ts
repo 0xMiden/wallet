@@ -5,6 +5,7 @@ import {
   GcClaimEvidence,
   assertGcClaimIdentity,
   gcClaimAccount,
+  gcClaimBindingKey,
   gcClaimHistoryTransactionId,
   gcClaimTransactionId,
   gcClaimU32,
@@ -32,6 +33,7 @@ function normalizeEvidence(input: GcClaimEvidence): GcClaimEvidence {
       return {
         ...anchor,
         kind: 'issued',
+        ...(input.distribution === undefined ? {} : { distribution: { ...input.distribution } }),
         ...(input.transactionId === undefined ? {} : { transactionId: gcClaimWord(input.transactionId) }),
         requestNoteId: gcClaimWord(input.requestNoteId),
         requestNullifier: gcClaimWord(input.requestNullifier),
@@ -88,7 +90,14 @@ export async function recordGcClaimEvidence(
   transactionId: string,
   input: GcClaimEvidence
 ): Promise<void> {
-  const snapshot = { ...input };
+  const snapshot = {
+    ...input,
+    ...(input.kind !== 'issued' || input.distribution === undefined
+      ? {}
+      : {
+          distribution: { ...input.distribution }
+        })
+  };
   const identity = await normalizeGcClaimContext(context);
   const evidence = normalizeEvidence(snapshot);
   if (evidence.genesisCommitment !== identity.genesisCommitment || evidence.accountId !== identity.accountId) {
@@ -113,6 +122,7 @@ export async function recordGcClaimEvidence(
           operation.reclaim !== undefined ||
           evidence.requestNoteId !== operation.requestNoteId ||
           evidence.issuerId !== operation.scope.issuerId ||
+          gcClaimBindingKey(evidence) !== gcClaimBindingKey(operation.scope) ||
           evidence.receiptRecipientCommitment !== operation.receiptRecipientCommitment ||
           evidence.nativeRefund + evidence.issuerFee !== operation.nativeBudget ||
           (operation.issuance !== undefined && !sameEvidence(operation.issuance, evidence))

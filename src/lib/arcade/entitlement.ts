@@ -5,12 +5,14 @@ import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
+import { GcClaimBinding, gcClaimBindingKey } from './gc-claim-operation';
+
 const CLAIMS_SLOT = 'bread::gc::weekly_claims';
 const NETWORK_SLOT = 'bread::gc::network';
 const WEEK_SECONDS = 604800;
 const MONDAY_OFFSET = 259200;
 
-export interface GcIssuerIdentity {
+export interface GcIssuerIdentity extends GcClaimBinding {
   genesisCommitment: string;
   issuerId: string;
   issuerCodeCommitment: string;
@@ -28,6 +30,14 @@ export interface GcEntitlement {
 /** Fresh trusted-RPC observations; SDK account proofs are not independently bound to a header root here. */
 export async function readGcEntitlement(config: GcIssuerIdentity, accountId: string): Promise<GcEntitlement> {
   if (getEffectiveNetworkName() !== 'testnet') throw new Error('GC claims are configured for Testnet only');
+  gcClaimBindingKey(config);
+  if (
+    config.distribution !== undefined &&
+    (config.distribution.distributorId !== config.issuerId ||
+      config.distribution.distributorCodeCommitment !== config.issuerCodeCommitment)
+  )
+    throw new Error('Conflicting GC distributor entitlement identity');
+  const claimsSlot = config.distribution?.weeklyClaimsSlot ?? CLAIMS_SLOT;
   await ensureSdkWasmReady();
   return withRpcTimeout(
     async () => {
@@ -58,7 +68,7 @@ export async function readGcEntitlement(config: GcIssuerIdentity, accountId: str
         const issuerHex = issuer.toString();
         const proof = await rpc.getAccountProof(
           issuer,
-          AccountStorageRequirements.fromSlotAndKeysArray([new SlotAndKeys(CLAIMS_SLOT, [key])]),
+          AccountStorageRequirements.fromSlotAndKeysArray([new SlotAndKeys(claimsSlot, [key])]),
           referenceBlock
         );
         if (
@@ -69,8 +79,8 @@ export async function readGcEntitlement(config: GcIssuerIdentity, accountId: str
         ) {
           throw new Error('GC issuer proof does not match the approved deployment');
         }
-        const entries = proof.getStorageMapEntries(CLAIMS_SLOT);
-        if (proof.hasStorageMapTooManyEntries(CLAIMS_SLOT) !== false || !entries) {
+        const entries = proof.getStorageMapEntries(claimsSlot);
+        if (proof.hasStorageMapTooManyEntries(claimsSlot) !== false || !entries) {
           throw new Error('GC weekly entitlement proof is unavailable');
         }
         const entry = entries.find(item => item.key().toHex() === keyHex);

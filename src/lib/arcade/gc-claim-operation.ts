@@ -3,17 +3,66 @@ import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { isProvable } from 'lib/miden/transaction/verdict-rules';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 
+/** Canonical v2 is opt-in only after a reviewed deployment; fixtures are never live configuration. */
+export interface CanonicalGcDistribution {
+  protocolVersion: 2;
+  distributorId: string;
+  distributorCodeCommitment: string;
+  gcFaucetId: string;
+  weeklyClaimsSlot: string;
+}
+
+export interface GcClaimBinding {
+  distribution?: CanonicalGcDistribution;
+}
+
+export function gcClaimAssetId(context: GcClaimContext): string {
+  return context.distribution?.gcFaucetId ?? context.issuerId;
+}
+
+/** Stable comparison also rejects partial/unsupported canonical bindings. */
+export function gcClaimBindingKey(binding: GcClaimBinding): string {
+  const config = binding.distribution;
+  if (config === undefined) return 'legacy-v1';
+  if (
+    config.protocolVersion !== 2 ||
+    !config.distributorId ||
+    !config.distributorCodeCommitment ||
+    !config.gcFaucetId ||
+    config.weeklyClaimsSlot !== 'bread::gc::distributor::weekly_claims'
+  )
+    throw new Error('Incomplete canonical GC distribution binding');
+  return JSON.stringify([
+    2,
+    config.distributorId,
+    config.distributorCodeCommitment,
+    config.gcFaucetId,
+    config.weeklyClaimsSlot
+  ]);
+}
+
+export function gcClaimScope(context: GcClaimContext, approvedWeek: number): GcClaimScope {
+  return {
+    genesisCommitment: context.genesisCommitment,
+    accountId: context.accountId,
+    issuerId: context.issuerId,
+    approvedWeek,
+    ...(context.distribution === undefined ? {} : { distribution: { ...context.distribution } })
+  };
+}
+
 /** Backend-resolved chain/configuration identity. Never accept this from an intercom caller. */
-export interface GcClaimContext {
+export interface GcClaimContext extends GcClaimBinding {
   network: 'testnet';
   genesisCommitment: string;
   accountId: string;
+  /** Legacy authority aliases; v2 must match distribution.distributorId/code, never its GC faucet. */
   issuerId: string;
   issuerCodeCommitment: string;
   nativeAssetId: string;
 }
 
-export interface GcClaimScope {
+export interface GcClaimScope extends GcClaimBinding {
   genesisCommitment: string;
   accountId: string;
   issuerId: string;
@@ -43,7 +92,7 @@ export interface GcClaimChainAnchor {
   transactionId: string;
 }
 
-export interface GcClaimIssuanceEvidence extends Omit<GcClaimChainAnchor, 'transactionId'> {
+export interface GcClaimIssuanceEvidence extends Omit<GcClaimChainAnchor, 'transactionId'>, GcClaimBinding {
   kind: 'issued';
   /** Public RPC proves the request spend and receipt inclusion, but may not expose issuer transaction IDs. */
   transactionId?: string;
@@ -78,7 +127,7 @@ export type GcClaimEvidence = GcClaimIssuanceEvidence | GcClaimDeliveryEvidence 
 
 /** Stored on the ordinary execute row together with requestBytes in its first atomic insert. */
 interface GcClaimOperationBase extends Omit<PreparedGcClaim, 'requestBytes' | 'outgoingNativeAmount'> {
-  version: 1;
+  version: 1 | 2;
   attempt?: number;
   previousRequestNoteId?: string;
   historyInclusionBlock?: number;
@@ -144,10 +193,33 @@ export function gcClaimU32(value: number): number {
 }
 
 export async function normalizeGcClaimContext(context: GcClaimContext): Promise<GcClaimContext> {
-  const snapshot = { ...context };
+  const snapshot = {
+    ...context,
+    ...(context.distribution === undefined ? {} : { distribution: { ...context.distribution } })
+  };
   if (snapshot.network !== 'testnet') throw new Error('GC claims are Testnet only');
   await ensureSdkWasmReady();
+  gcClaimBindingKey(snapshot);
+  const distribution =
+    snapshot.distribution === undefined
+      ? undefined
+      : {
+          ...snapshot.distribution,
+          distributorId: gcClaimAccount(snapshot.distribution.distributorId),
+          distributorCodeCommitment: gcClaimWord(snapshot.distribution.distributorCodeCommitment),
+          gcFaucetId: gcClaimAccount(snapshot.distribution.gcFaucetId)
+        };
+  if (
+    distribution !== undefined &&
+    (distribution.distributorId !== gcClaimAccount(snapshot.issuerId) ||
+      distribution.distributorCodeCommitment !== gcClaimWord(snapshot.issuerCodeCommitment) ||
+      distribution.gcFaucetId === distribution.distributorId ||
+      distribution.gcFaucetId === gcClaimAccount(snapshot.nativeAssetId) ||
+      distribution.distributorId === gcClaimAccount(snapshot.nativeAssetId))
+  )
+    throw new Error('Conflicting canonical GC distribution identity');
   return {
+    ...(distribution === undefined ? {} : { distribution }),
     network: snapshot.network,
     genesisCommitment: gcClaimWord(snapshot.genesisCommitment),
     accountId: gcClaimAccount(snapshot.accountId),
@@ -159,7 +231,9 @@ export async function normalizeGcClaimContext(context: GcClaimContext): Promise<
 
 /** The primary key is the canonical scope, so concurrent realms contend on the same IndexedDB key. */
 export function gcClaimTransactionId(scope: GcClaimScope, attempt = 0): string {
-  const base = `gc-claim:${JSON.stringify([scope.genesisCommitment, scope.accountId, scope.issuerId, scope.approvedWeek])}`;
+  const binding = gcClaimBindingKey(scope);
+  const key = [scope.genesisCommitment, scope.accountId, scope.issuerId, scope.approvedWeek];
+  const base = `gc-claim:${JSON.stringify(scope.distribution === undefined ? key : [...key, binding])}`;
   return attempt === 0 ? base : `${base}:attempt:${gcClaimU32(attempt)}`;
 }
 
@@ -169,7 +243,8 @@ export function gcClaimHistoryTransactionId(operation: GcClaimOperation): string
 
 export function assertGcClaimIdentity(operation: GcClaimOperation, identity: GcClaimContext): void {
   if (
-    operation.version !== 1 ||
+    operation.version !== (identity.distribution?.protocolVersion ?? 1) ||
+    gcClaimBindingKey(operation.scope) !== gcClaimBindingKey(identity) ||
     operation.scope.genesisCommitment !== identity.genesisCommitment ||
     operation.scope.accountId !== identity.accountId ||
     operation.scope.issuerId !== identity.issuerId ||

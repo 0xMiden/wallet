@@ -507,3 +507,39 @@ it('finishes scanning history after finding a delivered claim so later requests 
   complete = true;
   expect(await service.read(scope)).not.toHaveProperty('pendingOperations');
 });
+
+it('refuses a legacy prepared approval under canonical v2 configuration', async () => {
+  const d = deps();
+  const canonical: GcClaimDeployment = {
+    ...deployment,
+    distribution: {
+      protocolVersion: 2,
+      distributorId: 'issuer',
+      distributorCodeCommitment: w('2'),
+      gcFaucetId: 'canonical',
+      weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+    }
+  };
+  d.deployment = async () => canonical;
+  const service = createGcClaimBackendService(d);
+  await expect(service.prepare(scope)).rejects.toThrow();
+  expect(d.queueClaim).not.toHaveBeenCalled();
+});
+
+it('invalidates a captured v1 quote when canonical v2 configuration becomes active', async () => {
+  const d = deps();
+  const service = createGcClaimBackendService(d);
+  const quote = await service.prepare(scope);
+  d.deployment = async () => ({
+    ...deployment,
+    distribution: {
+      protocolVersion: 2,
+      distributorId: 'issuer',
+      distributorCodeCommitment: w('2'),
+      gcFaucetId: 'canonical',
+      weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+    }
+  });
+  await expect(service.submit(scope, quote.quoteId)).resolves.toMatchObject({ status: { kind: 'failed' } });
+  expect(d.queueClaim).not.toHaveBeenCalled();
+});

@@ -82,3 +82,17 @@ it('rejects context changes while the account proof is in flight', async () => {
   });
   await expect(readVerifiedGcBalances(context)).rejects.toThrow('network');
 });
+
+it('counts only the canonical faucet under v2 while retaining the experimental vault asset', async () => {
+  const canonical: GcClaimContext = {
+    ...context,
+    distribution: {
+      protocolVersion: 2,
+      distributorId: context.issuerId,
+      distributorCodeCommitment: context.issuerCodeCommitment,
+      gcFaucetId: 'canonical',
+      weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+    }
+  };
+  await expect(readVerifiedGcBalances(canonical)).resolves.toEqual({ gc: 0n, native: 100n });
+});

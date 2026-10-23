@@ -19,6 +19,7 @@
 ### Changes
 
 - [CHANGE][all] Add an inventory-backed GC distributor protocol with user-funded weekly payouts, exact fee refunds, replenishment and reclaim paths; deployment and wallet activation remain separate (#1452).
+- [CHANGE][all] Support canonical GC distributor approvals and receipts with separate token and distributor identities, preserving legacy claim recovery; canonical deployment activation remains gated (#1452).
 
 - [FEATURE][all] Add Testnet weekly GC fee review and explicit recovery of older request budgets, pinned to the funded issuer. Token verification remains pending registry publication (#1452).
 

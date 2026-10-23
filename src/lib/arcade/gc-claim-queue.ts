@@ -12,6 +12,7 @@ import {
   RecoveredGcClaimOperation,
   assertGcClaimIdentity,
   gcClaimAccount,
+  gcClaimBindingKey,
   gcClaimHistoryTransactionId,
   gcClaimPhase,
   gcClaimTransactionId,
@@ -56,6 +57,7 @@ async function scopeRows(identity: GcClaimContext, week?: number): Promise<ITran
       row =>
         row.gcClaim?.scope?.genesisCommitment === identity.genesisCommitment &&
         row.gcClaim.scope.issuerId === identity.issuerId &&
+        gcClaimBindingKey(row.gcClaim.scope) === gcClaimBindingKey(identity) &&
         (week === undefined || row.gcClaim.scope.approvedWeek === week)
     )
     .limit(MAX_SCOPE_ROWS + 1)
@@ -110,11 +112,19 @@ function result(row: ITransaction, created = false): QueuedGcClaim {
 }
 
 async function prepare(context: GcClaimContext, prepared: PreparedGcClaim) {
-  const input = { ...prepared, scope: { ...prepared.scope }, requestBytes: new Uint8Array(prepared.requestBytes) };
+  const input = {
+    ...prepared,
+    scope: {
+      ...prepared.scope,
+      ...(prepared.scope.distribution === undefined ? {} : { distribution: { ...prepared.scope.distribution } })
+    },
+    requestBytes: new Uint8Array(prepared.requestBytes)
+  };
   const identity = await normalizeGcClaimContext(context);
   const operation: ApprovedGcClaimOperation = {
-    version: 1,
+    version: input.scope.distribution?.protocolVersion ?? 1,
     scope: {
+      ...(input.scope.distribution === undefined ? {} : { distribution: { ...input.scope.distribution } }),
       genesisCommitment: gcClaimWord(input.scope.genesisCommitment),
       accountId: gcClaimAccount(input.scope.accountId),
       issuerId: gcClaimAccount(input.scope.issuerId),
@@ -258,15 +268,21 @@ export async function readGcClaimOperation(
 export async function restoreGcClaimHistoryPage(context: GcClaimContext, page: GcClaimHistoryPage): Promise<void> {
   const materials = page.requests.map(item => ({
     ...item.material,
-    scope: { ...item.material.scope },
+    scope: {
+      ...item.material.scope,
+      ...(item.material.scope.distribution === undefined
+        ? {}
+        : { distribution: { ...item.material.scope.distribution } })
+    },
     inclusionBlock: item.inclusionBlock
   }));
   const identity = await normalizeGcClaimContext(context);
   const operations: RecoveredGcClaimOperation[] = materials.map(material => {
     const operation: RecoveredGcClaimOperation = {
-      version: 1,
+      version: material.scope.distribution?.protocolVersion ?? 1,
       recoveredHistory: true,
       scope: {
+        ...(material.scope.distribution === undefined ? {} : { distribution: { ...material.scope.distribution } }),
         genesisCommitment: gcClaimWord(material.scope.genesisCommitment),
         accountId: gcClaimAccount(material.scope.accountId),
         issuerId: gcClaimAccount(material.scope.issuerId),

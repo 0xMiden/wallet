@@ -21,10 +21,13 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
+import type { CanonicalGcDistribution } from './gc-claim-operation';
+
 const FIELD_MODULUS = 0xffffffff00000001n;
 const MAX_ASSET_AMOUNT = (1n << 63n) - (1n << 31n);
 
 export interface FundedGcClaimInput {
+  distribution?: CanonicalGcDistribution;
   issuerId: string;
   nativeAssetId: string;
   issuerCodeCommitment: string;
@@ -69,6 +72,20 @@ export function buildFundedGcClaimRequest(input: FundedGcClaimInput): FundedGcCl
   ) {
     throw new Error('Invalid GC claim budget or reclaim height');
   }
+  const distribution = input.distribution;
+  if (
+    distribution !== undefined &&
+    (distribution.protocolVersion !== 2 ||
+      !distribution.distributorId ||
+      !distribution.gcFaucetId ||
+      distribution.weeklyClaimsSlot !== 'bread::gc::distributor::weekly_claims' ||
+      distribution.distributorId !== input.issuerId ||
+      distribution.distributorCodeCommitment !== input.issuerCodeCommitment ||
+      distribution.gcFaucetId === distribution.distributorId ||
+      distribution.gcFaucetId === input.nativeAssetId)
+  )
+    throw new Error('Invalid canonical GC distribution');
+  const version = distribution?.protocolVersion ?? 1;
   const script = NoteScript.deserialize(input.claimScriptBytes);
   if (script.root().toHex() !== input.claimScriptRoot) throw new Error('GC claim script differs from deployment');
   const account = AccountId.fromHex(input.accountId);
@@ -81,8 +98,8 @@ export function buildFundedGcClaimRequest(input: FundedGcClaimInput): FundedGcCl
     BigInt(input.approvalExpiresAt)
   ];
   const storage = (values: bigint[]) => new NoteStorage(new FeltArray(values.map(value => new Felt(value))));
-  const gc = new FungibleAsset(AccountId.fromHex(input.issuerId), 10_000_000n);
-  // ABI v1: canonical public MINT/P2ID storage, approved code, reclaim/version, then network domain.
+  const gc = new FungibleAsset(AccountId.fromHex(distribution?.gcFaucetId ?? input.issuerId), 10_000_000n);
+  // ABI v1 remains recoverable; v2 binds its distinct distributor and canonical asset.
   const fields = [
     ...NoteScript.p2id().root().toU64s(),
     0n,
@@ -98,9 +115,9 @@ export function buildFundedGcClaimRequest(input: FundedGcClaimInput): FundedGcCl
     ...receiptFields,
     ...Word.fromHex(input.issuerCodeCommitment).toU64s(),
     BigInt(input.reclaimHeight),
-    1n,
-    0n,
-    0n,
+    BigInt(version),
+    distribution === undefined ? 0n : issuer.suffix().asInt(),
+    distribution === undefined ? 0n : issuer.prefix().asInt(),
     ...Word.fromHex(input.genesisCommitment).toU64s()
   ];
   const attachment = new NetworkAccountTarget(AccountId.fromHex(input.issuerId)).toAttachment();
@@ -110,8 +127,8 @@ export function buildFundedGcClaimRequest(input: FundedGcClaimInput): FundedGcCl
   // Derive the receipt salt from every approved semantic field and the complete outer note
   // identity. Recovery can then match a public receipt to exactly one request preimage.
   const receiptSerial = hash([
-    0x47435231n,
-    1n,
+    version === 2 ? 0x47435232n : 0x47435231n,
+    BigInt(version),
     0n,
     0n,
     ...script.root().toU64s(),
