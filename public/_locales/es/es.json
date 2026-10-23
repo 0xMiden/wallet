@@ -194,6 +194,7 @@
   "transactionRestoredHint": "Esto se ha restaurado a partir de una copia de seguridad, por lo que el monedero no puede comprobar si se ha realizado correctamente ni volver a intentarlo. Comprueba el monedero antes de repetir el proceso.",
   "submissionInterrupted": "Se ha interrumpido la conexión mientras se enviaba esto. La cartera no puede confirmar si se ha procesado. Es posible que aún se complete, así que compruébalo antes de volver a intentarlo.",
   "submissionRejectedByGuardian": "Tu «Guardian» ha rechazado esta solicitud. Inténtalo de nuevo.",
+  "submissionBlockedByIssuer": "El emisor de este token ha bloqueado tu cuenta, por lo que no se puede enviar.",
   "submissionRejectedByNetwork": "La red ha rechazado esta propuesta. Inténtalo de nuevo.",
   "submissionUnanswered": "No se ha recibido respuesta a este envío. La cartera no puede confirmar si se ha procesado. Es posible que aún se complete, así que compruébalo antes de volver a intentarlo.",
   "showFullError": "Mostrar el error completo",

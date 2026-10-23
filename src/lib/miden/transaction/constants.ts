@@ -479,6 +479,19 @@ export function isVaultShortfallError(raw: string): boolean {
 }
 
 /**
+ * `ERR_ACCOUNT_IS_BLOCKED` in miden-standards 0.17.1: a token faucet's transfer blocklist refused the account.
+ * The first 8 bytes, little-endian, of blake3 of the message, so matching the code is matching the message.
+ */
+export const ERR_ACCOUNT_IS_BLOCKED_CODE = '17080150814197948856';
+
+const ACCOUNT_IS_BLOCKED = new RegExp(`(?:^|\\D)${ERR_ACCOUNT_IS_BLOCKED_CODE}(?!\\d)|\\bERR_ACCOUNT_IS_BLOCKED\\b`);
+
+/** The token's issuer blocked the account, by the kernel's code or its name. */
+export function isAccountBlockedError(raw: string): boolean {
+  return ACCOUNT_IS_BLOCKED.test(raw);
+}
+
+/**
  * An asset the transaction tried to move was not available in full, without claiming
  * WHICH one. Names both candidates rather than guessing, and does not forbid a retry:
  * the local-vault-view case is one a fresher sync genuinely resolves.

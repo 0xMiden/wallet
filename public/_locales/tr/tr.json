@@ -194,6 +194,7 @@
   "transactionRestoredHint": "Bu işlem bir yedekten geri yüklendi, bu nedenle cüzdan işlemin başarılı olup olmadığını kontrol edemez veya yeniden deneme yapamaz. Tekrar etmeden önce cüzdanı kontrol edin.",
   "submissionInterrupted": "Bu işlem gönderilirken bağlantı kesildi. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu yüzden tekrar denemeden önce kontrol edin.",
   "submissionRejectedByGuardian": "Guardian'ınız bu gönderimi reddetti. Lütfen tekrar deneyin.",
+  "submissionBlockedByIssuer": "Bu token'ın ihraççısı hesabınızı engelledi, bu nedenle gönderilemez.",
   "submissionRejectedByNetwork": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
   "submissionUnanswered": "Bu gönderimden herhangi bir yanıt alınamadı. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce kontrol edin.",
   "showFullError": "Hatanın tamamını göster",

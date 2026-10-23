@@ -977,6 +977,10 @@
     "message": "귀하의 Guardian가 이 제출을 거부했습니다. 다시 시도해 주십시오.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "이 토큰의 발행자가 귀하의 계정을 차단했기 때문에 토큰을 전송할 수 없습니다.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "네트워크에서 이 제출을 거부했습니다. 다시 시도해 주세요.",
     "englishSource": "The network refused this submission. Try again."

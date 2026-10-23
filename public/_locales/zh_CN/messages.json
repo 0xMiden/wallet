@@ -977,6 +977,10 @@
     "message": "您的Guardian拒绝了此提交。请重试。",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "该代币的发行方已冻结您的账户，因此无法发送该代币。",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "该网络拒绝了此提交。请重试。",
     "englishSource": "The network refused this submission. Try again."
