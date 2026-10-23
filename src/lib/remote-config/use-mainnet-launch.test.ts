@@ -3,6 +3,7 @@ import React, { useLayoutEffect, useRef } from 'react';
 import { act, render, renderHook, screen } from '@testing-library/react';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
 import { isInviteOnlyRequired, useMainnetLaunched, useMainnetLaunchNow } from './use-mainnet-launch';
 import { hasMainnetLaunched } from './values';
 
@@ -54,9 +55,9 @@ describe('useMainnetLaunched', () => {
     jest.setSystemTime(LAUNCH_AT - DAY_MS);
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
     setVisibility('visible');
-    jest.mocked(hasMainnetLaunched).mockImplementation(
-      jest.requireActual<typeof import('./values')>('./values').hasMainnetLaunched
-    );
+    jest
+      .mocked(hasMainnetLaunched)
+      .mockImplementation(jest.requireActual<typeof import('./values')>('./values').hasMainnetLaunched);
     jest.mocked(hasMainnetLaunched).mockClear();
   });
 
