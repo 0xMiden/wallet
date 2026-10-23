@@ -346,8 +346,8 @@ export const isNetworkChoiceOverride = (override: EndpointOverride) =>
   OVERRIDE_ENDPOINT_FIELDS.every(field => !override[field]) && !override.allowNoGuardian && !override.feeFaucetId;
 
 /** Synchronous provenance check: onboarding's endpoint-free network choice uses the canonical defaults. */
-export function hasCustomEndpointOverride(override: EndpointOverride | null): boolean {
-  return override !== null && (!isEndpointOverride(override) || !isNetworkChoiceOverride(override));
+export function hasCustomEndpointOverride(override: unknown): boolean {
+  return override != null && (!isEndpointOverride(override) || !isNetworkChoiceOverride(override));
 }
 
 /**
@@ -356,7 +356,5 @@ export function hasCustomEndpointOverride(override: EndpointOverride | null): bo
  */
 export async function isEndpointOverrideActive(): Promise<boolean> {
   const items = await getStorageProvider().get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-  const stored = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
-  if (stored == null) return false;
-  return !isEndpointOverride(stored) || !isNetworkChoiceOverride(stored);
+  return hasCustomEndpointOverride(items[ENDPOINT_OVERRIDE_STORAGE_KEY]);
 }
