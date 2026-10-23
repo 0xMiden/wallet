@@ -547,6 +547,60 @@ describe('HomeSwipeContainer', () => {
       expect(mockAnimations).toHaveLength(0);
     });
 
+    // Snap areas follow the track's transform, so a mandatory scroller would re-snap under the
+    // slide every frame: the slide never shows, and each re-snap reports a scroll.
+    it('turns snapping off before the jump and on again once the slide ends', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      const snapAtJump: string[] = [];
+      const jump = mockScrollTo.getMockImplementation();
+      mockScrollTo.mockImplementation((options: ScrollToOptions) => {
+        snapAtJump.push(scroller.style.scrollSnapType);
+        jump?.(options);
+      });
+
+      route(rerender, '/earn');
+      expect(snapAtJump).toEqual(['none']);
+      frame();
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      finishAnimation(lastAnimation());
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('keeps snapping off across a second tap and restores it when that slide ends', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      const first = lastAnimation();
+
+      route(rerender, '/send');
+      expect(first.cancel).toHaveBeenCalled();
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      finishAnimation(lastAnimation());
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('never navigates on the scroll and scrollend events fired during a slide', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+
+      // Past the jump's own events: a re-snap or any other engine scroll mid-slide.
+      scroller.scrollLeft = 2 * W;
+      fire(scroller, 'scroll');
+      fire(scroller, 'scrollend');
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs * 2);
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockHapticSelection).not.toHaveBeenCalled();
+      expect(mockScrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
+    });
+
     it('starts a second tap from where the first slide is on screen', () => {
       const { track, rerender } = mount();
       measure(W);
@@ -590,6 +644,23 @@ describe('HomeSwipeContainer', () => {
       track.style.transform = 'translateX(180px)';
 
       fire(scroller, 'touchstart', 1);
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      fire(scroller, 'touchend', 0);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('keeps snapping off until the finger lifts, even when a slide ends under it', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+      fire(scroller, 'touchstart', 1);
+
+      // A route change while the finger is still down slides, and that slide ends first.
+      route(rerender, '/send');
+      finishAnimation(lastAnimation());
       expect(scroller.style.scrollSnapType).toBe('none');
 
       fire(scroller, 'touchend', 0);

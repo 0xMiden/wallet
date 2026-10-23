@@ -155,6 +155,9 @@ const HomeSwipeContainer: FC = () => {
   const flipRef = useRef<Flip | null>(null);
   const programmaticRef = useRef(0);
   const lastScrollAtRef = useRef(0);
+  // A touch caught a slide and is still down: snapping stays off until it lifts, even if another
+  // slide starts and ends under it.
+  const catchHeldRef = useRef(false);
 
   useLayoutEffect(() => {
     widthRef.current = width;
@@ -214,6 +217,9 @@ const HomeSwipeContainer: FC = () => {
     if (flipRef.current !== flip) return;
     flipRef.current = null;
     if (cancel) flip.animation.cancel();
+    // The transform is gone and the scroller sits on the page, so snapping back on moves nothing.
+    const scroller = scrollerRef.current;
+    if (scroller && !catchHeldRef.current) scroller.style.scrollSnapType = SNAP_TYPE;
     const track = trackRef.current;
     if (track) track.style.willChange = '';
     scrollerRef.current?.removeEventListener('pointerdown', blockFieldFocus, true);
@@ -241,6 +247,9 @@ const HomeSwipeContainer: FC = () => {
           })
         );
       }
+      // Snap areas follow the track's transform, so a mandatory scroller would re-snap under the
+      // slide every frame, hiding it and reporting each re-snap as a scroll. Off until endFlip.
+      scroller.style.scrollSnapType = 'none';
       scrollInstantly(targetLeft);
       const duration = pagerTapDurationMs(Math.round(Math.abs(targetLeft - currentLeft) / pageWidth));
       // Scoped to the slide: holding the display at its top rate on a mostly static screen costs
@@ -298,12 +307,13 @@ const HomeSwipeContainer: FC = () => {
     let endGesture: (() => void) | null = null;
     let touchDown = false;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
-    let snapSuspended = false;
-    const resumeSnap = () => {
-      if (!snapSuspended) return;
-      snapSuspended = false;
-      scroller.style.scrollSnapType = SNAP_TYPE;
+    const releaseCatch = () => {
+      if (!catchHeldRef.current) return;
+      catchHeldRef.current = false;
+      if (!flipRef.current) scroller.style.scrollSnapType = SNAP_TYPE;
     };
+    // The pager's own moves, and a slide nobody is touching, are never the user's scroll.
+    const ignoreScroll = () => programmaticRef.current !== 0 || (flipRef.current !== null && !touchDown);
 
     const beginGesture = () => {
       if (!endGesture) endGesture = beginInteraction();
@@ -356,14 +366,14 @@ const HomeSwipeContainer: FC = () => {
     };
 
     const onScroll = () => {
-      if (programmaticRef.current) return;
+      if (ignoreScroll()) return;
       lastScrollAtRef.current = Date.now();
       beginGesture();
       if (!supportsScrollEnd) armIdle();
     };
     // Ignored while a finger is down: a finger held still mid-drag must never commit.
     const onScrollEnd = () => {
-      if (programmaticRef.current || touchDown) return;
+      if (touchDown || ignoreScroll()) return;
       checkRest();
     };
     const onTouchStart = () => {
@@ -375,12 +385,12 @@ const HomeSwipeContainer: FC = () => {
       // Catch the slide where it is on screen and hand it to the native scroll. Read before the
       // cancel, which drops the animated value.
       const tx = readTranslateX(track);
+      // A mandatory snap container re-snaps a programmatic scroll, which would jump the caught slide
+      // to a page edge. Held before the cancel, so ending the slide leaves snapping off; it resumes
+      // when the finger lifts, which lands the scroller on the nearest page.
+      catchHeldRef.current = true;
       endFlip(flip, true);
       const left = flip.targetLeft - tx;
-      // A mandatory snap container re-snaps a programmatic scroll, which would jump the caught slide
-      // to a page edge. Snapping resumes when the finger lifts, which lands it on the nearest page.
-      snapSuspended = true;
-      scroller.style.scrollSnapType = 'none';
       scrollProgrammatically(s => {
         s.scrollLeft = left;
       });
@@ -389,7 +399,7 @@ const HomeSwipeContainer: FC = () => {
     const onTouchEnd = (event: TouchEvent) => {
       touchDown = event.touches.length > 0;
       if (touchDown) return;
-      resumeSnap();
+      releaseCatch();
       armIdle();
     };
 
@@ -408,7 +418,8 @@ const HomeSwipeContainer: FC = () => {
       clearTimeout(idleTimer);
       const flip = flipRef.current;
       if (flip) endFlip(flip, true);
-      resumeSnap();
+      catchHeldRef.current = false;
+      scroller.style.scrollSnapType = SNAP_TYPE;
       finishGesture();
     };
   }, [endFlip, scrollProgrammatically]);
