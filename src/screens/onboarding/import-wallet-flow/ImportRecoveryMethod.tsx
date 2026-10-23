@@ -21,6 +21,7 @@ import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'l
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
+import { ReusedPhraseNotice } from '../common/ReusedPhrase';
 import { GuardianProbeState, WalletType } from '../types';
 
 /**
@@ -59,6 +60,12 @@ export interface ImportRecoveryMethodScreenProps {
    */
   network?: MIDEN_NETWORK_NAME;
   onRetryProbe?: () => void;
+  /**
+   * Starts a NEW account from the phrase already entered, offered only where a lookup found nothing.
+   * Omitted by hosts that cannot create one (a password reset, an invite-only network); a hot-key
+   * import never offers it, having no phrase.
+   */
+  onCreateNew?: () => void;
   onSubmit: (payload: { walletType: WalletType; guardianEndpoint?: string }) => void;
 }
 
@@ -69,6 +76,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   guardianOnly = false,
   network,
   onRetryProbe,
+  onCreateNew,
   onSubmit
 }) => {
   const { t } = useTranslation();
@@ -89,6 +97,8 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   // afterwards must not silently overwrite their choice — and Continue must
   // work immediately, without waiting for the probe to settle.
   const [userOverrodeEndpoint, setUserOverrodeEndpoint] = useState(false);
+  // A public import creates an account from the phrase when none exists, so it waits for this tick.
+  const [reusedPhraseAcknowledged, setReusedPhraseAcknowledged] = useState(false);
 
   // 'idle' is NOT in-flight: it is the initial / post-reset state, and treating
   // it as probing would pin a spinner that nothing ever resolves. Only an
@@ -98,6 +108,18 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   const probeMatchCount = probe?.status === 'done' ? probe.result.matches.length : 0;
   const probeFailureCount = probe?.status === 'done' ? probe.result.failures.length : 0;
   const probeFinishedWithoutMatch = (probe?.status === 'done' && !probe.result.best) || probe?.status === 'error';
+  // What the lookup established, for a probe that ended with no winner. Only a run in which EVERY Guardian
+  // answered, and none knew the account, is "not found": a Guardian that failed to answer may hold the
+  // backup, so any failure (or a probe that errored) leaves the answer unknown.
+  const lookupVerdict: 'no-backup' | 'uncertain' | 'ambiguous' | null = !probeFinishedWithoutMatch
+    ? null
+    : probe?.status === 'error'
+      ? 'uncertain'
+      : probe?.status === 'done' && probe.result.matches.length > 0
+        ? 'ambiguous'
+        : probeFailureCount > 0
+          ? 'uncertain'
+          : 'no-backup';
   // An operator that knows the account but serves a state the chain has moved past (#1648): the
   // account left it, most often for a guardian the probe cannot enumerate, so only the user can
   // name the current one. Shown only when nothing current was found.
@@ -134,7 +156,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
   const sanitizedEndpoint = sanitizeGuardianUrl(endpointInput);
   const canContinue =
-    selected === WalletType.OnChain ||
+    (selected === WalletType.OnChain && reusedPhraseAcknowledged) ||
     // While probing, only a user who explicitly picked an endpoint (via the
     // escape hatch) may continue — their choice wins and the probe is ignored.
     (selected === WalletType.Guardian && isValidGuardianUrl(sanitizedEndpoint) && (!isProbing || userOverrodeEndpoint));
@@ -267,6 +289,14 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       </DetailCard>
     ) : null;
 
+  // The way out of "nothing found", set apart from Continue (the recovery) and named for what it does.
+  const renderCreateNewOffer = () =>
+    onCreateNew && !guardianOnly ? (
+      <TextAction data-testid="create-account-with-phrase" onClick={onCreateNew} className="-mx-1 self-start">
+        {t('createAccountWithPhrase')}
+      </TextAction>
+    ) : null;
+
   const renderGuardianBody = () => {
     if (isProbing) {
       return (
@@ -311,13 +341,30 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
     return (
       <>
-        {probeFinishedWithoutMatch && (
-          <Notice data-testid={staleOperator ? 'guardian-state-behind-chain' : 'guardian-not-detected'}>
+        {lookupVerdict === 'no-backup' && (
+          <Notice data-testid="guardian-no-backup" title={t('guardianNoBackupFoundTitle')}>
+            {t('guardianNoBackupFoundBody')}
+          </Notice>
+        )}
+        {lookupVerdict === 'no-backup' && renderCreateNewOffer()}
+        {(lookupVerdict === 'uncertain' || lookupVerdict === 'ambiguous') && (
+          <Notice
+            data-testid={
+              lookupVerdict === 'uncertain'
+                ? 'guardian-lookup-uncertain'
+                : staleOperator
+                  ? 'guardian-state-behind-chain'
+                  : 'guardian-not-detected'
+            }
+          >
             <span className="flex flex-col items-start gap-1">
               <span>
-                {staleOperator ? t('guardianStateBehindChain', { name: staleOperatorName }) : t('guardianNotDetected')}
+                {lookupVerdict === 'uncertain'
+                  ? t('guardianLookupUncertain')
+                  : staleOperator
+                    ? t('guardianStateBehindChain', { name: staleOperatorName })
+                    : t('guardianNotDetected')}
               </span>
-              {probeFailureCount > 0 && <span>{t('guardianProbePartialFailure', { count: probeFailureCount })}</span>}
               {onRetryProbe && (
                 <TextAction onClick={onRetryProbe} className="-mx-1">
                   {t('retryGuardianDetection')}
@@ -355,6 +402,16 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
         aria-label={t('importRecoveryMethodTitle')}
       />
 
+      {selected === WalletType.OnChain && (
+        <div className="flex flex-col gap-3">
+          <ReusedPhraseNotice
+            lead={t('publicImportMayCreate')}
+            acknowledged={reusedPhraseAcknowledged}
+            onAcknowledgedChange={setReusedPhraseAcknowledged}
+          />
+        </div>
+      )}
+
       {/* The guardian's details belong to the Guardian choice, so they open under the cards while it
           is the one chosen. */}
       {selected === WalletType.Guardian && (
@@ -365,6 +422,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
               {error}
             </Notice>
           )}
+          {showError && errorId === 'guardianAccountNotFound' && renderCreateNewOffer()}
         </div>
       )}
     </OnboardingStepLayout>
