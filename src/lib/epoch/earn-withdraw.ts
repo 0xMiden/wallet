@@ -182,6 +182,7 @@ export function buildEarnWithdrawTaskDataParams(args: {
 }
 
 const UNSUPPORTED_MARKET = 'Gasless withdrawal only supports the configured USDC Earn market.';
+const UNSUPPORTED_CHAIN = 'Gasless withdrawal only supports a chain the wallet configuration names an Epoch route on.';
 
 const isEpochProtocol = (value: unknown): value is '1delta' | 'dummy-lending' =>
   value === '1delta' || value === 'dummy-lending';
@@ -242,7 +243,11 @@ async function submitEarnWithdrawal(
   ) {
     throw new Error(UNSUPPORTED_MARKET);
   }
-  if (verifyMarket && findEpochUsdcAddress(chainId)?.toLowerCase() !== underlyingAddress.toLowerCase()) {
+  // The market's chain must be an Epoch route the document names: the solver fills the withdrawal there, and the
+  // wallet knows no USDC to pay out on any other chain. The chain is never fixed in the code.
+  const routeUsdc = findEpochUsdcAddress(chainId);
+  if (routeUsdc === null) throw new Error(UNSUPPORTED_CHAIN);
+  if (verifyMarket && routeUsdc.toLowerCase() !== underlyingAddress.toLowerCase()) {
     throw new Error(UNSUPPORTED_MARKET);
   }
   // The lender key is not a protocol. An unresolved one, or a chain this wallet cannot sign on, refuses

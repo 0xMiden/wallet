@@ -6,7 +6,7 @@ import {
   getNativeAssetId,
   getNativeAssetMetadata
 } from 'lib/miden-chain/native-asset';
-import { getEarnMarket, getEpochAllocatorUrl } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl, getEpochRoutes } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { buildEpochReadOnlyWalletClient } from './client';
@@ -140,7 +140,9 @@ export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void 
     quote.scope !== currentNative.scope ||
     quote.nativeRevision !== currentNative.revision ||
     quote.allocatorUrl !== getEpochAllocatorUrl() ||
-    quote.position.marketUid.split(':')[1] !== String(getEarnMarket().chainId)
+    // The position's chain must still be an Epoch route the document names; the default market's chain says
+    // nothing about a position on another route.
+    !getEpochRoutes().some(route => String(route.chainId) === quote.position.marketUid.split(':')[1])
   )
     throw new Error('earnWithdrawRefresh');
 }
