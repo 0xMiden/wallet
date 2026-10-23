@@ -1,10 +1,14 @@
 # Changelog
 
-## 1.17.6 (TBD)
+## 1.17.7 (TBD)
 
 ### Fixes
 
 - [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
+
+## 1.17.6 (2026-10-23)
+
+### Fixes
 
 - [FIX][test] The mainnet nightly's AggLayer loop waits for its ETH balance to rise above what the account held before the night's deposit, instead of for any non-zero ETH balance.
 - [FIX][test] The mainnet nightly's bridge and 1Click specs load again: Playwright resolves the wallet sources' `@miden-sdk/miden-sdk/lazy` import to the SDK's Node entry instead of failing on a package export that only the `import` condition defines, and the executor-route bridge-in checks the registration at the config's Arc xReserve instead of the testnet one. The write-endpoint probe also recognizes publicnode's "reading transaction object failed" answer to a garbage transaction as a decode failure. The AggLayer loop waits for its ETH to reach the Miden account before bridging it out. The nightly checks out the ref it was dispatched on instead of always `main`.
