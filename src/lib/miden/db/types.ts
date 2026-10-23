@@ -2,6 +2,14 @@ import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
+import type {
+  OneClickAsset,
+  OneClickConfig,
+  OneClickProviderStatus,
+  OneClickQuoteRequest,
+  OneClickQuoteResponse,
+  OneClickStatusResponse
+} from 'lib/one-click/types';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type {
   ClaimFeeAdmission,
@@ -155,7 +163,50 @@ export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
  * Which cross-chain bridge route a bridge row used. `usdcx` is Circle xReserve
  * (Sepolia USDC ↔ USDCx on Miden).
  */
-export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
+export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
+
+export type IOneClickDirection = 'miden-to-evm' | 'evm-to-miden';
+export type IOneClickPhase =
+  | 'depositing'
+  | 'known-deposit-tx'
+  | 'pending-deposit'
+  | 'processing'
+  | 'arriving'
+  | 'delivered'
+  | 'refunded'
+  | 'incomplete-deposit'
+  | 'failed';
+
+export interface IOneClickTrackingData {
+  direction: IOneClickDirection;
+  request: OneClickQuoteRequest;
+  quote: OneClickQuoteResponse;
+  fundingDeadline?: string;
+  config: OneClickConfig;
+  network: string;
+  accountId: string;
+  accountAddress: string;
+  originAsset: OneClickAsset;
+  destinationAsset: OneClickAsset;
+  faucetId: string;
+  amount: string;
+  phase: IOneClickPhase;
+  depositAddress?: string;
+  depositMemo?: string;
+  originTransactionHash?: string;
+  destinationNoteIds?: string[];
+  providerStatus?: OneClickProviderStatus;
+  statusResponse?: OneClickStatusResponse;
+  providerSubmitted?: boolean;
+  evmSubmission?: 'not-started' | 'attempted' | 'known';
+  updatedAt?: number;
+  error?: string;
+}
+
+export interface ISendExtraInputs {
+  recallBlocks?: number;
+  oneClick?: IOneClickTrackingData;
+}
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -239,6 +290,7 @@ export interface IBridgedReceiveExtraInputs {
   sourceAmount: string;
   sourceSymbol: string;
   phase: IBridgedReceivePhase;
+  oneClick?: IOneClickTrackingData;
   /**
    * The typed "you receive" amount, exact (Fast: `minTokenOut`), shown until the note is consumed.
    * Screens format it when they show it; older rows hold a Fast quote already rounded for display.
@@ -1163,7 +1215,7 @@ export class SendTransaction implements ITransaction {
   delegateTransaction?: boolean;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
-  extraInputs: { recallBlocks?: number } = {
+  extraInputs: ISendExtraInputs = {
     recallBlocks: undefined
   };
 

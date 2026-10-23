@@ -83,6 +83,10 @@ const msg = (bundle: Record<string, Entry>, key: string): string => {
 };
 
 describe('runtime locale bundles (the files src/i18n.ts actually renders from)', () => {
+  it('keeps the ordinary Japanese amount label translated', () => {
+    expect(loadFlat('ja').amount).toBe('金額');
+  });
+
   it('names the Earn catalog Available Vaults (#1322)', () => {
     expect(enSource['earnVaultsTitle']).toBe('Available Vaults');
   });

@@ -352,7 +352,10 @@ function readSwapPairs(fetchFn: JsonFetch, etaUrl: string, readFaucet: FaucetRea
   });
 }
 
-async function readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenMetadata> {
+export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string): Promise<TokenMetadata> {
+  if (!/^0x[0-9a-f]{30}$/i.test(faucetId) || !rpcUrl || rpcUrl.length > 2048) {
+    throw new Error('Invalid Miden faucet metadata request');
+  }
   await ensureSdkWasmReady();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
   const fetched = await readAccount(faucetId, 'bridge config faucet', () =>
@@ -405,7 +408,7 @@ const defaultDeps: DeriveDeps = {
   now: () => Date.now(),
   midenRpcUrl: () => getEffectiveRpcUrl(),
   readBridgeRegistry,
-  readMidenFaucet,
+  readMidenFaucet: readMidenFaucetMetadata,
   evm: viemReads,
   fetch: (url, init) => fetch(url, init)
 };

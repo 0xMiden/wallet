@@ -54,6 +54,7 @@ import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
@@ -2359,7 +2360,9 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  _chainAnchorB64?: string
+  _chainAnchorB64?: string,
+  oneClickDeadline?: string,
+  oneClickRequired = false
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
@@ -2495,6 +2498,7 @@ const runGuardianPipeline = async (
       evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
     });
     assertStillHoldingLock(hold, 'before submit');
+    if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
     // does, so a failed local apply is retried in this hold while that is safe, and one that
@@ -4090,6 +4094,15 @@ const generateGuardianTransaction = async (
     guardianCoSignReturned = true;
 
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
+    const oneClick = transaction.type === 'send' ? transaction.extraInputs?.oneClick : undefined;
+    const oneClickDeadline = oneClick
+      ? assertOneClickFundingDeadlineMatches(
+          oneClick.fundingDeadline,
+          oneClick.request.deadline,
+          oneClick.quote.quote.deadline
+        )
+      : undefined;
+    const oneClickRequired = oneClick !== undefined;
 
     await requireBridgeSubmitClaim(transaction);
     await setTransactionStage(transaction.id, 'sending');
@@ -4147,7 +4160,9 @@ const generateGuardianTransaction = async (
           signCallback,
           stampStage,
           chainAnchorB64,
-          submitGate.gate
+          submitGate.gate,
+          oneClickDeadline,
+          oneClickRequired
         )
       );
     } else {
@@ -4156,7 +4171,9 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         stampAttemptStage,
-        chainAnchorB64
+        chainAnchorB64,
+        oneClickDeadline,
+        oneClickRequired
       );
     }
   } catch (error) {
@@ -4193,7 +4210,9 @@ const generateGuardianTransaction = async (
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
       !gateShut &&
-      (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
+      (isKilledPipeline(error) ||
+        (submitCrossed && !hasErrorBeforeSubmit(error)) ||
+        (offscreenDispatched && !hasErrorBeforeSubmit(error)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
       // it, and the release dates it and abandons its nonce only while the record is still this attempt's

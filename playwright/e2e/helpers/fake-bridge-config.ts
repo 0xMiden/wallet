@@ -48,7 +48,7 @@ export function localnetEpochDocument(): BridgeConfigDocument {
         }
       }
     },
-    features: { earn: true },
+    features: { earn: true, nearIntents: false },
     // Earn on needs the vaults it offers: the dummy lender's market of the mock USDC, which the positions fake serves.
     earn: {
       vaults: [
