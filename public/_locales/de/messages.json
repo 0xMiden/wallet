@@ -3571,6 +3571,27 @@
     "message": "Ich werde meine verschlüsselte Wallet-Datei an niemanden weitergeben, auch nicht an Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "Der Kontostatus von $accountNames$ ist in dieser Datei enthalten",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Die Datei enthält Ihre Wiederherstellungsphrase und den Kontostand, den Ihr Guardian-Betreiber ansonsten für Sie verwahrt, sodass jeder, der über die Datei und das dazugehörige Passwort verfügt, beides einsehen kann. Sie enthält keinen Alltagsschlüssel: Nach der Wiederherstellung ersetzt die Wallet diesen über Ihren Guardian-Betreiber, oder Sie können ein gespeichertes Alltagsschlüsselpaar verwenden (Einstellungen → Schlüssel → Privaten Schlüssel anzeigen). Die Datei ist eine Momentaufnahme: Speichern Sie nach jedem Senden oder Empfangen eine neue Datei, da eine ältere Datei die danach erfolgten Vorgänge nicht wiederherstellen kann.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Eine Rotation läuft noch. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Verwende mein gespeichertes Alltags-Schlüsselpaar",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Nicht aus dieser Datei wiederhergestellt: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -4993,6 +5014,30 @@
   "swapReclaiming": {
     "message": "Rückgabe von Geldern",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "Auszahlung blockiert",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Die Auszahlung aus diesem Swap schlägt immer wieder fehl, da dieses Konto die Netzwerkgebühr nicht bezahlen kann, um sie einzufordern. Die Wallet versucht es einmal täglich erneut, oder du kannst es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Die Auszahlung aus diesem Swap schlägt bei Ihrem „Guardian“ immer wieder fehl. Die Wallet versucht es einmal täglich erneut, oder Sie können es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Die Auszahlung aus diesem Swap schlägt immer wieder fehl, da das Netzwerk nicht erreichbar war. Die Wallet versucht es einmal täglich erneut, oder Sie können es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Die Auszahlung aus diesem Swap schlägt immer wieder fehl. Die Wallet versucht es einmal täglich erneut, oder Sie können es jetzt erneut versuchen.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Auszahlung erneut versuchen",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "Zurückgegeben · $time$",

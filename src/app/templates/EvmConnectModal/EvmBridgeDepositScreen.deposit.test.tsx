@@ -533,10 +533,20 @@ const balanceTooLow = (balance: string, token: string) =>
   `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
 
 // The failure write the screen makes: the row's text, and the step and error its crash report names.
+// A balance the check refused for its amount, or could not read; every other failure carries no balance check.
+const BALANCE_CHECK_OF: Record<string, string> = {
+  bridgeDepositBalanceTooLow: 'too_low',
+  usdcxDepositFeeAboveBalance: 'too_low',
+  bridgeDepositBalanceReadFailed: 'read_failed'
+};
 const failedAt = (step: string, error: string, errorId = 'raw_bridge_deposit_failed') => ({
   error,
   errorId,
-  failure: { step, cause: expect.any(Error) }
+  failure: {
+    step,
+    cause: expect.any(Error),
+    ...(BALANCE_CHECK_OF[errorId] === undefined ? {} : { balanceCheck: BALANCE_CHECK_OF[errorId] })
+  }
 });
 /** The library error the crash report names for the cause the last failure write handed it. */
 const reportedEvmError = (): string =>

@@ -28,6 +28,7 @@ import {
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { getPaybackClaimStates, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -493,6 +494,7 @@ async function fetchTransactionsAsHistoryEntries(
 ): Promise<IHistoryEntry[]> {
   const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
   const visibleTransactions = await suppressLinkedConsumes(transactions);
+  const paybackStates = await getPaybackClaimStates(visibleTransactions.filter(tx => tx.type === 'swap'));
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
     const submission = submissionFeedback(tx);
@@ -568,6 +570,7 @@ async function fetchTransactionsAsHistoryEntries(
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
       swapSettlement: swapSettlementOf(tx),
+      paybackClaimStuck: stuckPaybackClaim(paybackStates.get(tx.id)),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,

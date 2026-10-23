@@ -3571,6 +3571,27 @@
     "message": "我不会将我的加密钱包文件分享给任何人，包括Bread。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "$accountNames$的账户状态在此文件中",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "该文件包含您的助记词以及您的Guardian运营商通常为您保存的账户状态，因此任何拥有该文件及其密码的人都可以读取这两者。该文件不包含日常密钥：恢复后，钱包会通过您的Guardian运营商替换该密钥，或者您可以使用已保存的日常密钥对（设置 → 密钥 → 显示私钥）。 该文件是一个快照：在进行收发操作后，请保存一个新文件，因为旧文件无法恢复其保存之后发生的情况。",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "轮转仍在进行中。请等待其完成，然后重试。",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "使用我保存的日常密钥对",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "未从该文件恢复：$accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -4993,6 +5014,30 @@
   "swapReclaiming": {
     "message": "退还资金",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "提现受阻",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "此次掉期交易的结算屡屡失败，是因为该账户无法支付网络手续费来提取资金。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "此次掉期交易的结算在您的Guardian处屡次失败。钱包每天会尝试一次，您也可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "此次掉期交易的结算屡次失败，原因是无法连接到网络。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "此次掉期交易的款项发放一直失败。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "重试支付",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "已退回 · $time$",

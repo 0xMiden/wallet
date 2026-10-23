@@ -115,7 +115,7 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       // summed vault + unconsumed notes across EVERY token, so it went true on the
       // mint alone and stayed true even if the claim never consumed anything -
       // leaving the deposit to run against collateral the wallet cannot spend.
-      await walletA.refreshBalances();
+      await walletA.refreshBalancesLanded(60_000);
       await waitForVaultBalance(walletA.page, COLLATERAL_SYMBOL, COLLATERAL_MINT, {
         timeoutMs: 60_000,
         decimals: COLLATERAL_DECIMALS
