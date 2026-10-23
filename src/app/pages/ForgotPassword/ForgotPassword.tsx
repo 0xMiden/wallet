@@ -15,8 +15,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
+import { isInviteOnlyRequired, useMainnetLaunched } from 'lib/remote-config/use-mainnet-launch';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
 import { errorToMessage } from 'screens/onboarding/error-message';
@@ -42,11 +41,10 @@ const ForgotPassword: FC = () => {
   const [password, setPassword] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
-  // A new wallet on an invite-only network needs a code, which this page does not take: its
-  // Welcome offers recovery only.
-  const snapshot = useBridgeConfigSnapshot();
-  const liveRecoverOnly =
-    selectInviteOnlyOnboarding(snapshot) === true || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
+  // A new wallet on an invite-only network (mainnet, or any network once mainnet has launched) needs a
+  // code, which this page does not take: its Welcome offers recovery only.
+  const launched = useMainnetLaunched();
+  const liveRecoverOnly = isInviteOnlyRequired(launched, getEffectiveNetworkName());
   // Fixed when the user leaves Welcome: a document that changes mid-reset must not move a recovery, or a fresh
   // wallet, made for the network it started on.
   const [startedRecoverOnly, setStartedRecoverOnly] = useState<boolean | null>(null);

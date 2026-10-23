@@ -148,6 +148,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         midenAccountPublicKey: account.publicKey,
         evmAddress: account.evmAddress,
         marketUid: position.marketUid,
+        protocol: position.epochProtocol,
+        chainId: Number(position.marketUid.split(':')[1]),
         underlyingAddress: position.underlyingAddress,
         amount,
         review: quote,
