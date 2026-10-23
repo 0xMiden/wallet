@@ -3689,6 +3689,10 @@
     "message": "Amount must be less than balance",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "This amount has more decimal places than this token allows.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "Auto-accept USDCX transfers",
     "englishSource": "Auto-accept USDCX transfers"

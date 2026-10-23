@@ -11,7 +11,7 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { Notice } from 'components/ui/Notice';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -208,6 +208,10 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [currentStep, onSwapRoute]);
 
   const sameToken = offerToken.faucetId === requestToken.faucetId;
+  // A finer typed side is quoted as blank so `toBigIntOrZero` cannot price the truncated amount.
+  const offerExceedsPrecision = amountExceedsTokenDecimals(offerAmount, offerToken.decimals);
+  const requestExceedsPrecision = amountExceedsTokenDecimals(requestAmount, requestToken.decimals);
+
   // One quote for the whole pair through the Swap Quote API v2: the fill price builds the
   // receive amount at the chosen slippage, and the solver's verdict drives the review screen.
   // Refreshed every 30 s while this page is on screen, so the price a review shows is one the
@@ -216,8 +220,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const swapQuote = useSwapQuote({
     offerToken,
     requestToken,
-    offerAmount,
-    requestAmount,
+    offerAmount: offerExceedsPrecision ? '' : offerAmount,
+    requestAmount: requestExceedsPrecision ? '' : requestAmount,
     requestEdited,
     slippageBps,
     enabled: !sameToken,
@@ -226,6 +230,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const { quoteNow } = swapQuote;
 
   const offerAmountBaseUnits = useMemo(() => {
+    if (amountExceedsTokenDecimals(offerAmount, offerToken.decimals)) return undefined;
     try {
       return stringToBigInt(offerAmount, offerToken.decimals);
     } catch {
@@ -309,6 +314,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
   );
   const requestAmountBaseUnits = useMemo(() => {
+    if (amountExceedsTokenDecimals(requestAmount, requestToken.decimals)) return undefined;
     try {
       return stringToBigInt(requestAmount, requestToken.decimals);
     } catch {

@@ -26,7 +26,7 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { usePreset } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
-import { stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -166,8 +166,11 @@ export const ReviewTransaction: React.FC = () => {
   const isUsdcxBurn = isBridge && route === 'usdcx';
   const burnMinimum = useBurnMinimum(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
+  // A burn keeps its own 6-decimal refusal. Every other review refuses a finer amount
+  // before `stringToBigInt` can truncate it into a smaller transfer.
+  const amountExceedsPrecision = !isUsdcxBurn && !!token && amountExceedsTokenDecimals(amount, token.decimals);
   const amountBaseUnits = useMemo(() => {
-    if (!token || !amount) return undefined;
+    if (!token || !amount || amountExceedsPrecision) return undefined;
     try {
       if (isUsdcxBurn) {
         if (!/^\d+(\.\d{1,6})?$/.test(amount)) return undefined;
@@ -666,12 +669,15 @@ export const ReviewTransaction: React.FC = () => {
   const tokenInvalid =
     isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
     (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
-  const reviewError = scaleIsUnknown ? t('unknownTokenScale') : (submitError ?? burnValidationError);
+  const precisionErrorId = amountExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined;
+  const reviewError = scaleIsUnknown
+    ? t('unknownTokenScale')
+    : (submitError ?? (precisionErrorId ? t(precisionErrorId) : burnValidationError));
   const reviewErrorId = scaleIsUnknown
     ? 'unknownTokenScale'
     : submitError !== undefined
       ? submitErrorId
-      : burnValidationErrorId;
+      : (precisionErrorId ?? burnValidationErrorId);
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
   }
@@ -724,7 +730,7 @@ export const ReviewTransaction: React.FC = () => {
         }}
         footer={
           <div className="flex flex-col gap-2">
-            {(scaleIsUnknown || submitError || burnValidationError) && (
+            {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError) && (
               <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
             )}
             <Button
@@ -741,7 +747,12 @@ export const ReviewTransaction: React.FC = () => {
               // CTA only to be refused reads as a wallet fault rather than a
               // deliberate refusal.
               disabled={
-                bridgeBlocked || tokenHeld || isSubmitting || scaleIsUnknown || (isUsdcxBurn && !!burnValidationError)
+                bridgeBlocked ||
+                tokenHeld ||
+                isSubmitting ||
+                scaleIsUnknown ||
+                amountExceedsPrecision ||
+                (isUsdcxBurn && !!burnValidationError)
               }
               data-testid="send-review-submit"
               className="w-full max-w-none"

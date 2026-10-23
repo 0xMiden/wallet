@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -76,6 +76,12 @@ export const SendAmount: React.FC<SendAmountProps> = ({
 }) => {
   const { t } = useTranslation();
   const [maxSelection, setMaxSelection] = useState(0);
+  // The field shows the keystroke at once. A later `amount` from the form replaces it,
+  // including Max and a restored draft.
+  const [draft, setDraft] = useState(amount);
+  useEffect(() => {
+    setDraft(amount);
+  }, [amount]);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const transition = useMotion({ duration: durations.normal, ease: easings.easeOutCubic });
 
@@ -118,15 +124,20 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         assetId={token?.id ?? ''}
         symbol={token?.name ?? ''}
         decimals={token?.decimals ?? 0}
+        decimalsLimit={token ? token.decimals : 6}
         scaleIsKnown={!!token?.scaleIsKnown}
-        value={amount}
+        value={draft}
         tokenIntentKey={maxSelection}
         invalid={!!amountError}
         error={amountError}
         errorId={isUserErrorId(error) ? error : null}
         showDivider={false}
         data-testid="send-amount-input"
-        onValueChange={value => onAmountChange(value || '')}
+        onValueChange={value => {
+          const next = value || '';
+          setDraft(next);
+          onAmountChange(next);
+        }}
       />
 
       <Card surface="outline" padding="none" className="mt-8">

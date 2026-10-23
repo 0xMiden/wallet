@@ -11,7 +11,7 @@ import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -384,6 +384,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // screen can show a live fee regardless of which route is selected.
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount || !validations.amount.isValidSync(amount)) return undefined;
+    // A finer amount stays on screen and is never quoted from its truncated base units.
+    if (amountExceedsTokenDecimals(amount, token.decimals)) return undefined;
     try {
       return stringToBigInt(amount, token.decimals);
     } catch {
@@ -684,6 +686,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
+    } else if (token && amountExceedsTokenDecimals(amount, token.decimals)) {
+      setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
     } else if (token && typedAmountExceedsBalance(amount, spendableBalance, token.decimals)) {
       // Between one base fee and the 30x reserve the whole native balance is held back,
       // so `Available` reads 0 and "amount must be less than balance" is true but useless:
@@ -760,6 +764,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const goToReview = useCallback(() => {
     if (!token || !amount || !recipientAddress || isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId))
       return;
+    // Precision is decided before the balance comparison, and the typed string is left unchanged.
+    if (amountExceedsTokenDecimals(amount, token.decimals)) {
+      setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+      return;
+    }
     // The one way into review, so the burn's cap is checked here too: an amount accepted on the Amount step
     // before the measured reserve landed, or under a smaller one, goes back there with the reason shown.
     if (burnFeeTarget && (burnFeeUnmeasured || typedAmountExceedsBalance(amount, spendableBalance, token.decimals))) {
@@ -1003,6 +1012,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       } else if (burnFeeUnmeasured) {
         // A burn has no cap until its reserve is measured, so no keystroke may clear this.
         setError('amount', { type: 'manual', message: burnFeeMessage });
+      } else if (token && amountExceedsTokenDecimals(amountString, token.decimals)) {
+        setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
       } else if (token && typedAmountExceedsBalance(amountString, spendableBalance, token.decimals)) {
         // Between one base fee and the 30x reserve the whole native balance is held back,
         // so `Available` reads 0 and "amount must be less than balance" is true but useless:

@@ -420,6 +420,8 @@ jest.mock('lib/i18n/numbers', () => ({
   // which is the comparison this suite is pinning.
   typedAmountExceedsBalance: (...a: [string, number, number]) =>
     jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+  amountExceedsTokenDecimals: (...a: [string, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
 }));
 // The real `./send-telemetry` is kept so the cross-route handoff it exists for is
 // exercised for real; only the reporting primitive underneath it is mocked.
@@ -1385,6 +1387,49 @@ describe('revalidation when the token changes', () => {
       fireEvent.click(screen.getByTestId('td-select'));
     });
     expect(screen.getByTestId('sa-error')).toHaveTextContent('');
+  });
+
+  it('keeps an amount intact and blocks review when the selected token cannot represent it', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    act(() => fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.123456' } }));
+    act(() => fireEvent.click(screen.getByTestId('td-select')));
+
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('1.123456');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ amount: undefined }));
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+    expect(navigateToMock).not.toHaveBeenCalled();
+  });
+
+  it('shows the precision error when a finer amount is typed after token selection', () => {
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1, scaleIsKnown: true };
+    renderAmountStep();
+    act(() => fireEvent.click(screen.getByTestId('td-select')));
+    act(() => fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.123456' } }));
+
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+  });
+
+  it('refuses a restored amount the selected token cannot represent before review', () => {
+    const amount = '1.123456';
+    setSendDraft({
+      amount,
+      recipientAddress: 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph',
+      tokenId: 'T1'
+    });
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 100, fiatPrice: 1 }]
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    act(() => fireEvent.click(screen.getByTestId('sa-confirm')));
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
 

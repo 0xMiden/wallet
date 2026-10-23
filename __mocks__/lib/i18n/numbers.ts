@@ -33,6 +33,10 @@ export const typedAmountExceedsBalance = (amount: string, balance: number, decim
   jest
     .requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers')
     .typedAmountExceedsBalance(amount, balance, decimals);
+export const amountExceedsTokenDecimals = (amount: string, decimals: number): boolean =>
+  jest
+    .requireActual<typeof import('../../../src/lib/i18n/numbers')>('lib/i18n/numbers')
+    .amountExceedsTokenDecimals(amount, decimals);
 // Mirrors the real formatBigInt: the decimal point shifted into the digit string, trailing zeros dropped.
 export const formatBigInt = (amount: bigint, decimals: number): string => {
   const negative = amount < 0n;

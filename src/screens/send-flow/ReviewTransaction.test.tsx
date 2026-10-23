@@ -66,6 +66,7 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
   error: null,
   symbol: 'USDC'
 };
+let mockEpochQuoteArgs: { amount?: bigint } = {};
 let mockBurnMinimum = 5_000_000n;
 let mockUseRealBurnMinimum = false;
 // The native asset's chain metadata; null until a test discovers one, as before discovery.
@@ -346,6 +347,8 @@ jest.mock('lib/i18n/numbers', () => ({
   // return, so the guard has to call the real helper.
   typedAmountExceedsBalance: (...a: [string, number, number]) =>
     jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+  amountExceedsTokenDecimals: (...a: [string, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -461,7 +464,10 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => mockEpochQuote
+  useEpochQuote: (args: { amount?: bigint }) => {
+    mockEpochQuoteArgs = args;
+    return mockEpochQuote;
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -578,6 +584,7 @@ beforeEach(() => {
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
+  mockEpochQuoteArgs = {};
   mockNativeMetadata = null;
 
   delete process.env.MIDEN_E2E_TEST;
@@ -1122,6 +1129,28 @@ describe('ReviewTransaction — onSubmit', () => {
     });
     await flush();
   };
+
+  it.each([
+    ['same-chain', 'miden', ''],
+    ['Epoch', 'ethereum', '&network=sepolia&route=epoch'],
+    ['Agglayer', 'ethereum', '&network=sepolia&route=agglayer']
+  ])('refuses a direct %s review URL with digits past token precision', async (_label, chain, suffix) => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockDetectedChain = chain as 'miden' | 'ethereum';
+    mockSearch = `amount=1.001&to=0xrecipient&tokenId=tok1${suffix}`;
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await clickSubmit();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+  });
 
   // This screen is reachable by URL and re-derives its own token, so it cannot
   // rely on the amount screen having refused. Every conversion below it runs
@@ -2238,6 +2267,19 @@ describe('ReviewTransaction user-visible errors', () => {
     expect(screen.getByTestId('review-error')).toHaveTextContent(message);
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
     await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports an unrepresentable review amount with its precision error id', async () => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockSearch = 'amount=1.001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    await expectReport('amountExceedsTokenDecimals');
   });
 
   it('reports the specific UsdcxBurnError code from a burn submit refusal', async () => {

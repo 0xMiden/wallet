@@ -827,6 +827,7 @@
   "insufficientFeeAsset": "You need USDCX to pay the network fee. Receive some USDCX to continue.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Amount must be less than balance",
+  "amountExceedsTokenDecimals": "This amount has more decimal places than this token allows.",
   "autoConsumeSettings": "Auto-accept USDCX transfers",
   "autoConsumeSettingsDescription": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself.",
   "encryptedWalletFileExporting": "Creating your wallet file…",

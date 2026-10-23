@@ -293,6 +293,17 @@ describe('SwapAmounts', () => {
       expect(pay).toHaveAttribute('data-error', 'amountMustBeLessThanBalance');
     });
 
+    it('shows the precision error before the offer balance error', () => {
+      renderComponent({
+        offerToken: { ...offerToken, decimals: 2 },
+        offerAmount: '1.001',
+        offerBalance: 1
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      expect(pay).toHaveAttribute('data-valid', 'false');
+      expect(pay).toHaveAttribute('data-error', 'amountExceedsTokenDecimals');
+    });
+
     it('is invalid with no error when the amount is zero (fails the > 0 check first)', () => {
       renderComponent({ offerAmount: '0', offerBalance: 100 });
       const pay = screen.getByTestId('select-amount-youPay');
@@ -349,6 +360,13 @@ describe('SwapAmounts', () => {
     it('is invalid when the request amount is zero/empty', () => {
       renderComponent({ requestAmount: '0' });
       expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-valid', 'false');
+    });
+
+    it('shows a precision error for a request amount the token cannot represent', () => {
+      renderComponent({ requestToken: { ...requestToken, decimals: 2 }, requestAmount: '1.001' });
+      const receive = screen.getByTestId('select-amount-youReceive');
+      expect(receive).toHaveAttribute('data-valid', 'false');
+      expect(receive).toHaveAttribute('data-error', 'amountExceedsTokenDecimals');
     });
   });
 

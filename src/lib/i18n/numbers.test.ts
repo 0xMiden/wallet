@@ -6,6 +6,7 @@ import {
   toLocalFormat,
   getPluralKey,
   formatBigInt,
+  amountExceedsTokenDecimals,
   stringToBigInt,
   typedAmountExceedsBalance,
   toLocalFixed,
@@ -332,6 +333,14 @@ describe('typedAmountExceedsBalance', () => {
   it('does not treat an unparsable amount as over the cap', () => {
     expect(typedAmountExceedsBalance('', 1, 6)).toBe(false);
     expect(typedAmountExceedsBalance('abc', 1, 6)).toBe(false);
+  });
+});
+
+describe('amountExceedsTokenDecimals', () => {
+  it('rejects nonzero digits past the token scale but accepts excess trailing zeros', () => {
+    expect(amountExceedsTokenDecimals('1.234', 2)).toBe(true);
+    expect(amountExceedsTokenDecimals('1.2300', 2)).toBe(false);
+    expect(amountExceedsTokenDecimals('1.0', 0)).toBe(false);
   });
 });
 

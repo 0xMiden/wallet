@@ -41,6 +41,7 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 afterEach(() => {
   mockBridgeSnapshot = undefined;
+  mockUseRealAmountInput = false;
 });
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
@@ -122,6 +123,16 @@ describe('SendAmount', () => {
     const props = renderAmount({ amount: '1.5' });
     fireEvent.click(screen.getByTestId('clear-amount'));
     expect(props.onAmountChange).toHaveBeenCalledWith('');
+  });
+
+  it('keeps a fractional amount editable before a token is selected', () => {
+    mockUseRealAmountInput = true;
+    renderAmount({ token: undefined });
+    const input = screen.getByTestId('send-amount-input');
+
+    fireEvent.change(input, { target: { value: '1.5' } });
+
+    expect(input).toHaveValue('1.5');
   });
 
   it('names the testnet bridge faucet by its label on the token row, keeping its logo', () => {

@@ -34,6 +34,7 @@ export const USER_ERROR_IDS = Object.freeze<
   readonly [
     'activityHiddenNotesError',
     'agglayerTokenUnsupported',
+    'amountExceedsTokenDecimals',
     'amountMustBeLessThanBalance',
     'biometricFailed',
     'biometricHardwareUnavailable',
@@ -243,6 +244,7 @@ export const USER_ERROR_IDS = Object.freeze<
 >([
   'activityHiddenNotesError',
   'agglayerTokenUnsupported',
+  'amountExceedsTokenDecimals',
   'amountMustBeLessThanBalance',
   'biometricFailed',
   'biometricHardwareUnavailable',

@@ -147,7 +147,7 @@ const DenominatedAmountInput: React.FC<TokenAmountInputProps> = ({
       unfocusedDisplayValue={usdMode ? undefined : unfocusedDisplayValue}
       value={usdMode ? usdText : value}
       prefix={usdMode ? '$' : undefined}
-      decimalsLimit={usdMode ? 36 : (props.decimalsLimit ?? decimals)}
+      decimalsLimit={usdMode ? 36 : (props.decimalsLimit ?? (assetId === '' && symbol === '' ? 6 : decimals))}
       maxLength={props.maxLength ?? 116}
       formatValueOnBlur={false}
       disabled={disabled || (usdMode && !ready)}

@@ -792,6 +792,50 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
     });
 
+    it('blocks an offer amount when the selected token has fewer decimals', async () => {
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      const lowPrecisionOffer = { ...mockTokenC, decimals: 2 };
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 18 }, mockTokenB, lowPrecisionOffer]);
+      mockBalanceData = [
+        { tokenId: 'bech32-faucet-A', balance: 10 },
+        { tokenId: 'bech32-faucet-C', balance: 10 }
+      ];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      quoteFollowsOffer();
+      renderFlow();
+      setOffer('1.123456');
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      act(() => mockDrawerProps.onSelect(lowPrecisionOffer));
+
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.123456');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ offerAmount: '' }));
+      expect(mockStringToBigInt).not.toHaveBeenCalledWith('1.123456', 2);
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
+    it('blocks a receive amount beyond the selected request token precision', async () => {
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
+      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, lowPrecisionRequest]);
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      quoteFollowsOffer();
+      renderFlow();
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      act(() => mockDrawerProps.onSelect(lowPrecisionRequest));
+      setRequest('1.123456');
+
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ requestAmount: '' }));
+      expect(mockStringToBigInt).not.toHaveBeenCalledWith('1.123456', 2);
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
     it('flags an offer above the holding of a registry token whose stored override carries decimals', () => {
       // 100 AAA in base units at the registry's 8 decimals. The row's scale comes from the faucet
       // record with the stored override applied, as the store builds every balance row.

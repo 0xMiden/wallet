@@ -183,6 +183,27 @@ export function typedAmountExceedsBalance(amount: string, balance: number, decim
   return typed > stringToBigInt(balance.toString(), decimals);
 }
 
+/**
+ * True when `amount` has a non-zero digit past `decimals`.
+ *
+ * Trailing zeros past the scale are the same base-unit value `stringToBigInt`
+ * already keeps, so they are not a refusal. An unparsable amount is not finer
+ * than the scale; callers reject it on their own path. The shift is the same
+ * power of ten as `stringToBigInt`, exponent included, so the digits it would
+ * truncate are exactly the ones checked here.
+ */
+export function amountExceedsTokenDecimals(amount: string, decimals: number): boolean {
+  const match = /^\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?\s*$/.exec(amount ?? '');
+  const intDigits = match?.[2] ?? '';
+  const fracDigits = match?.[3] ?? '';
+  if (!match || (intDigits === '' && fracDigits === '')) return false;
+
+  const exponent = match[4] ? parseInt(match[4], 10) : 0;
+  const shift = decimals + exponent - fracDigits.length;
+  if (shift >= 0) return false;
+  return /[1-9]/.test((intDigits + fracDigits).slice(shift));
+}
+
 export function toLocalFixed(value: BigNumber.Value, decimalPlaces?: number, roundingMode?: BigNumber.RoundingMode) {
   const bn = new BigNumber(value);
   const numberSymbols = getNumberSymbols();
