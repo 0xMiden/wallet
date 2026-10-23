@@ -4,7 +4,7 @@ import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { inStorageTurn, rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
-import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
+import { ENDPOINT_OVERRIDE_STORAGE_KEY, forgetDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
@@ -173,6 +173,7 @@ export async function resetStorageDestructive({
     await Repo.spendingLimits.clear().catch(() => {});
     throw err;
   }
+  if (keepEndpointOverride) await forgetDeveloperNetworkChoice();
   await resetNativeAssetCache();
 }
 

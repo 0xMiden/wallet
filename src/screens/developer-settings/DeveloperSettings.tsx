@@ -197,7 +197,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     setPending(true);
     setError(null);
     try {
-      await applyEndpointOverride(form);
+      await applyEndpointOverride({ ...form, developerChoice: true });
       // Every fuse conclusion was earned against the node this just stopped pointing at.
       // Mobile and desktop are exactly the realms that own the idle loop, so a fused
       // wallet repointed at a working RPC would otherwise probe once per 30 min - and the

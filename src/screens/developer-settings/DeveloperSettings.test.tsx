@@ -8,6 +8,8 @@ import { WalletStatus } from 'lib/shared/types';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { buildDefaultOverrideFor } from 'lib/miden-chain/effective-endpoints';
 import DeveloperSettings from './DeveloperSettings';
 
 jest.mock('lib/telemetry/user-visible-error', () => ({
@@ -312,6 +314,17 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
     await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('stores the saved network as the developer choice', async () => {
+    render(<DeveloperSettings />);
+    fireEvent.click(within(screen.getByTestId('dev-endpoint-preset')).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+    await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
+    expect(applyEndpointOverride).toHaveBeenCalledWith({
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET),
+      developerChoice: true
+    });
   });
 
   it('has the bridge config follow the new network once the override is applied', async () => {
