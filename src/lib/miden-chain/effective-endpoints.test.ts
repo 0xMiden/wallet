@@ -617,7 +617,8 @@ describe('badge network provenance', () => {
     const reloaded = loadModule();
     await reloaded.loadEndpointOverrides();
     expect(reloaded.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
-    expect(reloaded.hasCustomEndpointOverride()).toBe(false);
+    expect(reloaded.hasCustomEndpointOverride).toHaveLength(1);
+    expect(reloaded.hasCustomEndpointOverride(reloaded.getActiveOverride())).toBe(false);
   });
 
   it('accepts build defaults and an endpoint-free onboarding network choice', () => {

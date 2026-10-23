@@ -346,7 +346,7 @@ const isNetworkChoice = (override: EndpointOverride) =>
   OVERRIDE_ENDPOINT_FIELDS.every(field => !override[field]) && !override.allowNoGuardian && !override.feeFaucetId;
 
 /** Synchronous provenance check: onboarding's endpoint-free network choice uses the canonical defaults. */
-export function hasCustomEndpointOverride(override: EndpointOverride | null = getActiveOverride()): boolean {
+export function hasCustomEndpointOverride(override: EndpointOverride | null): boolean {
   return override !== null && (!isEndpointOverride(override) || !isNetworkChoice(override));
 }
 
