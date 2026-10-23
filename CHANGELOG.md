@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- [FIX][test] The mainnet nightly's bridge and 1Click specs load again: Playwright resolves the wallet sources' `@miden-sdk/miden-sdk/lazy` import to the SDK's Node entry instead of failing on a package export that only the `import` condition defines.
+- [FIX][test] The mainnet nightly's bridge and 1Click specs load again: Playwright resolves the wallet sources' `@miden-sdk/miden-sdk/lazy` import to the SDK's Node entry instead of failing on a package export that only the `import` condition defines, and the executor-route bridge-in checks the registration at the config's Arc xReserve instead of the testnet one. The nightly checks out the ref it was dispatched on instead of always `main`.
 - [FIX][all] The mainnet countdown and a new wallet's invite-only onboarding share one clock. Setup already underway stays on its step, with the seed, password, key and access code already entered, while mainnet is prepared when that moment arrives.
 - [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read. While launch is pending, the wallet checks the clock each second so a system clock change cannot leave the launch state out of date.
 - [FIX][test] The USDCx burn suites read the faucet's burn fee from an account proof for that one entry instead of downloading the whole faucet account, which the node refuses to build now that the nonce registry has grown past its inline limit.
