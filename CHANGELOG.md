@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.7 (TBD)
+
+### Fixes
+
+- [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
+
 ## 1.17.6 (2026-10-23)
 
 ### Fixes
