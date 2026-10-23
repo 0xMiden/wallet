@@ -65,4 +65,15 @@ it('classifies only exact recorded catalog-game origins, not tokens, names or lo
   expect(arcadeActivityMatcher(null)({ dappOrigins: ['https://game.example'] })).toBe(false);
   expect(arcadeActivityMatcher(undefined)({ dappOrigins: ['https://game.example'] })).toBe(false);
   expect(arcadeActivityMatcher({ ...catalog, items: [] })({ dappOrigins: ['https://game.example'] })).toBe(false);
+  const local = {
+    ...catalog,
+    items: [...catalog.items, { ...catalog.items[0]!, id: 'local', url: 'http://127.0.0.1:8080/play' }]
+  };
+  expect(arcadeActivityMatcher(local)({ dappOrigins: ['http://127.0.0.1:8080'] })).toBe(true);
+});
+
+it('matches a blob URL by the origin parseOrigin reads', () => {
+  expect(
+    arcadeActivityMatcher(catalog)({ dappOrigins: ['blob:https://game.example/550e8400-e29b-41d4-a716-446655440000'] })
+  ).toBe(true);
 });

@@ -1,3 +1,4 @@
+import { parseOrigin } from 'lib/dapp-browser/dapp-session';
 import {
   getExploreCategoryGroup,
   resolveExploreSections,
@@ -26,30 +27,15 @@ export function arcadeDiscovery(view: ExploreView): { games: ExploreItem[]; feat
   return { games, featured: featured.length ? featured : games.slice(0, 1) };
 }
 
-function originOf(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /** Display classification only, never an authorization or proof of a game outcome. */
 export function arcadeActivityMatcher(
   catalog: ExploreCatalog | null | undefined
 ): (entry: { dappOrigins?: readonly string[] }) => boolean {
+  // Catalog URLs are validated https (or permitted local http), so an unparseable recorded origin never matches.
   const origins = new Set(
     catalog?.items
       .filter(item => getExploreCategoryGroup(item.category) === 'arcade')
-      .flatMap(item => {
-        const origin = originOf(item.url);
-        return origin ? [origin] : [];
-      })
+      .map(item => parseOrigin(item.url))
   );
-  return entry =>
-    entry.dappOrigins?.some(origin => {
-      const normalized = originOf(origin);
-      return normalized !== undefined && origins.has(normalized);
-    }) ?? false;
+  return entry => entry.dappOrigins?.some(origin => origins.has(parseOrigin(origin))) ?? false;
 }
