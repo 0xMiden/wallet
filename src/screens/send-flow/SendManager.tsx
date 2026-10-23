@@ -22,6 +22,7 @@ import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/eff
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -452,6 +453,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
     };
   }, [isBridge, epochQuote.loading, epochQuote.amount, epochQuote.symbol, epochQuote.error, token, amountBaseUnits]);
 
+  // Re-render when the sent token's quote expires, so the fee below stops using it on time.
+  useQuoteClock(token?.fiatPriceExpiresAt);
+  const fastQuoteExpired = token?.fiatPriceExpiresAt !== undefined && Date.now() >= token.fiatPriceExpiresAt;
+
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
     // Unpriced (0), unscaled or at the nominal $1 (a display figure, not a quote), the input has no
@@ -461,6 +466,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       !token.scaleIsKnown ||
       !(token.fiatPrice > 0) ||
       token.fiatPriceIsNominal ||
+      fastQuoteExpired ||
       !amount ||
       epochQuote.amount == null
     ) {
@@ -470,7 +476,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     const output = parseFloat(epochQuote.amount);
     if (!isFinite(input) || !isFinite(output)) return undefined;
     return Math.max(0, input - output);
-  }, [token, amount, epochQuote.amount]);
+  }, [token, amount, epochQuote.amount, fastQuoteExpired]);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();

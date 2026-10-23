@@ -8,6 +8,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
@@ -2160,6 +2161,26 @@ describe('fast-route fee', () => {
       ).toHaveTextContent(/^undefined$/);
     } finally {
       mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
+  });
+
+  it('stops using the sent token quote once it expires, without any other update', () => {
+    jest.useFakeTimers();
+    try {
+      walletStoreState.tokenPrices = {
+        USDC: { price: 3, observedAt: Date.now() }
+      } as typeof walletStoreState.tokenPrices;
+      const fee = renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET);
+      expect(fee).toHaveTextContent(/^11$/);
+
+      act(() => {
+        jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS + 1);
+      });
+
+      expect(screen.getByTestId('route-fee')).toHaveTextContent(/^undefined$/);
+    } finally {
+      jest.useRealTimers();
+      walletStoreState.tokenPrices = { USDC: { price: 3 } };
     }
   });
 
