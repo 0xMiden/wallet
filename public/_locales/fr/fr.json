@@ -191,6 +191,7 @@
   "transactionRestoredHint": "Cette opération a été restaurée à partir d’une sauvegarde ; le portefeuille ne peut donc pas vérifier si elle a abouti ni la réessayer. Vérifiez le portefeuille avant de répéter l’opération.",
   "submissionInterrupted": "La connexion a été interrompue pendant l’envoi de cette demande. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle pourrait tout de même aboutir ; veuillez donc vérifier avant de réessayer.",
   "submissionRejectedByGuardian": "Votre « Guardian » a refusé cette soumission. Réessayez.",
+  "submissionBlockedByIssuer": "L’émetteur de ce jeton a bloqué votre compte ; il est donc impossible de l’envoyer.",
   "submissionRejectedByNetwork": "Le réseau a rejeté cette soumission. Veuillez réessayer.",
   "submissionUnanswered": "Aucune réponse n’a été reçue suite à cette soumission. Le portefeuille ne peut pas confirmer si elle a bien été transmise. Elle peut encore aboutir, veuillez donc vérifier avant de réessayer.",
   "showFullError": "Afficher l'erreur complète",

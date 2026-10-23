@@ -965,6 +965,10 @@
     "message": "Your Guardian refused this submission. Try again.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "The issuer of this token has blocked your account, so it cannot be sent.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "The network refused this submission. Try again.",
     "englishSource": "The network refused this submission. Try again."

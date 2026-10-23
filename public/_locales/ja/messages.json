@@ -965,6 +965,10 @@
     "message": "Guardianがこの投稿を拒否しました。もう一度試してください。",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "このトークンの発行者があなたのアカウントをブロックしたため、トークンを送金することはできません。",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "ネットワークはこの提出を拒否しました。もう一度試してください。",
     "englishSource": "The network refused this submission. Try again."

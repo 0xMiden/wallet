@@ -965,6 +965,10 @@
     "message": "您的「Guardian」拒絕了此提交。請重新嘗試。",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "此代幣的發行者已封鎖您的帳戶，因此無法進行轉帳。",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "系統拒絕了此提交。請重新嘗試。",
     "englishSource": "The network refused this submission. Try again."

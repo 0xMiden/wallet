@@ -965,6 +965,10 @@
     "message": "Tu «Guardian» ha rechazado esta solicitud. Inténtalo de nuevo.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "El emisor de este token ha bloqueado tu cuenta, por lo que no se puede enviar.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "La red ha rechazado esta propuesta. Inténtalo de nuevo.",
     "englishSource": "The network refused this submission. Try again."

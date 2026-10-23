@@ -191,6 +191,7 @@
   "transactionRestoredHint": "Dies wurde aus einem Backup wiederhergestellt, daher kann die Wallet nicht überprüfen, ob der Vorgang erfolgreich war, und ihn nicht wiederholen. Überprüfen Sie die Wallet, bevor Sie den Vorgang wiederholen.",
   "submissionInterrupted": "Die Verbindung wurde während der Übermittlung unterbrochen. Die Wallet kann nicht bestätigen, ob die Übermittlung erfolgreich war. Der Vorgang wird möglicherweise noch abgeschlossen; überprüfen Sie dies daher, bevor Sie es erneut versuchen.",
   "submissionRejectedByGuardian": "Ihr „Guardian“ hat diesen Eintrag abgelehnt. Versuchen Sie es erneut.",
+  "submissionBlockedByIssuer": "Der Emittent dieses Tokens hat Ihr Konto gesperrt, sodass keine Übertragungen möglich sind.",
   "submissionRejectedByNetwork": "Das Netzwerk hat diesen Beitrag abgelehnt. Versuchen Sie es erneut.",
   "submissionUnanswered": "Auf diese Übermittlung ging keine Antwort ein. Die Wallet kann nicht bestätigen, ob sie erfolgreich übermittelt wurde. Möglicherweise wird der Vorgang noch abgeschlossen; überprüfen Sie dies daher, bevor Sie es erneut versuchen.",
   "showFullError": "Vollständigen Fehler anzeigen",

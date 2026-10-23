@@ -191,6 +191,7 @@
   "transactionRestoredHint": "此操作是從備份還原而來，因此錢包無法檢查操作是否成功，也無法重新嘗試。請在重複操作前檢查錢包。",
   "submissionInterrupted": "提交過程中網路連線中斷。錢包無法確認是否已成功傳送。該操作仍可能完成，請先確認後再嘗試。",
   "submissionRejectedByGuardian": "您的「Guardian」拒絕了此提交。請重新嘗試。",
+  "submissionBlockedByIssuer": "此代幣的發行者已封鎖您的帳戶，因此無法進行轉帳。",
   "submissionRejectedByNetwork": "系統拒絕了此提交。請重新嘗試。",
   "submissionUnanswered": "此提交未收到任何回應。錢包無法確認該操作是否成功傳送。該操作仍可能完成，因此請先確認後再嘗試。",
   "showFullError": "顯示完整錯誤訊息",
