@@ -422,7 +422,7 @@ describe('TabLayout — action colours', () => {
   it.each([
     ['inactive', '/', 'overview'],
     ['active', '/swap', 'swap']
-  ])('draws the Swap icon in its contrast-tested action colour in the %s state', (state, pathname, activeId) => {
+  ])('draws the Swap icon in its contrast-tested action colour in the %s state', (_state, pathname, activeId) => {
     mockLocation.pathname = pathname;
     renderLayout();
     expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', activeId);
