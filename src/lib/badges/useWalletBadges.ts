@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 
-import { onStorageChanged, useStorage } from 'lib/miden/front/storage';
+import { useStorage } from 'lib/miden/front/storage';
 import { onStorageCleared } from 'lib/storage-cleared';
 
 import { hasUnreadBadges, markBadgesViewed } from './progress';
@@ -27,18 +27,12 @@ export function useMarkWalletBadgesViewed(earned: readonly BadgeId[]): void {
     const stopReset = onStorageCleared(() => {
       current = false;
     });
-    // Extension resets arrive from the service worker before React leaves Ready.
-    // Observe presence only, and attach before reading awards so a wipe cannot be missed.
-    const stopVaultRemoval = onStorageChanged<unknown>('vault_check', value => {
-      if (value == null) current = false;
-    });
-    void Promise.resolve(stopVaultRemoval.attached)
-      .then(() => markBadgesViewed(earned, () => current))
-      .catch(error => console.warn('[badges] could not mark badges viewed', error));
+    void markBadgesViewed(earned, () => current).catch(error =>
+      console.warn('[badges] could not mark badges viewed', error)
+    );
     return () => {
       current = false;
       stopReset();
-      stopVaultRemoval();
     };
   }, [earned]);
 }

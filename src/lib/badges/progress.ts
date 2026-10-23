@@ -1,3 +1,4 @@
+import { isStored } from 'lib/miden/back/safe-storage';
 import { fetchFromStorage, inStorageTurn, putToStorage } from 'lib/miden/front/storage';
 
 import { ISSUABLE_BADGES } from './evidence';
@@ -10,6 +11,11 @@ export function hasUnreadBadges(awards: unknown, seen: unknown): boolean {
   return readEarnedBadges(awards).some(id => ISSUABLE_BADGES.includes(id) && !viewed.includes(id));
 }
 
+// An extension reset wipes storage in the service worker under this same turn and the page hears of it only
+// later, so a writer granted the turn after a wipe must see the wallet gone here. 'vault_check' is the vault's
+// presence entry; isStored applies the vault's own key hashing.
+const walletStillStored = () => isStored('vault_check');
+
 /** Share the award lock with acknowledgements so another page cannot overwrite a newer seen set. */
 export async function mergeBadgeAwards(additions: readonly BadgeId[], current: () => boolean): Promise<void> {
   await inStorageTurn(BADGE_STORAGE_KEY, async () => {
@@ -18,7 +24,7 @@ export async function mergeBadgeAwards(additions: readonly BadgeId[], current: (
     const merged = readEarnedBadges([...stored, ...additions]);
     if (merged.length === stored.length) return;
     const seen = await fetchFromStorage(BADGE_SEEN_STORAGE_KEY);
-    if (!current()) return;
+    if (!(await walletStillStored()) || !current()) return;
     // Seed only the pre-existing awards: this first new award, and later ones, remain unread.
     if (!Array.isArray(seen)) await putToStorage(BADGE_SEEN_STORAGE_KEY, stored);
     if (current()) await putToStorage(BADGE_STORAGE_KEY, merged);
@@ -37,6 +43,8 @@ export async function markBadgesViewed(
     const seen = readEarnedBadges(rawSeen);
     const additions = visible.filter(id => ISSUABLE_BADGES.includes(id) && stored.includes(id));
     const merged = readEarnedBadges([...seen, ...additions]);
-    if (!Array.isArray(rawSeen) || merged.length !== seen.length) await putToStorage(BADGE_SEEN_STORAGE_KEY, merged);
+    if (Array.isArray(rawSeen) && merged.length === seen.length) return;
+    if (!(await walletStillStored()) || !current()) return;
+    await putToStorage(BADGE_SEEN_STORAGE_KEY, merged);
   });
 }

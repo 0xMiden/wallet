@@ -30,8 +30,8 @@ let mockSeen: unknown = null;
 let mockMainnet = true;
 let mockOverride: object | null = null;
 let mockApprovedPair = true;
-let mockVaultRemoval: (value: unknown) => void = () => {};
 let mockResetListener: () => void = () => {};
+const mockIsStored = jest.fn();
 const mockListeners = new Set<() => void>();
 const mockAccounts = [{ publicKey: 'account-a' }, { publicKey: 'account-b' }];
 const mockWrite = jest.fn();
@@ -68,6 +68,9 @@ function landBalances(nonce: string, network = 'mainnet', account = 'account-b')
 }
 jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ accounts: mockAccounts }) }));
 jest.mock('lib/miden/front', () => ({ useNetwork: () => ({ id: 'mainnet' }) }));
+jest.mock('lib/miden/back/safe-storage', () => ({
+  isStored: (key: string) => mockIsStored(key)
+}));
 jest.mock('lib/miden/front/storage', () => ({
   useStorage: (key: string) => {
     const ReactModule = jest.requireActual('react');
@@ -82,10 +85,6 @@ jest.mock('lib/miden/front/storage', () => ({
     ];
   },
   fetchFromStorage: async (key: string) => (key === BADGE_STORAGE_KEY ? mockStored : mockSeen),
-  onStorageChanged: (_key: string, callback: (value: unknown) => void) => {
-    mockVaultRemoval = callback;
-    return jest.fn();
-  },
   putToStorage: async (key: string, value: BadgeId[]) => {
     if (key === BADGE_STORAGE_KEY) {
       mockWrite(key, value);
@@ -172,6 +171,8 @@ beforeEach(async () => {
   mockOverride = null;
   mockApprovedPair = true;
   jest.clearAllMocks();
+  mockIsStored.mockReset();
+  mockIsStored.mockResolvedValue(true);
   __resetSyncFuseStateForTests();
   jest.mocked(withWasmClientLock).mockImplementation(async operation => operation(NO_HOLD));
   jest.mocked(midenClientProxy.getTransactionCommitState).mockResolvedValue('committed');
@@ -275,7 +276,7 @@ it('abandons an in-flight confirmation when wallet storage is reset', async () =
   view.unmount();
 });
 
-it('abandons extension work as soon as the vault-presence key is removed', async () => {
+it('abandons extension work when the vault check is absent before the commit verdict lands', async () => {
   let finish: (state: 'committed') => void = () => {};
   jest.mocked(midenClientProxy.getTransactionCommitState).mockImplementation(
     () =>
@@ -286,9 +287,13 @@ it('abandons extension work as soon as the vault-presence key is removed', async
   await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
   const view = render(<BadgeIssuanceManager />);
   await waitFor(() => expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled());
+  mockIsStored.mockResolvedValue(false);
   await act(async () => {
-    mockVaultRemoval(undefined);
     finish('committed');
+  });
+  await waitFor(() => expect(mockIsStored).toHaveBeenCalledWith('vault_check'));
+  await act(async () => {
+    await Promise.resolve();
   });
   expect(mockWrite).not.toHaveBeenCalled();
   view.unmount();

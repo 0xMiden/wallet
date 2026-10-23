@@ -3,7 +3,11 @@ import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from './types';
 
 const mockValues = new Map<string, unknown>();
 const mockWrites = jest.fn();
+const mockIsStored = jest.fn();
 let mockTurn = Promise.resolve();
+jest.mock('lib/miden/back/safe-storage', () => ({
+  isStored: (key: string) => mockIsStored(key)
+}));
 jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: async (key: string) => mockValues.get(key),
   putToStorage: async (key: string, value: unknown) => {
@@ -19,6 +23,8 @@ jest.mock('lib/miden/front/storage', () => ({
 beforeEach(() => {
   mockValues.clear();
   mockWrites.mockReset();
+  mockIsStored.mockReset();
+  mockIsStored.mockResolvedValue(true);
   mockTurn = Promise.resolve();
 });
 
@@ -84,4 +90,68 @@ it('never acknowledges an unearned or unavailable identifier', async () => {
   await markBadgesViewed(['first-send', 'first-receive']);
   expect(mockValues.get(BADGE_SEEN_STORAGE_KEY)).toEqual([]);
   expect(mockValues.get(BADGE_STORAGE_KEY)).toEqual(['first-receive']);
+});
+
+it('merges a first award while the vault check is present and drops queued writes once it is absent', async () => {
+  await mergeBadgeAwards(['first-send'], () => true);
+  expect(mockValues.get(BADGE_STORAGE_KEY)).toEqual(['first-send']);
+
+  mockWrites.mockClear();
+  mockIsStored.mockClear();
+  let release: () => void = () => {};
+  mockTurn = new Promise(resolve => {
+    release = resolve;
+  });
+  const award = mergeBadgeAwards(['first-deposit'], () => true);
+  const view = markBadgesViewed(['first-send'], () => true);
+  mockIsStored.mockResolvedValue(false);
+  mockValues.delete(BADGE_STORAGE_KEY);
+  mockValues.delete(BADGE_SEEN_STORAGE_KEY);
+  release();
+  await Promise.all([award, view]);
+  expect(mockWrites).not.toHaveBeenCalled();
+  expect(mockIsStored).toHaveBeenCalledWith('vault_check');
+});
+
+it('does not write when the wallet leaves while the presence read is in flight', async () => {
+  let resolvePresence: (present: boolean) => void = () => {};
+  let noteRequested: () => void = () => {};
+  const presenceRequested = new Promise<void>(resolve => {
+    noteRequested = resolve;
+  });
+  const pending = new Promise<boolean>(resolve => {
+    resolvePresence = resolve;
+  });
+  mockIsStored.mockImplementation(() => {
+    noteRequested();
+    return pending;
+  });
+  let current = true;
+  const award = mergeBadgeAwards(['first-send'], () => current);
+  await presenceRequested;
+  current = false;
+  resolvePresence(true);
+  await award;
+  expect(mockWrites).not.toHaveBeenCalled();
+
+  mockValues.set(BADGE_STORAGE_KEY, ['first-send']);
+  let resolveView: (present: boolean) => void = () => {};
+  let noteView: () => void = () => {};
+  const viewRequested = new Promise<void>(resolve => {
+    noteView = resolve;
+  });
+  const viewPending = new Promise<boolean>(resolve => {
+    resolveView = resolve;
+  });
+  mockIsStored.mockImplementation(() => {
+    noteView();
+    return viewPending;
+  });
+  current = true;
+  const view = markBadgesViewed(['first-send'], () => current);
+  await viewRequested;
+  current = false;
+  resolveView(true);
+  await view;
+  expect(mockWrites).not.toHaveBeenCalled();
 });

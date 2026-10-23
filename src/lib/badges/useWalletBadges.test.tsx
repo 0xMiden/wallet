@@ -8,9 +8,12 @@ import { useHasUnreadBadges, useMarkWalletBadgesViewed, useWalletBadges } from '
 
 const mockValues = new Map<string, unknown>();
 const mockListeners = new Set<() => void>();
-const mockVaultListeners = new Set<(value: unknown) => void>();
+const mockIsStored = jest.fn();
 const mockTurnKeys: string[] = [];
 let mockTurn = Promise.resolve();
+jest.mock('lib/miden/back/safe-storage', () => ({
+  isStored: (key: string) => mockIsStored(key)
+}));
 jest.mock('lib/miden/front/storage', () => ({
   useStorage: (key: string, fallback: unknown) => {
     const react = jest.requireActual('react');
@@ -23,10 +26,6 @@ jest.mock('lib/miden/front/storage', () => ({
         () => mockValues.get(key) ?? fallback
       )
     ];
-  },
-  onStorageChanged: (_key: string, cb: (value: unknown) => void) => {
-    mockVaultListeners.add(cb);
-    return () => mockVaultListeners.delete(cb);
   },
   fetchFromStorage: async (key: string) => mockValues.get(key),
   putToStorage: async (key: string, value: unknown) => {
@@ -52,6 +51,8 @@ beforeEach(() => {
   mockValues.clear();
   mockTurnKeys.length = 0;
   mockTurn = Promise.resolve();
+  mockIsStored.mockReset();
+  mockIsStored.mockResolvedValue(true);
 });
 
 test('legacy progress stays read across remount; a new award stays unread until the collection opens', async () => {
@@ -102,7 +103,7 @@ test('coming-soon identifiers never notify', () => {
   expect(screen.getByTestId('unread')).toHaveTextContent('false');
 });
 
-test('extension vault removal cancels an acknowledgement queued before reset', async () => {
+test('a queued acknowledgement is not stored once the vault check is absent', async () => {
   let release: () => void = () => {};
   mockTurn = new Promise(resolve => {
     release = resolve;
@@ -114,8 +115,8 @@ test('extension vault removal cancels an acknowledgement queued before reset', a
     await Promise.resolve();
   });
   const acknowledgementQueuedBeforeReset = mockTurnKeys.includes(BADGE_STORAGE_KEY);
+  mockIsStored.mockResolvedValue(false);
   mockValues.clear();
-  mockVaultListeners.forEach(cb => cb(undefined));
   await act(async () => {
     release();
     await mockTurn;

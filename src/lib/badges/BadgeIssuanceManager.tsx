@@ -6,7 +6,7 @@ import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { isBalanceReflected } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front/client';
-import { fetchFromStorage, onStorageChanged } from 'lib/miden/front/storage';
+import { fetchFromStorage } from 'lib/miden/front/storage';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
@@ -98,11 +98,6 @@ export function BadgeIssuanceManager(): null {
     const stopBalances = useWalletStore.subscribe((state, previous) => {
       if (state.balances !== previous.balances && issuer.awaitsBalance()) void issuer.refresh();
     });
-    // Extension resets happen in the service worker; its storage-removal event reaches this
-    // document even before Ready changes. Watch presence only; never inspect/decrypt the value.
-    const stopVaultRemoval = onStorageChanged<unknown>('vault_check', value => {
-      if (value == null) issuer.stop();
-    });
     const timer = setInterval(() => {
       if (!document.hidden) void issuer.refresh();
     }, 15_000);
@@ -112,7 +107,6 @@ export function BadgeIssuanceManager(): null {
       subscription.unsubscribe();
       stopReset();
       stopBalances();
-      stopVaultRemoval();
       clearInterval(timer);
     };
   }, [accountKey]);
