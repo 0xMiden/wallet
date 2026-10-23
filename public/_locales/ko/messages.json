@@ -4025,6 +4025,18 @@
     "message": "자산 변동",
     "englishSource": "Asset changes"
   },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "이 거래는 또한 NFT와 같이 지갑에서 목록으로 표시할 수 없는 자산을 이동시킵니다. 신뢰할 수 있는 경우에만 진행하십시오.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
+  },
   "unknown": {
     "message": "알 수 없음",
     "englishSource": "Unknown"
