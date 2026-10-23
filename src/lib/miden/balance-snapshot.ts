@@ -78,12 +78,7 @@ export function isBalanceReflected(
   if (!entry?.[1]) return false;
   const rows = entry[1];
   const snapshot = snapshots.get(rows);
-  if (
-    (snapshot?.selectedNetwork ?? snapshot?.network) !== 'mainnet' ||
-    !snapshot?.accountNonce ||
-    !/^\d+$/.test(snapshot.accountNonce)
-  )
-    return false;
+  if (!snapshot?.accountNonce || !hasBalanceSnapshotForNetwork(rows, 'mainnet')) return false;
   if (!/^\d+$/.test(requirement.minimumNonce) || BigInt(snapshot.accountNonce) < BigInt(requirement.minimumNonce))
     return false;
   return rows.some(
