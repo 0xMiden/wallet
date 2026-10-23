@@ -36,7 +36,7 @@ describe('useBridgeInBalanceCap', () => {
   });
   afterEach(() => jest.useRealTimers());
 
-  it('stops clearing a deposit once the holdings quote expires, without any other update', () => {
+  it('stops clearing a deposit the moment the holdings quote expires, without any other update', () => {
     const { result } = renderHook(() =>
       useBridgeInBalanceCap({
         accountPublicKey: 'pk',
@@ -48,7 +48,7 @@ describe('useBridgeInBalanceCap', () => {
     expect(result.current.state).toBe('clear');
 
     act(() => {
-      jest.advanceTimersByTime(10 * 60_000 + 30_000);
+      jest.advanceTimersByTime(10 * 60_000 + 1);
     });
 
     expect(result.current.state).toBe('loading');

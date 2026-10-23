@@ -1563,7 +1563,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     accountPublicKey: midenAccount.publicKey,
     depositAmount: typedUnits === null ? null : Number(amount),
     depositPriceUsd: depositPrice.priceUsd,
-    depositPricePending: depositPrice.pending
+    depositPricePending: depositPrice.pending,
+    depositQuoteExpiresAt: depositPrice.expiresAt
   });
   const capHold = capVerdict.state !== 'none' && capVerdict.state !== 'clear';
   const capHoldError = ((): { id: UserErrorId; text: string } | undefined => {
