@@ -117,7 +117,7 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
       }
     }
   },
-  features: { earn: true },
+  features: { earn: true, nearIntents: false },
   earn: { vaults: [...TEST_EARN_VAULTS] },
   swap: TEST_SWAP_SECTION
 };

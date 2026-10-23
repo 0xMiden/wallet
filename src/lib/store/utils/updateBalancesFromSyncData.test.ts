@@ -247,6 +247,21 @@ describe('updateBalancesFromSyncData', () => {
     expect(state.balancesLastFetched['account-1']).toBeGreaterThan(0);
   });
 
+  it('preserves serialized base units alongside the display balance', async () => {
+    const faucetId = 'large-sync-faucet';
+    const amountBaseUnits = '12345678901234567890';
+    await updateBalancesFromSyncData('large-sync-account', [
+      { faucetId, amountBaseUnits, metadata: { name: 'Large', symbol: 'LARGE', decimals: 0 } }
+    ]);
+
+    const row = useWalletStore
+      .getState()
+      .balances['large-sync-account']!.find(balance => balance.tokenId === faucetId)!;
+
+    expect(row).toMatchObject({ balanceBaseUnits: amountBaseUnits });
+    expect(row.balance).toBe(Number(amountBaseUnits));
+  });
+
   it('always includes MIDEN token even when vault is empty', async () => {
     await updateBalancesFromSyncData('account-1', []);
 

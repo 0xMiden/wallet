@@ -192,6 +192,11 @@ jobs:
         with:
           cmd: ts
 
+      - name: Run 1Click service unit tests
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: test:oneclick-service
+
       - name: Run Unit Tests
         uses: borales/actions-yarn@v4
         with:
@@ -259,6 +264,9 @@ jobs:
         env:
           MIDEN_USE_MOCK_CLIENT: 'true'
 
+      - name: Verify the built extension manifest
+        run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
+
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos
 
@@ -287,6 +295,19 @@ jobs:
           name: appkit-picker-screenshots
           path: test-results/**/appkit-picker-*.png
           if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Run 1Click visual acceptance
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.one-click-visual.config.ts
+
+      - name: Upload 1Click visual acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-click-visual
+          path: test-results/one-click-visual/
+          if-no-files-found: warn
           retention-days: 7
 
   # Required-check name `Test`. Lint/unit and mock Playwright used to run in this
