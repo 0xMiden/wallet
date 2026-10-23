@@ -17,24 +17,15 @@ type LaunchSubscriber = {
   onSample: (now: number) => void;
 };
 
-// One sample for every subscriber. Dropped when the last one leaves, so the next mount reads the clock then.
+// A mount and a launchAt change take Date.now() for the committed render. The shared sample still drives
+// later wakes.
 let sample = 0;
-let hasSample = false;
 const subscribers = new Set<LaunchSubscriber>();
 let wake: ReturnType<typeof setTimeout> | undefined;
 let watchingVisibility = false;
 
-function ensureSample(): number {
-  if (!hasSample) {
-    sample = Date.now();
-    hasSample = true;
-  }
-  return sample;
-}
-
 function publish(now: number): void {
   sample = now;
-  hasSample = true;
   for (const subscriber of [...subscribers]) subscriber.onSample(now);
 }
 
@@ -104,7 +95,6 @@ function subscribeLaunchSample(launchAt: number | null, onSample: (now: number) 
     if (subscribers.size === 0) {
       clearWake();
       unwatchVisibility();
-      hasSample = false;
     } else {
       arm();
     }
@@ -119,7 +109,13 @@ function subscribeLaunchSample(launchAt: number | null, onSample: (now: number) 
  * samples immediately. At or past the moment, both wakes stay stopped until the moment changes.
  */
 export function useMainnetLaunchNow(launchAt: number | null): number {
-  const [now, setNow] = useState(ensureSample);
+  const [now, setNow] = useState(Date.now);
+  const [recordedAt, setRecordedAt] = useState(launchAt);
+  // Store the new moment during render so this pass is discarded and the committed render returns Date.now().
+  if (recordedAt !== launchAt) {
+    setRecordedAt(launchAt);
+    setNow(Date.now());
+  }
   useEffect(() => subscribeLaunchSample(launchAt, setNow), [launchAt]);
   return now;
 }

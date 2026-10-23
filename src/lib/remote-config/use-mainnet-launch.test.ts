@@ -1,9 +1,9 @@
-import React, { useLayoutEffect } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
-import { isInviteOnlyRequired, useMainnetLaunched } from './use-mainnet-launch';
+import { isInviteOnlyRequired, useMainnetLaunched, useMainnetLaunchNow } from './use-mainnet-launch';
 import { hasMainnetLaunched } from './values';
 
 // The remote config's section, as the runtime hands it to this realm; null stands for no accepted document.
@@ -24,6 +24,18 @@ jest.mock('./values', () => {
 
 const LAUNCH_AT = Date.parse('2026-10-26T14:00:00Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Latches like OnboardingNetwork: a committed launched value withholds the child while it is not yet revealed.
+function LaunchGate({ seen }: { seen?: boolean[] }) {
+  const launched = useMainnetLaunched();
+  const revealed = useRef(false);
+  useLayoutEffect(() => {
+    seen?.push(launched);
+    if (!launched) revealed.current = true;
+  });
+  if (launched && !revealed.current) return null;
+  return React.createElement('div', { 'data-testid': 'child' });
+}
 
 const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 
@@ -183,6 +195,33 @@ describe('useMainnetLaunched', () => {
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT - DAY_MS };
     rerender();
     expect(result.current).toBe(true);
+  });
+
+  it('withholds a latched child when a mount reads past a keeper sample', () => {
+    jest.setSystemTime(LAUNCH_AT - 60_000);
+    const keeper = renderHook(() => useMainnetLaunchNow(null));
+
+    jest.setSystemTime(LAUNCH_AT);
+    mockCountdown = { enabled: true, launchAt: LAUNCH_AT - 30_000 };
+    const gate = render(React.createElement(LaunchGate));
+
+    expect(screen.queryByTestId('child')).not.toBeInTheDocument();
+    keeper.unmount();
+    gate.unmount();
+  });
+
+  it('commits the current clock when the moment changes before a wake', () => {
+    jest.setSystemTime(LAUNCH_AT - 60_000);
+    mockCountdown = { enabled: false };
+    const seen: boolean[] = [];
+    const gate = render(React.createElement(LaunchGate, { seen }));
+
+    jest.setSystemTime(LAUNCH_AT);
+    mockCountdown = { enabled: true, launchAt: LAUNCH_AT - 30_000 };
+    gate.rerender(React.createElement(LaunchGate, { seen }));
+
+    expect(seen).toEqual([false, true]);
+    gate.unmount();
   });
 });
 
