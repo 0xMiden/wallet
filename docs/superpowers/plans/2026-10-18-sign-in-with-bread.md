@@ -101,8 +101,8 @@ export function deriveLoginKeyScalar(
 ```
 - `loginKeyDomain(origin)`:
   - `new URL(origin)`; a failure throws `Error('INVALID_PARAMS: not an origin')`.
-  - Secure pages only: `https:`, or `http:` on `localhost`, a `*.localhost` name, `127.0.0.1` or `[::1]`. Anything else throws `Error('INVALID_PARAMS: login keys need an https page')`.
-  - `host = url.hostname.toLowerCase()` (the URL parser has already converted an IDN to punycode). Port and scheme never enter the domain.
+  - `host = url.hostname.toLowerCase()` (the URL parser has already converted an IDN to punycode), with trailing dots removed, since `tldts` drops them for its own lookup: `http://localhost.` is a loopback page and `https://intranet.` uses `intranet`. Port and scheme never enter the domain.
+  - Secure pages only, checked on that `host`: `https:`, or `http:` on `localhost`, a `*.localhost` name, `127.0.0.1` or `[::1]`. Anything else throws `Error('INVALID_PARAMS: login keys need an https page')`.
   - `parse(host, { allowPrivateDomains: true })` from `tldts`: an IP or no `domain` gives `host`; otherwise `domain`.
 - `deriveLoginKeyScalar`:
   - `info` is the UTF-8 bytes of `v1\0<source>\0<domain>\0` followed by one counter byte, starting at 0.
@@ -202,7 +202,7 @@ interface MidenDAppLoginKeyResponse { type: LoginKeyResponse; loginKey: string }
 interface MidenDAppLoginSignRequest { type: LoginSignRequest; sourceAccountId: string; payload: string; kind: 'word' }
 interface MidenDAppLoginSignResponse { type: LoginSignResponse; signature: string } // base64, 66 bytes
 ```
-- Both handlers: `sourceAccountId` is required, else `INVALID_PARAMS`; `getDApp(origin, sourceAccountId)`, else `NOT_GRANTED`; `assertRequestAccountIsCurrent(dApp.accountId)`; `domain = loginKeyDomain(origin)`, from the `origin` argument only. Every other request field is ignored.
+- Both handlers: `sourceAccountId` is required, else `INVALID_PARAMS`; `getDApp(origin, sourceAccountId)`, else `NOT_GRANTED`; `assertRequestAccountIsCurrent(dApp.accountId)`; `domain = loginKeyDomain(origin)`, from the `origin` argument only. No other request field selects the account or the domain; `requestLoginSign` checks `kind` and `payload` as below.
 - `requestLoginKey`: no prompt. A locked wallet follows `requestGuardianInfo`: `runPrepare`, then `prepareAfterUnlock` on mobile and desktop, `requestUnlockOnly` on the extension. The vault call takes the stored session's account and the page's domain; nothing comes from the request.
 - `requestLoginSign`:
   - `kind` must be `'word'` and the payload must decode to 32 bytes holding four little-endian u64 field elements, each strictly below 0xffffffff00000001. Otherwise refuse before any prompt with `INVALID_PARAMS: a login signature signs only a word: 32 bytes holding four little-endian field elements`.
