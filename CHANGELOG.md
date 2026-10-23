@@ -22,6 +22,8 @@
 
 ### Changes
 
+- [CHANGE][docs] Align GC integration scope, Testnet evidence and remaining release gates; keep per-game policies and wallet-explore catalog ownership explicit (#1515, #1452).
+
 - [CHANGE][all] Enable inventory-backed weekly claims for our existing Testnet GC token using the deployed distributor; preserve legacy request recovery and keep Mainnet disabled (#1452).
 
 - [CHANGE][all] Add an inventory-backed GC distributor protocol with user-funded weekly payouts, exact fee refunds, replenishment and reclaim paths; deployment and wallet activation remain separate (#1452).

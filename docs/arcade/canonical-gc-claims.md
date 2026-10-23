@@ -1,4 +1,7 @@
-# Canonical GC wallet binding
+# GC wallet binding
+
+For the current product and integration contract, see [GC integration](gc-integration.md).
+These notes describe an unmerged Testnet stack, not released Mainnet functionality.
 
 The backend supports two independently scoped claim protocols. The approved Testnet asset is our existing
 GC issuer `0x97924b9a77ed54917ff6d6364ae661`. The active Testnet distributor is
@@ -67,10 +70,6 @@ Validated on the preserved Bread GC Testnet Guardian account using this activati
 - A normal 1-GC public transfer to the other owned Testnet account committed in block 474627, note `0xe144152fc8ef6beb48b7e1d83eecdb3c5664f8aaf4b930c0c16957cd02f10991`; Bread confirmed 133 native units paid as its fee. The sender retains 19 GC. The recipient consumed that exact note in transaction
 `0xc364b1e990f28a1897a2981e61cbd5a4eb65451f93142322bb6e3917a3a6de8b`, committed at block 474727; its balance increased from 0 to 1 GC and its receive fee was 119 native units. The separate 9-GC asset was not relabeled or spent.
 
-![Native receipt review](../superpowers/evidence/2026-10-23-gc/v2-receipt-review.png)
-![Claimed allocation](../superpowers/evidence/2026-10-23-gc/v2-claimed-20gc.png)
-![Preserved balance after restart](../superpowers/evidence/2026-10-23-gc/v2-restart-20gc.png)
-![Ordinary GC transfer](../superpowers/evidence/2026-10-23-gc/v2-transfer-success.png)
 
 Local checks: 146 Arcade tests, TypeScript, changed-file lint, real-SDK/Rust v1/v2 construction parity,
 mobile/iOS build and extension background/UI builds passed. Native evidence is iOS-specific; extension
@@ -106,7 +105,6 @@ No tokens were minted, and the unrelated 9-GC asset remained separate.
 - Refund collection `0x66adbab4cda817caf9cd84dfcfbeb96dbd392540280ca01f85cb7a95916242e4` committed at block 475197. It received 98 native units and paid 119 as its own receive fee.
 - A real SDK vault query at block 475184 returned `gcUnits: 10000000` and `inventoryAvailable: true`, complementing the earlier empty-inventory query. Bread retained 10 GC and still displayed “Claimed this week”; replenishing inventory did not grant the same wallet another weekly allocation.
 
-![Native balance and completed weekly claim after replenishment](../superpowers/evidence/2026-10-23-gc/v2-replenished-claimed-10gc.png)
 
 The inventory child passed 173 focused tests, TypeScript, changed-file lint, locale consistency,
 mobile/iOS compilation and extension background/UI builds. Native acceptance remains specific to iOS;
