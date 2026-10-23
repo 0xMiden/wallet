@@ -1,5 +1,6 @@
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
+import legacy from './deployments/testnet-gc-legacy.json';
 import testnet from './deployments/testnet-gc.json';
 import { GcClaimContext, gcClaimBindingKey, gcClaimU32, gcClaimWord } from './gc-claim-operation';
 
@@ -45,8 +46,20 @@ export function decodeGcClaimDeployment(data: GcClaimDeploymentData): GcClaimDep
   };
 }
 
-/** Pinned replacement issuer. Mainnet and other networks remain unavailable. */
+/** Pinned inventory-backed Testnet distributor. Mainnet and other networks remain unavailable. */
 export async function resolveGcClaimDeployment(): Promise<GcClaimDeployment | undefined> {
   if (getEffectiveNetworkName() !== 'testnet') return undefined;
-  return decodeGcClaimDeployment({ ...testnet, network: 'testnet' });
+  const distribution = testnet.distribution;
+  if (distribution.protocolVersion !== 2) throw new Error('Invalid active GC protocol');
+  return decodeGcClaimDeployment({
+    ...testnet,
+    network: 'testnet',
+    distribution: { ...distribution, protocolVersion: distribution.protocolVersion }
+  });
+}
+
+/** Retained only for prior receipts and budget recovery, never for new claims. */
+export async function resolveLegacyGcClaimDeployment(): Promise<GcClaimDeployment | undefined> {
+  if (getEffectiveNetworkName() !== 'testnet') return undefined;
+  return decodeGcClaimDeployment({ ...legacy, network: 'testnet' });
 }

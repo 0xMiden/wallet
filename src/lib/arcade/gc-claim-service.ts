@@ -2,6 +2,7 @@ import type { ITransaction } from 'lib/miden/db/types';
 
 import type { GcEntitlement } from './entitlement';
 import type { GcClaimDeployment } from './gc-claim-deployment';
+import { createGcClaimMigrationService } from './gc-claim-migration';
 import { gcClaimAssetId, gcClaimBindingKey, gcClaimScope, gcClaimPhase as classifyPhase } from './gc-claim-operation';
 import type {
   GcClaimContext,
@@ -864,4 +865,10 @@ async function measureRequest(
   );
 }
 
-export const gcClaimBackendService = createGcClaimBackendService(production);
+export const gcClaimBackendService = createGcClaimMigrationService(
+  createGcClaimBackendService(production),
+  createGcClaimBackendService({
+    ...production,
+    deployment: async () => (await import('./gc-claim-deployment')).resolveLegacyGcClaimDeployment()
+  })
+);

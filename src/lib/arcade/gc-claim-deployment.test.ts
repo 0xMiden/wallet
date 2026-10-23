@@ -6,12 +6,18 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkNam
 afterEach(() => {
   mockNetwork = 'testnet';
 });
-it('pins only the deployed replacement Testnet issuer and its script', async () => {
+it('pins our deployed Testnet inventory distributor and keeps the GC asset identity', async () => {
   const config = await resolveGcClaimDeployment();
   expect(config).toMatchObject({
-    issuerId: '0x97924b9a77ed54917ff6d6364ae661',
-    issuerCodeCommitment: '0x2898ac7fc97bcd7605db86fa839f2e0d8c96c74ed238769b76716dbcd22e47d5',
-    deploymentBlock: 461926,
+    issuerId: '0x5f2b2136d78f755114d00efe84b7aa',
+    issuerCodeCommitment: '0x2370dbed4c8fd0a3586924a21ec798649a1f971af4e94d58b96caa8beefd1ef2',
+    distribution: {
+      protocolVersion: 2,
+      distributorId: '0x5f2b2136d78f755114d00efe84b7aa',
+      gcFaucetId: '0x97924b9a77ed54917ff6d6364ae661',
+      weeklyClaimsSlot: 'bread::gc::distributor::weekly_claims'
+    },
+    deploymentBlock: 474315,
     nativeSymbol: 'USDCX',
     nativeDecimals: 6
   });
@@ -59,5 +65,14 @@ it('materializes reviewed v2 configuration without enabling the construction fix
   expect(decoded.distribution?.gcFaucetId).toBe('0xe1f2c48d5bfa8d5173dfcfdc8ac977');
   expect(decoded.claimScriptBytes).toEqual(new Uint8Array([1, 2, 3]));
   expect(() => decodeGcClaimDeployment(raw)).toThrow();
-  expect((await resolveGcClaimDeployment())?.distribution).toBeUndefined();
+  expect((await resolveGcClaimDeployment())?.distribution?.gcFaucetId).toBe('0x97924b9a77ed54917ff6d6364ae661');
+});
+
+it('retains the exact v1 Testnet binding for cleanup and disables it on Mainnet', async () => {
+  const { resolveLegacyGcClaimDeployment } = await import('./gc-claim-deployment');
+  const legacy = await resolveLegacyGcClaimDeployment();
+  expect(legacy).toMatchObject({ issuerId: '0x97924b9a77ed54917ff6d6364ae661', deploymentBlock: 461926 });
+  expect(legacy?.distribution).toBeUndefined();
+  mockNetwork = 'mainnet';
+  await expect(resolveLegacyGcClaimDeployment()).resolves.toBeUndefined();
 });
