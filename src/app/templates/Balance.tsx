@@ -10,9 +10,15 @@ import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 
+/** The valued total's move over 24 hours, in dollars and as a percentage of where it started. */
+export interface BalanceChange {
+  absolute: number;
+  percentage: number;
+}
+
 type BalanceProps = {
   /** The fiat total, or null when the account holds tokens and none can be valued (unquoted or of unknown scale). */
-  children: (b: BigNumber | null) => ReactElement;
+  children: (b: BigNumber | null, change: BalanceChange | null) => ReactElement;
 };
 
 const Balance = memo<BalanceProps>(({ children }) => {
@@ -28,8 +34,17 @@ const Balance = memo<BalanceProps>(({ children }) => {
     void bridgeConfig;
     // The card sums what Home lists, and a hidden token is not listed (#813). What counts and what is left out is
     // `valuedBalanceTotal`'s rule, shared with the bridge-in ceiling.
-    const { totalFiat, holdsAnything, valuedAnything } = valuedBalanceTotal(allTokenBalances, tokenPrices, isHidden);
-    const childNode = children(holdsAnything && !valuedAnything ? null : new BigNumber(totalFiat));
+    const { totalFiat, previousFiat, holdsAnything, valuedAnything } = valuedBalanceTotal(
+      allTokenBalances,
+      tokenPrices,
+      isHidden
+    );
+    // No change to show without a valued total, or from a starting value of zero.
+    const change =
+      valuedAnything && previousFiat > 0
+        ? { absolute: totalFiat - previousFiat, percentage: ((totalFiat - previousFiat) / previousFiat) * 100 }
+        : null;
+    const childNode = children(holdsAnything && !valuedAnything ? null : new BigNumber(totalFiat), change);
     const exist = true;
 
     return (

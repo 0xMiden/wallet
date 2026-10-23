@@ -230,7 +230,7 @@ describe('TabHeaderAction', () => {
     render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} />);
 
     const button = screen.getByRole('button', { name: 'Search' });
-    // The same circle the pushed-page back button and the sheets use, not a bare glyph.
+    // The 44px `filled` circle, the same size and fill as `back`, with this glyph remaining ink.
     expect(button.className).toContain('w-11');
     expect(button.className).toContain('h-11');
     expect(button.className).toContain('bg-fill');

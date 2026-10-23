@@ -150,7 +150,8 @@ describe('MidenProvider', () => {
         'fiat_currency',
         'last_shown_changelog_version',
         'network_id',
-        'wallet_badges:v1:mainnet'
+        'wallet_badges:v1:mainnet',
+        'wallet_badges_seen:v1:mainnet'
       ],
       expect.objectContaining({ onSettled: expect.any(Function) })
     );

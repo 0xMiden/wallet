@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import guardianSwitchAvatarUrl from 'app/icons/guardian-switch-avatar.svg?url';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
@@ -37,7 +38,7 @@ import {
   IOneClickTrackingData
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
-import { isUnconfirmedRotation, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
+import { isUnconfirmedRotation, rotationRowTitleKey, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -485,6 +486,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
           guardianSwitchVerdict: rotationVerdict(tx)?.kind,
+          guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
           errorMessage: submission?.kind === 'rejected' ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
@@ -648,6 +650,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const earnWithdrawChain = earnWithdraw ? earnRowChain(earnWithdraw.marketUid) : undefined;
   const earnDepositChain = earnDeposit ? earnRowChain(earnDeposit.marketUid) : undefined;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // A settled rotation's verdict names it; an in-flight one has no verdict title and keeps its own message.
+  const guardianSwitchTitleKey = entry?.guardianSwitchVerdict
+    ? rotationRowTitleKey(entry.guardianSwitchVerdict)
+    : undefined;
+  // The heading reads as the Activity row does (HistoryView's title, History's failed message): an unknown
+  // outcome, a cancel and a failure first, then a recovered row's action, then the rotation's verdict.
+  const guardianSwitchTitle = !isGuardianSwitch
+    ? undefined
+    : entry.isUnconfirmed
+      ? t('notConfirmed')
+      : entry.isCancelled
+        ? t('cancelled')
+        : entry.status === ITransactionStatus.Failed
+          ? t('transactionFailedNotificationTitle')
+          : !entry.guardianRecovered && guardianSwitchTitleKey
+            ? t(guardianSwitchTitleKey)
+            : entry.message;
   const isUnconfirmedSwitch =
     isGuardianSwitch &&
     !entry?.isCancelled &&
@@ -846,11 +865,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
-                <GuardianChangeSummary
-                  kind="switch"
-                  previousEndpoint={entry.previousGuardianEndpoint}
-                  newEndpoint={entry.newGuardianEndpoint}
-                />
+                <>
+                  {/* Titled like the activity row; the status pill follows it and the change card comes last. */}
+                  {/* The same Guardian avatar as the Activity row, at the 72px transaction-icon size. */}
+                  <img src={guardianSwitchAvatarUrl} alt="" className="mb-3 h-18 w-18 rounded-full" />
+                  <h2 className="text-center text-hero-name text-ink">{guardianSwitchTitle}</h2>
+                  <GuardianChangeSummary
+                    kind="switch"
+                    previousEndpoint={entry.previousGuardianEndpoint}
+                    newEndpoint={entry.newGuardianEndpoint}
+                    className="order-last mt-4"
+                  />
+                </>
               ) : rotationGuardianEndpoint ? (
                 <GuardianChangeSummary kind="single" endpoint={rotationGuardianEndpoint} />
               ) : (
@@ -915,8 +941,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
             {/* Transfer Details: flush under the hero, whose own 20px is the gap above the rule. */}
             <div>
-              <SectionDivider color={sectionDividerColor} />
-              <div className="mt-5">
+              {/* A Guardian switch's change card already closes the hero, so it takes no colored rule. */}
+              {!isGuardianSwitch && <SectionDivider color={sectionDividerColor} />}
+              <div className={isGuardianSwitch ? undefined : 'mt-5'}>
                 <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 

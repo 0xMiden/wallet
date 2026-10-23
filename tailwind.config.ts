@@ -203,6 +203,7 @@ export default {
         hairline: 'var(--ds-hairline)',
         raised: 'var(--ds-raised)',
         ink: 'var(--ds-ink)',
+        'back-glyph': 'var(--ds-back-glyph)',
         muted: 'var(--ds-muted)',
         'accent-tint': 'var(--ds-accent-tint)',
         'accent-tint-ink': 'var(--ds-accent-tint-ink)',

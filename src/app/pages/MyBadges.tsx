@@ -9,7 +9,7 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
-import { useWalletBadges } from 'lib/badges/useWalletBadges';
+import { useMarkWalletBadgesViewed, useWalletBadges } from 'lib/badges/useWalletBadges';
 import { useNetwork } from 'lib/miden/front';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { BadgeMedallion } from 'screens/badges/BadgeMedallion';
@@ -27,7 +27,7 @@ const BadgeCard: React.FC<{ badge: BadgeDefinition; earned: boolean }> = ({ badg
       <p className="mt-1 text-caption-heading text-muted">{t(badge.descriptionI18nKey)}</p>
       <span className="mt-auto pt-3">
         <Pill size="xs" tone={earned ? 'positive' : 'inactive'}>
-          {t(earned ? 'badgeEarned' : badge.available ? 'locked' : 'badgeVerificationPending')}
+          {t(earned ? 'badgeEarned' : badge.available ? 'locked' : 'badgesStatComingSoon')}
         </Pill>
       </span>
     </article>
@@ -58,6 +58,7 @@ const MyBadges: React.FC = () => {
   const { t } = useTranslation();
   const network = useNetwork();
   const earned = useWalletBadges();
+  useMarkWalletBadgesViewed(earned);
   const back = useBackWithFallback('/me');
   const isMainnet = network.id === MIDEN_NETWORK_NAME.MAINNET;
   const unearned = BADGE_CATALOG.filter(badge => !earned.includes(badge.id));

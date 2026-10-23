@@ -446,6 +446,18 @@
     "message": "提領",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "存款",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "轉入 Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "出自 Miden",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "存入更多款項",
     "englishSource": "Deposit more"
@@ -6139,8 +6151,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "僅連接測試錢包",
-    "englishSource": "Connect a test wallet only"
+    "message": "僅使用測試錢包",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "僅限測試資金",
@@ -7120,24 +7132,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "將您欲轉入 Miden 的代幣所存放的錢包進行連結。",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "存放您欲帶至 Miden 之代幣的錢包。",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "連接錢包",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "外部錢包",
-    "englishSource": "External wallet"
+    "message": "您的錢包",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "尚未連線",
-    "englishSource": "Not connected yet"
+    "message": "未連線",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "連線後",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask、Rainbow 或任何 WalletConnect 錢包。",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "選擇您的轉帳方式",
@@ -7152,12 +7168,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "請確認轉帳路徑與手續費，然後在您的錢包中批准轉帳。",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "請確認交易路徑與手續費，然後在您的錢包中進行確認。",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "請使用僅存放測試代幣的獨立錢包。切勿連接存放真實資金的錢包。",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "切勿連接存放真實資金的錢包。",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "選擇路徑",
@@ -7304,6 +7320,27 @@
   "earnWithdrawStaysInvested": {
     "message": "Stays invested",
     "englishSource": "Stays invested"
+  },
+  "earnWithdrawArrivesOn": {
+    "message": "抵達於",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · 約 1 分鐘",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gas",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "贊助內容",
+    "englishSource": "Sponsored"
   },
   "earnWithdrawAll": {
     "message": "Full balance",
