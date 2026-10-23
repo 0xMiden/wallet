@@ -446,6 +446,18 @@
     "message": "Вывод средств",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "В Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Из Мидена",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Пополнить счет",
     "englishSource": "Deposit more"
@@ -6139,8 +6151,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Подключайте только тестовый кошелек",
-    "englishSource": "Connect a test wallet only"
+    "message": "Используйте только тестовый кошелек",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Только тестовые средства",
@@ -7120,24 +7132,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Подключите кошелек, в котором хранятся токены, которые вы хотите перенести в Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Кошелек, в котором хранятся токены, которые вы хотите перенести в Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Подключить кошелек",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Внешний кошелек",
-    "englishSource": "External wallet"
+    "message": "Ваш кошелек",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Пока не подключено",
-    "englishSource": "Not connected yet"
+    "message": "Не подключено",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "После подключения",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow или любой кошелек WalletConnect.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Выберите тип перевода",
@@ -7152,12 +7168,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Проверьте маршрут и комиссии, а затем подтвердите перевод в своём кошельке.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Проверьте маршрут и комиссии, а затем подтвердите операцию в своём кошельке.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Используйте отдельный кошелек, содержащий исключительно тестовые токены. Ни в коем случае не подключайте кошелек, в котором хранятся реальные средства.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Никогда не подключайте кошелек, на котором хранятся реальные средства.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Выберите маршрут",

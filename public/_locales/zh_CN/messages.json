@@ -446,6 +446,18 @@
     "message": "提现",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "存款",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "转入 Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "出自 Miden",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "存入更多",
     "englishSource": "Deposit more"
@@ -6139,8 +6151,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "仅连接测试钱包",
-    "englishSource": "Connect a test wallet only"
+    "message": "仅使用测试钱包",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "仅限测试资金",
@@ -7120,24 +7132,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "连接存放您想要转入 Miden 的代币的钱包。",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "存放您打算带到 Miden 的代币的钱包。",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "连接钱包",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "外部钱包",
-    "englishSource": "External wallet"
+    "message": "您的钱包",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "尚未连接",
-    "englishSource": "Not connected yet"
+    "message": "未连接",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "连接后",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask、Rainbow 或任何 WalletConnect 钱包。",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "选择您的转账方式",
@@ -7152,12 +7168,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "请核对转账路径和手续费，然后在您的钱包中批准转账。",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "请核对转账路径和手续费，然后在您的钱包中确认交易。",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "请使用仅存放测试代币的独立钱包。切勿连接存有真实资金的钱包。",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "切勿连接存有真实资金的钱包。",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "选择路径",

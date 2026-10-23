@@ -178,7 +178,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {title}
           </span>
           {subtitle && (
-            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption text-muted">
+            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption-heading text-muted">
               {subtitle}
             </span>
           )}

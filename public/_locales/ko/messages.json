@@ -446,6 +446,18 @@
     "message": "인출",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "입금",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "Miden으로",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "Miden 외",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "더 입금하기",
     "englishSource": "Deposit more"
@@ -6139,8 +6151,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "테스트 지갑만 연결하십시오",
-    "englishSource": "Connect a test wallet only"
+    "message": "테스트 지갑만 사용하십시오",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "테스트 자금 전용",
@@ -7120,24 +7132,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Miden으로 가져오고자 하는 토큰이 들어 있는 지갑을 연결하십시오.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Miden으로 가져오고자 하는 토큰을 보관하고 있는 지갑.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "지갑 연결",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "외부 지갑",
-    "englishSource": "External wallet"
+    "message": "귀하의 지갑",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "아직 연결되지 않음",
-    "englishSource": "Not connected yet"
+    "message": "연결되지 않음",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "연결 후",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow 또는 WalletConnect 호환 지갑.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "이체 유형 선택",
@@ -7152,12 +7168,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "경로와 수수료를 확인한 후, 지갑에서 이체를 승인하십시오.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "경로와 수수료를 확인한 후, 지갑에서 승인하십시오.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "테스트 토큰 전용으로 별도의 지갑을 사용하십시오. 실제 자금이 들어 있는 지갑은 절대로 연결하지 마십시오.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "실제 자금이 들어 있는 지갑을 절대로 연결하지 마십시오.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "경로 선택",
