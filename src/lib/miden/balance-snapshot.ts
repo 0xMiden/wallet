@@ -10,7 +10,7 @@ import type { TokenBalanceData } from './front/balance';
 /** Captured under the WASM lock from the SAME account object as its vault assets. */
 export interface BalanceSnapshot {
   network: string;
-  /** Display provenance for a saved standard network choice; confirmation policy still uses network. */
+  /** Set only while a saved endpoint-free network choice held for the whole read; readers take it as that network. */
   selectedNetwork?: string;
   accountNonce?: string;
 }
@@ -78,7 +78,12 @@ export function isBalanceReflected(
   if (!entry?.[1]) return false;
   const rows = entry[1];
   const snapshot = snapshots.get(rows);
-  if (snapshot?.network !== 'mainnet' || !snapshot.accountNonce || !/^\d+$/.test(snapshot.accountNonce)) return false;
+  if (
+    (snapshot?.selectedNetwork ?? snapshot?.network) !== 'mainnet' ||
+    !snapshot?.accountNonce ||
+    !/^\d+$/.test(snapshot.accountNonce)
+  )
+    return false;
   if (!/^\d+$/.test(requirement.minimumNonce) || BigInt(snapshot.accountNonce) < BigInt(requirement.minimumNonce))
     return false;
   return rows.some(
