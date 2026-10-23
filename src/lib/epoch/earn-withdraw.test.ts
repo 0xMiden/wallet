@@ -397,6 +397,22 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     expect(deps.initiateRow).not.toHaveBeenCalled();
   });
 
+  it('refuses a market on a chain the config names no Epoch route on, and accepts any route chain', async () => {
+    // Base is a route in the document, Sepolia is not: the chain is never fixed in the code.
+    jest.mocked(findEpochUsdcAddress).mockImplementation(chainId => (chainId === 8453 ? UNDERLYING : null));
+    jest.mocked(findEvmUsdc).mockImplementation(chainId => (chainId === 8453 ? TEST_EVM_USDC : null));
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+    try {
+      await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow(
+        'Gasless withdrawal only supports a chain the wallet configuration names an Epoch route on.'
+      );
+      expect(deps.initiateRow).not.toHaveBeenCalled();
+    } finally {
+      jest.mocked(findEpochUsdcAddress).mockReturnValue(TEST_EVM_USDC.address);
+      jest.mocked(findEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+    }
+  });
+
   it("checks the position decimals against the market chain's USDC, not the first listed chain's", async () => {
     const firstListed: EvmUsdc = {
       address: '0x5555555555555555555555555555555555555555',
