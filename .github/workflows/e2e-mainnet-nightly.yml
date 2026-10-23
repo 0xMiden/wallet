@@ -1,6 +1,6 @@
 name: E2E Mainnet Nightly
 
-# One Chrome job against Miden mainnet, from origin/main. It restores two long-lived
+# One Chrome job against Miden mainnet, from the ref it runs on (main for the schedule). It restores two long-lived
 # accounts, sends one base unit of the native asset each way, then loops the minimum
 # bridge on every mainnet route: USDCx on Arc, Base, Arbitrum and Ethereum, and native
 # ETH over AggLayer. The loops check every chain first and send nothing if any one of
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v4
         with:

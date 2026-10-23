@@ -236,8 +236,18 @@ async function runAgglayer(
     midenAddress,
     wei: AGGLAYER_LOOP_WEI
   });
-  await wallet.triggerSync(true);
-  await wallet.claimAllNotes();
+  // The deposit lands on Miden after the L1 bridge's finality, minutes after the L1 receipt, so sync and claim until
+  // the ETH row exists; a later night finds the previous night's ETH already there.
+  await expect
+    .poll(
+      async () => {
+        await wallet.triggerSync(true);
+        await wallet.claimAllNotes();
+        return vaultBalance(wallet.page, 'ETH');
+      },
+      { timeout: 1_500_000, intervals: [30_000] }
+    )
+    .toBeGreaterThan(0n);
   await bridgeOutSlow(wallet, {
     destAddress: evmAddress,
     tokenSymbol: 'ETH',
