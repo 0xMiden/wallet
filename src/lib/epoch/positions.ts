@@ -107,8 +107,6 @@ export interface EarnPosition {
   underlyingAddress: string;
   decimals: number;
   priceUsd: number;
-  /** The document's protocol for this market, the string a deposit hashes. Absent when the document does not list it. */
-  epochProtocol?: '1delta' | 'dummy-lending';
 }
 
 export interface EarnPositionsResult {

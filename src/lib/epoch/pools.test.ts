@@ -438,12 +438,8 @@ describe('readEarnVaults from /pools', () => {
 });
 
 describe('readEarnVaults on a host with no /pools route', () => {
-  it.each([
-    ['a 404', () => answer('Cannot GET /pools', 404)],
-    ['a body that is not JSON', notJson],
-    ['an unsuccessful envelope', () => answer({ success: false, error: 'unknown route' })],
-    ['an envelope with no items', () => answer({ success: true, data: { items: null } })]
-  ])("reads the zero account's positions after %s", async (_label, pools) => {
+  it("reads the zero account's positions after a 404", async () => {
+    const pools = () => answer('Cannot GET /pools', 404);
     const fetchMock = serve(pools, () =>
       answer({
         success: true,
@@ -478,6 +474,20 @@ describe('readEarnVaults on a host with no /pools route', () => {
       listing: DUMMY_LISTING
     };
     expect(result).toEqual(served([expected], 'positions'));
+  });
+
+  it.each([
+    ['a 503 response', () => answer(null, 503)],
+    ['a body that is not JSON', notJson],
+    ['an unsuccessful envelope', () => answer({ success: false, error: 'unknown route' })],
+    ['an envelope with no items', () => answer({ success: true, data: { items: null } })]
+  ])('does not fall back after %s', async (_label, pools) => {
+    const fetchMock = serve(pools, () =>
+      answer({ success: true, data: { items: [positionsCatalogItem('DUMMY_LENDING')] } })
+    );
+
+    await expect(readVaults(route(DUMMY_LISTING))).rejects.toThrow();
+    expect(requestedUrls(fetchMock)).toEqual([expect.stringContaining(`${POSITIONS_URL}/pools?`)]);
   });
 
   it('gives the underlying the symbol and decimals the caller names', async () => {

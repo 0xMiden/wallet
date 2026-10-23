@@ -264,7 +264,6 @@ export const EARN_DATA: {
     {
       id: 'morpho-unibtc-base-usdc',
       name: 'Morpho uniBTC-USDC 77',
-      marketName: 'Loan USDC',
       protocol: 'Morpho',
       asset: 'USDC',
       network: 'Base',
@@ -284,7 +283,6 @@ export const EARN_DATA: {
     {
       id: 'morpho-cbbtc-base-usdc',
       name: 'Morpho cbBTC-USDC 86',
-      marketName: 'Loan USDC',
       protocol: 'Morpho',
       asset: 'USDC',
       network: 'Base',
@@ -304,7 +302,6 @@ export const EARN_DATA: {
     {
       id: AAVE_V3_VAULT_ID,
       name: 'Aave V3 USDC',
-      marketName: 'Aave V3 USDC',
       protocol: 'Aave V3',
       asset: 'USDC',
       network: 'Base',
@@ -324,7 +321,6 @@ export const EARN_DATA: {
     {
       id: 'compound-v3-base-usdc',
       name: 'Compound III USDC',
-      marketName: 'Compound V3 USDC',
       protocol: 'Compound V3',
       listedAbout: 'Lends USDC to Compound III borrowers on Base.',
       asset: 'USDC',
@@ -346,7 +342,6 @@ export const EARN_DATA: {
     {
       id: 'dummy-lending-sepolia-usdc',
       name: 'Dummy Lending USDC',
-      marketName: 'Dummy Lending',
       protocol: 'Dummy Lending',
       asset: 'USDC',
       network: 'Sepolia',

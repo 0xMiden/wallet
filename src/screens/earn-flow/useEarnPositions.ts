@@ -4,8 +4,11 @@ import { useSWRConfig } from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import * as Repo from 'lib/miden/repo';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { EarnVaultConfig } from 'lib/remote-config/schema';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -331,16 +334,62 @@ export function useEarnPositions(): {
   // still come, whatever the positions read reports.
   const vaultsPending = listed.length > 0 && config.derived?.epoch.vaults === undefined;
 
+  // A position the document leaves without a protocol takes the newest local earn-deposit for this account, owner and
+  // market, so a market the document no longer lists stays withdrawable. The read is the transactions table.
+  const [depositProtocols, setDepositProtocols] = useState(() => new Map<string, '1delta' | 'dummy-lending'>());
+  useEffect(() => {
+    const missing = (data?.positions ?? []).some(
+      position => mapEarnPosition(position, listed, logoUrlOf).epochProtocol === undefined
+    );
+    // Drop a previous account's protocols before the read returns, so they cannot label this account's position.
+    setDepositProtocols(current => (current.size === 0 ? current : new Map()));
+    if (!missing) return;
+    let cancelled = false;
+    void (async () => {
+      const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
+      if (cancelled) return;
+      const found = new Map<string, '1delta' | 'dummy-lending'>();
+      const newestAt = new Map<string, number>();
+      for (const tx of rows) {
+        if (tx.type !== 'earn-deposit' || tx.restoredFromBackup) continue;
+        if (!compareAccountIds(tx.accountId, account.publicKey)) continue;
+        const extra: IEarnDepositExtraInputs | undefined = tx.extraInputs;
+        if (!extra) continue;
+        const protocol = extra.protocol;
+        if (protocol !== '1delta' && protocol !== 'dummy-lending') continue;
+        const owner = extra.evmRecipient.trim().toLowerCase();
+        const marketUid = extra.marketUid.trim().toLowerCase();
+        if (!owner || !marketUid) continue;
+        const key = `${owner}:${marketUid}`;
+        const previous = newestAt.get(key);
+        if (previous !== undefined && previous >= tx.initiatedAt) continue;
+        newestAt.set(key, tx.initiatedAt);
+        found.set(key, protocol);
+      }
+      setDepositProtocols(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [account.publicKey, data, listed, logoUrlOf]);
+
   return useMemo(() => {
     // Owner queries never reject: each failure resolves in `errors`, while what loaded before may still show.
     const failedOwners = new Set(data?.errors.map(({ owner }) => owner));
     const loadError = readError ? errorText(readError) : undefined;
     const stale = Boolean(readError) || fromStore !== undefined;
     return {
-      positions: (data?.positions ?? []).map(position => ({
-        ...mapEarnPosition(position, listed, logoUrlOf),
-        stale: stale || failedOwners.has(position.owner)
-      })),
+      positions: (data?.positions ?? []).map(position => {
+        const mapped = mapEarnPosition(position, listed, logoUrlOf);
+        const recovered = depositProtocols.get(
+          `${position.owner.trim().toLowerCase()}:${position.marketUid.trim().toLowerCase()}`
+        );
+        return {
+          ...mapped,
+          ...(mapped.epochProtocol === undefined && recovered ? { epochProtocol: recovered } : {}),
+          stale: stale || failedOwners.has(position.owner)
+        };
+      }),
       vaults,
       vaultsPending,
       summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
@@ -368,6 +417,7 @@ export function useEarnPositions(): {
     readError,
     notOnNetwork,
     isValidating,
-    mutate
+    mutate,
+    depositProtocols
   ]);
 }

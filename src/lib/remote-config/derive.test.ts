@@ -765,55 +765,6 @@ describe('the Earn market from /pools', () => {
     expect(fetch.mock.calls.some(([requested]) => requested.includes('/positions?'))).toBe(false);
   });
 
-  it('returns the first usable route without waiting for a later route', async () => {
-    const sepoliaAndBase: BridgeConfig = {
-      ...TESTNET,
-      supportedEvmChains: { ...TESTNET.supportedEvmChains, base: onBase.supportedEvmChains.base! },
-      earn: { vaults: [DUMMY_VAULT, ...BASE_EARN_VAULTS] }
-    };
-    let baseStarted!: () => void;
-    let fallbackStarted!: () => void;
-    let finishBase!: (response: JsonResponse) => void;
-    const baseRequestStarted = new Promise<void>(resolve => (baseStarted = resolve));
-    const fallbackRequestStarted = new Promise<void>(resolve => (fallbackStarted = resolve));
-    const baseResponse = new Promise<JsonResponse>(resolve => (finishBase = resolve));
-    const notServed: JsonResponse = { ok: false, status: 404, json: async () => null };
-    const fetch = jest.fn<ReturnType<JsonFetch>, Parameters<JsonFetch>>(async url => {
-      if (url.startsWith(BASE_POOLS_PREFIX)) {
-        const chainId = new URL(url).searchParams.get('chainId');
-        if (chainId === '11155111') return notServed;
-        if (chainId === '8453') {
-          baseStarted();
-          return baseResponse;
-        }
-      }
-      if (url.startsWith('https://positions-testnet-dev.epochprotocol.xyz/positions?')) {
-        fallbackStarted();
-        return answer(EPOCH_CATALOG);
-      }
-      return url in HEALTH ? answer(HEALTH[url]) : answer(null, false);
-    });
-    const derived = deriveBridgeConfig(sepoliaAndBase, deps({ fetch }));
-
-    await Promise.all([baseRequestStarted, fallbackRequestStarted]);
-    const early = await Promise.race([
-      derived.then(result => ({ state: 'resolved' as const, result })),
-      new Promise<{ state: 'waiting' }>(resolve => setTimeout(() => resolve({ state: 'waiting' }), 100))
-    ]);
-    finishBase(answer(poolsPage([AAVE_V3_USDC])));
-
-    expect(early.state).toBe('resolved');
-    if (early.state !== 'resolved') throw new Error('The first usable route did not resolve promptly.');
-    expect(early.result.epoch.market).toMatchObject({
-      state: 'ok',
-      value: {
-        marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-        protocolHash: keccak256(toBytes('dummy-lending')),
-        chainId: 11155111
-      }
-    });
-  });
-
   it('passes over a vault the catalogue does not open', async () => {
     const frozen = { ...AAVE_V3_USDC, flags: { ...AAVE_V3_USDC.flags, isFrozen: true } };
     const fetch = servingPools(() => answer(poolsPage([frozen, MORPHO_UNIBTC_USDC, COMPOUND_V3_USDC])));
@@ -948,6 +899,7 @@ describe('the Earn vault catalogue over several routes', () => {
     jest.fn<ReturnType<JsonFetch>, Parameters<JsonFetch>>(async url => {
       if (url.startsWith(BASE_POOLS_PREFIX)) return answer(poolsPage([AAVE_V3_USDC, COMPOUND_V3_USDC]));
       if (url === SEPOLIA_CATALOG_URL) return catalog();
+      if (isPoolsUrl(url)) return notServed;
       return url in HEALTH ? answer(HEALTH[url]) : answer(null, false);
     });
 

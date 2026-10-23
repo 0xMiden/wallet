@@ -164,7 +164,7 @@ describe('mapEarnPosition', () => {
     expect(mapEarnPosition(libPosition({ lenderKey: 'SPARK', lenderName: 'Spark' })).protocol).toBe('Spark');
   });
 
-  it('copies the catalogue protocol, else the listing protocol, and leaves the lender label alone', () => {
+  it('takes the listing protocol, and leaves the lender label alone', () => {
     const listing: EarnVaultConfig = {
       id: 'dummy-lending-sepolia-usdc',
       marketUid: 'dummy_lending:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
@@ -172,10 +172,6 @@ describe('mapEarnPosition', () => {
       protocol: 'dummy-lending',
       depositsEnabled: true
     };
-    const fromCatalogue = mapEarnPosition(libPosition({ epochProtocol: '1delta' }), [listing]);
-    expect(fromCatalogue.epochProtocol).toBe('1delta');
-    expect(fromCatalogue.protocol).toBe('Dummy Lending');
-
     const fromListing = mapEarnPosition(libPosition(), [listing]);
     expect(fromListing.epochProtocol).toBe('dummy-lending');
     expect(fromListing.protocol).toBe('Dummy Lending');
@@ -297,9 +293,9 @@ describe('mapEarnVault', () => {
     const [morpho, , aave, compound] = EARN_VAULT_INFOS;
     expect(mapEarnVault(aave!)).toMatchObject({ name: 'Aave V3 USDC', protocol: 'Aave V3' });
     expect(mapEarnVault(compound!)).toMatchObject({ name: 'Compound III USDC', protocol: 'Compound V3' });
-    // The document name remains the title; the catalogue's market name stays available to the subtitle.
+    // The listed name tells two Morpho markets apart, so no market name is added.
     expect(mapEarnVault(morpho!)).toMatchObject({ name: 'Morpho uniBTC-USDC 77', protocol: 'Morpho' });
-    expect(mapEarnVault(morpho!)).toHaveProperty('marketName', 'Loan USDC');
+    expect(mapEarnVault(morpho!)).not.toHaveProperty('marketName');
     expect(mapEarnVault(libVault())).toMatchObject({ protocol: 'Dummy Lending', network: 'Sepolia' });
   });
 

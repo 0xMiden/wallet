@@ -160,7 +160,7 @@ export function mapEarnPosition(
   const listing = listed.find(vault => vault.marketUid === position.marketUid.toLowerCase());
   // A listed market's name identifies it on its own.
   const marketName = listing ? undefined : distinguishingMarketName(family, position.lenderName);
-  const epochProtocol = position.epochProtocol ?? listing?.protocol;
+  const epochProtocol = listing?.protocol;
   const logoUrl = listing ? logoUrlOf(listing) : null;
   const yearlyUsd = (position.depositsUSD * position.depositApr) / 100;
   return {
@@ -224,11 +224,9 @@ export function mapEarnVault(vault: EarnVaultInfo, fundingAsset?: string, logoUr
   const riskLevel = riskLabel === undefined ? undefined : riskLevelOf(riskLabel);
   const listedAbout = listing.about?.trim();
   const about = listedAbout || vault.about?.trim();
-  const marketName = vault.marketName.trim();
   return {
     id: vaultSlug(vault),
     name: listing.name,
-    ...(marketName ? { marketName } : {}),
     protocol: protocolName(vault.lenderFamily, vault.lenderName),
     ...(logoUrl ? { logoUrl } : {}),
     ...(listedAbout ? { listedAbout } : {}),

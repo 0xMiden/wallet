@@ -350,9 +350,9 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     const executeActions = jest.fn();
     const deps = baseDeps({ sdk: fakeSdk(executeActions) });
 
-    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), protocol: '1delta', chainId: 8453 }, deps)).rejects.toThrow(
-      'Gasless withdrawal only supports the configured USDC Earn market.'
-    );
+    await expect(
+      gaslessEarnWithdrawalToMiden({ ...validArgs(), protocol: '1delta', chainId: 8453 }, deps)
+    ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
     expect(deps.initiateRow).not.toHaveBeenCalled();
     expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
     expect(executeActions).not.toHaveBeenCalled();
@@ -1039,9 +1039,7 @@ describe('resubmitEarnWithdrawal', () => {
       expect(execute).toHaveBeenCalledTimes(worse ? 0 : 1);
       expect(fetchEarnPositions).toHaveBeenCalledWith({
         accountId: row.accountId,
-        owners: [EVM_OWNER],
-        chains: [11155111],
-        skipCatalog: true
+        owners: [EVM_OWNER]
       });
       expect(quoteEarnWithdrawal).toHaveBeenCalledWith(expect.objectContaining({ amount: '1' }));
       expect(row.extraInputs.reviewedMinimumReceivedAtomic).toBe(worse ? '5' : '6');
