@@ -17,6 +17,7 @@ import Settings from 'app/pages/Settings';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
+import { ARCADE_COINS_PATH } from 'lib/arcade';
 import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
@@ -198,7 +199,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Arcade destinations are native Explore subpages, with the same wallet-ready guard.
   [
-    '/arcade/coins',
+    ARCADE_COINS_PATH,
     onlyReady(() => (
       <FullScreenPage entrance="slide">
         <ArcadePage />
