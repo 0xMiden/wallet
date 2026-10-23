@@ -8,6 +8,15 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { OneClickAmounts, OneClickAmountsProps } from './OneClickAmounts';
 import { OneClickNetworkOption } from './OneClickPickers';
 
+const messages = {
+  oneClickRecipientSection: 'Recipient',
+  oneClickRefundSection: 'Refund account'
+};
+
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => (messages as Record<string, string>)[key] ?? key })
+}));
+
 jest.mock('lib/telemetry/use-user-visible-error', () => ({ useUserVisibleError: jest.fn() }));
 
 const midenNetwork: OneClickNetworkOption = { id: 'miden', name: 'Miden', kind: 'miden' };

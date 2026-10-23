@@ -7577,7 +7577,7 @@
     "englishSource": "Ethereum"
   },
   "oneClickNetworkBase": {
-    "message": "Основа",
+    "message": "Base",
     "englishSource": "Base"
   },
   "oneClickNetworkArbitrum": {
@@ -7585,7 +7585,7 @@
     "englishSource": "Arbitrum"
   },
   "oneClickNetworkOptimism": {
-    "message": "Оптимізм",
+    "message": "Optimism",
     "englishSource": "Optimism"
   },
   "oneClickNetworkArc": {

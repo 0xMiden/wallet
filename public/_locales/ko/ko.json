@@ -1673,7 +1673,7 @@
   "oneClickFailureReason": "환불 또는 실패 사유",
   "oneClickNetworkMiden": "Miden",
   "oneClickNetworkEthereum": "이더리움",
-  "oneClickNetworkBase": "기본",
+  "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",

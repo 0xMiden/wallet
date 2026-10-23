@@ -98,6 +98,19 @@ import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
 import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
+const ONE_CLICK_NETWORK_LABELS: Record<string, string> = {
+  miden: 'oneClickNetworkMiden',
+  eth: 'oneClickNetworkEthereum',
+  base: 'oneClickNetworkBase',
+  arb: 'oneClickNetworkArbitrum',
+  op: 'oneClickNetworkOptimism',
+  arc: 'oneClickNetworkArc'
+};
+
+const oneClickNetworkLabel = (t: TFunction, blockchain: string): string => {
+  const key = ONE_CLICK_NETWORK_LABELS[blockchain];
+  return key ? t(key) : blockchain;
+};
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
 function oneClickProviderStatus(t: TFunction, status: IOneClickTrackingData['providerStatus']): string {
@@ -1214,10 +1227,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     )}
                     <DetailRow label={t('oneClickNetwork')}>{entry.oneClickTracking.network}</DetailRow>
                     <DetailRow label={t('oneClickOriginNetwork')}>
-                      {entry.oneClickTracking.originAsset.blockchain}
+                      {oneClickNetworkLabel(t, entry.oneClickTracking.originAsset.blockchain)}
                     </DetailRow>
                     <DetailRow label={t('oneClickDestinationNetwork')}>
-                      {entry.oneClickTracking.destinationAsset.blockchain}
+                      {oneClickNetworkLabel(t, entry.oneClickTracking.destinationAsset.blockchain)}
                     </DetailRow>
                     <DetailRow label={t('oneClickAmount')}>
                       {entry.oneClickTracking.direction === 'evm-to-miden'

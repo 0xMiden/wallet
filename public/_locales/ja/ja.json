@@ -1644,7 +1644,7 @@
   "oneClickNetwork": "ネットワーク",
   "oneClickOriginNetwork": "Originネットワーク",
   "oneClickDestinationNetwork": "宛先ネットワーク",
-  "oneClickAmount": "Amount",
+  "oneClickAmount": "金額",
   "oneClickDepositAddress": "入金アドレス",
   "oneClickDepositMemo": "備考",
   "oneClickOriginTransaction": "オリジン取引",
@@ -1673,9 +1673,9 @@
   "oneClickFailureReason": "返金または失敗理由",
   "oneClickNetworkMiden": "Miden",
   "oneClickNetworkEthereum": "イーサリアム",
-  "oneClickNetworkBase": "基本",
+  "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
-  "oneClickNetworkOptimism": "楽観主義",
+  "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
   "availableAmount": "利用可能：$amount$ $symbol$"
 }

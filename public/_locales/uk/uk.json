@@ -1673,9 +1673,9 @@
   "oneClickFailureReason": "Причина повернення коштів або відмови",
   "oneClickNetworkMiden": "Miden",
   "oneClickNetworkEthereum": "Ethereum",
-  "oneClickNetworkBase": "Основа",
+  "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
-  "oneClickNetworkOptimism": "Оптимізм",
+  "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
   "availableAmount": "Доступно: $amount$ $symbol$"
 }

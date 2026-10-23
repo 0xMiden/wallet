@@ -7461,7 +7461,7 @@
     "englishSource": "Destination network"
   },
   "oneClickAmount": {
-    "message": "Amount",
+    "message": "金額",
     "englishSource": "Amount"
   },
   "oneClickDepositAddress": {
@@ -7577,7 +7577,7 @@
     "englishSource": "Ethereum"
   },
   "oneClickNetworkBase": {
-    "message": "基本",
+    "message": "Base",
     "englishSource": "Base"
   },
   "oneClickNetworkArbitrum": {
@@ -7585,7 +7585,7 @@
     "englishSource": "Arbitrum"
   },
   "oneClickNetworkOptimism": {
-    "message": "楽観主義",
+    "message": "Optimism",
     "englishSource": "Optimism"
   },
   "oneClickNetworkArc": {

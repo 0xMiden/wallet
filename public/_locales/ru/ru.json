@@ -1673,9 +1673,9 @@
   "oneClickFailureReason": "Причина возврата или сбоя",
   "oneClickNetworkMiden": "Miden",
   "oneClickNetworkEthereum": "Ethereum",
-  "oneClickNetworkBase": "Базовые термины",
+  "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
-  "oneClickNetworkOptimism": "Оптимизм",
+  "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
   "availableAmount": "Доступно: $amount$ $symbol$"
 }

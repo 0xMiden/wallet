@@ -63,6 +63,7 @@ import {
   decodeArg,
   errorNameOf,
   type OffscreenCallRequest,
+  type OffscreenSendDto,
   type OffscreenConnectivityEvent,
   type OffscreenOpStarted,
   type OffscreenReloadEndpointsRequest,
@@ -866,22 +867,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // crossed as decimal strings are re-widened to BigInt so the reconstructed row
   // matches exactly what `MidenClientInterface` reads on the SW-inline (flag-off)
   // path.
-  sendTransaction: async (
-    context,
-    client,
-    dto: {
-      accountId: string;
-      secondaryAccountId: string;
-      faucetId: string;
-      noteType: unknown;
-      amount: string;
-      delegateTransaction?: boolean;
-      extraInputs: {
-        recallBlocks?: number;
-        oneClick?: { fundingDeadline?: string; quote: { quote: { deadline?: string } } };
-      };
-    }
-  ) => {
+  sendTransaction: async (context, client, dto: OffscreenSendDto) => {
     // `context` arrived bound to THIS op (threaded by `handleCall` before any
     // await), so a stamp fired late (an evicted dispatch still running) carries
     // its own op_id rather than the successor's — see `postStageEvent` (#775).

@@ -9,21 +9,24 @@ import { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { requestOneClickQuote } from 'lib/one-click/client';
 import { submitEvmOneClickDeposit } from 'lib/one-click/evm';
 import {
+  claimOneClickEvmDepositAttempt,
   getOneClickTransactions,
   initiateOneClickMidenDeposit,
   persistOneClickTrackingRow,
   recordOneClickOriginTransactionHash,
-  updateOneClickTrackingPhase
+  retireOneClickEvmPreflightFailure
 } from 'lib/one-click/tracking';
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+
+import { OneClickFlow } from './OneClickFlow';
+import { OneClickNetworkOption } from './OneClickPickers';
 import {
   FAKE_ONE_CLICK_MANAGER_PUBLIC_KEY,
   signFakeOneClickQuote
 } from '../../../playwright/e2e/helpers/fake-one-click-service';
 
-import { OneClickFlow } from './OneClickFlow';
-import { OneClickNetworkOption } from './OneClickPickers';
+jest.unmock('lib/i18n/numbers');
 
 let mockAccountId = '0x111111111111111111111111111111';
 let mockConfirmResult: Promise<boolean> = Promise.resolve(true);
@@ -90,7 +93,7 @@ jest.mock('lib/miden/spending-limits/types', () => ({
 }));
 jest.mock('lib/miden/swap/faucet-ids', () => ({ normalizedFaucetId: (value: string) => value }));
 jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest.fn() }));
-jest.mock('lib/platform', () => ({ isExtension: () => false }));
+jest.mock('lib/platform', () => ({ isExtension: () => false, isMobile: () => false }));
 jest.mock('lib/miden/activity', () => ({ requestSWTransactionProcessing: jest.fn() }));
 jest.mock('lib/one-click/client', () => ({
   ...jest.requireActual('lib/one-click/client'),
@@ -101,11 +104,12 @@ jest.mock('lib/one-click/client', () => ({
 }));
 jest.mock('lib/telemetry/use-user-visible-error', () => ({ useUserVisibleError: jest.fn() }));
 jest.mock('lib/one-click/tracking', () => ({
+  claimOneClickEvmDepositAttempt: jest.fn(async () => undefined),
   getOneClickTransactions: jest.fn(async () => mockPersistedRows),
   initiateOneClickMidenDeposit: jest.fn(async () => 'miden-transaction'),
   persistOneClickTrackingRow: jest.fn(async () => 'one-click-row'),
   recordOneClickOriginTransactionHash: jest.fn(async () => undefined),
-  updateOneClickTrackingPhase: jest.fn()
+  retireOneClickEvmPreflightFailure: jest.fn(async () => undefined)
 }));
 jest.mock('lib/one-click/evm', () => {
   const actual = jest.requireActual('lib/one-click/evm');
@@ -378,10 +382,13 @@ beforeEach(() => {
     .mocked(getOneClickTransactions)
     .mockReset()
     .mockImplementation(async () => mockPersistedRows as never);
+  jest.mocked(claimOneClickEvmDepositAttempt).mockReset().mockResolvedValue(undefined);
+  jest.mocked(retireOneClickEvmPreflightFailure).mockReset().mockResolvedValue(undefined);
   jest
     .mocked(submitEvmOneClickDeposit)
     .mockReset()
-    .mockImplementation(async ({ onSubmitted }) => {
+    .mockImplementation(async ({ onAttempting, onSubmitted }) => {
+      if (onAttempting) await onAttempting();
       if (onSubmitted) {
         try {
           await onSubmitted(mockTxHash);
@@ -471,6 +478,7 @@ describe('OneClickFlow', () => {
     await settlePreviewDebounce();
 
     expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
+    expect(requestOneClickQuote).not.toHaveBeenCalled();
   });
 
   it('allows a request equal to a large non-native balance', async () => {
@@ -518,6 +526,7 @@ describe('OneClickFlow', () => {
     await settlePreviewDebounce();
 
     expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
+    expect(requestOneClickQuote).not.toHaveBeenCalled();
   });
 
   it('allows an amount equal to native spendable balance after fee reserve', async () => {
@@ -639,7 +648,7 @@ describe('OneClickFlow', () => {
       expect(mockEvmProvider.request).not.toHaveBeenCalledWith(
         expect.objectContaining({ method: 'eth_sendTransaction' })
       );
-      expect(updateOneClickTrackingPhase).toHaveBeenCalledWith('one-click-row', 'failed');
+      expect(retireOneClickEvmPreflightFailure).toHaveBeenCalledWith('one-click-row', false);
     } finally {
       restoreEnvironment();
     }
@@ -728,13 +737,27 @@ describe('OneClickFlow', () => {
     expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
   });
 
-  it.each(['pending', 'rejected'])('keeps funding disabled while persisted-row lookup is %s', async state => {
-    if (state === 'pending') jest.mocked(getOneClickTransactions).mockReturnValueOnce(new Promise(() => {}));
-    else jest.mocked(getOneClickTransactions).mockRejectedValueOnce(new Error('tracking lookup unavailable'));
+  it('keeps funding disabled while persisted-row lookup is pending', async () => {
+    jest.mocked(getOneClickTransactions).mockReturnValueOnce(new Promise(() => {}));
     renderFlow(ethereumAsset, midenAsset);
     fireEvent.change(screen.getByLabelText('amount'), { target: { value: '1' } });
     await settlePreviewDebounce();
 
+    expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
+    expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
+  });
+
+  it('shows a safe retry when persisted-row lookup fails', async () => {
+    jest.mocked(getOneClickTransactions).mockRejectedValueOnce(new Error('tracking lookup unavailable'));
+    renderFlow(ethereumAsset, midenAsset);
+
+    expect(await screen.findByTestId('one-click-tracking-lookup-error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'oneClickRefreshQuote' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Review route' })).not.toBeInTheDocument();
+    expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'oneClickRefreshQuote' }));
+    await waitFor(() => expect(getOneClickTransactions).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('button', { name: 'Review route' })).toBeDisabled();
     expect(submitEvmOneClickDeposit).not.toHaveBeenCalled();
   });

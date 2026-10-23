@@ -3,7 +3,12 @@ import { createPublicClient, http, isAddress, isHash, parseAbi, type Address, ty
 import { assertOneClickQuoteBinding } from '../../../src/lib/one-click/client';
 import { buildEvmOneClickTransaction } from '../../../src/lib/one-click/evm';
 import { assertOneClickFundingDeadline } from '../../../src/lib/one-click/deadline';
-import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
+import type {
+  OneClickAsset,
+  OneClickConfig,
+  OneClickQuoteRequest,
+  OneClickQuoteResponse
+} from '../../../src/lib/one-click/types';
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
 
@@ -55,7 +60,9 @@ export interface MainnetOneClickEvmSender {
 }
 
 export async function readMainnetEvmHolding(asset: OneClickAsset, account: Address): Promise<MainnetEvmHolding> {
-  if (!asset.chainId || !asset.contractAddress) throw new Error(`1Click asset ${asset.symbol} has no verified EVM transfer route`);
+  if (!asset.chainId || !asset.contractAddress) {
+    throw new Error(`1Click asset ${asset.symbol} has no verified EVM transfer route`);
+  }
   const maxTransferGas = MAX_TRANSFER_GAS_BY_CHAIN[asset.chainId];
   if (!maxTransferGas) throw new Error(`1Click asset ${asset.symbol} has no verified all-in gas bound`);
   const chain = mainnetChain(asset.chainId);
@@ -68,7 +75,9 @@ export async function readMainnetEvmHolding(asset: OneClickAsset, account: Addre
   if (asset.contractAddress === 'native') {
     balanceBaseUnits = nativeBalanceWei;
   } else {
-    if (!isAddress(asset.contractAddress)) throw new Error(`1Click asset ${asset.symbol} has an invalid EVM contract address`);
+    if (!isAddress(asset.contractAddress)) {
+      throw new Error(`1Click asset ${asset.symbol} has an invalid EVM contract address`);
+    }
     balanceBaseUnits = await client.readContract({
       address: asset.contractAddress,
       abi: ERC20_BALANCE_ABI,
@@ -86,12 +95,13 @@ export async function readMainnetEvmHolding(asset: OneClickAsset, account: Addre
       estimateGas: input => client.estimateGas(input),
       estimateFeesPerGas: () => client.estimateFeesPerGas(),
       getBalance: input => client.getBalance(input),
-      readTokenBalance: (token, address) => client.readContract({
-        address: token,
-        abi: ERC20_BALANCE_ABI,
-        functionName: 'balanceOf',
-        args: [address]
-      }),
+      readTokenBalance: (token, address) =>
+        client.readContract({
+          address: token,
+          abi: ERC20_BALANCE_ABI,
+          functionName: 'balanceOf',
+          args: [address]
+        }),
       waitForTransactionReceipt: input => client.waitForTransactionReceipt(input)
     }
   };
@@ -99,22 +109,32 @@ export async function readMainnetEvmHolding(asset: OneClickAsset, account: Addre
 
 export function assertMainnetEvmFunding(holding: MainnetEvmHolding, principalBaseUnits: bigint): void {
   if (principalBaseUnits < 0n) throw new Error('The required EVM principal cannot be negative');
-  const requiredNative = holding.asset.contractAddress === 'native'
-    ? principalBaseUnits + holding.gasReserveWei
-    : holding.gasReserveWei;
+  const requiredNative =
+    holding.asset.contractAddress === 'native' ? principalBaseUnits + holding.gasReserveWei : holding.gasReserveWei;
   if (holding.nativeBalanceWei < requiredNative) {
     throw new Error(`The existing ${holding.asset.blockchain} EVM account cannot cover the principal and reserved gas`);
   }
   if (holding.balanceBaseUnits < principalBaseUnits) {
-    throw new Error(`The existing ${holding.asset.blockchain} account lacks the required ${holding.asset.symbol} principal`);
+    throw new Error(
+      `The existing ${holding.asset.blockchain} account lacks the required ${holding.asset.symbol} principal`
+    );
   }
 }
 
-export function createMainnetOneClickEvmSender({ holding, account, config, gasBudgetWei, broadcast }: MainnetOneClickEvmSenderInput): MainnetOneClickEvmSender {
-  const supportedChain = holding.asset.chainId === 1 && holding.asset.blockchain === 'eth' ||
-    holding.asset.chainId === 42161 && holding.asset.blockchain === 'arb';
+export function createMainnetOneClickEvmSender({
+  holding,
+  account,
+  config,
+  gasBudgetWei,
+  broadcast
+}: MainnetOneClickEvmSenderInput): MainnetOneClickEvmSender {
+  const supportedChain =
+    (holding.asset.chainId === 1 && holding.asset.blockchain === 'eth') ||
+    (holding.asset.chainId === 42161 && holding.asset.blockchain === 'arb');
   if (!supportedChain) {
-    throw new Error('The 1Click acceptance sender only supports Ethereum L1 and Arbitrum One with verifiable all-in fees');
+    throw new Error(
+      'The 1Click acceptance sender only supports Ethereum L1 and Arbitrum One with verifiable all-in fees'
+    );
   }
   if (gasBudgetWei <= 0n || holding.gasPriceWei <= 0n || holding.gasReserveWei <= 0n) {
     throw new Error('The 1Click EVM gas budget and reserve must be positive');
@@ -128,13 +148,21 @@ export function createMainnetOneClickEvmSender({ holding, account, config, gasBu
     bind(request, quote) {
       if (expected || attempts !== 0) throw new Error('The reviewed reverse 1Click transfer is already bound');
       assertOneClickQuoteBinding(request, quote, false, config);
-      if (request.originAsset.assetId !== holding.asset.assetId || request.originAsset.chainId !== holding.asset.chainId ||
-          request.originAsset.contractAddress !== holding.asset.contractAddress || request.originAsset.decimals !== holding.asset.decimals ||
-          holding.asset.contractAddress === 'native' || !holding.asset.contractAddress ||
-          quote.quoteRequest.refundTo.toLowerCase() !== account.toLowerCase() ||
-          quote.quoteRequest.amount !== request.amount || quote.quote.amountIn !== request.amount ||
-          quote.quote.depositAddress === undefined) {
-        throw new Error('The signed reverse quote is not bound to the funded Ethereum account and exact received amount');
+      if (
+        request.originAsset.assetId !== holding.asset.assetId ||
+        request.originAsset.chainId !== holding.asset.chainId ||
+        request.originAsset.contractAddress !== holding.asset.contractAddress ||
+        request.originAsset.decimals !== holding.asset.decimals ||
+        holding.asset.contractAddress === 'native' ||
+        !holding.asset.contractAddress ||
+        quote.quoteRequest.refundTo.toLowerCase() !== account.toLowerCase() ||
+        quote.quoteRequest.amount !== request.amount ||
+        quote.quote.amountIn !== request.amount ||
+        quote.quote.depositAddress === undefined
+      ) {
+        throw new Error(
+          'The signed reverse quote is not bound to the funded Ethereum account and exact received amount'
+        );
       }
       const transfer = buildEvmOneClickTransaction(
         holding.asset,
@@ -142,11 +170,10 @@ export function createMainnetOneClickEvmSender({ holding, account, config, gasBu
         quote.quote.amountIn,
         account
       );
-      if (!transfer.to || !transfer.from) throw new Error('The reviewed reverse transfer has no exact sender or target');
-      const fundingDeadline = assertOneClickFundingDeadline(
-        request.deadline,
-        quote.quote.deadline
-      );
+      if (!transfer.to || !transfer.from) {
+        throw new Error('The reviewed reverse transfer has no exact sender or target');
+      }
+      const fundingDeadline = assertOneClickFundingDeadline(request.deadline, quote.quote.deadline);
       expected = {
         target: transfer.to,
         data: transfer.data ?? '0x',
@@ -161,8 +188,11 @@ export function createMainnetOneClickEvmSender({ holding, account, config, gasBu
       if (!expected) throw new Error('The reviewed reverse 1Click transfer has not been bound');
       if (signal.aborted) throw new Error('The reverse EVM transfer was aborted before sending');
       assertQuoteNotExpired(expected.deadline);
-      if (transaction.to.toLowerCase() !== expected.target.toLowerCase() ||
-          transaction.data.toLowerCase() !== expected.data.toLowerCase() || transaction.value !== expected.value) {
+      if (
+        transaction.to.toLowerCase() !== expected.target.toLowerCase() ||
+        transaction.data.toLowerCase() !== expected.data.toLowerCase() ||
+        transaction.value !== expected.value
+      ) {
         throw new Error('The WalletConnect transfer does not match the signed reverse 1Click deposit and amount');
       }
       const [gas, fees, currentNative, currentToken] = await Promise.all([
@@ -176,15 +206,24 @@ export function createMainnetOneClickEvmSender({ holding, account, config, gasBu
       const maxFeePerGas = fees.maxFeePerGas;
       const maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
       const maxTransferGas = MAX_TRANSFER_GAS_BY_CHAIN[holding.asset.chainId ?? 0];
-      if (!maxFeePerGas || maxFeePerGas <= 0n || gas <= 0n || !maxTransferGas || gas > maxTransferGas ||
-          maxFeePerGas > holding.gasPriceWei * GAS_PRICE_HEADROOM ||
-          (maxPriorityFeePerGas !== undefined && maxPriorityFeePerGas > maxFeePerGas)) {
+      if (
+        !maxFeePerGas ||
+        maxFeePerGas <= 0n ||
+        gas <= 0n ||
+        !maxTransferGas ||
+        gas > maxTransferGas ||
+        maxFeePerGas > holding.gasPriceWei * GAS_PRICE_HEADROOM ||
+        (maxPriorityFeePerGas !== undefined && maxPriorityFeePerGas > maxFeePerGas)
+      ) {
         throw new Error('The reviewed reverse EVM transaction exceeds the captured gas or fee bound');
       }
       const maximumGasCost = gas * maxFeePerGas;
       const principalReserve = holding.asset.contractAddress === 'native' ? expected.amount : 0n;
-      if (maximumGasCost > gasBudgetWei || currentNative < holding.gasReserveWei + maximumGasCost + principalReserve ||
-          currentToken < expected.amount) {
+      if (
+        maximumGasCost > gasBudgetWei ||
+        currentNative < holding.gasReserveWei + maximumGasCost + principalReserve ||
+        currentToken < expected.amount
+      ) {
         throw new Error('The existing EVM balance cannot cover the bounded transfer and retained gas reserve');
       }
       if (signal.aborted) throw new Error('The reverse EVM transfer was aborted before sending');
@@ -204,8 +243,13 @@ export function createMainnetOneClickEvmSender({ holding, account, config, gasBu
       return broadcastHash === undefined ? 0 : 1;
     },
     async receiptFee(hash, timeout) {
-      if (!broadcastHash || hash !== broadcastHash) throw new Error('The receipt hash is not the recorded reverse transfer');
-      const receipt = await holding.client.waitForTransactionReceipt({ hash, ...(timeout === undefined ? {} : { timeout }) });
+      if (!broadcastHash || hash !== broadcastHash) {
+        throw new Error('The receipt hash is not the recorded reverse transfer');
+      }
+      const receipt = await holding.client.waitForTransactionReceipt({
+        hash,
+        ...(timeout === undefined ? {} : { timeout })
+      });
       if (receipt.effectiveGasPrice === undefined) {
         throw new Error('The reverse EVM receipt has no verifiable all-in fee');
       }

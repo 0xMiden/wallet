@@ -217,7 +217,10 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
         )}
 
         {externalAddressLabel && externalAddressNetwork && (
-          <section className="flex flex-col gap-3" aria-label={t(`oneClick${externalAddressLabel}Section`)}>
+          <section
+            className="flex flex-col gap-3"
+            aria-label={t(externalAddressLabel === 'recipient' ? 'oneClickRecipientSection' : 'oneClickRefundSection')}
+          >
             {linkedRefund ? (
               <Notice tone="neutral" title={t('oneClickRefundAccount')} data-testid="one-click-connected-refund">
                 {connectedExternalAddress ? (

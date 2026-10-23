@@ -15,8 +15,8 @@ import { formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
-import type { IOneClickTrackingData } from 'lib/miden/db/types';
-import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
+import type { IOneClickTrackingData, ITransaction } from 'lib/miden/db/types';
+import { hasNoFeeAsset, maxSendableNative, maxSendableNativeBaseUnits } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import {
@@ -28,11 +28,18 @@ import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isSameOneClickUnderlyingAsset, ONE_CLICK_EVM_CHAIN_IDS, requestOneClickQuote } from 'lib/one-click/client';
-import { OneClickDepositBroadcastError, submitEvmOneClickDeposit } from 'lib/one-click/evm';
 import {
+  OneClickDepositAmbiguousError,
+  OneClickDepositBroadcastError,
+  submitEvmOneClickDeposit
+} from 'lib/one-click/evm';
+import {
+  claimOneClickEvmDepositAttempt,
+  getOneClickTransactions,
   initiateOneClickMidenDeposit,
   persistOneClickTrackingRow,
-  recordOneClickOriginTransactionHash
+  recordOneClickOriginTransactionHash,
+  retireOneClickEvmPreflightFailure
 } from 'lib/one-click/tracking';
 import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
@@ -68,6 +75,29 @@ function localizedSubmitError(error: unknown): OneClickFlowErrorKey {
     if (error.message === 'oneClickConnectOriginWallet') return 'oneClickConnectOriginWallet';
   }
   return 'oneClickSubmitFailed';
+}
+
+function sameDepositReference(
+  originAsset: OneClickAsset,
+  depositAddress: string | undefined,
+  depositMemo: string | undefined,
+  right: IOneClickTrackingData
+): boolean {
+  const leftChainId = originAsset.chainId ?? '';
+  const rightChainId = right.originAsset.chainId ?? right.request.originAsset.chainId ?? '';
+  return (
+    originAsset.blockchain === right.originAsset.blockchain &&
+    leftChainId === rightChainId &&
+    depositAddress?.trim().toLowerCase() === right.depositAddress?.trim().toLowerCase() &&
+    (depositMemo ?? '') === (right.depositMemo ?? '')
+  );
+}
+
+function blocksEvmDepositRetry(tracking: IOneClickTrackingData): boolean {
+  if (tracking.originTransactionHash || tracking.evmSubmission === 'known') return true;
+  if (tracking.phase === 'failed') return false;
+  if (tracking.evmSubmission === 'not-started') return false;
+  return true;
 }
 
 export const OneClickFlow: React.FC<OneClickFlowProps> = ({
@@ -109,8 +139,16 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
       : ''
   );
   const [externalAddress, setExternalAddress] = useState(() => initialRecovery?.request.recipient ?? '');
-  const [wetQuote, setWetQuote] = useState<OneClickQuoteResponse>();
-  const [wetRequest, setWetRequest] = useState<OneClickQuoteRequest>();
+  const recoveredEvmAttempt =
+    initialRecovery?.direction === 'evm-to-miden' &&
+    (initialRecovery.evmSubmission === 'known' ||
+      (initialRecovery.evmSubmission === 'attempted' && initialRecovery.phase !== 'failed'));
+  const [wetQuote, setWetQuote] = useState<OneClickQuoteResponse | undefined>(
+    recoveredEvmAttempt ? initialRecovery?.quote : undefined
+  );
+  const [wetRequest, setWetRequest] = useState<OneClickQuoteRequest | undefined>(
+    recoveredEvmAttempt ? initialRecovery?.request : undefined
+  );
   const [screen, setScreen] = useState<'amounts' | 'review' | 'instructions'>(() =>
     initialRecovery ? 'review' : 'amounts'
   );
@@ -120,8 +158,12 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const [instruction, setInstruction] = useState<OneClickQuoteResponse>();
   const [depositSubmitted, setDepositSubmitted] = useState(false);
+  const [attemptOutcomeUnknown, setAttemptOutcomeUnknown] = useState(false);
   const [originTransactionHash, setOriginTransactionHash] = useState<string>();
   const [trackingRowId, setTrackingRowId] = useState<string>();
+  const [persistedOneClickRows, setPersistedOneClickRows] = useState<ITransaction[]>();
+  const [trackingLookupFailed, setTrackingLookupFailed] = useState(false);
+  const trackingLookupGeneration = useRef(0);
   const [quoteDeadline, setQuoteDeadline] = useState(() =>
     new Date(Date.now() + DEFAULT_QUOTE_LIFETIME_MS).toISOString()
   );
@@ -214,7 +256,54 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   }, [outbound, inbound, inboundEvm, evm.address, externalAddress, requestNetwork]);
   const midenBalanceSufficient =
     !outbound ||
-    (offerAvailable !== undefined && Number.isFinite(Number(offerAmount)) && Number(offerAmount) <= offerAvailable);
+    (() => {
+      if (!originAsset || !offerFaucetId || amountBaseUnits === undefined) return false;
+      const normalizedOfferId = normalizedFaucetId(offerFaucetId);
+      const balance = balances.find(row => row.tokenId === normalizedOfferId || row.tokenId === offerFaucetId);
+      if (!balance?.balanceBaseUnits || !/^\d+$/.test(balance.balanceBaseUnits)) return false;
+      const baseUnits = BigInt(balance.balanceBaseUnits);
+      const spendable =
+        nativeFeeFaucetId !== null && normalizedOfferId === normalizedFaucetId(nativeFeeFaucetId)
+          ? maxSendableNativeBaseUnits(baseUnits, verificationBaseFee)
+          : baseUnits;
+      return amountBaseUnits > 0n && amountBaseUnits <= spendable;
+    })();
+
+  const matchingPersistedDeposit = useMemo(() => {
+    if (!originAsset || !wetQuote || !persistedOneClickRows) return false;
+    return persistedOneClickRows.some(row => {
+      const tracking = (row.extraInputs as { oneClick?: IOneClickTrackingData } | undefined)?.oneClick;
+      return (
+        tracking?.direction === 'evm-to-miden' &&
+        sameDepositReference(originAsset, wetQuote.quote.depositAddress, wetQuote.quote.depositMemo, tracking) &&
+        blocksEvmDepositRetry(tracking)
+      );
+    });
+  }, [originAsset, wetQuote, persistedOneClickRows]);
+
+  const refreshPersistedOneClickRows = useCallback(async () => {
+    const generation = ++trackingLookupGeneration.current;
+    setPersistedOneClickRows(undefined);
+    setTrackingLookupFailed(false);
+    try {
+      const rows = await getOneClickTransactions();
+      if (trackingLookupGeneration.current === generation) setPersistedOneClickRows(rows);
+    } catch {
+      if (trackingLookupGeneration.current === generation) setTrackingLookupFailed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!inboundEvm) {
+      setPersistedOneClickRows([]);
+      setTrackingLookupFailed(false);
+      return;
+    }
+    void refreshPersistedOneClickRows();
+    return () => {
+      trackingLookupGeneration.current += 1;
+    };
+  }, [inboundEvm, refreshPersistedOneClickRows]);
   const canRequestQuote =
     !bothMiden &&
     routeIsDistinct &&
@@ -222,6 +311,7 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     amountBaseUnits > 0n &&
     externalAddressValid &&
     midenBalanceSufficient &&
+    (!inboundEvm || persistedOneClickRows !== undefined) &&
     inboundEvmFunded &&
     (!outbound || !feeAssetMissing) &&
     (!inboundEvm || (evm.isConnected && evm.provider !== undefined));
@@ -252,6 +342,10 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
   );
   const consentIdentityRef = useRef(consentIdentity);
   consentIdentityRef.current = consentIdentity;
+  const evmProviderRef = useRef(evm.provider);
+  evmProviderRef.current = evm.provider;
+  const evmAccountRef = useRef(evm.address);
+  evmAccountRef.current = evm.address;
 
   const quoteRequest = useMemo<OneClickQuoteRequest | undefined>(() => {
     if (!canRequestQuote || !originAsset || !destinationAsset || amountBaseUnits === undefined) return undefined;
@@ -402,10 +496,10 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
 
   const recoveryQuoteStarted = useRef(false);
   useEffect(() => {
-    if (!initialRecovery || recoveryQuoteStarted.current) return;
+    if (!initialRecovery || recoveredEvmAttempt || recoveryQuoteStarted.current) return;
     recoveryQuoteStarted.current = true;
     void refreshWetQuote();
-  }, [initialRecovery, refreshWetQuote]);
+  }, [initialRecovery, recoveredEvmAttempt, refreshWetQuote]);
 
   const trackingInput = useCallback(
     (
@@ -565,7 +659,28 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
     }
     setSubmitting(true);
     let persistedRowId: string | undefined;
+    let ownsEvmAttemptClaim = false;
     try {
+      if (inboundEvm) {
+        const latestRows = await getOneClickTransactions();
+        if (
+          latestRows.some(row => {
+            const tracking = (row.extraInputs as { oneClick?: IOneClickTrackingData } | undefined)?.oneClick;
+            return (
+              tracking?.direction === 'evm-to-miden' &&
+              sameDepositReference(
+                input.originAsset,
+                wetQuote.quote.depositAddress,
+                wetQuote.quote.depositMemo,
+                tracking
+              ) &&
+              blocksEvmDepositRetry(tracking)
+            );
+          })
+        ) {
+          throw new Error('oneClickDepositAlreadyAttempted');
+        }
+      }
       const rowId = await persistOneClickTrackingRow(input);
       persistedRowId = rowId;
       setTrackingRowId(rowId);
@@ -577,6 +692,19 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           request: wetRequest,
           quote: wetQuote,
           config,
+          onAttempting: async () => {
+            await claimOneClickEvmDepositAttempt(rowId);
+            ownsEvmAttemptClaim = true;
+          },
+          assertCurrentWallet: () => {
+            if (
+              evmProviderRef.current !== evm.provider ||
+              evmAccountRef.current?.toLowerCase() !== input.request.refundTo.toLowerCase() ||
+              consentIdentityRef.current !== consentIdentity
+            ) {
+              throw new Error('The selected EVM wallet or route changed before the deposit request');
+            }
+          },
           onSubmitted: async hash => {
             setOriginTransactionHash(hash);
             await recordOneClickOriginTransactionHash(rowId, hash);
@@ -604,7 +732,19 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           setError('oneClickBroadcastTrackingPending');
           setErrorId('oneClickBroadcastTrackingPending');
         }
+      } else if (submitError instanceof OneClickDepositAmbiguousError) {
+        knownBroadcastRef.current = true;
+        setAttemptOutcomeUnknown(true);
+        setError('oneClickSubmitFailed');
+        setErrorId('oneClickSubmitFailed');
       } else {
+        if (persistedRowId && inboundEvm) {
+          try {
+            await retireOneClickEvmPreflightFailure(persistedRowId, ownsEvmAttemptClaim);
+          } catch {
+            // A failed retirement leaves the durable attempted marker in place, which safely blocks another send.
+          }
+        }
         setError(localizedSubmitError(submitError));
         setErrorId('oneClickSubmitFailed');
       }
@@ -678,6 +818,26 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
             ? 'oneClickInsufficientGasBalance'
             : undefined;
 
+  if (inboundEvm && trackingLookupFailed) {
+    return (
+      <HomeGroupPaneBody title={t('oneClickQuoteUnavailable')}>
+        <div className="flex flex-col gap-4">
+          <Notice tone="warning" title={t('oneClickQuoteUnavailable')} data-testid="one-click-tracking-lookup-error">
+            {t('oneClickQuoteUnavailable')}
+          </Notice>
+          <Button
+            title={t('oneClickRefreshQuote')}
+            variant={ButtonVariant.Primary}
+            accent="swap"
+            onClick={() => void refreshPersistedOneClickRows()}
+            className="w-full max-w-none"
+          />
+          <Button title={t('backToSwap')} variant={ButtonVariant.Secondary} onClick={onBackToSwap} />
+        </div>
+      </HomeGroupPaneBody>
+    );
+  }
+
   if (initialRecovery && screen === 'review' && !wetQuote) {
     return (
       <HomeGroupPaneBody title={t('oneClickRefreshingExpiredQuote')}>
@@ -719,7 +879,14 @@ export const OneClickFlow: React.FC<OneClickFlowProps> = ({
           fees={formattedFees}
           nativeFee={oneClickNativeFee}
           submitting={submitting}
-          confirmDisabled={inboundEvm && !inboundEvmFunded}
+          confirmDisabled={
+            inboundEvm &&
+            (!inboundEvmFunded ||
+              persistedOneClickRows === undefined ||
+              matchingPersistedDeposit ||
+              attemptOutcomeUnknown ||
+              recoveredEvmAttempt)
+          }
           fundingError={evmFundingError}
           fundingSymbol={evmNativeSymbol}
           refreshing={refreshing}

@@ -18,7 +18,30 @@ export interface EvmOneClickDepositInput {
   request: OneClickQuoteRequest;
   quote: OneClickQuoteResponse;
   config: OneClickConfig;
+  onAttempting?: () => Promise<void>;
+  assertCurrentWallet?: () => void;
   onSubmitted?: (transactionHash: string) => Promise<void>;
+}
+
+export class OneClickDepositPreflightError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'The EVM deposit failed before the wallet request began');
+    this.name = 'OneClickDepositPreflightError';
+    this.cause = cause;
+  }
+}
+
+export class OneClickDepositAmbiguousError extends Error {
+  readonly outcome = 'ambiguous';
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('The EVM wallet request began, but its transaction outcome is unknown');
+    this.name = 'OneClickDepositAmbiguousError';
+    this.cause = cause;
+  }
 }
 
 export class OneClickDepositBroadcastError extends Error {
@@ -39,62 +62,78 @@ export async function submitEvmOneClickDeposit({
   request,
   quote,
   config,
+  onAttempting,
+  assertCurrentWallet,
   onSubmitted
 }: EvmOneClickDepositInput): Promise<string> {
-  assertOneClickQuoteBinding(request, quote, false, config);
   const asset = request.originAsset;
   const chainId = ONE_CLICK_EVM_CHAIN_IDS[asset.blockchain];
   const depositAddress = quote.quote.depositAddress;
-  if (
-    !chainId ||
-    asset.chainId !== chainId ||
-    !EVM_ADDRESS.test(account) ||
-    !depositAddress ||
-    !EVM_ADDRESS.test(depositAddress)
-  ) {
-    throw new Error('Unsupported EVM deposit route');
+  let transaction: ReturnType<typeof buildEvmOneClickTransaction>;
+  try {
+    assertOneClickQuoteBinding(request, quote, false, config);
+    if (
+      !chainId ||
+      asset.chainId !== chainId ||
+      !EVM_ADDRESS.test(account) ||
+      !depositAddress ||
+      !EVM_ADDRESS.test(depositAddress)
+    ) {
+      throw new Error('Unsupported EVM deposit route');
+    }
+    if (
+      !isEvmAddress(quote.quoteRequest.refundTo) ||
+      account.toLowerCase() !== quote.quoteRequest.refundTo.toLowerCase()
+    ) {
+      throw new Error('The sending account must match the signed refund account');
+    }
+    if (asset.contractAddress !== 'native' && (!asset.contractAddress || !EVM_ADDRESS.test(asset.contractAddress))) {
+      throw new Error('The origin asset has no verified transfer method');
+    }
+    assertNotExpired(request, quote);
+    let currentChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
+    if (currentChain !== chainId) {
+      await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHex(chainId) }] });
+      currentChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
+    }
+    if (currentChain !== chainId) throw new Error('EVM wallet is on the wrong network');
+    const accounts = await provider.request({ method: 'eth_accounts' });
+    if (
+      !Array.isArray(accounts) ||
+      !accounts.some(candidate => typeof candidate === 'string' && candidate.toLowerCase() === account.toLowerCase())
+    ) {
+      throw new Error('Connected EVM account changed');
+    }
+    assertNotExpired(request, quote);
+    transaction = buildEvmOneClickTransaction(asset, depositAddress, quote.quote.amountIn, account);
+    await assertOneClickEvmDepositFunded({ asset, account, depositAddress, amountIn: quote.quote.amountIn });
+    if (onAttempting) await onAttempting();
+    const confirmedChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
+    const confirmedAccounts = await provider.request({ method: 'eth_accounts' });
+    if (
+      confirmedChain !== chainId ||
+      !Array.isArray(confirmedAccounts) ||
+      !confirmedAccounts.some(
+        candidate => typeof candidate === 'string' && candidate.toLowerCase() === account.toLowerCase()
+      )
+    ) {
+      throw new Error('Connected EVM wallet changed during balance verification');
+    }
+    assertNotExpired(request, quote);
+    assertCurrentWallet?.();
+  } catch (error) {
+    throw new OneClickDepositPreflightError(error);
   }
-  if (
-    !isEvmAddress(quote.quoteRequest.refundTo) ||
-    account.toLowerCase() !== quote.quoteRequest.refundTo.toLowerCase()
-  ) {
-    throw new Error('The sending account must match the signed refund account');
+
+  let hash: string;
+  try {
+    const result = await provider.request({ method: 'eth_sendTransaction', params: [transaction] });
+    if (typeof result !== 'string' || !TX_HASH.test(result))
+      throw new Error('EVM wallet returned an invalid transaction hash');
+    hash = result;
+  } catch (error) {
+    throw new OneClickDepositAmbiguousError(error);
   }
-  if (asset.contractAddress !== 'native' && (!asset.contractAddress || !EVM_ADDRESS.test(asset.contractAddress))) {
-    throw new Error('The origin asset has no verified transfer method');
-  }
-  assertNotExpired(request, quote);
-  let currentChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
-  if (currentChain !== chainId) {
-    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHex(chainId) }] });
-    currentChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
-  }
-  if (currentChain !== chainId) throw new Error('EVM wallet is on the wrong network');
-  const accounts = await provider.request({ method: 'eth_accounts' });
-  if (
-    !Array.isArray(accounts) ||
-    !accounts.some(candidate => typeof candidate === 'string' && candidate.toLowerCase() === account.toLowerCase())
-  ) {
-    throw new Error('Connected EVM account changed');
-  }
-  assertNotExpired(request, quote);
-  const transaction = buildEvmOneClickTransaction(asset, depositAddress, quote.quote.amountIn, account);
-  await assertOneClickEvmDepositFunded({ asset, account, depositAddress, amountIn: quote.quote.amountIn });
-  const confirmedChain = parseChainId(await provider.request({ method: 'eth_chainId' }));
-  const confirmedAccounts = await provider.request({ method: 'eth_accounts' });
-  if (
-    confirmedChain !== chainId ||
-    !Array.isArray(confirmedAccounts) ||
-    !confirmedAccounts.some(
-      candidate => typeof candidate === 'string' && candidate.toLowerCase() === account.toLowerCase()
-    )
-  ) {
-    throw new Error('Connected EVM wallet changed during balance verification');
-  }
-  assertNotExpired(request, quote);
-  const hash = await provider.request({ method: 'eth_sendTransaction', params: [transaction] });
-  if (typeof hash !== 'string' || !TX_HASH.test(hash))
-    throw new Error('EVM wallet returned an invalid transaction hash');
   try {
     if (onSubmitted) await onSubmitted(hash);
     assertNotExpired(request, quote);

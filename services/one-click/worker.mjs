@@ -177,7 +177,12 @@ export function createService({ fetchImpl = fetch, timeoutMs = MAX_TIMEOUT_MS } 
           if (!boundedString(address, 256) || (memo !== null && !boundedString(memo, 256))) return json({ error: 'invalid_status_request' }, 400, cors(origin));
           response = await upstreamFetch(fetchImpl, upstreamUrl('/v0/status', new URLSearchParams({ depositAddress: address, ...(memo === null ? {} : { depositMemo: memo }) })), { method: 'GET', headers: authHeaders }, timeoutMs);
         } else if (url.pathname === '/v0/deposit/submit' && request.method === 'POST' && url.search === '') {
-          const body = await readJson(request, MAX_BODY_BYTES, timeoutMs);
+          let body;
+          try {
+            body = await readJson(request, MAX_BODY_BYTES, timeoutMs);
+          } catch {
+            return json({ error: 'invalid_deposit_submission' }, 400, cors(origin));
+          }
           if (Object.keys(body).some(key => !['depositAddress', 'txHash', 'memo'].includes(key)) || !boundedString(body.depositAddress, 256) ||
               typeof body.txHash !== 'string' || !HASH.test(body.txHash) || (body.memo !== undefined && !boundedString(body.memo, 256))) {
             return json({ error: 'invalid_deposit_submission' }, 400, cors(origin));

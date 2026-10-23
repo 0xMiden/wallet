@@ -113,7 +113,7 @@ export const OneClickRecovery: React.FC<OneClickRecoveryProps> = ({ tracking, tr
     tracking.accountAddress === tracking.accountId &&
     tracking.network === effectiveNetwork;
   const configMatches = config?.serviceUrl === tracking.config.serviceUrl;
-  const routeMatches =
+  const outboundRouteMatches =
     tracking.direction === 'miden-to-evm' &&
     tracking.request.originAsset.blockchain === 'miden' &&
     tracking.request.originAsset.assetId === tracking.originAsset.assetId &&
@@ -123,6 +123,19 @@ export const OneClickRecovery: React.FC<OneClickRecoveryProps> = ({ tracking, tr
     tracking.destinationAsset.blockchain !== 'miden' &&
     assetMatches(originAsset, tracking.originAsset) &&
     assetMatches(destinationAsset, tracking.destinationAsset);
+  const inboundAttempt =
+    tracking.direction === 'evm-to-miden' &&
+    (tracking.evmSubmission === 'attempted' || tracking.evmSubmission === 'known') &&
+    tracking.request.originAsset.blockchain !== 'miden' &&
+    tracking.request.originAsset.assetId === tracking.originAsset.assetId &&
+    tracking.request.destinationAsset.blockchain === 'miden' &&
+    tracking.request.destinationAsset.assetId === tracking.destinationAsset.assetId &&
+    tracking.request.recipient === tracking.accountAddress &&
+    tracking.destinationAsset.blockchain === 'miden' &&
+    tracking.originAsset.blockchain !== 'miden' &&
+    assetMatches(originAsset, tracking.originAsset) &&
+    assetMatches(destinationAsset, tracking.destinationAsset);
+  const routeMatches = outboundRouteMatches || inboundAttempt;
 
   if (loading) {
     return (

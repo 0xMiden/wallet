@@ -1673,9 +1673,9 @@
   "oneClickFailureReason": "Zwrot środków lub przyczyna niepowodzenia",
   "oneClickNetworkMiden": "Miden",
   "oneClickNetworkEthereum": "Ethereum",
-  "oneClickNetworkBase": "Podstawa",
+  "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
-  "oneClickNetworkOptimism": "Optymizm",
+  "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
   "availableAmount": "Dostępne: $amount$ $symbol$"
 }

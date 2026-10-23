@@ -18,6 +18,7 @@ import type { EndpointState } from '../../miden-chain/effective-endpoints';
 import type { ConnectivityCategory } from '../activity/connectivity-state';
 import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
 import type { LandedTransaction } from '../sdk/sdk-error-code';
+import type { NoteType } from '../types';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
  * ignores anything whose `target` is not this. */
@@ -95,6 +96,24 @@ export const OFFSCREEN_TELEMETRY_EVENT = 'OFFSCREEN_TELEMETRY_EVENT' as const;
  * block on this, and a dropped event costs a blank duration, never a
  * transaction. */
 export const OFFSCREEN_STAGE_EVENT = 'OFFSCREEN_STAGE_EVENT' as const;
+
+/** JSON-clean send row fields read by the SDK after crossing into the offscreen realm. */
+export interface OffscreenSendDto {
+  accountId: string;
+  secondaryAccountId: string;
+  faucetId: string;
+  noteType: NoteType;
+  amount: string;
+  delegateTransaction?: boolean;
+  extraInputs: {
+    recallBlocks?: number;
+    oneClick?: {
+      fundingDeadline?: string;
+      request: { deadline: string };
+      quote: { quote: { deadline?: string } };
+    };
+  };
+}
 
 /** Fire-and-forget connectivity report (offscreen → SW): the offscreen realm has
  * just observed `category` to be `active` (or not). It exists because the

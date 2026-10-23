@@ -331,6 +331,7 @@ describe('fetchBalances', () => {
       // MIDEN is not on the price feed: no price, never a $1 guess.
       fiatPrice: 0,
       balance: 0,
+      balanceBaseUnits: '0',
       change24h: 0
     });
   });

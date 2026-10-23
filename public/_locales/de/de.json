@@ -1673,9 +1673,9 @@
   "oneClickFailureReason": "Rückerstattung oder Grund für das Scheitern",
   "oneClickNetworkMiden": "Miden",
   "oneClickNetworkEthereum": "Ethereum",
-  "oneClickNetworkBase": "Basis",
+  "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
-  "oneClickNetworkOptimism": "Optimismus",
+  "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
   "availableAmount": "Verfügbar: $amount$ $symbol$"
 }

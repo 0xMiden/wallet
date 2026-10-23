@@ -120,6 +120,10 @@ let mockTelemetryCopy = false;
 const mockT = (key: string, opts?: Record<string, string | number | boolean | undefined>) => {
   if (mockTelemetryCopy && key === 'smthWentWrong') return 'Visible generic action failure';
   if (mockTelemetryCopy && key === 'historyDetailsLoadError') return 'Visible detail load failure';
+  if (key === 'oneClickNetworkEthereum') return 'Ethereum';
+  if (key === 'oneClickNetworkMiden') return 'Miden';
+  if (key === 'oneClickNetworkArbitrum') return 'Arbitrum';
+  if (key === 'oneClickNetworkOptimism') return 'Optimism';
   if (key === 'insufficientFeeAsset') return mockFeeCopy;
   const values = opts ? Object.values(opts) : [];
   return values.length > 0 ? `${key}_${values.join('_')}` : key;
@@ -662,6 +666,24 @@ describe('HistoryDetails', () => {
     const details = screen.getAllByTestId('detail-row');
     expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
       'Miden'
+    );
+  });
+
+  it('shows the friendly Arbitrum label for the arb route ID', async () => {
+    setOneClickHistoryRow('arb');
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'Arbitrum'
+    );
+  });
+
+  it('shows the friendly Optimism label for the op route ID', async () => {
+    setOneClickHistoryRow('op');
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'Optimism'
     );
   });
 

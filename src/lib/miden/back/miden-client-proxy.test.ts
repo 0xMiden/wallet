@@ -61,6 +61,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
 });
 
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+
 import { decodeArg } from './offscreen-codec';
 
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
@@ -2818,6 +2819,7 @@ const sendTx = () => ({
     recallBlocks: 100,
     oneClick: {
       fundingDeadline: '2026-10-22T12:00:00.000Z',
+      request: { deadline: '2026-10-22T12:00:00.000Z' },
       quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
     }
   },
@@ -2914,6 +2916,7 @@ describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
         recallBlocks: 100,
         oneClick: {
           fundingDeadline: '2026-10-22T12:00:00.000Z',
+          request: { deadline: '2026-10-22T12:00:00.000Z' },
           quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
         }
       }

@@ -28,6 +28,7 @@ jest.mock('lib/miden/repo', () => ({
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (left: string, right: string) => left === right }));
 jest.mock('lib/one-click/client', () => ({
+  ONE_CLICK_EVM_CHAIN_IDS: { eth: 1 },
   assertOneClickQuoteBinding: jest.fn(),
   fetchOneClickStatus: (...args: unknown[]) => fetchStatus(...args),
   resolveOneClickDestinationReceipts: jest.fn(),

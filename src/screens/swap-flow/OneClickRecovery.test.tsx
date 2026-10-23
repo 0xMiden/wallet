@@ -154,7 +154,7 @@ describe('OneClickRecovery', () => {
         },
         originAsset: evmOrigin,
         destinationAsset: origin,
-        faucetId: origin.faucetId,
+        faucetId: origin.faucetId!,
         phase: 'pending-deposit' as const,
         accountAddress: 'miden-account'
       },

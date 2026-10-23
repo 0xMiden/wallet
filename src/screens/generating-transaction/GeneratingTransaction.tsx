@@ -74,11 +74,21 @@ export function isRecoverableExpiredOneClick(
         error?: string;
         rawError?: string;
         processingStartedAt?: number;
-        extraInputs?: { oneClick?: { direction?: string } };
+        extraInputs?: { oneClick?: { direction?: string; evmSubmission?: string } };
       }
     | undefined,
   status: ITransactionStatus | undefined
 ): boolean {
+  const oneClick = active?.extraInputs?.oneClick;
+  if (
+    active?.type === 'bridged-receive' &&
+    active.status === ITransactionStatus.Completed &&
+    status === ITransactionStatus.Completed &&
+    oneClick?.direction === 'evm-to-miden' &&
+    (oneClick.evmSubmission === 'attempted' || oneClick.evmSubmission === 'known')
+  ) {
+    return true;
+  }
   return (
     status === ITransactionStatus.Failed &&
     active?.type === 'send' &&

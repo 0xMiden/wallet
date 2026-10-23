@@ -2,7 +2,12 @@ import { isAddress, isHash, isHex, type Address, type Hash, type Hex } from 'vie
 
 import { assertOneClickQuoteBinding, ONE_CLICK_EVM_CHAIN_IDS } from '../../../src/lib/one-click/client';
 import { buildEvmOneClickTransaction } from '../../../src/lib/one-click/evm-transfer';
-import type { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from '../../../src/lib/one-click/types';
+import type {
+  OneClickAsset,
+  OneClickConfig,
+  OneClickQuoteRequest,
+  OneClickQuoteResponse
+} from '../../../src/lib/one-click/types';
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
 import {
   assertMainnetEvmFunding,
@@ -126,12 +131,21 @@ function makeHolding(client = makeClient(), overrides: Partial<MainnetEvmHolding
   };
 }
 
-function makeSender(options: {
-  holding?: MainnetEvmHolding;
-  account?: Address;
-  gasBudgetWei?: bigint;
-  broadcast?: (transaction: { to: Address; data: Hex; value: bigint; gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas?: bigint }) => Promise<Hash>;
-} = {}) {
+function makeSender(
+  options: {
+    holding?: MainnetEvmHolding;
+    account?: Address;
+    gasBudgetWei?: bigint;
+    broadcast?: (transaction: {
+      to: Address;
+      data: Hex;
+      value: bigint;
+      gas: bigint;
+      maxFeePerGas: bigint;
+      maxPriorityFeePerGas?: bigint;
+    }) => Promise<Hash>;
+  } = {}
+) {
   return createMainnetOneClickEvmSender({
     holding: options.holding ?? makeHolding(),
     account: options.account ?? account,
@@ -230,10 +244,7 @@ describe('mainnet 1Click EVM sender', () => {
 
   it.each([
     ['gas cap', makeClient({ estimateGas: jest.fn(async () => 100_001n) })],
-    [
-      'max fee',
-      makeClient({ estimateFeesPerGas: jest.fn(async () => ({ maxFeePerGas: 2_000_000_001n })) })
-    ]
+    ['max fee', makeClient({ estimateFeesPerGas: jest.fn(async () => ({ maxFeePerGas: 2_000_000_001n })) })]
   ])('rejects an isolated %s violation before broadcast', async (_label, client) => {
     const broadcast = jest.fn(async () => testHash(`0x${'aa'.repeat(32)}`));
     const sender = makeSender({ holding: makeHolding(client), gasBudgetWei: 1_000_000_000_000_000n, broadcast });
@@ -255,10 +266,12 @@ describe('mainnet 1Click EVM sender', () => {
     expect(broadcast).not.toHaveBeenCalled();
 
     const controllerDuringReads = new AbortController();
-    const client = makeClient({ estimateGas: jest.fn(async () => {
-      controllerDuringReads.abort();
-      return 50_000n;
-    }) });
+    const client = makeClient({
+      estimateGas: jest.fn(async () => {
+        controllerDuringReads.abort();
+        return 50_000n;
+      })
+    });
     const lateAbort = makeSender({ holding: makeHolding(client), broadcast });
     bind(lateAbort);
     await expect(lateAbort.send(transaction(), controllerDuringReads.signal)).rejects.toThrow(/aborted/);
@@ -319,20 +332,27 @@ describe('mainnet 1Click EVM sender', () => {
     const tx = transaction();
     expect(await sender.send(tx, new AbortController().signal)).toBe(hash);
     expect(sender.broadcastCount).toBe(1);
-    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({
-      to: tx.to,
-      data: tx.data,
-      value: 0n,
-      gas: 50_000n,
-      maxFeePerGas: 2_000_000_000n
-    }));
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: tx.to,
+        data: tx.data,
+        value: 0n,
+        gas: 50_000n,
+        maxFeePerGas: 2_000_000_000n
+      })
+    );
     await expect(sender.send(tx, new AbortController().signal)).rejects.toThrow(/second send/);
     await expect(sender.receiptFee(testHash(`0x${'cd'.repeat(32)}`))).rejects.toThrow(/not the recorded/);
     expect(await sender.receiptFee(hash)).toBe(63_000_000_000_000n);
   });
 
   it('accepts Arbitrum One estimates above 100k when the all-in gas liability fits the budget', async () => {
-    const arbAsset = { ...asset, assetId: 'nep141:arb-0x3333333333333333333333333333333333333333.omft.near', blockchain: 'arb', chainId: 42161 };
+    const arbAsset = {
+      ...asset,
+      assetId: 'nep141:arb-0x3333333333333333333333333333333333333333.omft.near',
+      blockchain: 'arb',
+      chainId: 42161
+    };
     const client = makeClient({
       estimateGas: jest.fn(async () => 900_000n),
       estimateFeesPerGas: jest.fn(async () => ({ maxFeePerGas: 1_000_000_000n, maxPriorityFeePerGas: 1_000_000n }))
@@ -353,16 +373,25 @@ describe('mainnet 1Click EVM sender', () => {
 
   it('accounts for reverted receipt gas and requires an explicit effective gas price', async () => {
     const hash = testHash(`0x${'ab'.repeat(32)}`);
-    const reverted = makeSender({ holding: makeHolding(makeClient({
-      waitForTransactionReceipt: jest.fn(async () => testReceipt('reverted', 1n, 1n))
-    })), broadcast: jest.fn(async () => hash) });
+    const reverted = makeSender({
+      holding: makeHolding(
+        makeClient({
+          waitForTransactionReceipt: jest.fn(async () => testReceipt('reverted', 1n, 1n))
+        })
+      ),
+      broadcast: jest.fn(async () => hash)
+    });
     bind(reverted);
     await reverted.send(transaction(), new AbortController().signal);
     await expect(reverted.receiptFee(hash)).resolves.toBe(1n);
 
-    const missingPrice = makeSender({ holding: makeHolding(makeClient({
-      waitForTransactionReceipt: jest.fn(async () => testReceipt('success', undefined, 1n))
-    })) });
+    const missingPrice = makeSender({
+      holding: makeHolding(
+        makeClient({
+          waitForTransactionReceipt: jest.fn(async () => testReceipt('success', undefined, 1n))
+        })
+      )
+    });
     bind(missingPrice);
     await missingPrice.send(transaction(), new AbortController().signal);
     await expect(missingPrice.receiptFee(testHash(`0x${'aa'.repeat(32)}`))).rejects.toThrow(/verifiable all-in fee/);

@@ -203,11 +203,13 @@ describe('EVM 1Click wallet submission', () => {
     async ({ reject }) => {
       const { request, quote } = signedDeposit();
       const order: string[] = [];
+      let sendCount = 0;
       const wallet = providerWith(method => {
         if (method === 'eth_chainId') return 8453;
         if (method === 'eth_accounts') return [account];
         if (method === 'eth_sendTransaction') {
           order.push('send');
+          sendCount += 1;
           return txHash;
         }
         return null;
@@ -220,11 +222,136 @@ describe('EVM 1Click wallet submission', () => {
 
       await submitEvmOneClickDeposit(input).catch(() => undefined);
 
-      if (reject)
-        expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
-      else expect(order.slice(0, 2)).toEqual(['attempting', 'send']);
+      expect(order).toEqual(reject ? ['attempting'] : ['attempting', 'send']);
+      expect(sendCount).toBe(reject ? 0 : 1);
     }
   );
+
+  it('rechecks provider chain after the persisted claim and immediately before sending', async () => {
+    const { request, quote } = signedDeposit();
+    let claimed = false;
+    const wallet = providerWith(async method => {
+      if (method === 'eth_chainId') return claimed ? 1 : 8453;
+      if (method === 'eth_accounts') return [account];
+      return null;
+    });
+
+    await expect(
+      submitEvmOneClickDeposit({
+        provider: wallet,
+        account,
+        request,
+        quote,
+        config,
+        onAttempting: async () => {
+          claimed = true;
+        }
+      })
+    ).rejects.toMatchObject({ name: 'OneClickDepositPreflightError' });
+    expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+  });
+
+  it('rechecks provider account after the persisted claim and immediately before sending', async () => {
+    const { request, quote } = signedDeposit();
+    let claimed = false;
+    let accountChecksAfterClaim = 0;
+    const wallet = providerWith(async method => {
+      if (method === 'eth_chainId') return 8453;
+      if (method === 'eth_accounts') {
+        if (!claimed) return [account];
+        accountChecksAfterClaim += 1;
+        return accountChecksAfterClaim === 1 ? [refundAccount] : [account];
+      }
+      return null;
+    });
+
+    await expect(
+      submitEvmOneClickDeposit({
+        provider: wallet,
+        account,
+        request,
+        quote,
+        config,
+        onAttempting: async () => {
+          claimed = true;
+        }
+      })
+    ).rejects.toMatchObject({ name: 'OneClickDepositPreflightError' });
+    expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+  });
+
+  it('refuses to send through a provider replaced while the persisted claim was awaited', async () => {
+    const { request, quote } = signedDeposit();
+    const wallet = providerWith(async method => {
+      if (method === 'eth_chainId') return 8453;
+      if (method === 'eth_accounts') return [account];
+      return null;
+    });
+    let selectedProvider = wallet;
+    const replacementRequestMock: EIP1193Provider['request'] = async args => {
+      throw new Error(`Unexpected replacement provider request: ${args.method}`);
+    };
+    const replacement: EIP1193Provider = {
+      request: replacementRequestMock,
+      on: jest.fn(),
+      removeListener: jest.fn()
+    };
+    const replacementRequestSpy = jest.spyOn(replacement, 'request');
+    let claimCompleted = false;
+    const assertCurrentWallet = jest.fn(() => {
+      if (selectedProvider !== wallet) throw new Error('The selected provider changed');
+    });
+
+    await expect(
+      submitEvmOneClickDeposit({
+        provider: wallet,
+        account,
+        request,
+        quote,
+        config,
+        onAttempting: async () => {
+          selectedProvider = replacement;
+          claimCompleted = true;
+        },
+        assertCurrentWallet
+      })
+    ).rejects.toMatchObject({ name: 'OneClickDepositPreflightError' });
+    expect(claimCompleted).toBe(true);
+    expect(assertCurrentWallet).toHaveBeenCalledTimes(1);
+    expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+    expect(replacementRequestSpy).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the signed cutoff after the persisted claim and before sending', async () => {
+    let now = Date.parse('2099-10-22T10:00:00.000Z');
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const deadline = '2099-10-22T10:00:02.000Z';
+    const { request, quote } = signedDeposit(deadline);
+    quote.quote.deadline = '2099-10-22T10:01:00.000Z';
+    const wallet = providerWith(async method => {
+      if (method === 'eth_chainId') return 8453;
+      if (method === 'eth_accounts') return [account];
+      return null;
+    });
+
+    try {
+      await expect(
+        submitEvmOneClickDeposit({
+          provider: wallet,
+          account,
+          request,
+          quote,
+          config,
+          onAttempting: async () => {
+            now = Date.parse(deadline);
+          }
+        })
+      ).rejects.toMatchObject({ name: 'OneClickDepositPreflightError' });
+      expect(wallet.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'eth_sendTransaction' }));
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
 
   it('accepts WalletConnect numeric chain IDs and still rechecks the account before sending', async () => {
     const { request, quote } = signedDeposit();

@@ -67,11 +67,11 @@ describe('network name copy', () => {
   });
 
   it('protects Base as one DeepL span', () => {
-    expect(toDeepLXml(english.oneClickNetworkBase)).toContain('<x>Base</x>');
+    expect(toDeepLXml(english.oneClickNetworkBase, 'oneClickNetworkBase')).toContain('<x>Base</x>');
   });
 
   it('protects Optimism as one DeepL span', () => {
-    expect(toDeepLXml(english.oneClickNetworkOptimism)).toContain('<x>Optimism</x>');
+    expect(toDeepLXml(english.oneClickNetworkOptimism, 'oneClickNetworkOptimism')).toContain('<x>Optimism</x>');
   });
 
   it('translates oneClickAmount in Japanese', () => {

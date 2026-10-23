@@ -198,6 +198,7 @@ export interface IOneClickTrackingData {
   providerStatus?: OneClickProviderStatus;
   statusResponse?: OneClickStatusResponse;
   providerSubmitted?: boolean;
+  evmSubmission?: 'not-started' | 'attempted' | 'known';
   updatedAt?: number;
   error?: string;
 }

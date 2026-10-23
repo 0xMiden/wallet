@@ -1673,7 +1673,7 @@
   "oneClickFailureReason": "Geri ödeme veya başarısızlık nedeni",
   "oneClickNetworkMiden": "Miden",
   "oneClickNetworkEthereum": "Ethereum",
-  "oneClickNetworkBase": "Temel",
+  "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
   "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",

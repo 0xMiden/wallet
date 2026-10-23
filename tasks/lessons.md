@@ -85,3 +85,12 @@
 When a browser debugging connection is unavailable, inspect the requested browser through the available native UI interface before asking for another sign-in. A missing CDP connection does not imply the signed-in browser window is inaccessible. Follow the user's named tab group and preserve the current login.
 
 - HTTP fixture tests run in Jest JSDOM, where Node fetch is not supplied. Reuse the existing node:http request pattern and distinguish setup exceptions from functional assertion failures in regression proofs.
+
+## Review and diagnostic workflow
+
+- Before expensive evidence preparation, validate a new label through stock state registration, rendering, seat, verification and fix-round consumers. Use the native label format and the round matching the plan gate that completed; safe-filename validation alone is insufficient.
+- Route private syntax checks through the guarded local-check helper. Private output does not remove the resource and logging requirements.
+- Debugger observers must verify ownership of the current frame and locals before reading them. Capture stage metadata before optional calculations, guard absent locals, and keep recovery independent of extraction so observer failures cannot consume a quit fallback.
+- Bound diagnostic attempts with visible progress and a concrete recovery decision. Record failed, refused and interrupted attempts in [upstream issue #62](https://github.com/WiktorStarczewski/review-council/issues/62), and keep infrastructure causes unconfirmed until evidence establishes them.
+- When a user's explicit global rule excludes a P3, record exactly `DEFERRED (P3, ignored by user rule)`. Do not fix it, open a plan, blocker or follow-up, or keep it as open carryover. Only a later explicit request naming it reopens that item.
+- For exact-value regression tests, inspect global Jest manual mocks as well as suite-local mocks. A global mock can bypass production conversion, so bind the assertion to an existing path that exercises the real conversion.

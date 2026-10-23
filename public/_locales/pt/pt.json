@@ -1675,7 +1675,7 @@
   "oneClickNetworkEthereum": "Ethereum",
   "oneClickNetworkBase": "Base",
   "oneClickNetworkArbitrum": "Arbitrum",
-  "oneClickNetworkOptimism": "Otimismo",
+  "oneClickNetworkOptimism": "Optimism",
   "oneClickNetworkArc": "Arc",
   "availableAmount": "Disponível: $amount$ $symbol$"
 }

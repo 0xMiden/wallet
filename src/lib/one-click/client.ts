@@ -183,6 +183,9 @@ export function parseOneClickQuoteResponse(value: unknown): OneClickQuoteRespons
     throw new Error('Invalid 1Click quote response');
   const request = value.quoteRequest;
   const quote = value.quote;
+  if (Object.prototype.hasOwnProperty.call(request, 'appFees') && !Array.isArray(request.appFees)) {
+    throw new Error('Invalid 1Click quote response');
+  }
   const correlationId = requiredString(value, 'correlationId', 256);
   const timestamp = requiredString(value, 'timestamp', 64);
   const signature = requiredString(value, 'signature', 256);

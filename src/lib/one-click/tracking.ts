@@ -17,6 +17,7 @@ import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
+  ONE_CLICK_EVM_CHAIN_IDS,
   assertOneClickQuoteBinding,
   fetchOneClickStatus,
   resolveOneClickDestinationReceipts,
@@ -121,10 +122,97 @@ function trackingData(
     faucetId: input.faucetId,
     amount: direction === 'evm-to-miden' ? input.quote.quote.amountOut : input.quote.quote.amountIn,
     phase: 'depositing',
+    ...(direction === 'evm-to-miden' && ONE_CLICK_EVM_CHAIN_IDS[input.originAsset.blockchain] !== undefined
+      ? { evmSubmission: 'not-started' as const }
+      : {}),
     depositAddress: input.quote.quote.depositAddress,
     depositMemo: input.quote.quote.depositMemo,
     updatedAt: Date.now()
   };
+}
+
+function samePersistedDepositReference(left: IOneClickTrackingData, right: IOneClickTrackingData): boolean {
+  const leftChainId = left.originAsset.chainId ?? left.request.originAsset.chainId ?? '';
+  const rightChainId = right.originAsset.chainId ?? right.request.originAsset.chainId ?? '';
+  return (
+    left.originAsset.blockchain === right.originAsset.blockchain &&
+    leftChainId === rightChainId &&
+    left.depositAddress?.trim().toLowerCase() === right.depositAddress?.trim().toLowerCase() &&
+    (left.depositMemo ?? '') === (right.depositMemo ?? '')
+  );
+}
+
+function blocksEvmDepositRetry(tracking: IOneClickTrackingData): boolean {
+  if (tracking.originTransactionHash || tracking.evmSubmission === 'known') return true;
+  if (tracking.phase === 'failed') return false;
+  if (tracking.evmSubmission === 'not-started') return false;
+  return true;
+}
+
+export class OneClickEvmDepositAlreadyAttemptedError extends Error {
+  constructor() {
+    super('This EVM deposit reference already has a pending or ambiguous funding attempt');
+    this.name = 'OneClickEvmDepositAlreadyAttemptedError';
+  }
+}
+
+export async function claimOneClickEvmDepositAttempt(rowId: string): Promise<void> {
+  await Repo.db.transaction('rw', Repo.transactions, async () => {
+    const row = await Repo.transactions.get(rowId);
+    const tracking = row ? oneClickOf(row) : undefined;
+    if (
+      !row ||
+      !tracking ||
+      tracking.direction !== 'evm-to-miden' ||
+      ONE_CLICK_EVM_CHAIN_IDS[tracking.originAsset.blockchain] === undefined
+    ) {
+      throw new Error('The EVM deposit tracking row could not be claimed');
+    }
+    if (tracking.evmSubmission !== 'not-started' || tracking.originTransactionHash) {
+      throw new OneClickEvmDepositAlreadyAttemptedError();
+    }
+    const existing = await Repo.transactions.where('type').equals('bridged-receive').toArray();
+    const conflict = existing.some(candidate => {
+      if (candidate.id === rowId) return false;
+      const persisted = oneClickOf(candidate);
+      if (!persisted || persisted.direction !== 'evm-to-miden') return false;
+      if (!samePersistedDepositReference(tracking, persisted)) return false;
+      return blocksEvmDepositRetry(persisted);
+    });
+    if (conflict) throw new OneClickEvmDepositAlreadyAttemptedError();
+    await Repo.transactions.update(rowId, {
+      extraInputs: {
+        ...row.extraInputs,
+        phase: 'delivering',
+        oneClick: { ...tracking, evmSubmission: 'attempted', updatedAt: Date.now() }
+      }
+    });
+  });
+}
+
+export async function retireOneClickEvmPreflightFailure(rowId: string, ownsAttemptClaim = false): Promise<void> {
+  await Repo.db.transaction('rw', Repo.transactions, async () => {
+    const transaction = await Repo.transactions.get(rowId);
+    const tracking = transaction ? oneClickOf(transaction) : undefined;
+    if (
+      !transaction ||
+      !tracking ||
+      tracking.direction !== 'evm-to-miden' ||
+      tracking.originTransactionHash ||
+      tracking.evmSubmission === 'known' ||
+      (tracking.evmSubmission === 'attempted' && !ownsAttemptClaim) ||
+      (tracking.evmSubmission !== 'attempted' && tracking.evmSubmission !== 'not-started')
+    ) {
+      return;
+    }
+    await Repo.transactions.update(rowId, {
+      extraInputs: {
+        ...transaction.extraInputs,
+        phase: 'failed',
+        oneClick: { ...tracking, evmSubmission: 'not-started', phase: 'failed', updatedAt: Date.now() }
+      }
+    });
+  });
 }
 
 export async function persistOneClickTrackingRow(input: OneClickTrackingInput): Promise<string> {
@@ -188,6 +276,7 @@ export async function recordOneClickOriginTransactionHash(rowId: string, transac
           ...tracking,
           originTransactionHash: transactionHash,
           phase: 'known-deposit-tx',
+          evmSubmission: 'known',
           updatedAt: Date.now()
         }
       };
