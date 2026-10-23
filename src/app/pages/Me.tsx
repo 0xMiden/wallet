@@ -10,7 +10,8 @@ import { CopyChip } from 'components/ui/CopyChip';
 import { Hero } from 'components/ui/Hero';
 import { ProgressMeter } from 'components/ui/ProgressMeter';
 import { TabRootHeader } from 'components/ui/TabRootHeader';
-import { useWalletBadges } from 'lib/badges/useWalletBadges';
+import { UnreadDot } from 'components/ui/UnreadDot';
+import { useHasUnreadBadges, useWalletBadges } from 'lib/badges/useWalletBadges';
 import { useAccount, useNetwork } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
@@ -24,6 +25,7 @@ const Me: React.FC = () => {
   const account = useAccount();
   const network = useNetwork();
   const earned = useWalletBadges();
+  const hasUnreadBadges = useHasUnreadBadges();
 
   useEffect(() => {
     if (!isMobile()) return;
@@ -59,7 +61,15 @@ const Me: React.FC = () => {
           className="flex w-full items-center gap-3"
           data-testid="my-badges-preview"
         >
-          <Avatar size={40} tone="brand" icon={<Icon name={IconName.ProfileBadge} size="sm" />} />
+          <span className="relative shrink-0">
+            <Avatar size={40} tone="brand" icon={<Icon name={IconName.ProfileBadge} size="sm" />} />
+            <UnreadDot
+              unread={hasUnreadBadges}
+              placement="badge"
+              label={t('activityUnread')}
+              data-testid="my-badges-unread"
+            />
+          </span>
           <span className="flex min-w-0 flex-1 flex-col gap-2">
             <span className="flex items-baseline justify-between gap-2">
               <span className="text-row-title text-ink">{t('myBadges')}</span>

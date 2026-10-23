@@ -18,12 +18,15 @@ import * as Repo from 'lib/miden/repo';
 import { withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { BadgeIssuanceManager } from './BadgeIssuanceManager';
 import { BADGE_STORAGE_KEY, type BadgeId } from './types';
 import { useWalletBadges } from './useWalletBadges';
 
 let mockStored: BadgeId[] = [];
+let mockSeen: unknown = null;
 let mockMainnet = true;
 let mockOverride: object | null = null;
 let mockApprovedPair = true;
@@ -66,7 +69,7 @@ function landBalances(nonce: string, network = 'mainnet', account = 'account-b')
 jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ accounts: mockAccounts }) }));
 jest.mock('lib/miden/front', () => ({ useNetwork: () => ({ id: 'mainnet' }) }));
 jest.mock('lib/miden/front/storage', () => ({
-  useStorage: () => {
+  useStorage: (key: string) => {
     const ReactModule = jest.requireActual('react');
     return [
       ReactModule.useSyncExternalStore(
@@ -74,18 +77,20 @@ jest.mock('lib/miden/front/storage', () => ({
           mockListeners.add(cb);
           return () => mockListeners.delete(cb);
         },
-        () => mockStored
+        () => (key === BADGE_STORAGE_KEY ? mockStored : mockSeen)
       )
     ];
   },
-  fetchFromStorage: async () => mockStored,
+  fetchFromStorage: async (key: string) => (key === BADGE_STORAGE_KEY ? mockStored : mockSeen),
   onStorageChanged: (_key: string, callback: (value: unknown) => void) => {
     mockVaultRemoval = callback;
     return jest.fn();
   },
   putToStorage: async (key: string, value: BadgeId[]) => {
-    mockWrite(key, value);
-    mockStored = value;
+    if (key === BADGE_STORAGE_KEY) {
+      mockWrite(key, value);
+      mockStored = value;
+    } else mockSeen = value;
     mockListeners.forEach(listener => listener());
   },
   inStorageTurn: async (_key: string, operation: () => Promise<void>) => operation()
@@ -102,6 +107,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/miden/swap/tokens', () => ({ isSwapPair: () => mockApprovedPair }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: () => (mockMainnet ? 'mainnet' : 'testnet'),
   getActiveOverride: () => mockOverride
 }));
@@ -160,6 +166,7 @@ function ProfileCounter() {
 beforeEach(async () => {
   await Repo.transactions.clear();
   mockStored = [];
+  mockSeen = null;
   mockBalances = {};
   mockMainnet = true;
   mockOverride = null;
@@ -171,38 +178,58 @@ beforeEach(async () => {
   jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
 });
 
-it('reacts to a real IndexedDB status event and updates both the wallet count and badge card', async () => {
-  await Repo.transactions.add(row());
-  const view = render(
-    <>
-      <BadgeIssuanceManager />
-      <ProfileCounter />
-      <MyBadges />
-    </>
-  );
-  expect(screen.getByTestId('wallet-count')).toHaveTextContent('0');
-  expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'false');
-  await act(async () => {
-    await Repo.transactions.update('send', { status: ITransactionStatus.Completed });
-  });
-  await waitFor(() => expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true'));
-  expect(screen.getByTestId('wallet-count')).toHaveTextContent('1');
-  expect(screen.getByText('badgeEarned')).toBeInTheDocument();
-  expect(mockWrite).toHaveBeenCalledWith(BADGE_STORAGE_KEY, ['first-send']);
-  await act(async () => {
-    await Repo.transactions.update('send', { completedAt: 10 });
-  });
-  await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1));
+it.each([false, true])(
+  'reacts to a real IndexedDB status event and updates the count and card (onboarding choice: %s)',
+  async onboarding => {
+    if (onboarding) mockOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    await Repo.transactions.add(row());
+    const view = render(
+      <>
+        <BadgeIssuanceManager />
+        <ProfileCounter />
+        <MyBadges />
+      </>
+    );
+    expect(screen.getByTestId('wallet-count')).toHaveTextContent('0');
+    expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'false');
+    await act(async () => {
+      await Repo.transactions.update('send', { status: ITransactionStatus.Completed });
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true')
+    );
+    expect(screen.getByTestId('wallet-count')).toHaveTextContent('1');
+    expect(screen.getByText('badgeEarned')).toBeInTheDocument();
+    expect(mockWrite).toHaveBeenCalledWith(BADGE_STORAGE_KEY, ['first-send']);
+    await act(async () => {
+      await Repo.transactions.update('send', { completedAt: 10 });
+    });
+    await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1));
+    view.unmount();
+    render(
+      <>
+        <BadgeIssuanceManager />
+        <ProfileCounter />
+        <MyBadges />
+      </>
+    );
+    expect(screen.getByTestId('wallet-count')).toHaveTextContent('1');
+    expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true');
+  }
+);
+
+it('recognizes pre-existing stamped Mainnet activity after onboarding and remounts without reissuing', async () => {
+  mockOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+  await Repo.transactions.add(row({ status: ITransactionStatus.Completed }));
+  const view = render(<BadgeIssuanceManager />);
+  await waitFor(() => expect(mockWrite).toHaveBeenCalledWith(BADGE_STORAGE_KEY, ['first-send']));
   view.unmount();
-  render(
-    <>
-      <BadgeIssuanceManager />
-      <ProfileCounter />
-      <MyBadges />
-    </>
-  );
-  expect(screen.getByTestId('wallet-count')).toHaveTextContent('1');
-  expect(screen.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true');
+  const reloaded = render(<BadgeIssuanceManager />);
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  });
+  expect(mockWrite).toHaveBeenCalledTimes(1);
+  reloaded.unmount();
 });
 
 it.each(['testnet', 'override', 'legacy', 'failed', 'imported'])('does not issue for %s activity', async kind => {

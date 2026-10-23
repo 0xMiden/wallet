@@ -345,6 +345,11 @@ const OVERRIDE_ENDPOINT_FIELDS = [
 const isNetworkChoice = (override: EndpointOverride) =>
   OVERRIDE_ENDPOINT_FIELDS.every(field => !override[field]) && !override.allowNoGuardian && !override.feeFaucetId;
 
+/** Synchronous provenance check: onboarding's endpoint-free network choice uses the canonical defaults. */
+export function hasCustomEndpointOverride(override: EndpointOverride | null = getActiveOverride()): boolean {
+  return override !== null && (!isEndpointOverride(override) || !isNetworkChoice(override));
+}
+
 /**
  * Whether a developer endpoint override is stored. The network choice onboarding stores is not one, so an
  * ordinary mainnet wallet shows no developer endpoints; Developer Settings still reads it as the stored choice.

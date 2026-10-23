@@ -10,6 +10,7 @@ import {
 } from './constants';
 import {
   getEffectiveAllowNoGuardian,
+  hasCustomEndpointOverride,
   buildDefaultOverrideFor,
   buildNetworkChoiceOverride,
   type EndpointOverride,
@@ -606,5 +607,37 @@ describe('getTestNetworkNameKey', () => {
     }
     expect(keys.sort()).toEqual(['devnet', 'localnet', 'testnet']);
     expect(keys.filter(key => !(key in en))).toEqual([]);
+  });
+});
+
+describe('badge network provenance', () => {
+  it('retains canonical Mainnet provenance when the saved onboarding choice loads in a new realm', async () => {
+    const before = loadModule();
+    await before.applyEndpointOverride(before.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+    const reloaded = loadModule();
+    await reloaded.loadEndpointOverrides();
+    expect(reloaded.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+    expect(reloaded.hasCustomEndpointOverride()).toBe(false);
+  });
+
+  it('accepts build defaults and an endpoint-free onboarding network choice', () => {
+    expect(hasCustomEndpointOverride(null)).toBe(false);
+    expect(hasCustomEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET))).toBe(false);
+  });
+
+  it.each([
+    { rpcUrl: 'https://custom.invalid' },
+    { proverUrl: 'https://custom.invalid' },
+    { noteTransportUrl: 'https://custom.invalid' },
+    { faucetUrl: 'https://custom.invalid' },
+    { faucetApiUrl: 'https://custom.invalid' },
+    { explorerUrl: 'https://custom.invalid' },
+    { guardianUrl: 'https://custom.invalid' },
+    { allowNoGuardian: true },
+    { feeFaucetId: 'custom-fee' }
+  ])('rejects a Mainnet-labelled developer configuration %s', fields => {
+    expect(hasCustomEndpointOverride({ ...buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET), ...fields })).toBe(
+      true
+    );
   });
 });

@@ -29,6 +29,8 @@ const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, is
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnread = { value: false };
+const mockUnreadBadges = { value: false };
+jest.mock('lib/badges/useWalletBadges', () => ({ useHasUnreadBadges: () => mockUnreadBadges.value }));
 
 // `lib/woozie` pulls in the full location/history/analytics stack. Stub the two
 // symbols the layout uses: `navigate` (a spy) and `useLocation` (reads state).
@@ -198,6 +200,7 @@ beforeEach(() => {
   mockEnv.sidePanel = false;
   mockReturning.value = false;
   mockHasUnread.value = false;
+  mockUnreadBadges.value = false;
 });
 
 describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
@@ -374,6 +377,7 @@ describe('TabLayout — tabs list composition', () => {
 
   it('leaves the Activity tab unmarked once nothing is unread', () => {
     mockHasUnread.value = false;
+    mockUnreadBadges.value = false;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
   });
@@ -1007,4 +1011,12 @@ describe('TabLayout — the keyboard hides the bottom nav elsewhere', () => {
     expect(useHideNavbarWhileOpen).not.toHaveBeenCalled();
     unmount();
   });
+});
+
+it('marks Profile unread independently from Activity', () => {
+  mockUnreadBadges.value = true;
+  renderLayout();
+  expect(screen.getByTestId('nav-me')).toHaveAttribute('data-dot', 'true');
+  expect(screen.getByTestId('nav-me')).toHaveAttribute('data-dot-label', 'activityUnread');
+  expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
 });

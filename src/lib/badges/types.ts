@@ -9,6 +9,7 @@ export const BADGE_IDS = [
 
 export type BadgeId = (typeof BADGE_IDS)[number];
 export const BADGE_STORAGE_KEY = 'wallet_badges:v1:mainnet';
+export const BADGE_SEEN_STORAGE_KEY = 'wallet_badges_seen:v1:mainnet';
 
 /** Only identifiers, never financial payloads, addresses, secrets or transaction references. */
 export function readEarnedBadges(value: unknown): BadgeId[] {
