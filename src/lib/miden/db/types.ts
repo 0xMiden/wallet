@@ -2,6 +2,14 @@ import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
+import type {
+  OneClickAsset,
+  OneClickConfig,
+  OneClickProviderStatus,
+  OneClickQuoteRequest,
+  OneClickQuoteResponse,
+  OneClickStatusResponse
+} from 'lib/one-click/types';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type {
   ClaimFeeAdmission,
@@ -155,7 +163,50 @@ export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
  * Which cross-chain bridge route a bridge row used. `usdcx` is Circle xReserve
  * (Sepolia USDC ↔ USDCx on Miden).
  */
-export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
+export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
+
+export type IOneClickDirection = 'miden-to-evm' | 'evm-to-miden';
+export type IOneClickPhase =
+  | 'depositing'
+  | 'known-deposit-tx'
+  | 'pending-deposit'
+  | 'processing'
+  | 'arriving'
+  | 'delivered'
+  | 'refunded'
+  | 'incomplete-deposit'
+  | 'failed';
+
+export interface IOneClickTrackingData {
+  direction: IOneClickDirection;
+  request: OneClickQuoteRequest;
+  quote: OneClickQuoteResponse;
+  fundingDeadline?: string;
+  config: OneClickConfig;
+  network: string;
+  accountId: string;
+  accountAddress: string;
+  originAsset: OneClickAsset;
+  destinationAsset: OneClickAsset;
+  faucetId: string;
+  amount: string;
+  phase: IOneClickPhase;
+  depositAddress?: string;
+  depositMemo?: string;
+  originTransactionHash?: string;
+  destinationNoteIds?: string[];
+  providerStatus?: OneClickProviderStatus;
+  statusResponse?: OneClickStatusResponse;
+  providerSubmitted?: boolean;
+  evmSubmission?: 'not-started' | 'attempted' | 'known';
+  updatedAt?: number;
+  error?: string;
+}
+
+export interface ISendExtraInputs {
+  recallBlocks?: number;
+  oneClick?: IOneClickTrackingData;
+}
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -239,6 +290,7 @@ export interface IBridgedReceiveExtraInputs {
   sourceAmount: string;
   sourceSymbol: string;
   phase: IBridgedReceivePhase;
+  oneClick?: IOneClickTrackingData;
   /**
    * The typed "you receive" amount, exact (Fast: `minTokenOut`), shown until the note is consumed.
    * Screens format it when they show it; older rows hold a Fast quote already rounded for display.
@@ -473,6 +525,10 @@ export interface IEarnDepositExtraInputs {
   outputSymbol?: string;
   /** settlement status derived from polling `getIntentStatus`. */
   epochStatus?: 'pending' | 'confirmed' | 'failed';
+  /** Protocol string a deposit hashes. Absent on a row queued before it was stored. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain of the Earn market. Absent on a legacy row. */
+  chainId?: number;
 }
 
 /**
@@ -540,6 +596,10 @@ export interface IEarnWithdrawExtraInputs {
   outputSymbol?: string;
   /** failure reason, set alongside `phase === 'failed'`. */
   error?: string;
+  /** Protocol string a deposit hashes. A retry refuses a row that has none. */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Chain the withdrawal executes on. A retry may derive it from `marketUid` when `protocol` is present. */
+  chainId?: number;
 }
 
 /**
@@ -1155,7 +1215,7 @@ export class SendTransaction implements ITransaction {
   delegateTransaction?: boolean;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
-  extraInputs: { recallBlocks?: number } = {
+  extraInputs: ISendExtraInputs = {
     recallBlocks: undefined
   };
 
@@ -1579,7 +1639,9 @@ export class EarnDepositTransaction implements ITransaction {
     faucetId: string,
     sendParams: IBridgedSendNoteParams,
     delegateTransaction?: boolean,
-    requestBytes?: Uint8Array
+    requestBytes?: Uint8Array,
+    protocol?: '1delta' | 'dummy-lending',
+    chainId?: number
   ) {
     this.id = uuid();
     this.type = 'earn-deposit';
@@ -1600,7 +1662,9 @@ export class EarnDepositTransaction implements ITransaction {
       marketUid,
       sourceFaucetId: faucetId,
       recallBlocks: sendParams.recallBlocks,
-      epochStatus: 'pending'
+      epochStatus: 'pending',
+      ...(protocol ? { protocol } : {}),
+      ...(chainId !== undefined ? { chainId } : {})
     };
   }
 }
@@ -1636,7 +1700,9 @@ export class EarnWithdrawTransaction implements ITransaction {
     sourceSymbol = 'USDC',
     submissionAttemptId?: string,
     attemptStartedAt?: number,
-    sourceDecimals?: number
+    sourceDecimals?: number,
+    protocol?: '1delta' | 'dummy-lending',
+    chainId?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -1659,7 +1725,9 @@ export class EarnWithdrawTransaction implements ITransaction {
       phase: 'redeeming',
       submissionState: 'preparing',
       submissionAttemptId,
-      attemptStartedAt: attemptStartedAt ?? now
+      attemptStartedAt: attemptStartedAt ?? now,
+      ...(protocol ? { protocol } : {}),
+      ...(chainId !== undefined ? { chainId } : {})
     };
   }
 }

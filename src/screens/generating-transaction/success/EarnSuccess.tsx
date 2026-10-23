@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -51,7 +52,8 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       : undefined;
 
   const marketUid: unknown = transaction?.extraInputs?.marketUid;
-  const market = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const market = typeof marketUid === 'string' ? earnMarketLabel(bridgeConfig, marketUid) : undefined;
 
   // A deposit pays a network fee like any other transaction, and the row records it.
   // Resolved on its own rather than through `useReceiptAmount`, whose amount is

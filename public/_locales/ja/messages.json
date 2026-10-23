@@ -498,6 +498,30 @@
     "message": "リスク",
     "englishSource": "Risk"
   },
+  "earnRiskLow": {
+    "message": "Low",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "High",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "預入は終了しました",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "この保管庫は現在、預け入れを受け付けていません。後ほど再度お試しいただくか、別の保管庫をお選びください。",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Walletは、この保管庫への預入を一時停止しています。既存の預入分には影響ありません。別の保管庫を選択してください。",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
+  },
   "earnAuditedLabel": {
     "message": "監査済み",
     "englishSource": "Audited"
@@ -670,6 +694,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ on $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },
@@ -900,6 +939,10 @@
   "back": {
     "message": "戻る",
     "englishSource": "Back"
+  },
+  "backToSwap": {
+    "message": "スワップに戻る",
+    "englishSource": "Back to swap"
   },
   "skip": {
     "message": "スキップ",
@@ -1998,6 +2041,10 @@
   "swap": {
     "message": "スワップ",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "スワップの確認",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "In Protocol Dex経由で",
@@ -3696,10 +3743,6 @@
   "amountMustBeLessThanBalance": {
     "message": "金額は残高より少なければなりません",
     "englishSource": "Amount must be less than balance"
-  },
-  "amountExceedsTokenDecimals": {
-    "message": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
-    "englishSource": "This amount has more decimal places than this token allows."
   },
   "autoConsumeSettings": {
     "message": "USDCX の送金を自動で受け取る",
@@ -7337,6 +7380,376 @@
   "runtimeUnsupportedBody": {
     "message": "このウォレットには WebAssembly SIMD が必要ですが、このブラウザまたはデバイスでは提供されていません。別のデバイスまたは最新のブラウザでウォレットを開いてください。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "oneClickSelectAsset": {
+    "message": "$network$でトークンを選択してください",
+    "englishSource": "Select a token on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickNoAssets": {
+    "message": "このネットワーク上には、検証済みのトークンは存在しません。",
+    "englishSource": "No verified tokens are available on this network."
+  },
+  "oneClickRecipientSection": {
+    "message": "受信者",
+    "englishSource": "Recipient"
+  },
+  "oneClickRefundSection": {
+    "message": "払い戻し口座",
+    "englishSource": "Refund account"
+  },
+  "oneClickRecipientAddress": {
+    "message": "受取人アドレス",
+    "englishSource": "Recipient address"
+  },
+  "oneClickRefundAddress": {
+    "message": "発信元ネットワーク上の払い戻しアドレス",
+    "englishSource": "Refund address on the origin network"
+  },
+  "oneClickRefundAccount": {
+    "message": "払い戻し口座",
+    "englishSource": "Refund account"
+  },
+  "oneClickConnectOriginWallet": {
+    "message": "$network$ウォレットを接続する",
+    "englishSource": "Connect $network$ wallet",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickChooseForeignNetwork": {
+    "message": "Miden以外の送信元または送信先ネットワークを選択してください。",
+    "englishSource": "Choose an origin or destination network outside Miden."
+  },
+  "oneClickDifferentNetworksRequired": {
+    "message": "2つの異なるネットワークを選択してください。",
+    "englishSource": "Choose two different networks."
+  },
+  "oneClickMidenAssetRequired": {
+    "message": "このルートの片側には、検証済みのMidenトークンを選択してください。",
+    "englishSource": "Choose a verified Miden token for one side of this route."
+  },
+  "oneClickSameUnderlyingBridge": {
+    "message": "これはブリッジ転送です。この資産については、既存のブリッジフローを使用してください。",
+    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
+  },
+  "oneClickQuoteUnavailable": {
+    "message": "このルートでは相場情報が利用できません。アドレスを確認して、もう一度お試しください。",
+    "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
+  },
+  "oneClickQuoteExpiresAt": {
+    "message": "クォートは期限切れとなります",
+    "englishSource": "Quote expires"
+  },
+  "oneClickQuoteExpired": {
+    "message": "有効期限が切れています。続行する前に更新してください。",
+    "englishSource": "Expired. Refresh before continuing."
+  },
+  "oneClickConfirmMidenDeposit": {
+    "message": "このMidenへの入金を確認してください",
+    "englishSource": "Confirm this Miden deposit"
+  },
+  "oneClickSubmitFailed": {
+    "message": "入金が送信できませんでした。経路を確認して、もう一度お試しください。",
+    "englishSource": "The deposit could not be submitted. Review the route and try again."
+  },
+  "oneClickRouteChanged": {
+    "message": "ルートが変更されました。続行する前に、新しい見積もりを依頼してください。",
+    "englishSource": "The route changed. Request a new quote before continuing."
+  },
+  "oneClickArrivalEstimate": {
+    "message": "約$minutes$分",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefreshQuote": {
+    "message": "相場情報を更新",
+    "englishSource": "Refresh quote"
+  },
+  "oneClickMinimumReceived": {
+    "message": "最低受領額",
+    "englishSource": "Minimum received"
+  },
+  "oneClickMinimumOutput": {
+    "message": "最小出力",
+    "englishSource": "Minimum output"
+  },
+  "oneClickRefundAmount": {
+    "message": "払い戻し額",
+    "englishSource": "Refund amount"
+  },
+  "oneClickNativeFee": {
+    "message": "Midenネットワーク手数料の推定額",
+    "englishSource": "Estimated Miden network fee"
+  },
+  "oneClickAvailableBalance": {
+    "message": "利用可能な外部残高",
+    "englishSource": "Available external balance"
+  },
+  "oneClickBalanceChecking": {
+    "message": "外部残高の確認",
+    "englishSource": "Checking external balance"
+  },
+  "oneClickBalanceCheckingBody": {
+    "message": "接続されたアカウントを確認し、ネットワーク手数料に十分な残高を確保すること。",
+    "englishSource": "Checking the connected account and reserving enough for the network fee."
+  },
+  "oneClickBalanceUnavailable": {
+    "message": "外部残高は利用不可",
+    "englishSource": "External balance unavailable"
+  },
+  "oneClickBalanceUnavailableBody": {
+    "message": "ウォレットは、接続されたアカウントの残高およびネットワーク手数料を確認できませんでした。続行する前に、再接続するか、もう一度お試しください。",
+    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
+  },
+  "oneClickGasReserve": {
+    "message": "ネットワーク手数料として確保済み：$amount$ $symbol$",
+    "englishSource": "Reserved for network fees: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "oneClickInsufficientTokenBalance": {
+    "message": "トークン残高不足",
+    "englishSource": "Insufficient token balance"
+  },
+  "oneClickInsufficientTokenBalanceBody": {
+    "message": "接続されたアカウントには、提示された入金額に相当するこのトークンが十分にありません。",
+    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
+  },
+  "oneClickInsufficientGasBalance": {
+    "message": "ネットワーク手数料の残高不足",
+    "englishSource": "Insufficient network fee balance"
+  },
+  "oneClickInsufficientGasBalanceBody": {
+    "message": "接続されたアカウントには、推定ネットワーク手数料を賄うために、さらに$symbol$が必要です。",
+    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickArrival": {
+    "message": "到着予定時刻",
+    "englishSource": "Estimated arrival"
+  },
+  "oneClickRecipient": {
+    "message": "受信者",
+    "englishSource": "Recipient"
+  },
+  "oneClickRoute": {
+    "message": "ルート",
+    "englishSource": "Route"
+  },
+  "oneClickYouPayFrom": {
+    "message": "支払いは$network$で行います",
+    "englishSource": "You pay on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickYouReceiveOn": {
+    "message": "$network$で受け取ります",
+    "englishSource": "You receive on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefundFee": {
+    "message": "返金手数料",
+    "englishSource": "Refund fee"
+  },
+  "oneClickWithdrawFee": {
+    "message": "出金手数料",
+    "englishSource": "Withdrawal fee"
+  },
+  "oneClickDepositInstructions": {
+    "message": "預入の手順",
+    "englishSource": "Deposit instructions"
+  },
+  "oneClickManualDepositNotice": {
+    "message": "選択したネットワークから、以下の正確な金額を送金してください。スワップは、送金が預入アドレスに到達して初めて開始されます。",
+    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
+  },
+  "oneClickNetwork": {
+    "message": "ネットワーク",
+    "englishSource": "Network"
+  },
+  "oneClickOriginNetwork": {
+    "message": "Originネットワーク",
+    "englishSource": "Origin network"
+  },
+  "oneClickDestinationNetwork": {
+    "message": "宛先ネットワーク",
+    "englishSource": "Destination network"
+  },
+  "oneClickAmount": {
+    "message": "金額",
+    "englishSource": "Amount"
+  },
+  "oneClickDepositAddress": {
+    "message": "入金アドレス",
+    "englishSource": "Deposit address"
+  },
+  "oneClickDepositMemo": {
+    "message": "備考",
+    "englishSource": "Memo"
+  },
+  "oneClickOriginTransaction": {
+    "message": "オリジン取引",
+    "englishSource": "Origin transaction"
+  },
+  "oneClickTrackingSaved": {
+    "message": "この経路は「アクティビティ」に保存されるため、後で追跡することができます。",
+    "englishSource": "This route is saved in Activity so you can track it later."
+  },
+  "oneClickBroadcastTrackingPending": {
+    "message": "このウォレットから入金が送信されましたが、まだ取引を保存できていません。再度送信しないでください。取引ハッシュは以下の通りです。",
+    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
+  },
+  "oneClickRefreshingExpiredQuote": {
+    "message": "期限切れの相場情報の更新",
+    "englishSource": "Refreshing expired quote"
+  },
+  "oneClickRecoveryUnavailable": {
+    "message": "このルートは更新できません",
+    "englishSource": "This route cannot be refreshed"
+  },
+  "oneClickRecoveryUnavailableBody": {
+    "message": "アカウント、ネットワーク、または検証済みルートが変更されました。取引画面に戻り、必要に応じて新しいルートを開始してください。",
+    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
+  },
+  "oneClickExpiredRefreshFailed": {
+    "message": "期限切れの相場情報は更新できませんでした。送信する前に、再試行して新しい相場情報を取得してください。",
+    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
+  },
+  "oneClickQuoteRefreshed": {
+    "message": "相場情報の更新",
+    "englishSource": "Quote refreshed"
+  },
+  "oneClickExpiredRefreshNotice": {
+    "message": "以前の引用文は、お客様の入金が送信される前に有効期限が切れていました。この更新された手順を確認し、続行するかどうかをご確認ください。",
+    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
+  },
+  "oneClickDepositSubmitted": {
+    "message": "預入申請済み",
+    "englishSource": "Deposit submitted"
+  },
+  "oneClickStatusKnownDepositTx": {
+    "message": "預入取引が見つかりました",
+    "englishSource": "Deposit transaction found"
+  },
+  "oneClickStatusPendingDeposit": {
+    "message": "入金を待機中",
+    "englishSource": "Waiting for deposit"
+  },
+  "oneClickStatusIncompleteDeposit": {
+    "message": "入金額が不完全です",
+    "englishSource": "Deposit amount is incomplete"
+  },
+  "oneClickStatusProcessing": {
+    "message": "スワップ処理",
+    "englishSource": "Swap processing"
+  },
+  "oneClickStatusSuccess": {
+    "message": "プロバイダーによるスワップの完了",
+    "englishSource": "Swap completed by provider"
+  },
+  "oneClickStatusRefunded": {
+    "message": "返金された資金",
+    "englishSource": "Funds refunded"
+  },
+  "oneClickStatusFailed": {
+    "message": "スワップ失敗",
+    "englishSource": "Swap failed"
+  },
+  "oneClickProviderStatus": {
+    "message": "プロバイダーのステータス",
+    "englishSource": "Provider status"
+  },
+  "oneClickDeliveryStatus": {
+    "message": "ウォレットの引き渡し",
+    "englishSource": "Wallet delivery"
+  },
+  "oneClickStatusDelivered": {
+    "message": "ウォレットで受領",
+    "englishSource": "Received in wallet"
+  },
+  "oneClickDeliveryArriving": {
+    "message": "Midenウォレットへの到着",
+    "englishSource": "Arriving in Miden wallet"
+  },
+  "oneClickDepositAmount": {
+    "message": "預入金額",
+    "englishSource": "Deposit amount"
+  },
+  "oneClickOutputAmount": {
+    "message": "引用された出力",
+    "englishSource": "Quoted output"
+  },
+  "oneClickFailureReason": {
+    "message": "返金または失敗理由",
+    "englishSource": "Refund or failure reason"
+  },
+  "oneClickNetworkMiden": {
+    "message": "Miden",
+    "englishSource": "Miden"
+  },
+  "oneClickNetworkEthereum": {
+    "message": "イーサリアム",
+    "englishSource": "Ethereum"
+  },
+  "oneClickNetworkBase": {
+    "message": "Base",
+    "englishSource": "Base"
+  },
+  "oneClickNetworkArbitrum": {
+    "message": "Arbitrum",
+    "englishSource": "Arbitrum"
+  },
+  "oneClickNetworkOptimism": {
+    "message": "Optimism",
+    "englishSource": "Optimism"
+  },
+  "oneClickNetworkArc": {
+    "message": "Arc",
+    "englishSource": "Arc"
+  },
+  "availableAmount": {
+    "message": "利用可能：$amount$ $symbol$",
+    "englishSource": "Available: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "amountExceedsTokenDecimals": {
+    "message": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
+    "englishSource": "This amount has more decimal places than this token allows."
   },
   "amountUsdUnavailable": {
     "message": "USDの見積もりは利用不可",

@@ -304,6 +304,22 @@ export interface XReserveDomainState {
   gatewayMinter: Address;
 }
 
+/** Whether `xReserve` has `domain` registered. The caller names the address, so mainnet Arc is not read at the testnet one. */
+export async function readRemoteDomainRegistered(
+  deps: ArcReadDeps,
+  xReserve: Address,
+  domain: number
+): Promise<boolean> {
+  return onFirstEndpoint(deps, 'xReserve domain registration', client =>
+    client.readContract({
+      address: xReserve,
+      abi: XRESERVE_HARNESS_ABI,
+      functionName: 'isRemoteDomainRegistered',
+      args: [domain]
+    })
+  );
+}
+
 /** Miden's domain on Arc's xReserve, all reads on one endpoint. */
 export async function readXReserveDomainState(deps: ArcReadDeps): Promise<XReserveDomainState> {
   arcOnly(deps, 'xReserve domain state');
@@ -697,7 +713,7 @@ async function acceptsRawTransactions(client: PublicClient): Promise<boolean> {
   } catch (error) {
     const code = rpcCode(error);
     const text = errorText(error);
-    if (code === -32602 || /decode|rlp|typed transaction/i.test(text)) return true;
+    if (code === -32602 || /decode|rlp|typed transaction|reading transaction object failed/i.test(text)) return true;
     if (code === -32601 || /not (supported|available|allowed)|method not found/i.test(text)) return false;
     throw error;
   }

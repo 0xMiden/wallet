@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
+  "name": "miden-wallet-one-click-proxy",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false,
+    "logs": { "enabled": false, "invocation_logs": false },
+    "traces": { "enabled": false }
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "[]",
+    "APP_FEES": "[]"
+  }
+}

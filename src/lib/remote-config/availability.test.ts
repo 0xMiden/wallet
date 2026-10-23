@@ -132,6 +132,38 @@ it.each<[string, BridgeFeature[]]>([
   expectOnly(snapshot, affected, { state: 'unavailable', reason: 'off' });
 });
 
+it.each<[string, (snapshot: BridgeConfigSnapshot) => void]>([
+  [
+    'no vault',
+    snapshot => {
+      if (snapshot.config) snapshot.config.earn = undefined;
+    }
+  ],
+  [
+    'a vault on another chain only',
+    snapshot => {
+      if (snapshot.config) {
+        snapshot.config.earn = {
+          vaults: [
+            {
+              id: 'aave-v3-base-usdc',
+              marketUid: 'aave_v3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+              name: 'Aave V3 USDC',
+              protocol: '1delta',
+              depositsEnabled: true
+            }
+          ]
+        };
+      }
+    }
+  ]
+])('reads Earn deposits as not configured when the document lists %s on the chain', (_label, change) => {
+  const snapshot = ready();
+  change(snapshot);
+  expectOnly(snapshot, ['earnDeposit'], { state: 'unavailable', reason: 'not-configured' });
+  expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'not-configured' });
+});
+
 it('requires the shared allocator only for Epoch operations', () => {
   const snapshot = ready();
   if (!snapshot.config) throw new Error('The test document is missing');
@@ -196,14 +228,11 @@ it.each<BridgeFeature>(['bridgeIn', 'fastBridgeIn', 'earnDeposit'])(
 it.each<[Probe<never>, string]>([
   [ABSENT, 'not-deployed'],
   [ERROR, 'service-down']
-])('still needs the output faucet for Earn off Testnet (%p)', (midenUsdcFaucet, reason) => {
+])('never needs the output faucet for Earn, off Testnet either (%p)', midenUsdcFaucet => {
   const snapshot = withProbes({ epoch: { midenUsdcFaucet } });
   if (!snapshot.config) throw new Error('The test document is missing');
   snapshot.config.network = 'devnet';
-  expect(featureAvailability('earnDeposit', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
-    state: 'unavailable',
-    reason
-  });
+  expect(featureAvailability('earnDeposit', snapshot, NO_OVERRIDES, 11155111)).toEqual(AVAILABLE);
 });
 
 it('reports an absent dependency before a failed call', () => {

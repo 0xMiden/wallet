@@ -61,7 +61,7 @@ const config = (version: number): BridgeConfig => ({
   version,
   'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
   supportedEvmChains: {},
-  features: { earn: false }
+  features: { earn: false, nearIntents: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
@@ -71,7 +71,7 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     derivedAt,
     chains: {},
     agglayer: { indexer: skipped },
-    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: skipped },
+    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: skipped, vaults: skipped },
     swap: { pairs: skipped }
   };
 };

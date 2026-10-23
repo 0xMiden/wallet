@@ -18,6 +18,7 @@ import { SectionHeader } from 'components/ui/SectionHeader';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
+import { earnRowChain } from 'lib/epoch/market-uid';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { isOutcomeUnconfirmed, isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
@@ -32,7 +33,8 @@ import {
   ITransaction,
   ITransactionStatus,
   ITransactionType,
-  ISwitchGuardianExtraInputs
+  ISwitchGuardianExtraInputs,
+  IOneClickTrackingData
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { isUnconfirmedRotation, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
@@ -64,6 +66,7 @@ import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/co
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
+  earnMarketLabel,
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -98,9 +101,45 @@ import { useTransactionActions } from './useTransactionActions';
 import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
 import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
-const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
-const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
+const ONE_CLICK_NETWORK_LABELS: Record<string, string> = {
+  miden: 'oneClickNetworkMiden',
+  eth: 'oneClickNetworkEthereum',
+  base: 'oneClickNetworkBase',
+  arb: 'oneClickNetworkArbitrum',
+  op: 'oneClickNetworkOptimism',
+  arc: 'oneClickNetworkArc'
+};
 
+const oneClickNetworkLabel = (t: TFunction, blockchain: string): string => {
+  const key = ONE_CLICK_NETWORK_LABELS[blockchain];
+  return key ? t(key) : blockchain;
+};
+function oneClickProviderStatus(t: TFunction, status: IOneClickTrackingData['providerStatus']): string {
+  switch (status) {
+    case 'KNOWN_DEPOSIT_TX':
+      return t('oneClickStatusKnownDepositTx');
+    case 'PENDING_DEPOSIT':
+      return t('oneClickStatusPendingDeposit');
+    case 'INCOMPLETE_DEPOSIT':
+      return t('oneClickStatusIncompleteDeposit');
+    case 'PROCESSING':
+      return t('oneClickStatusProcessing');
+    case 'SUCCESS':
+      return t('oneClickStatusSuccess');
+    case 'REFUNDED':
+      return t('oneClickStatusRefunded');
+    case 'FAILED':
+      return t('oneClickStatusFailed');
+    default:
+      return t('pending');
+  }
+}
+
+function formatOneClickBaseUnit(value: string | undefined, decimals: number): string | undefined {
+  if (!value || !/^[0-9]{1,78}$/.test(value) || !Number.isInteger(decimals) || decimals < 0 || decimals > 38)
+    return undefined;
+  return formatAmount(BigInt(value), decimals);
+}
 interface HistoryDetailsProps {
   transactionId: string;
 }
@@ -383,6 +422,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
         const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
           tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
+        const oneClickTracking: IOneClickTrackingData | undefined = tx.extraInputs?.oneClick;
         const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
           tx.type === 'consume' ? tx.extraInputs : undefined;
         const consumedBridge = consumeExtra?.bridgeIn;
@@ -410,10 +450,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           transactionIcon: tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
-            : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
-              ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
-              : undefined,
-          token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
+            : oneClickTracking?.direction === 'evm-to-miden' && /^[0-9]{1,78}$/.test(oneClickTracking.amount)
+              ? formatAmount(BigInt(oneClickTracking.amount), oneClickTracking.destinationAsset.decimals)
+              : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
+                ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
+                : undefined,
+          token: earnWithdrawFields
+            ? earnWithdrawFields.token
+            : oneClickTracking?.direction === 'evm-to-miden'
+              ? oneClickTracking.destinationAsset.symbol
+              : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
           secondaryAddress: tx.secondaryAccountId,
@@ -451,6 +497,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               ? submission.messageKey
               : notConfirmedHintKey(tx),
           noteDelivery: tx.noteDelivery,
+          oneClickTracking,
           // The sweep stamps the flag only on a pass that visits the row, which a send past
           // the receipt window may never get, and it never pushes a restored row: a send past
           // the retry window and a restored row count as stopped whatever the flag says.
@@ -597,6 +644,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
+  // The EVM links of an Earn row go to the chain of its market (Base, Arbitrum, Ethereum, or a testnet).
+  const earnWithdrawChain = earnWithdraw ? earnRowChain(earnWithdraw.marketUid) : undefined;
+  const earnDepositChain = earnDeposit ? earnRowChain(earnDeposit.marketUid) : undefined;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
   const isUnconfirmedSwitch =
     isGuardianSwitch &&
@@ -995,15 +1045,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <DetailSection title={t('earnWithdrawDetailsTitle')}>
                     {typeof earnWithdraw.marketUid === 'string' && earnWithdraw.marketUid !== '' && (
                       <DetailRow label={t('earnMarketLabel')}>
-                        <span className="select-text">
-                          {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
+                        <span className="min-w-0 select-text truncate" title={earnWithdraw.marketUid}>
+                          {earnMarketLabel(bridgeConfig, earnWithdraw.marketUid) ?? earnWithdraw.marketUid}
                         </span>
                       </DetailRow>
                     )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnWithdraw.evmOwner} trimHash className="ml-2" />}
-                        href={SEPOLIA_ADDRESS_URL(earnWithdraw.evmOwner)}
+                        href={evmExplorerUrl(earnWithdrawChain, 'address', earnWithdraw.evmOwner)}
                       />
                     </DetailRow>
                     {earnWithdraw.withdrawIntentNonce && (
@@ -1015,7 +1065,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={earnWithdraw.evmTxHash} trimHash className="ml-2" />}
-                          href={SEPOLIA_TX_URL(earnWithdraw.evmTxHash)}
+                          href={evmExplorerUrl(earnWithdrawChain, 'tx', earnWithdraw.evmTxHash)}
                         />
                       </DetailRow>
                     )}
@@ -1038,7 +1088,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
-            {/* Smart Deposit details (market, position owner, intent, Sepolia tx) */}
+            {/* Smart Deposit details (market, position owner, intent, EVM tx on the market's chain) */}
             {isEarnDeposit && earnDeposit && (
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
@@ -1046,15 +1096,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <DetailSection title={t('earnDepositDetailsTitle')}>
                     {typeof earnDeposit.marketUid === 'string' && earnDeposit.marketUid !== '' && (
                       <DetailRow label={t('earnMarketLabel')}>
-                        <span className="select-text">
-                          {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                        <span className="min-w-0 select-text truncate" title={earnDeposit.marketUid}>
+                          {earnMarketLabel(bridgeConfig, earnDeposit.marketUid) ?? earnDeposit.marketUid}
                         </span>
                       </DetailRow>
                     )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnDeposit.evmRecipient} trimHash className="ml-2" />}
-                        href={SEPOLIA_ADDRESS_URL(earnDeposit.evmRecipient)}
+                        href={evmExplorerUrl(earnDepositChain, 'address', earnDeposit.evmRecipient)}
                       />
                     </DetailRow>
                     {earnDeposit.intentNonce && (
@@ -1066,7 +1116,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={earnDeposit.evmTxHash} trimHash className="ml-2" />}
-                          href={SEPOLIA_TX_URL(earnDeposit.evmTxHash)}
+                          href={evmExplorerUrl(earnDepositChain, 'tx', earnDeposit.evmTxHash)}
                         />
                       </DetailRow>
                     )}
@@ -1175,6 +1225,105 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
 
             {/* Bridge route + EVM-side claim (bridged-send only) */}
+            {entry.oneClickTracking && (
+              <div className="mt-6 mb-4" data-testid="one-click-history-details">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailSection title={t('oneClickDepositInstructions')}>
+                    <DetailRow label={t('oneClickProviderStatus')}>
+                      {oneClickProviderStatus(t, entry.oneClickTracking.providerStatus)}
+                    </DetailRow>
+                    {entry.oneClickTracking.direction === 'evm-to-miden' &&
+                      (entry.oneClickTracking.phase === 'arriving' || entry.oneClickTracking.phase === 'delivered') && (
+                        <DetailRow label={t('oneClickDeliveryStatus')}>
+                          {entry.oneClickTracking.phase === 'delivered'
+                            ? t('oneClickStatusDelivered')
+                            : t('oneClickDeliveryArriving')}
+                        </DetailRow>
+                      )}
+                    <DetailRow label={t('oneClickNetwork')}>{entry.oneClickTracking.network}</DetailRow>
+                    <DetailRow label={t('oneClickOriginNetwork')}>
+                      {oneClickNetworkLabel(t, entry.oneClickTracking.originAsset.blockchain)}
+                    </DetailRow>
+                    <DetailRow label={t('oneClickDestinationNetwork')}>
+                      {oneClickNetworkLabel(t, entry.oneClickTracking.destinationAsset.blockchain)}
+                    </DetailRow>
+                    <DetailRow label={t('oneClickAmount')}>
+                      {entry.oneClickTracking.direction === 'evm-to-miden'
+                        ? formatOneClickBaseUnit(
+                            entry.oneClickTracking.statusResponse?.swapDetails.amountOut ??
+                              entry.oneClickTracking.quote.quote.amountOut,
+                            entry.oneClickTracking.destinationAsset.decimals
+                          )
+                        : formatOneClickBaseUnit(
+                            entry.oneClickTracking.quote.quote.amountIn,
+                            entry.oneClickTracking.originAsset.decimals
+                          )}{' '}
+                      {entry.oneClickTracking.direction === 'evm-to-miden'
+                        ? entry.oneClickTracking.destinationAsset.symbol
+                        : entry.oneClickTracking.originAsset.symbol}
+                    </DetailRow>
+                    <DetailRow label={t('oneClickMinimumOutput')}>
+                      {formatOneClickBaseUnit(
+                        entry.oneClickTracking.quote.quote.minAmountOut,
+                        entry.oneClickTracking.destinationAsset.decimals
+                      )}{' '}
+                      {entry.oneClickTracking.destinationAsset.symbol}
+                    </DetailRow>
+                    <DetailRow label={t('oneClickDepositAddress')}>
+                      <span className="select-text break-all">{entry.oneClickTracking.depositAddress}</span>
+                    </DetailRow>
+                    {entry.oneClickTracking.depositMemo && (
+                      <DetailRow label={t('oneClickDepositMemo')}>
+                        <span className="select-text break-all">{entry.oneClickTracking.depositMemo}</span>
+                      </DetailRow>
+                    )}
+                    {entry.oneClickTracking.statusResponse?.swapDetails.depositedAmount && (
+                      <DetailRow label={t('oneClickDepositAmount')}>
+                        {formatOneClickBaseUnit(
+                          entry.oneClickTracking.statusResponse.swapDetails.depositedAmount,
+                          entry.oneClickTracking.originAsset.decimals
+                        )}{' '}
+                        {entry.oneClickTracking.originAsset.symbol}
+                      </DetailRow>
+                    )}
+                    {entry.oneClickTracking.statusResponse?.swapDetails.amountOut && (
+                      <DetailRow label={t('oneClickOutputAmount')}>
+                        {formatOneClickBaseUnit(
+                          entry.oneClickTracking.statusResponse.swapDetails.amountOut,
+                          entry.oneClickTracking.destinationAsset.decimals
+                        )}{' '}
+                        {entry.oneClickTracking.destinationAsset.symbol}
+                      </DetailRow>
+                    )}
+                    {entry.oneClickTracking.statusResponse?.swapDetails.refundedAmount && (
+                      <DetailRow label={t('oneClickRefundAmount')}>
+                        {formatOneClickBaseUnit(
+                          entry.oneClickTracking.statusResponse.swapDetails.refundedAmount,
+                          entry.oneClickTracking.originAsset.decimals
+                        )}{' '}
+                        {entry.oneClickTracking.originAsset.symbol}
+                      </DetailRow>
+                    )}
+                    {(entry.oneClickTracking.error ||
+                      entry.oneClickTracking.statusResponse?.swapDetails.refundReason) && (
+                      <DetailRow label={t('oneClickFailureReason')}>
+                        <span className="text-status-negative wrap-break-word select-text">
+                          {entry.oneClickTracking.error ??
+                            entry.oneClickTracking.statusResponse?.swapDetails.refundReason}
+                        </span>
+                      </DetailRow>
+                    )}
+                    {entry.oneClickTracking.originTransactionHash && (
+                      <DetailRow label={t('txIdLabel')}>
+                        <HashChip hash={entry.oneClickTracking.originTransactionHash} trimHash className="ml-2" />
+                      </DetailRow>
+                    )}
+                  </DetailSection>
+                </div>
+              </div>
+            )}
+
             {isBridgeOut && (
               <>
                 <div className="mt-6">

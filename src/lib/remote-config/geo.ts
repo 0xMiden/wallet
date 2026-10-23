@@ -1,3 +1,5 @@
+import type { OneClickConfig } from './schema';
+
 /**
  * Place rules from a wallet-config document. A rule is a phrase such as "block NY state" or
  * "block UK", answered "yes" or "no". The same list can name earn today and swap later.
@@ -29,9 +31,17 @@ export type GeoLookup = { state: 'loading' } | { state: 'failed' } | ({ state: '
 /** Structural feature availability; live route and market probes remain separate. */
 export function geoFeatureEnabled(
   feature: GeoFeature,
-  config: { features: { earn: boolean }; swap?: { etaUrl?: string } }
+  config: {
+    features: { earn: boolean; nearIntents?: unknown };
+    swap?: { etaUrl?: string; oneClick?: OneClickConfig };
+  }
 ): boolean {
-  return feature === 'wallet' || (feature === 'earn' ? config.features.earn : Boolean(config.swap?.etaUrl));
+  if (feature === 'wallet') return true;
+  if (feature === 'earn') return config.features.earn;
+  return (
+    Boolean(config.swap?.etaUrl) ||
+    (config.features.nearIntents === true && (config.swap?.oneClick?.midenAssets.length ?? 0) > 0)
+  );
 }
 
 const PHRASE_ALIASES: Readonly<Record<string, GeoPlace>> = {

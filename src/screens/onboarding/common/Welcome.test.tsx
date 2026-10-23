@@ -40,7 +40,7 @@ jest.mock('lib/woozie', () => ({
 
 // The remote config snapshot Welcome waits on before it shows its actions. The runtime itself reads
 // storage and the network, so the hook returns this mutable snapshot instead.
-const ALL_OFF = { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false };
+const ALL_OFF = { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false };
 const snapshotWith = (
   onboarding: { inviteOnly: boolean } | undefined,
   status: BridgeConfigSnapshot['status'] = 'ready'

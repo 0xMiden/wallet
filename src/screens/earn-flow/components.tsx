@@ -3,11 +3,13 @@ import React, { FC, ReactNode } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { NetworkChipKind, NetworkLogo } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Card } from 'components/ui/Card';
+import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
@@ -18,7 +20,11 @@ import { EarnSummary } from './types';
 /** What the earn flow names a vault or a position by: the protocol as the title, and the asset and
  *  network on the line under it, which the mark beside them stands for. Both answer it. */
 export interface EarnSubject {
+  /** The document's name of the vault, when the document lists it. It takes the protocol's place as the title. */
+  name?: string;
   protocol: string;
+  /** The market's own name, when the protocol alone does not identify the market (a Morpho market). */
+  marketName?: string;
   asset: string;
   network: string;
   fundingAsset?: string;
@@ -55,20 +61,50 @@ export const EarnAssetMark: FC<{
 };
 
 /** The title every page of the earn flow puts in its header, so a vault and a position are named
- *  the same way wherever the flow shows them: the protocol, over `EarnSubjectSubtitle`'s asset and
- *  network. Together at the title's size they wrapped to two lines beside the back and the mark. */
-export const earnSubjectTitle = (subject: EarnSubject): string => subject.protocol;
+ *  the same way wherever the flow shows them: the document's name of the vault (as written, never
+ *  translated), else the protocol, over `EarnSubjectSubtitle`'s asset and network. Together at the
+ *  title's size they wrapped to two lines beside the back and the mark. */
+export const earnSubjectTitle = (subject: EarnSubject): string => subject.name ?? subject.protocol;
 
-/** The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". */
+/**
+ * The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". A subject with a market name puts
+ * the name first ("Morpho uniBTC-USDC 77 · USDC on Base"), so that two markets of one protocol do not look the same.
+ */
 export const EarnSubjectSubtitle: FC<{ subject: EarnSubject }> = ({ subject }) => {
   const { t } = useTranslation();
+  const asset = subject.fundingAsset ?? subject.asset;
+  const network = subject.fundingAsset ? 'Miden' : subject.network;
   return (
     <>
-      {t('earnAssetOnNetwork', {
-        asset: subject.fundingAsset ?? subject.asset,
-        network: subject.fundingAsset ? 'Miden' : subject.network
-      })}
+      {subject.marketName
+        ? t('earnMarketAssetOnNetwork', { market: subject.marketName, asset, network })
+        : t('earnAssetOnNetwork', { asset, network })}
     </>
+  );
+};
+
+/**
+ * Tells the user that a vault does not accept deposits now, on the pages whose Deposit or Continue it disables:
+ * the wallet has stopped its deposits (`depositsEnabled` false), or the market does not open them. It shows nothing
+ * while the vault is open or not yet known.
+ */
+export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; depositsEnabled?: boolean; className?: string }> = ({
+  canOpen,
+  depositsEnabled,
+  className
+}) => {
+  const { t } = useTranslation();
+  if (canOpen !== false && depositsEnabled !== false) return null;
+  return (
+    <Notice
+      tone="warning"
+      icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+      title={t('earnVaultClosedTitle')}
+      className={className}
+      data-testid="earn-vault-closed-notice"
+    >
+      {depositsEnabled === false ? t('earnVaultDepositsPausedBody') : t('earnVaultClosedBody')}
+    </Notice>
   );
 };
 
