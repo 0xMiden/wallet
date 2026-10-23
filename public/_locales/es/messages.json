@@ -2542,8 +2542,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "Utilice una frase de recuperación existente de 12 palabras. También puede importar billeteras de otros proveedores de billeteras.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "Puedes utilizar una frase de recuperación compatible de 12 palabras de otra cartera para crear una cuenta de Miden. Esto no transfiere activos de otras redes.",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "Importar con archivo de billetera cifrado",
@@ -2949,10 +2949,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "Introduce la frase de recuperación de 12 palabras de tu monedero.",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Solo se admiten frases de recuperación de Miden.",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "¡Tu monedero ya está listo!",
@@ -3952,22 +3948,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ No se ha podido acceder a guardian(s), por lo que la detección puede estar incompleta.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "Introduce una frase de recuperación válida de 12 palabras para recuperar tu cuenta de Miden o crear una nueva.",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "Solo se admiten frases de recuperación de 12 palabras. La frase que has pegado es más larga, por lo que no se ha introducido nada.",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "No se ha encontrado ninguna copia de seguridad en los Guardians que hemos comprobado.",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "No se ha recuperado nada. Si un Guardian que no hemos comprobado tiene una copia de seguridad de esta frase, selecciónala a continuación. De lo contrario, puedes crear una nueva cuenta con esta frase.",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "No hemos podido comprobar todos los Guardian, por lo que no sabemos si existe una copia de seguridad. Inténtalo de nuevo o selecciona el Guardian que utilizaste.",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "Crea una nueva cuenta con esta frase",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "¿Crear una nueva cuenta con esta frase?",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "Esto crea una nueva cuenta. No recupera una ya existente.",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "No podemos dar garantías sobre cómo se creó esta frase ni sobre su solidez. Si alguna vez se filtra, todas las carteras que la utilicen podrían verse afectadas.",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "Tu frase de recuperación permanece en este dispositivo.",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "Entiendo el riesgo y quiero utilizar esta frase para una nueva cuenta",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "Si aún no existe ninguna cuenta pública para esta frase, al importarla se creará una nueva a partir de ella.",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "Intenta volver a realizar la detección",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "No hemos podido encontrar tu cuenta en este enlace: guardian. Comprueba la URL o, en su lugar, impórtala como cuenta pública.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "No hemos podido encontrar una copia de seguridad en este Guardian. Comprueba la URL o elige otro Guardian.",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "Este «guardian» funciona en otra red de Miden, por lo que no puede recuperar una cuenta aquí.",
