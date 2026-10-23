@@ -3,15 +3,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { InfoHint } from 'components/ui/InfoHint';
+import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextField } from 'components/ui/TextField';
@@ -71,6 +73,18 @@ function expectedOverAsk(quote: SwapQuote, decimals: number): string | undefined
   if (expected === null || !/^\d+$/.test(expected)) return undefined;
   const amount = BigInt(expected);
   return amount > quote.requestedAmount ? formatBigInt(amount, decimals) : undefined;
+}
+
+function fillWarningKey(quote?: SwapQuote): string | undefined {
+  if (!quote || swapEtaBlocksSubmit(quote.eta)) return undefined;
+  switch (quote.eta.fillStatus) {
+    case 'none':
+      return 'swapNoFillWarning';
+    case 'partial':
+      return 'swapPartialFillWarning';
+    case 'full':
+      return undefined;
+  }
 }
 
 /**
@@ -156,7 +170,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   submitting = false
 }) => {
   const { t } = useTranslation();
-  const networkFee = useNetworkFeeEstimate();
+  const networkFeeDetails = useNetworkFeeEstimateDetails();
+  const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const offerLabel = midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol);
   const requestLabel = midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol);
@@ -167,6 +182,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const formatRateValue = rateFormatterFor(rate ?? 0);
   const verdict = quote === undefined ? undefined : swapVerdict(quote.eta);
   const blocksSubmit = quote !== undefined && swapEtaBlocksSubmit(quote.eta);
+  const warningKey = fillWarningKey(quote);
   const expected =
     quote !== undefined && verdict === 'full' ? expectedOverAsk(quote, requestToken.decimals) : undefined;
 
@@ -219,6 +235,14 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
+        subtitle={
+          <TokenUsdValue
+            amount={offerAmount}
+            decimals={offerToken.decimals}
+            faucetId={offerToken.faucetId}
+            symbol={offerToken.symbol}
+          />
+        }
         value={
           <span className="inline-flex items-center gap-1">
             {`${offerAmount} ${offerLabel}`}
@@ -244,6 +268,14 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
+        subtitle={
+          <TokenUsdValue
+            amount={requestAmount}
+            decimals={requestToken.decimals}
+            faucetId={requestToken.faucetId}
+            symbol={requestToken.symbol}
+          />
+        }
         value={
           <span className="inline-flex items-center gap-1">
             {`${requestAmount} ${requestLabel}`}
@@ -267,6 +299,13 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         'data-testid': 'swap-submit'
       }}
       secondary={{ label: t('back'), onPress: onGoBack, disabled: submitting }}
+      beforeActions={
+        warningKey && (
+          <Notice tone="warning" role="status" data-testid="swap-fill-warning">
+            {t(warningKey)}
+          </Notice>
+        )
+      }
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
@@ -301,7 +340,18 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           <DetailRow
             label={t('swapFillStatus')}
             sub={
-              expected !== undefined ? t('swapVerdictExpected', { amount: expected, symbol: requestLabel }) : undefined
+              expected !== undefined ? (
+                <>
+                  {t('swapVerdictExpected', { amount: expected, symbol: requestLabel })}
+                  <TokenUsdValue
+                    amount={expected}
+                    decimals={requestToken.decimals}
+                    faucetId={requestToken.faucetId}
+                    symbol={requestToken.symbol}
+                    className="block"
+                  />
+                </>
+              ) : undefined
             }
             className={blocksSubmit ? 'text-negative-ink' : undefined}
             data-testid="swap-verdict-row"
@@ -343,6 +393,11 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           // of the swap — the two are different costs.
           <DetailRow
             label={t('networkFeeMax')}
+            sub={
+              networkFeeDetails && (
+                <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+              )
+            }
             info={
               <InfoHint label={t('moreInfoAbout', { label: t('networkFeeMax') })} data-testid="swap-network-fee-info">
                 {t('networkFeeEstimateNote')}

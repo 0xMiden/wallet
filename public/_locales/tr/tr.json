@@ -191,6 +191,7 @@
   "transactionRestoredHint": "Bu işlem bir yedekten geri yüklendi, bu nedenle cüzdan işlemin başarılı olup olmadığını kontrol edemez veya yeniden deneme yapamaz. Tekrar etmeden önce cüzdanı kontrol edin.",
   "submissionInterrupted": "Bu işlem gönderilirken bağlantı kesildi. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu yüzden tekrar denemeden önce kontrol edin.",
   "submissionRejectedByGuardian": "Guardian'ınız bu gönderimi reddetti. Lütfen tekrar deneyin.",
+  "submissionBlockedByIssuer": "Bu token'ın ihraççısı hesabınızı engelledi, bu nedenle gönderilemez.",
   "submissionRejectedByNetwork": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
   "submissionUnanswered": "Bu gönderimden herhangi bir yanıt alınamadı. Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamıyor. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce kontrol edin.",
   "showFullError": "Hatanın tamamını göster",
@@ -449,6 +450,8 @@
   "swapVerdictTolerated": "Daha uzun sürebilir: fiyat hafifçe hareket ettiğinde doldurulur.",
   "swapVerdictPartial": "Şu anda bu emrin sadece bir kısmı yerine getiriliyor; geri kalanı beklemede.",
   "swapVerdictFull": "Mevcut fiyattan doldurulur.",
+  "swapNoFillWarning": "Bu takas emrinin şu anda mevcut likidite ile yerine getirilmesi olası değildir. Devam edebilirsiniz, ancak emriniz süresi dolana kadar yerine getirilmeyebilir.",
+  "swapPartialFillWarning": "Bu takasın yalnızca bir kısmı şu anda mevcut likidite ile doldurulabilir. Devam edebilirsiniz, ancak geri kalan kısım emrin süresi dolana kadar doldurulmamış olarak kalabilir.",
   "swapVerdictExpected": "$amount$ tutarında $symbol$ alırsınız.",
   "swapSlippage": "Kayma",
   "percentSign": "%",
@@ -826,6 +829,7 @@
   "insufficientFeeAsset": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Tutar, bakiyeden az olmalıdır",
+  "amountExceedsTokenDecimals": "Bu tutarın ondalık basamak sayısı, bu tokenin izin verdiği sayıdan fazladır.",
   "autoConsumeSettings": "USDCX transferlerini otomatik kabul et",
   "autoConsumeSettingsDescription": "Gelen USDCX transferlerini bakiyenize otomatik olarak kabul eder - Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
   "encryptedWalletFileExporting": "Cüzdan dosyanız oluşturuluyor…",
@@ -1618,5 +1622,12 @@
   "walletAccessUnavailableTitle": "Kullanılabilirlik kontrol edilemedi",
   "walletAccessUnavailableBody": "Bağlantınızı kontrol edip tekrar deneyin.",
   "runtimeUnsupportedTitle": "Bu tarayıcı veya cihaz cüzdanı çalıştıramıyor",
-  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın."
+  "runtimeUnsupportedBody": "Cüzdan, bu tarayıcı veya cihazın sağlamadığı WebAssembly SIMD'ye ihtiyaç duyar. Cüzdanı başka bir cihazda veya güncel bir tarayıcıda açın.",
+  "amountUsdUnavailable": "USD tahmini mevcut değil",
+  "amountUsdStale": "USD fiyat teklifi süresi doldu. Fiyat yenileniyor…",
+  "amountInputUnit": "$unit$ cinsinden tutar",
+  "amountSwitchUnit": "$unit$ girin",
+  "amountUsdLoading": "USD fiyatı yükleniyor…",
+  "amountUsdError": "USD fiyatı yenilenemedi",
+  "amountUsdEstimate": "USD tahmini"
 }

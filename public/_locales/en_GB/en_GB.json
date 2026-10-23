@@ -191,6 +191,7 @@
   "transactionRestoredHint": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it.",
   "submissionInterrupted": "The connection dropped while this was being submitted. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
   "submissionRejectedByGuardian": "Your Guardian refused this submission. Try again.",
+  "submissionBlockedByIssuer": "The issuer of this token has blocked your account, so it cannot be sent.",
   "submissionRejectedByNetwork": "The network refused this submission. Try again.",
   "submissionUnanswered": "No response came back from this submission. The wallet cannot confirm whether it went through. It may still complete, so check before you try again.",
   "showFullError": "Show full error",
@@ -449,6 +450,8 @@
   "swapVerdictTolerated": "May take longer: fills when the price moves slightly.",
   "swapVerdictPartial": "Only part of this order fills now; the rest waits.",
   "swapVerdictFull": "Fills at the current price.",
+  "swapNoFillWarning": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires.",
+  "swapPartialFillWarning": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires.",
   "swapVerdictExpected": "You receive about $amount$ $symbol$.",
   "swapSlippage": "Slippage",
   "percentSign": "%",
@@ -826,6 +829,7 @@
   "insufficientFeeAsset": "You need USDCX to pay the network fee. Receive some USDCX to continue.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Amount must be less than balance",
+  "amountExceedsTokenDecimals": "This amount has more decimal places than this token allows.",
   "autoConsumeSettings": "Auto-accept USDCX transfers",
   "autoConsumeSettingsDescription": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself.",
   "encryptedWalletFileExporting": "Creating your wallet file…",
@@ -1618,5 +1622,12 @@
   "walletAccessUnavailableTitle": "Could not check availability",
   "walletAccessUnavailableBody": "Check your connection and try again.",
   "runtimeUnsupportedTitle": "This browser or device can't run the wallet",
-  "runtimeUnsupportedBody": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  "runtimeUnsupportedBody": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser.",
+  "amountUsdUnavailable": "USD estimate unavailable",
+  "amountUsdStale": "USD quote expired. Refreshing price…",
+  "amountInputUnit": "Amount in $unit$",
+  "amountSwitchUnit": "Enter $unit$",
+  "amountUsdLoading": "Loading USD price…",
+  "amountUsdError": "USD price could not be refreshed",
+  "amountUsdEstimate": "USD estimate"
 }

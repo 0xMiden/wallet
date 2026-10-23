@@ -965,6 +965,10 @@
     "message": "Ihr „Guardian“ hat diesen Eintrag abgelehnt. Versuchen Sie es erneut.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "Der Emittent dieses Tokens hat Ihr Konto gesperrt, sodass keine Übertragungen möglich sind.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "Das Netzwerk hat diesen Beitrag abgelehnt. Versuchen Sie es erneut.",
     "englishSource": "The network refused this submission. Try again."
@@ -2074,6 +2078,14 @@
   "swapVerdictFull": {
     "message": "Ausführung zum aktuellen Kurs.",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "Es ist unwahrscheinlich, dass dieser Swap mit der derzeit verfügbaren Liquidität ausgeführt wird. Sie können fortfahren, aber Ihre Order bleibt möglicherweise bis zu ihrem Ablauf unausgeführt.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Nur ein Teil dieses Swaps kann mit der derzeit verfügbaren Liquidität ausgeführt werden. Sie können fortfahren, aber der Rest bleibt möglicherweise bis zum Ablauf der Order unausgeführt.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "Sie erhalten etwa $amount$ $symbol$.",
@@ -3684,6 +3696,10 @@
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
+  },
+  "amountExceedsTokenDecimals": {
+    "message": "Dieser Betrag hat mehr Dezimalstellen, als dieses Token zulässt.",
+    "englishSource": "This amount has more decimal places than this token allows."
   },
   "autoConsumeSettings": {
     "message": "USDCX-Überweisungen automatisch akzeptieren",
@@ -7321,5 +7337,43 @@
   "runtimeUnsupportedBody": {
     "message": "Die Wallet benötigt WebAssembly SIMD, was dieser Browser oder dieses Gerät nicht unterstützt. Öffnen Sie die Wallet auf einem anderen Gerät oder in einem aktuellen Browser.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "USD-Schätzung nicht verfügbar",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "USD-Kurs abgelaufen. Preis wird aktualisiert…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "Betrag in $unit$",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "$unit$ eingeben",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "USD-Preis wird geladen…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "Der USD-Kurs konnte nicht aktualisiert werden",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "USD-Schätzung",
+    "englishSource": "USD estimate"
   }
 }

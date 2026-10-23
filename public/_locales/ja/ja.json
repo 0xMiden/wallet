@@ -191,6 +191,7 @@
   "transactionRestoredHint": "これはバックアップから復元されたため、ウォレットは処理が正常に完了したかどうかを確認したり、再試行したりすることができません。再度実行する前に、ウォレットの状態を確認してください。",
   "submissionInterrupted": "送信中に接続が切断されました。ウォレットでは送信が正常に行われたかどうかを確認できません。まだ処理が完了する可能性もありますので、再試行する前に確認してください。",
   "submissionRejectedByGuardian": "Guardianがこの投稿を拒否しました。もう一度試してください。",
+  "submissionBlockedByIssuer": "このトークンの発行者があなたのアカウントをブロックしたため、トークンを送金することはできません。",
   "submissionRejectedByNetwork": "ネットワークはこの提出を拒否しました。もう一度試してください。",
   "submissionUnanswered": "この送信に対して応答はありませんでした。ウォレット側では送信が正常に処理されたかどうかを確認できません。まだ処理が完了する可能性もありますので、再試行する前に確認してください。",
   "showFullError": "エラーの全文を表示",
@@ -449,6 +450,8 @@
   "swapVerdictTolerated": "時間がかかる場合があります：価格がわずかに動いた時点で約定します。",
   "swapVerdictPartial": "現在、この注文の一部のみが約定し、残りは待機中です。",
   "swapVerdictFull": "現在の価格で約定する。",
+  "swapNoFillWarning": "現在の流動性では、このスワップ注文が約定する可能性は低いと思われます。手続きを続行することは可能ですが、注文は有効期限が切れるまで未約定のままとなる可能性があります。",
+  "swapPartialFillWarning": "このスワップ注文のうち、現在利用可能な流動性で約定できるのは一部のみです。取引を続行することは可能ですが、残りの部分は注文の有効期限が切れるまで未約定のままとなる可能性があります。",
   "swapVerdictExpected": "$amount$相当の$symbol$を受け取ります。",
   "swapSlippage": "スリッページ",
   "percentSign": "%",
@@ -826,6 +829,7 @@
   "insufficientFeeAsset": "ネットワーク手数料の支払いにUSDCXが必要です。続行するには、USDCXを受け取ってください。",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "金額は残高より少なければなりません",
+  "amountExceedsTokenDecimals": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
   "autoConsumeSettings": "USDCX の送金を自動で受け取る",
   "autoConsumeSettingsDescription": "受信した USDCX の送金を自動で残高に受け取ります。「受け取る」をタップした場合と同じで、受け取る頻度が増えることも、手数料が高くなることもありません。",
   "encryptedWalletFileExporting": "ウォレットファイルの作成中…",
@@ -1618,5 +1622,12 @@
   "walletAccessUnavailableTitle": "利用可能か確認できませんでした",
   "walletAccessUnavailableBody": "接続を確認して、もう一度お試しください。",
   "runtimeUnsupportedTitle": "このブラウザまたはデバイスではウォレットを実行できません",
-  "runtimeUnsupportedBody": "このウォレットには WebAssembly SIMD が必要ですが、このブラウザまたはデバイスでは提供されていません。別のデバイスまたは最新のブラウザでウォレットを開いてください。"
+  "runtimeUnsupportedBody": "このウォレットには WebAssembly SIMD が必要ですが、このブラウザまたはデバイスでは提供されていません。別のデバイスまたは最新のブラウザでウォレットを開いてください。",
+  "amountUsdUnavailable": "USDの見積もりは利用不可",
+  "amountUsdStale": "USDの相場が期限切れとなりました。価格を更新中…",
+  "amountInputUnit": "$unit$単位の金額",
+  "amountSwitchUnit": "$unit$を入力してください",
+  "amountUsdLoading": "USD価格を読み込み中…",
+  "amountUsdError": "USDの価格が更新できませんでした",
+  "amountUsdEstimate": "米ドルの推定額"
 }

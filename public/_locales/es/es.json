@@ -191,6 +191,7 @@
   "transactionRestoredHint": "Esto se ha restaurado a partir de una copia de seguridad, por lo que el monedero no puede comprobar si se ha realizado correctamente ni volver a intentarlo. Comprueba el monedero antes de repetir el proceso.",
   "submissionInterrupted": "Se ha interrumpido la conexión mientras se enviaba esto. La cartera no puede confirmar si se ha procesado. Es posible que aún se complete, así que compruébalo antes de volver a intentarlo.",
   "submissionRejectedByGuardian": "Tu «Guardian» ha rechazado esta solicitud. Inténtalo de nuevo.",
+  "submissionBlockedByIssuer": "El emisor de este token ha bloqueado tu cuenta, por lo que no se puede enviar.",
   "submissionRejectedByNetwork": "La red ha rechazado esta propuesta. Inténtalo de nuevo.",
   "submissionUnanswered": "No se ha recibido respuesta a este envío. La cartera no puede confirmar si se ha procesado. Es posible que aún se complete, así que compruébalo antes de volver a intentarlo.",
   "showFullError": "Mostrar el error completo",
@@ -449,6 +450,8 @@
   "swapVerdictTolerated": "Puede tardar más: se ejecuta cuando el precio varía ligeramente.",
   "swapVerdictPartial": "Ahora solo se ejecuta una parte de esta orden; el resto queda en espera.",
   "swapVerdictFull": "Se ejecuta al precio actual.",
+  "swapNoFillWarning": "Es poco probable que esta operación de intercambio se ejecute con la liquidez disponible actualmente. Puedes continuar, pero es posible que tu orden permanezca sin ejecutar hasta que caduque.",
+  "swapPartialFillWarning": "Solo una parte de esta operación de swap puede ejecutarse con la liquidez disponible en este momento. Puedes continuar, pero el resto puede quedar sin ejecutar hasta que caduque la orden.",
   "swapVerdictExpected": "Recibes aproximadamente $amount$ en $symbol$.",
   "swapSlippage": "Deslizamiento",
   "percentSign": "%",
@@ -826,6 +829,7 @@
   "insufficientFeeAsset": "Necesitas USDCX para pagar la comisión de red. Obtén algo de USDCX para continuar.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "El importe debe ser inferior al saldo",
+  "amountExceedsTokenDecimals": "Esta cantidad tiene más decimales de los que permite este token.",
   "autoConsumeSettings": "Aceptar automáticamente las transferencias USDCX",
   "autoConsumeSettingsDescription": "Acepta automáticamente las transferencias USDCX entrantes en tu saldo, igual que si pulsaras Aceptar. No acepta con más frecuencia ni cuesta más comisiones que pulsar Aceptar tú mismo.",
   "encryptedWalletFileExporting": "Creando tu archivo de monedero…",
@@ -1618,5 +1622,12 @@
   "walletAccessUnavailableTitle": "No se pudo comprobar la disponibilidad",
   "walletAccessUnavailableBody": "Comprueba tu conexión e inténtalo de nuevo.",
   "runtimeUnsupportedTitle": "Este navegador o dispositivo no puede ejecutar la cartera",
-  "runtimeUnsupportedBody": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado."
+  "runtimeUnsupportedBody": "La cartera necesita WebAssembly SIMD, algo que este navegador o dispositivo no ofrece. Abre la cartera en otro dispositivo o en un navegador actualizado.",
+  "amountUsdUnavailable": "Estimación en USD no disponible",
+  "amountUsdStale": "La cotización en USD ha caducado. Actualizando el precio…",
+  "amountInputUnit": "Importe en $unit$",
+  "amountSwitchUnit": "Introduce $unit$",
+  "amountUsdLoading": "Cargando el precio en USD…",
+  "amountUsdError": "No se ha podido actualizar el precio en USD",
+  "amountUsdEstimate": "Estimación en USD"
 }

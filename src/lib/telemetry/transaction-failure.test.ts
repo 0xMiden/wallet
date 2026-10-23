@@ -45,6 +45,7 @@ import {
   OFFSCREEN_DEADLINE_TIMERS,
   OFFSCREEN_OP_STARTED,
   PIPELINE_KILLS,
+  PROOF_WAIT_BUCKETS,
   PROVING_PREFERENCES,
   REAP_AGES,
   REAPED_ATTEMPT_ORIGINS,
@@ -180,6 +181,7 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     SUBMIT_NODE_ERRORS,
     SUBMIT_HIDDEN_ANSWERS,
     ['under_9s', '9_to_11s', 'over_11s', 'unavailable'],
+    ['under_half_window', 'over_half_window', 'past_window', 'unavailable'],
     THROWN_CLASS_VALUES,
     PIPELINE_KILLS,
     OFFSCREEN_DEADLINE_OWNERS,
@@ -1160,9 +1162,66 @@ describe('a submit the node refused', () => {
     });
     const message = await reportedMessage();
     expect(message).toContain(
-      `; submit_rejected; endpoint submit_proven_batch; grpc failed_precondition; node ${node}. authentication`
+      `; submit_rejected; endpoint submit_proven_batch; grpc failed_precondition; node ${node}` +
+        `${node === 'expired' ? '; proof wait unavailable' : ''}. authentication`
     );
     expectNoTransactionData(message);
+  });
+
+  describe('an expired proof', () => {
+    const expired = () => refused('submit_proven_transaction', 'invalid request parameters (transaction expired)');
+
+    it.each([
+      [0, 'under_half_window'],
+      [49, 'under_half_window'],
+      [50, 'over_half_window'],
+      [100, 'over_half_window'],
+      [101, 'past_window'],
+      [4321, 'past_window']
+    ])('reports a wait of %s blocks in a 100 block window as %s, without either number', async (wait, bucket) => {
+      reportTransactionFailure({
+        type: 'send',
+        stage: 'submitting',
+        error: expired(),
+        proofWaitBlocks: wait,
+        expiryWindowBlocks: 100
+      });
+      const message = await reportedMessage();
+      expect(message).toContain(
+        `; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node expired; proof wait ${bucket}. authentication`
+      );
+      expect(message).not.toMatch(/\b(?:49|50|100|101|4321)\b/);
+    });
+
+    it.each([
+      ['no wait', undefined, 100],
+      ['no window', 10, undefined],
+      ['an empty window', 10, 0],
+      ['a negative window', 10, -5],
+      ['a negative wait', -1, 100],
+      ['a wait that is not finite', Number.NaN, 100],
+      ['a window that is not finite', 10, Number.POSITIVE_INFINITY]
+    ])('reports %s as unavailable', async (_name, wait, window) => {
+      reportTransactionFailure({
+        type: 'send',
+        stage: 'submitting',
+        error: expired(),
+        proofWaitBlocks: wait,
+        expiryWindowBlocks: window
+      });
+      expect(await reportedMessage()).toContain('node expired; proof wait unavailable. authentication');
+    });
+
+    it('leaves a refusal that is not an expiry without the wait', async () => {
+      reportTransactionFailure({
+        type: 'send',
+        stage: 'submitting',
+        error: refused('submit_proven_transaction', 'internal server error'),
+        proofWaitBlocks: 90,
+        expiryWindowBlocks: 100
+      });
+      expect(await reportedMessage()).not.toContain('proof wait');
+    });
   });
 
   it.each([
@@ -1835,6 +1894,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
     () => policyText(UNKNOWN_OUTCOME, 'and whether the App', SUBMIT_LEG)
   ],
   ['submit leg bucket', () => SUBMIT_LEG_BUCKETS, () => policyText(UNKNOWN_OUTCOME, SUBMIT_LEG)],
+  ['proof wait bucket', () => PROOF_WAIT_BUCKETS, () => policyText(REFUSED, '; and for an expired proof')],
   ['refused endpoint', () => SUBMIT_ENDPOINTS, () => policyText(REFUSED, 'It names', '; the kind of answer')],
   [
     'refused gRPC status',
