@@ -446,8 +446,8 @@ Architecture: preserve the PSWAP form when both networks are Miden. Add remote-c
 - [x] Complete two Chrome acceptance cases: one actual WalletConnect scenario and one ordinary Guardian send. The WalletConnect pairing survives amount edits, sends only the revised 0.0002 ETH transfer after confirmation, and an unrelated same-amount note remains arriving while the exact linked note completes the swap.
 - [x] Add mocked testnet 1Click E2E alongside mainnet, following the existing Epoch test harness.
 - [x] Gate the entire integration with wallet-config features.nearIntents, default false, plus an explicit false mainnet flag in the config repository.
-- [ ] Complete production fixes for confirmed findings and verify their regression assertions; final review and current-head CI remain pending.
-- [ ] Pass current-head CI after publication and prepare the feature PR and final evidence, retaining external activation requirements.
+- [x] Complete production fixes for confirmed P0-P2 findings and verify their regression assertions.
+- [ ] Complete the final independent review and pass current-head CI after publication; prepare the feature PR and final evidence, retaining external activation requirements.
 
 ## Integration contracts
 
@@ -459,7 +459,7 @@ Delivery note IDs must be resolved from the provider's destination transaction h
 
 ## Verification constraints
 
-Use resource-guarded local checks for lightweight commands only. Full suites, coverage and builds run in CI; global coverage thresholds remain 95% for all metrics. Record expected-red evidence before fixes. The mainnet E2E harness must reuse existing funded accounts and recycle principal with an out-and-back swap. A live run remains unavailable until Miden is listed and activation prerequisites are configured. No wallet PR merge or wallet deployment is authorized. Cap screenshots at 1800px and review affected UI states. Make review dependencies available before independent review begins.
+Use resource-guarded local checks for lightweight commands only. Full suites, coverage and builds run in CI; global coverage thresholds remain 95% for all metrics. Record expected-red evidence before fixes. The mainnet E2E harness must reuse existing funded accounts and recycle principal with an out-and-back swap. A live run remains unavailable until Miden is listed and activation prerequisites are configured. The user authorized autonomous review and current-head CI for wallet PR #1742, followed by an admin squash merge after required checks pass. Feature activation, wallet release and partner proxy deployment remain unauthorized; `features.nearIntents` stays false. Cap screenshots at 1800px and review affected UI states. Make review dependencies available before independent review begins.
 
 ## Review
 
