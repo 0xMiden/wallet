@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { useNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
+import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
@@ -170,8 +170,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   submitting = false
 }) => {
   const { t } = useTranslation();
-  const networkFee = useNetworkFeeEstimate();
   const networkFeeDetails = useNetworkFeeEstimateDetails();
+  const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const offerLabel = midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol);
   const requestLabel = midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol);

@@ -7,7 +7,7 @@ import { formatUnits, parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import { useNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
+import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
@@ -98,8 +98,8 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
  */
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
-  const networkFee = useNetworkFeeEstimate();
   const networkFeeDetails = useNetworkFeeEstimateDetails();
+  const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const { search } = useLocation();
   const { fullPage } = useAppEnv();
   const { publicKey } = useAccount();

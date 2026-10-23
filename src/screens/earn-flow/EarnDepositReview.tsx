@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
-import { useNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
+import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { amountCaptionClassName, amountFigureClassName } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
@@ -349,8 +349,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
 const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, amount }) => {
   const { t } = useTranslation();
-  const networkFee = useNetworkFeeEstimate();
   const networkFeeDetails = useNetworkFeeEstimateDetails();
+  const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   // `aprPercent` is the number `apy` is formatted from; reading it directly (rather than parsing
   // the display string back out) keeps this in step with a target `apy` can drift from, such as a
   // number still travelling in an AnimatedNumber elsewhere on the page.

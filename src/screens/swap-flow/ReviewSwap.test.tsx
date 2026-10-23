@@ -33,7 +33,7 @@ jest.mock('react-i18next', () => ({
 // The fee estimate needs a discovered base fee and a balance; pin it so the Max-network-fee
 // row (and its hint) actually render here.
 jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
-  useNetworkFeeEstimate: () => '0.02 MIDEN',
+  formatNetworkFeeEstimate: () => '0.02 MIDEN',
   useNetworkFeeEstimateDetails: () => undefined
 }));
 

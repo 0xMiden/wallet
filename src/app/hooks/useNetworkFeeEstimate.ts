@@ -41,9 +41,15 @@ export function useNetworkFeeEstimateDetails() {
   return { amount: bound, decimals: feeMetadata.decimals, faucetId: nativeFaucetId, symbol: feeMetadata.symbol };
 }
 
-export function useNetworkFeeEstimate(): string | undefined {
-  const fee = useNetworkFeeEstimateDetails();
+type NetworkFeeEstimateDetails = ReturnType<typeof useNetworkFeeEstimateDetails>;
+
+/** The text form of `useNetworkFeeEstimateDetails`, so a screen that shows both reads the fee once. */
+export function formatNetworkFeeEstimate(fee: NetworkFeeEstimateDetails): string | undefined {
   return fee ? `${formatAmount(fee.amount, fee.decimals)} ${fee.symbol}` : undefined;
+}
+
+export function useNetworkFeeEstimate(): string | undefined {
+  return formatNetworkFeeEstimate(useNetworkFeeEstimateDetails());
 }
 
 export default useNetworkFeeEstimate;
