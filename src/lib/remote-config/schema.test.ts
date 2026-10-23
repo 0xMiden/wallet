@@ -1,6 +1,7 @@
 import { keccak256, toBytes } from 'viem';
 
 import { EARN_VAULT_PROTOCOLS, parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import published from './testing/published-testnet-v14.json';
 import testnet from './testing/testnet.json';
 
 describe('EARN_VAULT_PROTOCOLS', () => {
@@ -870,6 +871,13 @@ describe('the Earn vaults', () => {
     ['a numeric logo', withVault({ logo: 7 })]
   ])('rejects a document with %s', (_label, body) => {
     expect(parseBridgeConfig(body, 'testnet')).toBeNull();
+  });
+
+  it('accepts the published testnet document, which turns Earn on and lists no vaults', () => {
+    const parsed = parseBridgeConfig(published, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(14);
+    expect(parsed?.earn).toBeUndefined();
   });
 
   it('accepts no earn section while Earn is off or absent', () => {

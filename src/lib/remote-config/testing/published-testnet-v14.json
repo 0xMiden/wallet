@@ -1,0 +1,218 @@
+{
+  "network": "testnet",
+  "version": 14,
+  "evm": {
+    "chainId": 11155111
+  },
+  "agglayer": {
+    "l1Bridge": "0x528e26b25a34a4a5d0dbda1d57d318153d2ed582",
+    "midenBridge": "0x187cabbc404359d16be94954ca9879",
+    "indexerUrl": "https://bridge.miden-testnet.gateway.fm/api"
+  },
+  "epoch": {
+    "allocatorUrl": "https://testnet-dev.epochprotocol.xyz",
+    "positionsUrl": "https://positions-testnet-dev.epochprotocol.xyz",
+    "midenUsdcFaucet": "0x5b043dcb48d5721106f7a1ceb2b804",
+    "evmUsdc": "0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69",
+    "earnProtocol": "dummy-lending"
+  },
+  "mainnetCountdown": {
+    "enabled": true,
+    "launchAt": "2026-10-26T14:00:00Z"
+  },
+  "onboarding": {
+    "inviteOnly": false
+  },
+  "guardians": [
+    { "id": "open-zeppelin", "name": "OpenZeppelin", "operatedBy": "OpenZeppelin", "location": "US-EAST", "endpoint": "https://guardian-testnet.openzeppelin.com", "about": "OpenZeppelin, a smart contract security company known for its audits.", "kind": "Smart contract security and audits" },
+    { "id": "gateway", "name": "Gateway Operator", "operatedBy": "Gateway", "location": "EU-NORTH", "endpoint": "https://miden-guardian.dev.eu-north-3.gateway.fm", "about": "Gateway, a blockchain infrastructure provider that runs nodes and networks.", "kind": "Blockchain infrastructure provider" },
+    { "id": "lambda-class", "name": "LambdaClass", "operatedBy": "LambdaClass", "location": "EU-WEST", "endpoint": "https://miden-guardian.lambdaclass.com", "about": "LambdaClass, an engineering firm that builds zero-knowledge systems.", "kind": "Zero-knowledge systems engineering" },
+    { "id": "kodax", "name": "Koda", "operatedBy": "Korea Digital Asset (Koda)", "location": "Asia (SK)", "endpoint": "https://guardian-testnet.kodax.com", "about": "Korea Digital Asset, a digital asset custody company based in South Korea.", "kind": "Digital asset custodian" },
+    { "id": "para", "name": "Para", "operatedBy": "Para", "location": "US-EAST", "endpoint": "https://miden-guardian.beta.getpara.com", "about": "Para, an embedded wallet infrastructure provider.", "kind": "Embedded wallet infrastructure" }
+  ],
+  "swap": {
+    "etaUrl": "https://35-175-40-181.sslip.io",
+    "tokens": [
+      {
+        "symbol": "IMIDEN",
+        "faucetId": "0x750052a4af10cd51141f52c0ec2ada",
+        "decimals": 8,
+        "logo": "MIDEN"
+      },
+      {
+        "symbol": "IETH",
+        "faucetId": "0xe33498f1176661512b5ac4ded86ec7",
+        "decimals": 8,
+        "logo": "ETH",
+        "priceSymbol": "ETH"
+      },
+      {
+        "symbol": "IUSDT",
+        "faucetId": "0x094698fc4bc531d136db0866f38902",
+        "decimals": 8,
+        "logo": "USDC"
+      },
+      {
+        "symbol": "IBTC",
+        "faucetId": "0xaf8444c4a7c091114666adba25c5d0",
+        "decimals": 8,
+        "logo": "BTC",
+        "priceSymbol": "BTC"
+      }
+    ]
+  },
+  "features": {
+    "earn": true,
+    "fastBridge": true,
+    "bridgeIn": true,
+    "bridgeOut": true
+  },
+  "geo": {
+    "wallet": {
+      "block CU": "yes",
+      "block IR": "yes",
+      "block KP": "yes",
+      "block RU": "yes",
+      "block BY": "yes",
+      "block UA-43": "yes",
+      "block UA-40": "yes",
+      "block UA-14": "yes",
+      "block UA-09": "yes",
+      "block UA-65": "yes",
+      "block UA-23": "yes"
+    },
+    "earn": {
+      "block NY state": "yes",
+      "block UK": "yes"
+    }
+  },
+  "bridge-providers": {
+    "epoch": {
+      "allocatorUrl": "https://testnet-dev.epochprotocol.xyz",
+      "positionsUrl": "https://positions-testnet-dev.epochprotocol.xyz",
+      "outputs": {
+        "usdc-testnet-output": {
+          "faucetId": "0x5b043dcb48d5721106f7a1ceb2b804"
+        }
+      }
+    },
+    "agglayer": {
+      "indexerUrl": "https://bridge.miden-testnet.gateway.fm/api"
+    },
+    "usdcx": {
+      "midenDomain": 10007,
+      "attestationUrl": "https://xreserve-api-testnet.circle.com",
+      "irisUrl": "https://iris-api-sandbox.circle.com"
+    }
+  },
+  "supportedEvmChains": {
+    "arc-testnet": {
+      "chainId": 5042002,
+      "bridges": {
+        "usdcx": {
+          "domain": 26,
+          "deposit": {
+            "route": "xreserve",
+            "xReserve": "0x008888878f94C0d87defdf0B07f46B93C1934442"
+          },
+          "executor": {
+            "address": "0xEdC81040756AcCfF070c21D37b265b9D0b5Ba45e",
+            "handler": "0xD05E7D2E7d30b92c5F17d7d0fC575fce231F1A48"
+          },
+          "depositEnabled": true,
+          "withdrawalEnabled": true,
+          "tokens": {
+            "USDC": {
+              "contractAddress": "0x3600000000000000000000000000000000000000"
+            }
+          }
+        }
+      }
+    },
+    "sepolia": {
+      "chainId": 11155111,
+      "bridges": {
+        "usdcx": {
+          "domain": 0,
+          "deposit": {
+            "route": "executor",
+            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+            "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
+            "executorChain": "arc-testnet"
+          },
+          "depositEnabled": true,
+          "withdrawalEnabled": true,
+          "tokens": {
+            "USDC": {
+              "contractAddress": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+            }
+          }
+        },
+        "epoch": {
+          "depositEnabled": true,
+          "withdrawalEnabled": true,
+          "tokens": {
+            "USDC": {
+              "contractAddress": "0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69",
+              "outputs": ["usdc-testnet-output"]
+            }
+          }
+        },
+        "agglayer": {
+          "depositEnabled": true,
+          "withdrawalEnabled": true,
+          "contractAddress": "0x528e26b25a34a4a5d0dbda1d57d318153d2ed582",
+          "midenBridgeId": "0x187cabbc404359d16be94954ca9879",
+          "tokenApiUrl": "https://eth-sepolia.blockscout.com/api/v2",
+          "tokens": {
+            "USDC": {
+              "contractAddress": "0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69"
+            }
+          }
+        }
+      }
+    },
+    "base-sepolia": {
+      "chainId": 84532,
+      "bridges": {
+        "usdcx": {
+          "domain": 6,
+          "deposit": {
+            "route": "executor",
+            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+            "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
+            "executorChain": "arc-testnet"
+          },
+          "depositEnabled": true,
+          "withdrawalEnabled": true,
+          "tokens": {
+            "USDC": {
+              "contractAddress": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+            }
+          }
+        }
+      }
+    },
+    "arbitrum-sepolia": {
+      "chainId": 421614,
+      "bridges": {
+        "usdcx": {
+          "domain": 3,
+          "deposit": {
+            "route": "executor",
+            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+            "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
+            "executorChain": "arc-testnet"
+          },
+          "depositEnabled": true,
+          "withdrawalEnabled": true,
+          "tokens": {
+            "USDC": {
+              "contractAddress": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+            }
+          }
+        }
+      }
+    }
+  }
+}
