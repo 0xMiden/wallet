@@ -85,14 +85,14 @@ jest.mock(
   { virtual: true }
 );
 
+import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { CARRIED_MAINNET_CODE_STORAGE_KEY } from 'lib/carried-mainnet-code';
+import { inStorageTurn, putToStorage } from 'lib/miden/front/storage';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 import { onStorageCleared } from 'lib/storage-cleared';
-import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
-import { inStorageTurn, putToStorage } from 'lib/miden/front/storage';
 
 import {
   clearClientStorage,
@@ -677,16 +677,22 @@ describe('badge storage reset serialization', () => {
         releaseWrite();
         await Promise.all([writer, resetPromise]);
 
-        if (mode === 'extension') {
-          expect(mockBrowserStorageRemove).toHaveBeenCalledWith(expect.arrayContaining([BADGE_SEEN_STORAGE_KEY]));
-          expect(values.has(BADGE_SEEN_STORAGE_KEY)).toBe(false);
-        } else if (mode === 'mobile') {
-          expect(_g.__resetTest.prefStub.remove).toHaveBeenCalledWith({ key: BADGE_SEEN_STORAGE_KEY });
-          expect(values.has(BADGE_SEEN_STORAGE_KEY)).toBe(false);
-        } else {
-          expect(removed).toContain(BADGE_SEEN_STORAGE_KEY);
-          expect(localStorage.getItem(seenDesktopKey)).toBeNull();
-        }
+        const seenRemoved =
+          mode === 'extension'
+            ? mockBrowserStorageRemove.mock.calls.some(
+                ([keys]) => Array.isArray(keys) && keys.includes(BADGE_SEEN_STORAGE_KEY)
+              )
+            : mode === 'mobile'
+              ? (_g.__resetTest.prefStub.remove as jest.Mock).mock.calls.some(
+                  ([arg]) => arg?.key === BADGE_SEEN_STORAGE_KEY
+                )
+              : removed.has(BADGE_SEEN_STORAGE_KEY);
+        const seenLeft =
+          mode === 'extension' || mode === 'mobile'
+            ? values.has(BADGE_SEEN_STORAGE_KEY)
+            : localStorage.getItem(seenDesktopKey) !== null;
+        expect(seenRemoved).toBe(true);
+        expect(seenLeft).toBe(false);
         expect(resetQueuedBeforeSnapshot).toBe(true);
       } finally {
         mockStorageTurnObservers.delete(resetTurnObserver);

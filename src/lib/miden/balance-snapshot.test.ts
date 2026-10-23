@@ -1,3 +1,6 @@
+import { buildNetworkChoiceOverride, type EndpointOverride } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
 import {
   beginBalanceSnapshot,
   hasBalanceSnapshotForNetwork,
@@ -6,8 +9,6 @@ import {
   type BalanceSnapshot
 } from './balance-snapshot';
 import type { TokenBalanceData } from './front/balance';
-import { buildNetworkChoiceOverride, type EndpointOverride } from 'lib/miden-chain/effective-endpoints';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 let mockOverride: Partial<EndpointOverride> | null = null;
 let mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
