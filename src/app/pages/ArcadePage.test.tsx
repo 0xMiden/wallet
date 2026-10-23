@@ -11,7 +11,7 @@ jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => j
 jest.mock('app/templates/ArcadeAllowance', () => ({ ArcadeAllowance: () => <div data-testid="arcade-allowance" /> }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
-it('places the weekly allowance in the Coins body and preserves the pinned Browse games footer', () => {
+it('places the balance and purchase entry in the Coins body and preserves the pinned Browse games footer', () => {
   render(<ArcadePage />);
   expect(screen.getByTestId('arcade-allowance')).toBeInTheDocument();
   expect(screen.queryByText('0 GC')).toBeNull();

@@ -1694,5 +1694,8 @@
   "arcadeAwaitingReceipt": "Ожидание получения",
   "arcadeRetryClaim": "Повторная подача заявки",
   "arcadeCheckStatus": "Проверить статус",
-  "arcadePostingPolicy": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции."
+  "arcadePostingPolicy": "Каждая игра устанавливает свои ставки, выплаты и возвраты. Ознакомьтесь с её правилами перед подтверждением транзакции.",
+  "arcadeBuyMoreGc": "Купить ещё GC",
+  "arcadeGcPurchaseUnavailable": "Покупка GC пока недоступна в Bread.",
+  "arcadeGcPurchasePackage": "1 000 GC за 1 USDCx плюс сетевые комиссии."
 }

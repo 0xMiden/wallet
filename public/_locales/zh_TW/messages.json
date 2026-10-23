@@ -7645,5 +7645,17 @@
   "arcadePostingPolicy": {
     "message": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "購買更多 GC",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Bread 尚未支援購買 GC。",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1 USDCx 購買 1,000 GC，另加網路手續費。",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
   }
 }

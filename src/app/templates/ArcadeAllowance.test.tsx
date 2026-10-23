@@ -2,28 +2,38 @@ import React from 'react';
 
 import { act, render, screen } from '@testing-library/react';
 
-import { useWeeklyClaim } from 'lib/arcade/use-weekly-claim';
-import type { WeeklyClaimService } from 'lib/arcade/weekly-claim';
+import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
 
 import { ArcadeAllowance } from './ArcadeAllowance';
 
-const mockService: WeeklyClaimService = { read: jest.fn(), prepare: jest.fn(), submit: jest.fn() };
+const gc = '0x97924b9a77ed54917ff6d6364ae661';
+const mainnetGc = '0x34a3510213533f512ec4abe36baf84';
+let mockAccount = 'account-a';
+let mockNetwork = 'testnet';
+let mockListener = () => {};
+let mockLoading = false;
+let mockRows: TokenBalanceData[] = [];
+const mockRead = jest.fn();
 jest.mock('lib/miden/front/client', () => ({
   useMidenContext: () => ({
-    readGcWeeklyClaim: mockService.read,
-    prepareGcWeeklyClaim: mockService.prepare,
-    submitGcWeeklyClaim: mockService.submit
+    readGcWeeklyClaim: mockRead,
+    prepareGcWeeklyClaim: jest.fn(),
+    submitGcWeeklyClaim: jest.fn()
   })
 }));
-jest.mock('./GcClaimReviewDrawer', () => ({ GcClaimReviewDrawer: () => null }));
-
-let mockAccount = 'account-a';
-let mockNetwork = 'mainnet';
-let mockListener = () => {};
+jest.mock('lib/arcade/use-weekly-claim', () => ({
+  useWeeklyClaim: () => ({ snapshot: { status: { kind: 'eligible' }, balance: '10' }, busy: false, refresh: jest.fn() })
+}));
+jest.mock('lib/miden/front/balance', () => ({ useAllBalances: () => ({ data: mockRows, isLoading: mockLoading }) }));
+jest.mock('lib/miden/front/assets', () => ({
+  useTokensMetadata: () => ({ allTokensBaseMetadataRef: { current: {} } })
+}));
+jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
 jest.mock('lib/miden/front/ready', () => ({
   useAccount: () => ({ publicKey: mockAccount }),
   useAllNetworks: () => [
-    { id: 'mainnet', name: 'Partner Mainnet' },
+    { id: 'mainnet', name: 'Mainnet' },
     { id: 'testnet', name: 'Testnet' }
   ]
 }));
@@ -34,29 +44,87 @@ jest.mock('lib/remote-config/runtime', () => ({
     return () => {};
   }
 }));
-jest.mock('lib/arcade/use-weekly-claim', () => ({
-  useWeeklyClaim: jest.fn(() => ({
-    snapshot: { status: { kind: 'unavailable' }, balance: null },
-    busy: false,
-    claim: jest.fn(),
-    refresh: jest.fn()
-  }))
-}));
-jest.mock('./ArcadeAllowanceCard', () => ({
-  ArcadeAllowanceCard: ({ networkName }: { networkName: string }) => <div>{networkName}</div>
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: { balance?: string }) => (values?.balance ? `${values.balance} GC` : key),
+    i18n: { resolvedLanguage: 'en' }
+  })
 }));
 
-it('uses the effective chain network, isolates account changes, and uses only the backend adapter', () => {
+const row = (tokenId: string, balance: number): TokenBalanceData => ({
+  tokenId,
+  tokenSlug: 'GC',
+  balance,
+  fiatPrice: 0,
+  change24h: 0,
+  metadata: { name: 'Game Coin', symbol: 'GC', decimals: 6 }
+});
+beforeEach(() => {
+  mockNetwork = 'testnet';
+  mockAccount = 'account-a';
+  mockLoading = false;
+  mockRows = [row(gc, 10), row('different-GC', 900)];
+  tagBalanceSnapshot(mockRows, { network: 'testnet', accountNonce: '12' });
+});
+
+it('shows only the selected GC balance and a disabled purchase entry point without weekly controls', () => {
+  render(<ArcadeAllowance />);
+  expect(screen.getByText('10 GC')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'arcadeBuyMoreGc' })).toBeDisabled();
+  expect(screen.getByText('arcadeGcPurchaseUnavailable')).toBeInTheDocument();
+  expect(screen.queryByTestId('arcade-claim')).toBeNull();
+  expect(screen.queryByText('arcadeWeeklyAllowance')).toBeNull();
+  expect(screen.queryByText('arcadeWeeklyRules')).toBeNull();
+  expect(screen.queryByTestId('gc-claim-review')).toBeNull();
+});
+
+it('keeps unread or wrong-network rows unknown instead of reporting zero or a stale balance', () => {
+  mockRows = [row(gc, 10)];
   const view = render(<ArcadeAllowance />);
-  expect(screen.getByText('Partner Mainnet')).toBeInTheDocument();
-  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-a', networkId: 'mainnet' }, mockService, true);
+  expect(screen.getByText('arcadeBalanceUnknown')).toBeInTheDocument();
+  tagBalanceSnapshot(mockRows, { network: 'mainnet', accountNonce: '1' });
+  view.rerender(<ArcadeAllowance />);
+  expect(screen.getByText('arcadeBalanceUnknown')).toBeInTheDocument();
+});
+
+it('shows zero only after a known-network empty vault and isolates a network switch', () => {
+  mockRows = [];
+  tagBalanceSnapshot(mockRows, { network: 'testnet', accountNonce: '12' });
+  const view = render(<ArcadeAllowance />);
+  expect(screen.getByText('0 GC')).toBeInTheDocument();
   act(() => {
-    mockNetwork = 'testnet';
+    mockNetwork = 'mainnet';
     mockListener();
   });
-  expect(screen.getByText('Testnet')).toBeInTheDocument();
-  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-a', networkId: 'testnet' }, mockService, true);
-  mockAccount = 'account-b';
+  expect(screen.getByText('arcadeBalanceUnknown')).toBeInTheDocument();
+  mockRows = [row(mainnetGc, 25)];
+  tagBalanceSnapshot(mockRows, { network: 'mainnet', accountNonce: '15' });
   view.rerender(<ArcadeAllowance />);
-  expect(useWeeklyClaim).toHaveBeenLastCalledWith({ accountId: 'account-b', networkId: 'testnet' }, mockService, true);
+  expect(screen.getByText('25 GC')).toBeInTheDocument();
+});
+
+it('does not substitute a grant or malformed token amount for an unread balance', () => {
+  mockLoading = true;
+  const view = render(<ArcadeAllowance />);
+  expect(screen.getByText('arcadeBalanceUnknown')).toBeInTheDocument();
+  mockLoading = false;
+  mockRows = [row(gc, NaN)];
+  tagBalanceSnapshot(mockRows, { network: 'testnet', accountNonce: '12' });
+  view.rerender(<ArcadeAllowance />);
+  expect(screen.getByText('arcadeBalanceUnknown')).toBeInTheDocument();
+});
+
+it('reads the wallet’s Bech32 faucet rows without requiring a frontend WASM parser', () => {
+  mockRows = [row('mtst1azteyju6wlk4fytl7mtrvjhxvy08nme2_qr7qqq9wr6w', 7.5)];
+  tagBalanceSnapshot(mockRows, { network: 'testnet', accountNonce: '12' });
+  render(<ArcadeAllowance />);
+  expect(screen.getByText('7.5 GC')).toBeInTheDocument();
+});
+
+it('offers only the fixed package and no amount or package selector', () => {
+  render(<ArcadeAllowance />);
+  expect(screen.getByText('arcadeGcPurchasePackage')).toBeInTheDocument();
+  expect(screen.queryByRole('spinbutton')).toBeNull();
+  expect(screen.queryByRole('combobox')).toBeNull();
+  expect(screen.getByRole('button', { name: 'arcadeBuyMoreGc' })).toBeDisabled();
 });

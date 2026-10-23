@@ -7645,5 +7645,17 @@
   "arcadePostingPolicy": {
     "message": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "Mehr GC kaufen",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Der Kauf von GC ist in Bread noch nicht verfügbar.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1.000 GC für 1 USDCx, zuzüglich Netzwerkgebühren.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
   }
 }

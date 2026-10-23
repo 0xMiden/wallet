@@ -19,7 +19,7 @@ await i18next.use(initReactI18next).init({
 createRoot(document.getElementById('root')!).render(
   <div className="bg-page text-ink h-screen flex flex-col">
     <div className="bg-accent-tint text-accent-tint-ink text-caption px-4 py-2">
-      Review fixture · fictional balance, eligibility and game
+      Review fixture · fictional balance and game; purchases disabled
     </div>
     {params.get('page') === 'claim-review' ? (
       <GcClaimReviewDrawer

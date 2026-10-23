@@ -1694,5 +1694,8 @@
   "arcadeAwaitingReceipt": "待收",
   "arcadeRetryClaim": "重新嘗試申訴",
   "arcadeCheckStatus": "檢查狀態",
-  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。"
+  "arcadePostingPolicy": "每款遊戲自行設定投注、獎勵支付和退款規則。核准交易前，請查看該遊戲的規則。",
+  "arcadeBuyMoreGc": "購買更多 GC",
+  "arcadeGcPurchaseUnavailable": "Bread 尚未支援購買 GC。",
+  "arcadeGcPurchasePackage": "1 USDCx 購買 1,000 GC，另加網路手續費。"
 }

@@ -1,63 +1,47 @@
-import React, { useEffect, useMemo, useSyncExternalStore } from 'react';
+import React, { useSyncExternalStore } from 'react';
 
-import { usePageActive } from 'app/layouts/page-active';
-import { useWeeklyClaim } from 'lib/arcade/use-weekly-claim';
-import { type ArcadeAccountScope, type WeeklyClaimService } from 'lib/arcade/weekly-claim';
-import { useMidenContext } from 'lib/miden/front/client';
+import { useTranslation } from 'react-i18next';
+
+import { hasBalanceSnapshotForNetwork } from 'lib/miden/balance-snapshot';
+import { useTokensMetadata } from 'lib/miden/front/assets';
+import { useAllBalances } from 'lib/miden/front/balance';
 import { useAccount, useAllNetworks } from 'lib/miden/front/ready';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 
-import { ArcadeAllowanceCard } from './ArcadeAllowanceCard';
-import { GcClaimReviewDrawer } from './GcClaimReviewDrawer';
+import { ArcadeCoinsCard } from './ArcadeCoinsCard';
 
-const AccountAllowance: React.FC<{ scope: ArcadeAccountScope; networkName: string }> = ({ scope, networkName }) => {
-  const { readGcWeeklyClaim, prepareGcWeeklyClaim, submitGcWeeklyClaim } = useMidenContext();
-  const service = useMemo<WeeklyClaimService>(
-    () => ({
-      read: readGcWeeklyClaim,
-      prepare: prepareGcWeeklyClaim,
-      submit: submitGcWeeklyClaim
-    }),
-    [readGcWeeklyClaim, prepareGcWeeklyClaim, submitGcWeeklyClaim]
-  );
-  const active = usePageActive();
-  const { snapshot, busy, review, error, claim, recover, refresh, confirmReview, cancelReview } = useWeeklyClaim(
-    scope,
-    service,
-    active
-  );
-  useEffect(() => {
-    if (active) void refresh();
-  }, [active, refresh]);
-  return (
-    <>
-      <ArcadeAllowanceCard
-        snapshot={snapshot}
-        busy={busy}
-        error={error}
-        networkName={networkName}
-        onClaim={() => void claim()}
-        onRecover={operationId => void recover(operationId)}
-        onRefresh={() => void refresh()}
-      />
-      <GcClaimReviewDrawer review={review} busy={busy} onConfirm={() => void confirmReview()} onCancel={cancelReview} />
-    </>
-  );
-};
-
+/** Existing export retained for the Coins route; weekly controls and service are no longer mounted. */
 export const ArcadeAllowance: React.FC = () => {
+  const { i18n } = useTranslation();
   const account = useAccount();
   const networks = useAllNetworks();
-  // This older stack's useNetwork predates effective-network reconciliation on main. Read the
-  // same effective network as the catalog/chain here; never authorize against the legacy selection.
   const networkId = useSyncExternalStore(subscribeBridgeConfig, getEffectiveNetworkName);
   const networkName = networks.find(network => network.id === networkId)?.name ?? networkId;
-  return (
-    <AccountAllowance
-      key={`${networkId}:${account.publicKey}`}
-      scope={{ accountId: account.publicKey, networkId }}
-      networkName={networkName}
-    />
-  );
+  const { allTokensBaseMetadataRef } = useTokensMetadata();
+  const { data, isLoading } = useAllBalances(account.publicKey, allTokensBaseMetadataRef.current);
+  // Pinned hex + BasicWallet addresses of public token issuers, derived with the real SDK.
+  // Extension balance rows arrive before this UI realm necessarily initializes WASM.
+  const issuers =
+    networkId === 'mainnet'
+      ? ['0x34a3510213533f512ec4abe36baf84', 'mm1aq62x5gzzdfn75fwcj47x6a0ssyu9cxz_qr7qqq9wr6w']
+      : networkId === 'testnet'
+        ? ['0x97924b9a77ed54917ff6d6364ae661', 'mtst1azteyju6wlk4fytl7mtrvjhxvy08nme2_qr7qqq9wr6w']
+        : [];
+  const rows = data.filter(row => issuers.includes(row.tokenId));
+  const coin = rows[0];
+  const amount = coin?.balance ?? 0;
+  const known =
+    issuers.length > 0 &&
+    !isLoading &&
+    hasBalanceSnapshotForNetwork(data, networkId) &&
+    rows.length <= 1 &&
+    Number.isFinite(amount) &&
+    amount >= 0 &&
+    (coin === undefined || (coin.metadata.decimals === 6 && !coin.metadata.scaleIsUnknown));
+  const balance = known
+    ? new Intl.NumberFormat(i18n.resolvedLanguage ?? 'en', { maximumFractionDigits: 6 }).format(amount)
+    : null;
+
+  return <ArcadeCoinsCard balance={balance} networkName={networkName} busy={isLoading} />;
 };

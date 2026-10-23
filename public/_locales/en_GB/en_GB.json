@@ -1694,5 +1694,8 @@
   "arcadeAwaitingReceipt": "Awaiting receipt",
   "arcadeRetryClaim": "Retry claim",
   "arcadeCheckStatus": "Check status",
-  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  "arcadePostingPolicy": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction.",
+  "arcadeBuyMoreGc": "Buy more GC",
+  "arcadeGcPurchaseUnavailable": "Buying GC is not available in Bread yet.",
+  "arcadeGcPurchasePackage": "1,000 GC for 1 USDCx, plus network fees."
 }

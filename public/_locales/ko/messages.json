@@ -7645,5 +7645,17 @@
   "arcadePostingPolicy": {
     "message": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "GC 추가 구매",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Bread에서는 아직 GC를 구매할 수 없습니다.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1,000 GC에 1 USDCx, 네트워크 수수료 별도.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
   }
 }

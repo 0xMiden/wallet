@@ -1,9 +1,21 @@
-# Canonical GC wallet binding
+> Historical weekly-distributor implementation evidence. Weekly allowances are superseded by
+> [the registration-gift and purchase design](gc-integration.md). These results do not prove starter
+> allocation or purchase support. Code and records are retained for reference; no new activation is implied.
+
+# GC wallet binding
+
+For the current product and integration contract, see [GC integration](gc-integration.md).
+These notes describe an unmerged Testnet stack, not released Mainnet functionality.
 
 The backend supports two independently scoped claim protocols. The approved Testnet asset is our existing
-GC issuer `0x97924b9a77ed54917ff6d6364ae661`; Mainnet targets the existing GQ GC, with activation gated. The pinned Testnet deployment
-continues to use the experimental v1 protocol; its assets, roots, request rows and budget recovery
-remain unchanged. No canonical v2 deployment is activated by this change. Mainnet remains disabled.
+GC issuer `0x97924b9a77ed54917ff6d6364ae661`. The active Testnet distributor is
+`0x5f2b2136d78f755114d00efe84b7aa`, committed at block 474315 with 10 GC of existing inventory.
+It does not mint. Mainnet remains disabled.
+
+The exact v1 binding is retained as cleanup-only configuration. Bread checks that history first and
+keeps pending requests, receipts and refundable native budgets accessible before switching to new v2
+claims. A prepared approval stays with its original backend even if cleanup finishes during review.
+New v1 claims are disabled, including a race where recovery disappears during preparation.
 
 A reviewed v2 deployment must provide `distribution.protocolVersion = 2`, `distributorId`,
 `distributorCodeCommitment`, `gcFaucetId`, and the configured
@@ -22,8 +34,9 @@ quotes, persisted scope, recovery and receipt admission. A v1 quote cannot be re
 Canonical scopes have separate queue identities and retain their full distribution binding across
 restart. Legacy scope keys are unchanged. An explicit deployment selects its GC faucet; this never relabels balances from a different issuer.
 The chosen Testnet faucet is the same asset used in the existing trial; its v1 operations retain their
-original protocol scope. A newly deployed distributor starts a new ledger, so acceptance uses an account
-without a prior allocation and cannot establish migration of another deployment's weekly map. Authenticated NoteFiles, Guardian fee-aware
+original protocol scope. This Testnet distributor starts a fresh weekly ledger; existing v1 allocations
+are not copied into its map. Using the funded test account for both deployments tests protocol isolation,
+not global weekly-history migration. A Mainnet migration requires a separate entitlement decision. Authenticated NoteFiles, Guardian fee-aware
 builders, WASM locks, outgoing queue holds, duplicate prevention and uncertain-submit reconciliation
 continue to use the ordinary wallet pipeline.
 
@@ -40,3 +53,63 @@ The distributor fixture and its public seed are construction evidence only and m
 a funding recipient or an active deployment. Live activation requires separately reviewed account
 artifacts, roots, configuration and funding authorization. Token verification follows registry
 publication; this change does not add a local verified badge override.
+
+## Testnet deployment evidence
+
+- Funding request `0x249ba374ba33f8995da5d28eb655b516f6e1643578f42dc9a671bf681888fc1c`: committed in block 474299, moving 10 GC and 210 native units into the bound bootstrap note. Sender fee 119 native units.
+- Distributor creation `0x92d43b8fa378a433fbf99d784132313b5753761e05b79baa0e1a09a91fa3fc08`: committed in block 474315, inventory 10 GC, native reserve 0. Deposit fee 119 of 210; 91 returned in native-only P2ID receipt.
+- Refund collection `0xca0ea22933135ec9db30b503d52716a2cc696f1875f1adc0e8e58a57e318cfad`: committed in block 474336, 91 received and 119 fee paid. Inventory remains 10 GC.
+
+Deployment is confirmed separately from Bread native claim acceptance. Token-list PR4 remains a registry
+publication dependency; the wallet does not grant a verified badge by overriding its token list. Game
+repositories are read-only references. This change does not publish or modify any game.
+
+## Native Bread acceptance
+
+Validated on the preserved Bread GC Testnet Guardian account using this activation stack:
+
+- Native weekly request `0x85c51751312d5addb71877c0de0b5a05a03a492a18b4bfbca372f463000583f7` committed in block 474488 and consumed by the distributor in block 474489.
+- Receipt `0x13f74c57309492263986282ed0476b122e47f466ce98876923b18470f0041058` contains 10 GC and 98 native units, returning the unused portion of the 210-unit budget (112 execution fee). Bread explicitly reviewed a 133-unit receive fee, then consumed the receipt in block 474519.
+- Balance increased from 10 GC to 20 GC. “Claimed this week” showed the next allowance at October 26, 2026 00:00 UTC. 20 GC remained after app termination/relaunch.
+- A normal 1-GC public transfer to the other owned Testnet account committed in block 474627, note `0xe144152fc8ef6beb48b7e1d83eecdb3c5664f8aaf4b930c0c16957cd02f10991`; Bread confirmed 133 native units paid as its fee. The sender retains 19 GC. The recipient consumed that exact note in transaction
+`0xc364b1e990f28a1897a2981e61cbd5a4eb65451f93142322bb6e3917a3a6de8b`, committed at block 474727; its balance increased from 0 to 1 GC and its receive fee was 119 native units. The separate 9-GC asset was not relabeled or spent.
+
+
+Local checks: 146 Arcade tests, TypeScript, changed-file lint, real-SDK/Rust v1/v2 construction parity,
+mobile/iOS build and extension background/UI builds passed. Native evidence is iOS-specific; extension
+interactive claim acceptance and local Android are not established by these build checks. Android local
+setup was explicitly skipped. CI retains the repository coverage threshold.
+
+The initial 10-GC distributor inventory was exhausted by this acceptance claim. The replenishment
+acceptance below restored it using existing tokens; a fresh weekly ledger does not create token supply.
+
+## Inventory preflight
+
+Before offering or confirming a new v2 funded claim, Bread requests the distributor's vault alongside
+the weekly map at the same reference block. Only the configured GC faucet counts toward the 10-GC
+minimum. Missing vault data or duplicate asset entries fail closed. An empty or insufficient vault
+disables new requests; existing receipts, refundable budgets and completed claims remain accessible.
+Confirmation rechecks inventory before queue admission. This prevents fees for known empty inventory;
+it does not reserve tokens against another claimant between review and network inclusion.
+
+The live SDK query at block 474848 returned an empty vault and `inventoryAvailable: false` after the
+acceptance claim. The generic unavailable message covers both unconfigured networks and temporary
+claim unavailability without incorrectly saying that a known GC balance is unconfigured.
+
+## Replenishment acceptance
+
+The same native Bread build sent another 9 GC to the owned receiving account, committed in block
+475005 as note `0x4c8760a7bd4141ca76a8c21b42b51ff66828e577342614588b51b41942620cfa`.
+That account combined the exact 9-GC input with its previously received 1 GC to fund the same distributor.
+No tokens were minted, and the unrelated 9-GC asset remained separate.
+
+- Funding transaction `0x33f6919e644457b22297b06359434efb2f99dd9e21f98ed88b7b3b592ae7a5a1` committed at block 475177, creating the bound 10-GC deposit with a 210-unit native budget. Sender fee: 119 native units.
+- The network automatically consumed deposit `0x2b26c64951ed5720ea69235c976ddb966f99df05fae3107c7ef103795ff017c8` at block 475179. No manual distributor transaction was needed. Distributor nonce advanced from 2 to 3, GC inventory from 0 to 10 GC, and native reserve remained 0.
+- Native-only refund `0x12246b4582ed01e707b925110b8441a675ff19d362387b84f067ea4f52454dde` returned 98 of the 210 units, with 112 used for execution. Its sender, recipient, asset and serial binding to the deposit were checked before collection.
+- Refund collection `0x66adbab4cda817caf9cd84dfcfbeb96dbd392540280ca01f85cb7a95916242e4` committed at block 475197. It received 98 native units and paid 119 as its own receive fee.
+- A real SDK vault query at block 475184 returned `gcUnits: 10000000` and `inventoryAvailable: true`, complementing the earlier empty-inventory query. Bread retained 10 GC and still displayed “Claimed this week”; replenishing inventory did not grant the same wallet another weekly allocation.
+
+
+The inventory child passed 173 focused tests, TypeScript, changed-file lint, locale consistency,
+mobile/iOS compilation and extension background/UI builds. Native acceptance remains specific to iOS;
+extension interactive acceptance and local Android are not implied by successful builds.

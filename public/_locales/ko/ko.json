@@ -1694,5 +1694,8 @@
   "arcadeAwaitingReceipt": "수령 대기 중",
   "arcadeRetryClaim": "재시도 청구",
   "arcadeCheckStatus": "상태 확인",
-  "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요."
+  "arcadePostingPolicy": "각 게임은 판돈, 지급금 및 환불 규칙을 자체적으로 정합니다. 거래를 승인하기 전에 해당 게임의 규칙을 확인하세요.",
+  "arcadeBuyMoreGc": "GC 추가 구매",
+  "arcadeGcPurchaseUnavailable": "Bread에서는 아직 GC를 구매할 수 없습니다.",
+  "arcadeGcPurchasePackage": "1,000 GC에 1 USDCx, 네트워크 수수료 별도."
 }

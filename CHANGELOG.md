@@ -20,6 +20,8 @@
 
 ### Changes
 
+- [CHANGE][all] Replace weekly controls in Coins with the selected GC balance and a disabled Buy more GC entry point until the native purchase route is reviewed; retain weekly implementation history (#1452, #1515, #1691).
+
 - [CHANGE][all] Add an inventory-backed GC distributor protocol with user-funded weekly payouts, exact fee refunds, replenishment and reclaim paths; deployment and wallet activation remain separate (#1452).
 - [CHANGE][all] Support canonical GC distributor approvals and receipts with separate token and distributor identities, preserving legacy claim recovery; canonical deployment activation remains gated (#1452).
 

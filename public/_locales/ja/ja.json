@@ -1694,5 +1694,8 @@
   "arcadeAwaitingReceipt": "受領待ち",
   "arcadeRetryClaim": "再試行の主張",
   "arcadeCheckStatus": "ステータスを確認する",
-  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。"
+  "arcadePostingPolicy": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
+  "arcadeBuyMoreGc": "GCを追加購入",
+  "arcadeGcPurchaseUnavailable": "BreadでのGC購入はまだ利用できません。",
+  "arcadeGcPurchasePackage": "1,000 GCを1 USDCxで購入（ネットワーク手数料別）。"
 }

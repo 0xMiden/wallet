@@ -1694,5 +1694,8 @@
   "arcadeAwaitingReceipt": "A la espera de recepción",
   "arcadeRetryClaim": "Reintentar la reclamación",
   "arcadeCheckStatus": "Comprobar el estado",
-  "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción."
+  "arcadePostingPolicy": "Cada juego establece sus propias apuestas, pagos y reembolsos. Revisa sus reglas antes de aprobar una transacción.",
+  "arcadeBuyMoreGc": "Comprar más GC",
+  "arcadeGcPurchaseUnavailable": "La compra de GC aún no está disponible en Bread.",
+  "arcadeGcPurchasePackage": "1.000 GC por 1 USDCx, más las comisiones de red."
 }

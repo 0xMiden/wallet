@@ -11,7 +11,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { ARCADE_PATH } from 'lib/arcade';
 import { navigate } from 'lib/woozie';
 
-/** GC allowance belongs to Coins; preserve its native header and pinned Browse games footer. */
+/** GC balance and purchase entry belong to Coins; preserve its native header and pinned Browse games footer. */
 export const ArcadePage: React.FC = () => {
   const { t } = useTranslation();
   const back = useBackWithFallback(ARCADE_PATH);

@@ -1694,5 +1694,8 @@
   "arcadeAwaitingReceipt": "Alınmayı bekliyor",
   "arcadeRetryClaim": "Talebi yeniden dene",
   "arcadeCheckStatus": "Durumu kontrol edin",
-  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin."
+  "arcadePostingPolicy": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
+  "arcadeBuyMoreGc": "Daha fazla GC satın al",
+  "arcadeGcPurchaseUnavailable": "Bread’de GC satın alma henüz kullanılamıyor.",
+  "arcadeGcPurchasePackage": "1 USDCx karşılığında 1.000 GC, ağ ücretleri hariç."
 }
