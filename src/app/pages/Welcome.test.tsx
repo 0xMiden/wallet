@@ -3948,7 +3948,6 @@ describe('Welcome — registration holds preparation', () => {
       if (pending) await pending;
     });
     await waitFor(() => expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(false));
-    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   }
 
   it('marks a confirmation tap active until registration resolves', async () => {
@@ -3964,6 +3963,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('clears a confirmation tap when registration rejects', async () => {
@@ -3978,6 +3978,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, pending, new Error('boom'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('marks a side-panel auto-register active until registration resolves', async () => {
@@ -3991,6 +3992,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 
   it('clears a side-panel auto-register when registration rejects', async () => {
@@ -4004,6 +4006,7 @@ describe('Welcome — registration holds preparation', () => {
     expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
 
     await finishHeld(held, undefined, new Error('creation failed'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
   });
 });
 
