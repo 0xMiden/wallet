@@ -74,14 +74,21 @@ describe('EvmBridgeDepositReview', () => {
       expect(screen.getAllByText('10 USDC')).toHaveLength(2);
     });
 
-    it('shows the ≈USD subtitle when fiat is provided', () => {
-      render(<EvmBridgeDepositReview {...baseProps({ fiat: 100.5 })} />);
+    it('shows the source quote estimate instead of trusting a supplied fiat total', () => {
+      render(
+        <EvmBridgeDepositReview
+          {...baseProps({
+            fiat: 100.5,
+            sourceQuote: { price: 10.05, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+          })}
+        />
+      );
       expect(screen.getByText('approxFiatValue|$100.50')).toBeInTheDocument();
     });
 
-    it('shows the ≈USD subtitle when fiat is exactly 0 (0 !== undefined)', () => {
+    it('omits an unverified fiat total even when exactly zero', () => {
       render(<EvmBridgeDepositReview {...baseProps({ fiat: 0 })} />);
-      expect(screen.getByText('approxFiatValue|$0.00')).toBeInTheDocument();
+      expect(screen.queryByText('approxFiatValue|$0.00')).not.toBeInTheDocument();
     });
 
     it('omits the subtitle when fiat is undefined (e.g. testnet ETH with no reliable price)', () => {

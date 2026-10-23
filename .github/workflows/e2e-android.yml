@@ -220,6 +220,8 @@ jobs:
         working-directory: android
         run: ./gradlew --stop || true
 
+      # The wallet fails closed on its startup eligibility check, so the emulator must
+      # reach the host fixture (the E2E harness reverses the same port) or onboarding never renders.
       - name: Run native Reown bridge smoke
         id: reown-native-smoke
         timeout-minutes: 10
@@ -235,6 +237,7 @@ jobs:
           script: >-
             bash -euo pipefail -c '
             mkdir -p test-results-android/reown-native-origin;
+            adb reverse tcp:8551 tcp:8551;
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk;
             adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk;
             adb shell pm clear com.miden.wallet;

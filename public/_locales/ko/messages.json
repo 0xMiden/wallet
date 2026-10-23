@@ -3697,6 +3697,10 @@
     "message": "금액은 잔액보다 적어야 합니다.",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "이 금액은 해당 토큰이 허용하는 소수점 자리 수보다 더 많은 소수점 자릿수를 가지고 있습니다.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "USDCX 이체 자동 수락",
     "englishSource": "Auto-accept USDCX transfers"
@@ -7333,5 +7337,43 @@
   "runtimeUnsupportedBody": {
     "message": "이 지갑은 WebAssembly SIMD를 필요로 하지만, 현재 사용 중인 브라우저나 기기에서는 이를 지원하지 않습니다. 다른 기기나 최신 버전의 브라우저에서 지갑을 열어 주십시오.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "amountUsdUnavailable": {
+    "message": "USD 추정치 없음",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "USD 호가가 만료되었습니다. 가격을 새로 고침 중…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "$unit$ 단위의 금액",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "$unit$ 입력",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "USD 가격 불러오는 중…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "USD 가격이 갱신되지 않았습니다",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "USD 추정치",
+    "englishSource": "USD estimate"
   }
 }

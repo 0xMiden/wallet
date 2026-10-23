@@ -133,6 +133,13 @@ describe('TransactionSummaryBadge component', () => {
     return { container, root };
   };
 
+  it('keeps passive transaction summaries token-only without price conversion lines', async () => {
+    const { container, root } = await renderInto(<TransactionSummaryBadge lhs="10 TST" rhs="mtst1apx...xclasaf0" />);
+    expect(container.textContent).toBe('10 TSTmtst1apx...xclasaf0');
+    expect(container.textContent).not.toMatch(/USD|\$|≈/);
+    act(() => root.unmount());
+  });
+
   it('renders the pill with both sides and an arrow when lhs and rhs are provided', async () => {
     const { container, root } = await renderInto(
       <TransactionSummaryBadge lhs="100 TST" rhs="mtst1a...uyph" className="mt-6" />
