@@ -1606,3 +1606,353 @@ async fn preexisting_claimant_gc_balance_does_not_reduce_allowance() -> anyhow::
     );
     Ok(())
 }
+
+// Acceptance: removing the callback settlement allowance or omitting callback cycles from the paid
+// fee must fail these assertions or MockChain's committed transaction verification.
+#[tokio::test]
+async fn callback_native_bootstrap_and_batches_pay_final_cycles_and_commit() -> anyhow::Result<()> {
+    use bread_gamecoin::distributor::{FundedDeposit, bootstrap_deposit_note, deposit_note};
+    use miden_standards::account::policies::MintPolicy;
+    let mut b = MockChain::builder().verification_base_fee(7);
+    let mut users = Vec::new();
+    for _ in 0..2 {
+        users.push(b.add_existing_wallet(Auth::default())?);
+    }
+    let native_faucet = b.add_existing_network_faucet(
+        "NATIVE",
+        1_000_000_000,
+        users[0].id(),
+        None,
+        MintPolicy::allow_all(),
+        [],
+    )?;
+    let native = native_faucet.id();
+    assert!(native.asset_callback_flag().is_enabled());
+    b = b.fee_faucet_id(native);
+    let network = Word::from([17u32, 18, 19, 20]);
+    let mut distributor = distributor_builder([42; 32], gc(), native, network)?.build()?;
+    let deposit_config = |sender, serial, amount, budget| FundedDeposit {
+        distributor: distributor.id(),
+        gc_faucet: gc(),
+        native,
+        distributor_code: distributor.code().commitment(),
+        network,
+        sender,
+        reclaim_height: 100,
+        receipt_tag: NoteTag::with_account_target(sender),
+        amount,
+        budget,
+        serial,
+    };
+    let bootstrap = bootstrap_deposit_note(&deposit_config(
+        users[0].id(),
+        Word::from([11u32, 2, 3, 4]),
+        100_000_000,
+        10000,
+    ))?;
+    let mut batches = vec![vec![bootstrap]];
+    let mut claims = Vec::new();
+    let mut deposits = Vec::new();
+    for (i, user) in users.iter().enumerate() {
+        claims.push(claim_note(&FundedClaim {
+            distributor: distributor.id(),
+            gc_faucet: gc(),
+            native,
+            distributor_code: distributor.code().commitment(),
+            network,
+            sender: user.id(),
+            week: (MockChain::TIMESTAMP_START_SECS + 259200) / 604800,
+            expiry: MockChain::TIMESTAMP_START_SECS + 3600,
+            reclaim_height: 100,
+            receipt_tag: NoteTag::with_account_target(user.id()),
+            budget: 10000 + i as u64,
+            serial: Word::from([i as u32 + 21, 2, 3, 4]),
+        })?);
+        deposits.push(deposit_note(&deposit_config(
+            user.id(),
+            Word::from([i as u32 + 31, 2, 3, 4]),
+            20_000_000,
+            10000 + i as u64,
+        ))?);
+    }
+    batches.push(claims);
+    batches.push(deposits);
+    for batch in &batches {
+        for note in batch {
+            b.add_output_note(RawOutputNote::Full(note.clone()));
+        }
+    }
+    let mut chain = b.build()?;
+    for (stage, batch) in batches.iter().enumerate() {
+        let tx = chain
+            .build_transaction(distributor.clone())
+            .foreign_accounts([chain.get_foreign_account_inputs(native)?])
+            .authenticated_input_notes(batch.iter().map(|n| n.id()))
+            .build()?
+            .execute()
+            .await?;
+        let fee = paid_fee(&tx);
+        let cycles = tx.measurements().total_cycles();
+        assert!(
+            fee >= 7 * (u64::from(cycles.ilog2()) + 1),
+            "callback final cycles underpaid"
+        );
+        assert_eq!(tx.output_notes().num_notes(), batch.len() + 1);
+        let total_budget: u64 = batch
+            .iter()
+            .flat_map(|n| n.assets().iter_fungible())
+            .filter(|a| a.faucet_id() == native)
+            .map(|a| a.amount().as_u64())
+            .sum();
+        let refunds: u64 = tx
+            .output_notes()
+            .iter()
+            .take(batch.len())
+            .flat_map(|n| n.assets().iter_fungible())
+            .filter(|a| a.faucet_id() == native)
+            .map(|a| a.amount().as_u64())
+            .sum();
+        assert_eq!(fee + refunds, total_budget);
+        for (i, receipt) in tx.output_notes().iter().take(batch.len()).enumerate() {
+            let refund = receipt
+                .assets()
+                .iter_fungible()
+                .find(|a| a.faucet_id() == native)
+                .unwrap()
+                .amount()
+                .as_u64();
+            let budget = batch[i]
+                .assets()
+                .iter_fungible()
+                .find(|a| a.faucet_id() == native)
+                .unwrap()
+                .amount()
+                .as_u64();
+            let n = batch.len() as u64;
+            assert_eq!(refund, budget - fee / n - u64::from((i as u64) < fee % n));
+        }
+        distributor.apply_patch(tx.account_patch())?;
+        assert_eq!(
+            distributor
+                .vault()
+                .get_balance(AssetId::new_fungible(native))?
+                .as_u64(),
+            0
+        );
+        assert_eq!(
+            distributor
+                .vault()
+                .get_balance(AssetId::new_fungible(gc()))?
+                .as_u64(),
+            [100_000_000, 80_000_000, 120_000_000][stage]
+        );
+        chain.add_pending_executed_transaction(&tx)?;
+        chain.prove_next_block()?;
+        for note in batch {
+            assert!(chain.is_note_consumed(&note.nullifier()));
+        }
+        println!(
+            "callback stage={stage} N={} fee={fee} final_cycles={cycles} committed",
+            batch.len()
+        );
+    }
+    assert_eq!(distributor.nonce(), miden_protocol::Felt::from(3u32));
+    Ok(())
+}
+
+#[tokio::test]
+async fn committed_claim_renews_next_week_and_skipped_weeks_never_accumulate() -> anyhow::Result<()>
+{
+    let mut b = MockChain::builder().verification_base_fee(7);
+    let native = miden_protocol::testing::account_id::ACCOUNT_ID_FEE_FAUCET.try_into()?;
+    let user = b.add_existing_wallet(Auth::default())?;
+    let network = Word::from([17u32, 18, 19, 20]);
+    let mut distributor = distributor_builder([42; 32], gc(), native, network)?
+        .with_assets([miden_protocol::asset::FungibleAsset::new(gc(), 100_000_000)?.into()])
+        .build_existing()?;
+    b.add_account(distributor.clone())?;
+    let start_week = (MockChain::TIMESTAMP_START_SECS + 259200) / 604800;
+    let mut notes = Vec::new();
+    for (i, offset) in [0u32, 1, 4, 1].iter().enumerate() {
+        let week = start_week + offset;
+        let note = claim_note(&FundedClaim {
+            distributor: distributor.id(),
+            gc_faucet: gc(),
+            native,
+            distributor_code: distributor.code().commitment(),
+            network,
+            sender: user.id(),
+            week,
+            expiry: (week + 1) * 604800 - 259201,
+            reclaim_height: 100,
+            receipt_tag: NoteTag::with_account_target(user.id()),
+            budget: 1000,
+            serial: Word::from([i as u32 + 1, 2, 3, 4]),
+        })?;
+        b.add_output_note(RawOutputNote::Full(note.clone()));
+        notes.push(note);
+    }
+    let mut chain = b.build()?;
+    for (i, offset) in [0u32, 1, 4].iter().enumerate() {
+        if *offset > 0 {
+            chain.prove_next_block_at((start_week + offset) * 604800 - 259200 + 1)?;
+        }
+        let tx = chain
+            .build_transaction(distributor.clone())
+            .authenticated_input_note(notes[i].id())
+            .build()?
+            .execute()
+            .await?;
+        let gc_payout: u64 = tx
+            .output_notes()
+            .iter()
+            .flat_map(|n| n.assets().iter_fungible())
+            .filter(|a| a.faucet_id() == gc())
+            .map(|a| a.amount().as_u64())
+            .sum();
+        assert_eq!(gc_payout, 10_000_000, "missed weeks accumulated");
+        distributor.apply_patch(tx.account_patch())?;
+        chain.add_pending_executed_transaction(&tx)?;
+        chain.prove_next_block()?;
+        assert!(chain.is_note_consumed(&notes[i].nullifier()));
+        if *offset == 1 {
+            let duplicate = chain
+                .build_transaction(distributor.clone())
+                .authenticated_input_note(notes[3].id())
+                .build()?
+                .execute()
+                .await
+                .unwrap_err();
+            assert!(format!("{duplicate:#}").contains("already claimed this week"));
+        }
+    }
+    assert_eq!(
+        distributor
+            .vault()
+            .get_balance(AssetId::new_fungible(gc()))?
+            .as_u64(),
+        70_000_000
+    );
+    let slot =
+        miden_protocol::account::StorageSlotName::new(bread_gamecoin::distributor::CLAIMS_SLOT)?;
+    for offset in 0u32..=4 {
+        let key = miden_protocol::account::StorageMapKey::new(Word::from([
+            user.id().suffix(),
+            user.id().prefix().as_felt(),
+            (start_week + offset).into(),
+            0u32.into(),
+        ]));
+        assert_eq!(
+            distributor.storage().get_map_item(&slot, key)?,
+            if [0, 1, 4].contains(&offset) {
+                Word::from([1u32, 0, 0, 0])
+            } else {
+                Word::empty()
+            }
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn direct_payout_withdrawal_and_fee_mutation_scripts_leave_state_unchanged()
+-> anyhow::Result<()> {
+    use miden_protocol::{
+        asset::FungibleAsset,
+        note::{NoteType, PartialNote},
+    };
+    use miden_standards::{
+        account::fees::FeePolicyManager, code_builder::CodeBuilder, note::P2idNote,
+        tx_script::SendNotesTransactionScript,
+    };
+    let mut f = fixture(&[1000], 50000, 7, |_, c| c.reclaim_height = 100)?;
+    let before = f.distributor.clone();
+    let slot =
+        miden_protocol::account::StorageSlotName::new(bread_gamecoin::distributor::CLAIMS_SLOT)?;
+    let week = (MockChain::TIMESTAMP_START_SECS + 259200) / 604800;
+    let key = miden_protocol::account::StorageMapKey::new(Word::from([
+        f.users[0].id().suffix(),
+        f.users[0].id().prefix().as_felt(),
+        week.into(),
+        0u32.into(),
+    ]));
+    let code = CodeBuilder::default().compile_component_code(
+        "bread::gc::distributor",
+        &include_str!("../src/distributor.masm")
+            .replace("{P2ID_ROOT}", &P2idNote::script_root().to_string()),
+    )?;
+    let payout = code
+        .get_procedure_root_by_path("bread::gc::distributor::claim")
+        .unwrap();
+    let payout_script=CodeBuilder::default().compile_tx_script(format!("@transaction_script pub proc main dropw padw padw padw padw call.{payout} dropw dropw dropw dropw end"))?;
+    let fee_root = before
+        .storage()
+        .get_item(FeePolicyManager::active_fee_policy_slot())?;
+    // Use the installed fee root, so failure cannot be attributed merely to an invalid policy.
+    let mutation_script=CodeBuilder::default().compile_tx_script(format!("use miden::standards::fees::fee_manager @transaction_script pub proc main dropw padw padw padw push.{fee_root} call.fee_manager::set_fee_policy dropw dropw dropw dropw end"))?;
+    let withdrawal: miden_protocol::note::Note = P2idNote::builder()
+        .sender(f.distributor.id())
+        .target(f.users[0].id())
+        .salt([0u32.into(), 0u32.into()])
+        .serial_number(Word::from([91u32, 92, 93, 94]))
+        .assets([FungibleAsset::new(gc(), 1_000_000)?])
+        .note_type(NoteType::Public)
+        .build()?
+        .into();
+    let wallet_script = SendNotesTransactionScript::new(
+        &f.distributor.code().interface(f.distributor.id()),
+        &[PartialNote::from(withdrawal.clone())],
+    )?;
+    for attack in ["payout", "withdrawal", "fee_policy"] {
+        let builder = f
+            .chain
+            .build_transaction(f.distributor.id())
+            .authenticated_input_note(f.notes[0].id());
+        let builder = match attack {
+            "payout" => builder.tx_script(payout_script.clone()),
+            "fee_policy" => builder.tx_script(mutation_script.clone()),
+            _ => builder
+                .send_notes_script(&wallet_script)
+                .expected_output_note(RawOutputNote::Full(withdrawal.clone())),
+        };
+        let error = builder.build()?.execute().await.unwrap_err();
+        println!("rejected {attack}: {error:#}");
+        let committed = f.chain.committed_account(f.distributor.id())?;
+        assert_eq!(committed.vault(), before.vault());
+        assert_eq!(committed.storage(), before.storage());
+        assert_eq!(committed.storage().get_map_item(&slot, key)?, Word::empty());
+        assert_eq!(
+            committed
+                .storage()
+                .get_item(FeePolicyManager::active_fee_policy_slot())?,
+            fee_root
+        );
+        assert!(!f.chain.is_note_consumed(&f.notes[0].nullifier()));
+    }
+    // The attempted payout preceding each malicious tx script never reserved the allowance.
+    let valid = execute(&f).await?;
+    let mut updated = f.distributor.clone();
+    updated.apply_patch(valid.account_patch())?;
+    assert_eq!(
+        updated
+            .vault()
+            .get_balance(AssetId::new_fungible(gc()))?
+            .as_u64(),
+        990_000_000
+    );
+    assert_eq!(
+        updated
+            .vault()
+            .get_balance(AssetId::new_fungible(f.native))?
+            .as_u64(),
+        50000
+    );
+    assert_eq!(
+        updated.storage().get_map_item(&slot, key)?,
+        Word::from([1u32, 0, 0, 0])
+    );
+    f.chain.add_pending_executed_transaction(&valid)?;
+    f.chain.prove_next_block()?;
+    assert!(f.chain.is_note_consumed(&f.notes[0].nullifier()));
+    Ok(())
+}
