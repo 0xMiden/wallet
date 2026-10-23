@@ -1297,11 +1297,14 @@ describe('HistoryDetails', () => {
       ['queued', switchRow({}, { status: 0, displayMessage: 'Switching guardian' }), 'Switching guardian'],
       [
         'cancelled',
-        switchRow({}, {
-          status: STATUS_FAILED,
-          displayMessage: 'Guardian switch cancelled',
-          error: USER_CANCELLED_TRANSACTION_REASON
-        }),
+        switchRow(
+          {},
+          {
+            status: STATUS_FAILED,
+            displayMessage: 'Guardian switch cancelled',
+            error: USER_CANCELLED_TRANSACTION_REASON
+          }
+        ),
         'cancelled'
       ],
       [
@@ -1311,13 +1314,16 @@ describe('HistoryDetails', () => {
       ],
       [
         'recovered',
-        switchRow({}, {
-          status: STATUS_COMPLETED,
-          displayMessage: 'Guardian switched',
-          recovered: true,
-          restoredFromBackup: true,
-          recovery: { reclaimed: false }
-        }),
+        switchRow(
+          {},
+          {
+            status: STATUS_COMPLETED,
+            displayMessage: 'Guardian switched',
+            recovered: true,
+            restoredFromBackup: true,
+            recovery: { reclaimed: false }
+          }
+        ),
         'guardianHistoryGuardianChanged'
       ]
     ])('uses the %s outcome for the Guardian switch detail heading', async (_state, row, title) => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.7 (TBD)
+
+### Changes
+
+- [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
+
 ## 1.17.6 (2026-10-23)
 
 ### Fixes
@@ -38,7 +44,6 @@
 
 ### Changes
 
-- [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
 - [CHANGE][test] The mainnet nightly workflow test expects the job to check out the dispatched ref, matching the workflow, so a dispatch on a branch tests that branch.
 - [CHANGE][ci] The mainnet nightly skips its 1Click preflight and funded swap stages unless the `MAINNET_ONE_CLICK_ENABLED` repository variable is `true`, since the route is not enabled on NEAR yet.
 - [CHANGE][all] Earn shows each vault's logo from the wallet-config document (`earn.vaults[].logo`, served from the config repo), falling back to the bundled mark or the protocol's initial when it does not load; the vault, deposit and review pages wait for the vault catalogue instead of showing "not found" when positions load first.
