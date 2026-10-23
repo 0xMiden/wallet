@@ -191,6 +191,7 @@
   "transactionRestoredHint": "Isso foi restaurado a partir de um backup, portanto a carteira não pode verificar se a operação foi bem-sucedida nem repeti-la. Verifique a carteira antes de repetir a operação.",
   "submissionInterrupted": "A conexão caiu enquanto isso estava sendo enviado. A carteira não pode confirmar se a operação foi concluída. Ela ainda pode ser concluída, portanto, verifique antes de tentar novamente.",
   "submissionRejectedByGuardian": "Seu “Guardian” recusou este envio. Tente novamente.",
+  "submissionBlockedByIssuer": "O emissor deste token bloqueou sua conta, portanto ele não pode ser enviado.",
   "submissionRejectedByNetwork": "A rede rejeitou este envio. Tente novamente.",
   "submissionUnanswered": "Não houve resposta a este envio. A carteira não pode confirmar se ele foi processado. Ele ainda pode ser concluído, portanto, verifique antes de tentar novamente.",
   "showFullError": "Mostrar o erro completo",

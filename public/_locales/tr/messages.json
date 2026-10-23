@@ -965,6 +965,10 @@
     "message": "Guardian'ınız bu gönderimi reddetti. Lütfen tekrar deneyin.",
     "englishSource": "Your Guardian refused this submission. Try again."
   },
+  "submissionBlockedByIssuer": {
+    "message": "Bu token'ın ihraççısı hesabınızı engelledi, bu nedenle gönderilemez.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
+  },
   "submissionRejectedByNetwork": {
     "message": "Ağ bu gönderimi reddetti. Lütfen tekrar deneyin.",
     "englishSource": "The network refused this submission. Try again."
