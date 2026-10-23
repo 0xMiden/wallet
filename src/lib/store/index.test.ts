@@ -1285,6 +1285,18 @@ describe('useWalletStore', () => {
       await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
     });
 
+    it('importHotKeyPair posts an ImportHotKeyPairRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportHotKeyPairResponse });
+
+      await useWalletStore.getState().importHotKeyPair('acc', 'hot:evm');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey: 'acc',
+        keyPairPayload: 'hot:evm'
+      });
+    });
+
     it('swapHotKey posts a SwapHotKeyRequest carrying the expectation (#1233)', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
 

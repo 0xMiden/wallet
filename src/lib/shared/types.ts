@@ -89,6 +89,8 @@ export enum WalletMessageType {
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
+  ImportHotKeyPairRequest = 'IMPORT_HOT_KEY_PAIR_REQUEST',
+  ImportHotKeyPairResponse = 'IMPORT_HOT_KEY_PAIR_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
   SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
   RevertGuardianEndpointRequest = 'REVERT_GUARDIAN_ENDPOINT_REQUEST',
@@ -981,6 +983,16 @@ export interface SwapHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyResponse;
 }
 
+export interface ImportHotKeyPairRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairRequest;
+  accountPublicKey: string;
+  keyPairPayload: string;
+}
+
+export interface ImportHotKeyPairResponse extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairResponse;
+}
+
 export interface SetGuardianEndpointRequest extends WalletMessageBase {
   type: WalletMessageType.SetGuardianEndpointRequest;
   accountPublicKey: string;
@@ -1298,6 +1310,7 @@ export type WalletRequest =
   | SignEvmRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
+  | ImportHotKeyPairRequest
   | SetGuardianEndpointRequest
   | RevertGuardianEndpointRequest
   | SetGuardianOperatorCommitmentRequest
@@ -1373,6 +1386,7 @@ export type WalletResponse =
   | SignEvmResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
+  | ImportHotKeyPairResponse
   | SetGuardianEndpointResponse
   | RevertGuardianEndpointResponse
   | SetGuardianOperatorCommitmentResponse

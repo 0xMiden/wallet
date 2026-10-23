@@ -66,7 +66,8 @@ import {
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
-  swapHotKey
+  swapHotKey,
+  importHotKeyPair
 } from './actions';
 import packageJson from '../../../../package.json';
 
@@ -124,6 +125,7 @@ const mockVault = {
   setGuardianSyncStatus: jest.fn(),
   updateGuardianBinding: jest.fn(),
   swapHotKey: jest.fn(),
+  importHotKeyPair: jest.fn(),
   retire: jest.fn(),
   insertKeySink: jest.fn()
 };
@@ -1575,6 +1577,18 @@ describe('actions', () => {
       await setGuardianOperatorCommitment('pk1', 'commitment-hex');
 
       expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'commitment-hex');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  describe('importHotKeyPair', () => {
+    it('hands the pair to the vault and fires accountsUpdated', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.importHotKeyPair.mockResolvedValueOnce(updated);
+
+      await importHotKeyPair('pk1', 'hot:evm');
+
+      expect(mockVault.importHotKeyPair).toHaveBeenCalledWith('pk1', 'hot:evm');
       expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
     });
   });
