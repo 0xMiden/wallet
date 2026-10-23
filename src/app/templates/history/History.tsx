@@ -28,7 +28,11 @@ import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getPaybackClaimStates, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
-import { getCompletedTransactionsPage, type CompletedHistoryCursor } from 'lib/miden/transaction/get';
+import {
+  getCompletedTransactionsPage,
+  readLinkedSwapOrderRows,
+  type CompletedHistoryCursor
+} from 'lib/miden/transaction/get';
 import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -525,6 +529,41 @@ const History = memo<HistoryProps>(
 
 export default History;
 
+/** Completed swaps are the union of rows that need fill progress and rows that need payback state. */
+const completedSwapOrderIds = (txs: readonly ITransaction[]): string[] => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const tx of txs) {
+    if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed || seen.has(tx.id)) continue;
+    seen.add(tx.id);
+    ids.push(tx.id);
+  }
+  return ids;
+};
+
+/**
+ * One `extraInputs.swapOrderTxId` read for the completed swaps in `txs`, shared by fill progress and payback
+ * state. An empty union does not touch the index; `null` means the shared read failed.
+ */
+async function enrichCompletedSwapHistory(txs: ITransaction[]): Promise<{
+  swapProgress: Awaited<ReturnType<typeof resolveSwapHistoryProgress>>;
+  paybackStates: Awaited<ReturnType<typeof getPaybackClaimStates>>;
+}> {
+  const orderIds = completedSwapOrderIds(txs);
+  let linkedRows: readonly ITransaction[] | null | undefined;
+  if (orderIds.length > 0) {
+    try {
+      linkedRows = await readLinkedSwapOrderRows(orderIds);
+    } catch {
+      linkedRows = null;
+    }
+  }
+  return {
+    swapProgress: await resolveSwapHistoryProgress(txs, linkedRows),
+    paybackStates: await getPaybackClaimStates(txs, linkedRows)
+  };
+}
+
 async function fetchTransactionsAsHistoryEntries(
   address: string,
   cursor?: CompletedHistoryCursor | null,
@@ -539,10 +578,9 @@ async function fetchTransactionsAsHistoryEntries(
     ...(fromEnd ? { fromEnd: true } : { cursor })
   });
   const visibleTransactions = await suppressLinkedConsumes(page.transactions);
-  // One settlement read for every eligible swap on this page. The fill
-  // percentage is already on `swapProgress` while each row awaits its metadata.
-  const swapProgress = await resolveSwapHistoryProgress(visibleTransactions);
-  const paybackStates = await getPaybackClaimStates(visibleTransactions.filter(tx => tx.type === 'swap'));
+  // One linked-row read for the page. Fill progress keeps completed consumes from it, and payback state keeps
+  // the failed and in-flight rows, then its note-coverage reads. A failed read leaves both absent.
+  const { swapProgress, paybackStates } = await enrichCompletedSwapHistory(visibleTransactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
     const submission = submissionFeedback(tx);

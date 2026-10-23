@@ -14,6 +14,7 @@ import {
 // The real strings, not mocked (this module is not replaced by any `jest.mock` in this file) -
 // used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
 // call reads (#1250).
+import * as Repo from 'lib/miden/repo';
 import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 import type { CompletedHistoryCursor, CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -136,6 +137,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 jest.mock('lib/miden/transaction/get', () => ({
+  ...jest.requireActual('lib/miden/transaction/get'),
   getCompletedTransactionsPage: (request: unknown) => mockGetCompletedTransactionsPage(request)
 }));
 
@@ -798,6 +800,179 @@ describe('History', () => {
     expect(resolveSwapHistoryProgress).toHaveBeenCalledTimes(1);
   });
 
+  it('reads linked swap rows once across fill-progress and payback enrichment', async () => {
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'SWAP-A',
+        status: STATUS.Completed,
+        displayMessage: 'swap A',
+        displayIcon: 'SWAP',
+        faucetId: 'fa2',
+        type: 'swap',
+        amount: 6n,
+        completedAt: 2200,
+        extraInputs: { requestedAmount: 10n, requestedFaucetId: 'fa2' }
+      },
+      {
+        id: 'SWAP-B',
+        status: STATUS.Completed,
+        displayMessage: 'swap B',
+        displayIcon: 'SWAP',
+        faucetId: 'fa2',
+        type: 'swap',
+        amount: 6n,
+        completedAt: 2100,
+        extraInputs: { requestedAmount: 10n, requestedFaucetId: 'fa2' }
+      }
+    ]);
+
+    const linkedRows = [
+      {
+        id: 'FILL-A',
+        type: 'consume',
+        status: STATUS.Completed,
+        accountId: '0xme',
+        initiatedAt: 2300,
+        completedAt: 2300,
+        transactionId: 'fill-a',
+        noteIds: ['fill-a-note'],
+        amount: 4n,
+        faucetId: 'fa2',
+        extraInputs: { swapOrderTxId: 'SWAP-A', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'FAILED-B',
+        type: 'consume',
+        status: STATUS.Failed,
+        accountId: '0xme',
+        initiatedAt: 2400,
+        noteIds: ['failed-b-note'],
+        error: 'Transaction failed',
+        extraInputs: { swapOrderTxId: 'SWAP-B', swapSettleKind: 'settle' }
+      }
+    ];
+
+    let swapOrderReads = 0;
+    const originalWhere = Repo.transactions.where.bind(Repo.transactions);
+    const where = jest.spyOn(Repo.transactions, 'where');
+    where.mockImplementation(((index: string) => {
+      if (index === 'noteId' || index === 'noteIds') {
+        return { anyOf: () => ({ toArray: async () => [] }) } as unknown as ReturnType<typeof Repo.transactions.where>;
+      }
+      if (index !== 'extraInputs.swapOrderTxId') return originalWhere(index as never);
+      const query: { filter: () => typeof query; toArray: () => Promise<never[]> } = {
+        filter: () => query,
+        toArray: async () => linkedRows as never[]
+      };
+      return {
+        anyOf: (_ids: string[]) => {
+          swapOrderReads += 1;
+          return query;
+        }
+      } as unknown as ReturnType<typeof Repo.transactions.where>;
+    }) as typeof Repo.transactions.where);
+
+    const actualResolveSwapHistoryProgress =
+      jest.requireActual<typeof import('./resolveSwapHistoryProgress')>(
+        './resolveSwapHistoryProgress'
+      ).resolveSwapHistoryProgress;
+    jest.mocked(resolveSwapHistoryProgress).mockImplementation(actualResolveSwapHistoryProgress);
+
+    try {
+      await renderHistory();
+      await waitFor(() => expect(mockHistoryViewProps?.entries).toHaveLength(2));
+
+      expect(swapOrderReads).toBe(1);
+      expect(mockHistoryViewProps.entries.find((entry: any) => entry.key === 'completed-SWAP-A').swapFillProgress).toBe(
+        '40'
+      );
+      expect(
+        mockHistoryViewProps.entries.find((entry: any) => entry.key === 'completed-SWAP-B').paybackClaimStuck
+      ).toEqual({ failedClaimId: 'FAILED-B', reason: 'other' });
+    } finally {
+      where.mockRestore();
+      jest.mocked(resolveSwapHistoryProgress).mockImplementation(async () => new Map());
+    }
+  });
+
+  it('keeps the completed page when the shared linked swap row read fails', async () => {
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'SWAP-READ-FAIL',
+        status: STATUS.Completed,
+        displayMessage: 'swap',
+        displayIcon: 'SWAP',
+        faucetId: 'fa2',
+        type: 'swap',
+        amount: 6n,
+        completedAt: 2200,
+        extraInputs: { requestedAmount: 10n }
+      }
+    ]);
+
+    let swapOrderReads = 0;
+    const originalWhere = Repo.transactions.where.bind(Repo.transactions);
+    const where = jest.spyOn(Repo.transactions, 'where');
+    where.mockImplementation(((index: string) => {
+      if (index !== 'extraInputs.swapOrderTxId') return originalWhere(index as never);
+      const query: { filter: () => typeof query; toArray: () => Promise<never[]> } = {
+        filter: () => query,
+        toArray: async () => {
+          swapOrderReads += 1;
+          throw new Error('linked swap row read failed');
+        }
+      };
+      return {
+        anyOf: () => query
+      } as unknown as ReturnType<typeof Repo.transactions.where>;
+    }) as typeof Repo.transactions.where);
+
+    const actualResolveSwapHistoryProgress =
+      jest.requireActual<typeof import('./resolveSwapHistoryProgress')>(
+        './resolveSwapHistoryProgress'
+      ).resolveSwapHistoryProgress;
+    jest.mocked(resolveSwapHistoryProgress).mockImplementation(actualResolveSwapHistoryProgress);
+
+    try {
+      await renderHistory();
+      await waitFor(() =>
+        expect(mockHistoryViewProps?.entries.some((entry: any) => entry.key === 'completed-SWAP-READ-FAIL')).toBe(true)
+      );
+
+      const entry = mockHistoryViewProps.entries.find((item: any) => item.key === 'completed-SWAP-READ-FAIL');
+      expect(entry.swapFillProgress).toBeUndefined();
+      expect(entry.paybackClaimStuck).toBeUndefined();
+      expect(swapOrderReads).toBe(1);
+    } finally {
+      where.mockRestore();
+      jest.mocked(resolveSwapHistoryProgress).mockImplementation(async () => new Map());
+    }
+  });
+
+  it('does not read linked swap rows when the completed page has no swaps', async () => {
+    mockGetCompletedTransactions.mockResolvedValue([]);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    let swapOrderReads = 0;
+    const originalWhere = Repo.transactions.where.bind(Repo.transactions);
+    const where = jest.spyOn(Repo.transactions, 'where');
+    where.mockImplementation(((index: string) => {
+      if (index === 'extraInputs.swapOrderTxId') swapOrderReads += 1;
+      return originalWhere(index as never);
+    }) as typeof Repo.transactions.where);
+
+    try {
+      await renderHistory();
+      await waitFor(() => expect(mockHistoryViewProps?.entries).toEqual([]));
+
+      expect(swapOrderReads).toBe(0);
+    } finally {
+      where.mockRestore();
+    }
+  });
+
   it('enriches only the newest refresh page and only the older loadMore page', async () => {
     const newest = {
       id: 'REFRESH',
@@ -826,14 +1001,22 @@ describe('History', () => {
     await waitFor(() => expect(resolveSwapHistoryProgress).toHaveBeenCalledTimes(1));
 
     expect(mockGetCompletedTransactions).toHaveBeenNthCalledWith(1, '0xme', undefined, 1000, true, undefined, true);
-    expect(resolveSwapHistoryProgress).toHaveBeenNthCalledWith(1, [expect.objectContaining({ id: 'REFRESH' })]);
+    expect(resolveSwapHistoryProgress).toHaveBeenNthCalledWith(
+      1,
+      [expect.objectContaining({ id: 'REFRESH' })],
+      expect.any(Array)
+    );
 
     await act(async () => {
       await mockHistoryViewProps.loadMore(0);
     });
 
     expect(mockGetCompletedTransactions).toHaveBeenNthCalledWith(2, '0xme', 0, 1000, true, undefined);
-    expect(resolveSwapHistoryProgress).toHaveBeenNthCalledWith(2, [expect.objectContaining({ id: 'OLDER' })]);
+    expect(resolveSwapHistoryProgress).toHaveBeenNthCalledWith(
+      2,
+      [expect.objectContaining({ id: 'OLDER' })],
+      expect.any(Array)
+    );
   });
 
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {

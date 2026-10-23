@@ -45,7 +45,9 @@ it('rejects the scalar resolver API', () => {
   expect(source).not.toMatch(/\bgetSwapSettlementNotes\b/);
   expect(source).not.toMatch(/\bArray\.isArray\s*\(/);
   expect(source.match(/export async function resolveSwapHistoryProgress/g)).toHaveLength(2);
-  expect(source).toContain('resolveSwapHistoryProgress(txs: readonly ITransaction[])');
+  expect(source).toMatch(
+    /resolveSwapHistoryProgress\(\s*txs: readonly ITransaction\[\],\s*linkedRows\?: readonly ITransaction\[\] \| null\s*\)/
+  );
 });
 
 it('retains 40% after cancel/reclaim and restart using only the requested-token payback', async () => {
@@ -111,6 +113,11 @@ it('withholds the percentage if a consume cannot be attributed', async () => {
 it('lets an unavailable optional progress read leave the history usable', async () => {
   readOrders.mockRejectedValue(new Error('read failed'));
   expect(await resolveOne(order())).toEqual({});
+});
+
+it('returns no progress entries when the shared linked-row read failed', async () => {
+  expect(await resolveSwapHistoryProgress([order()], null)).toEqual(new Map());
+  expect(readOrders).not.toHaveBeenCalled();
 });
 
 it('does not read fills for a failed placement', async () => {

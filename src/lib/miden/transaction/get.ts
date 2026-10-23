@@ -580,10 +580,54 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
   return settlementNotesFromConsumes(consumes);
 };
 
+const dedupeSwapOrderIds = (swapTxIds: readonly string[]): string[] => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const id of swapTxIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+};
+
+/**
+ * Every row indexed by `extraInputs.swapOrderTxId` for these orders.
+ * An empty id list does not touch the store. Callers that only need settlement
+ * notes still use `getSwapSettlementNotesForOrders`, which keeps completed consumes.
+ */
+export const readLinkedSwapOrderRows = async (swapTxIds: readonly string[]): Promise<ITransaction[]> => {
+  const ids = dedupeSwapOrderIds(swapTxIds);
+  if (ids.length === 0) return [];
+  return Repo.transactions.where('extraInputs.swapOrderTxId').anyOf(ids).toArray();
+};
+
+/**
+ * Settlement notes for orders already loaded. Only completed consumes are kept;
+ * each order is sorted and split on its own rows, and an id with none gets the
+ * same empty buckets as a direct read.
+ */
+export const settlementNotesFromLinkedRows = (
+  swapTxIds: readonly string[],
+  rows: readonly ITransaction[]
+): Map<string, SwapSettlementNotes> => {
+  const ids = dedupeSwapOrderIds(swapTxIds);
+  const notes = new Map<string, SwapSettlementNotes>();
+  const rowsByOrder = new Map<string, ITransaction[]>(ids.map(id => [id, []]));
+  for (const tx of rows) {
+    if (!isCompletedSettlementConsume(tx)) continue;
+    const orderId = tx.extraInputs?.swapOrderTxId;
+    if (typeof orderId !== 'string') continue;
+    rowsByOrder.get(orderId)?.push(tx);
+  }
+  for (const id of ids) notes.set(id, settlementNotesFromConsumes(rowsByOrder.get(id) ?? []));
+  return notes;
+};
+
 /**
  * Settlement notes for many swap orders, from one read on `extraInputs.swapOrderTxId`.
  *
- * A completed-history page asks for every eligible order at once. `anyOf` is that
+ * A caller that only needs notes asks for every eligible order at once. `anyOf` is that
  * read; each order is then sorted and split on its own rows. An id with no
  * completed consume gets the same empty buckets as `getSwapSettlementNotes`.
  * An empty id list does not touch the store.

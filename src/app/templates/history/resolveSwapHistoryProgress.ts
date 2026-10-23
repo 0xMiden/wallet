@@ -1,7 +1,11 @@
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
-import { getSwapSettlementNotesForOrders, type SwapSettlementNotes } from 'lib/miden/transaction/get';
+import {
+  getSwapSettlementNotesForOrders,
+  settlementNotesFromLinkedRows,
+  type SwapSettlementNotes
+} from 'lib/miden/transaction/get';
 
 import type { IHistoryEntry } from './IHistoryEntry';
 import { swapFillProgress } from './swapFillProgress';
@@ -47,7 +51,8 @@ const progressFromSettlement = (tx: ITransaction, settlement: SwapSettlementNote
 };
 
 const resolveSwapHistoryProgressForRows = async (
-  txs: readonly ITransaction[]
+  txs: readonly ITransaction[],
+  linkedRows?: readonly ITransaction[] | null
 ): Promise<Map<string, HistoryProgress>> => {
   const progress = new Map<string, HistoryProgress>();
   const eligible: ITransaction[] = [];
@@ -60,9 +65,15 @@ const resolveSwapHistoryProgressForRows = async (
   // No eligible order: do not open Dexie.
   if (eligible.length === 0) return progress;
 
+  if (linkedRows === null) return progress;
+
   let notes: Map<string, SwapSettlementNotes>;
   try {
-    notes = await getSwapSettlementNotesForOrders(eligible.map(tx => tx.id));
+    const orderIds = eligible.map(tx => tx.id);
+    notes =
+      linkedRows !== undefined
+        ? settlementNotesFromLinkedRows(orderIds, linkedRows)
+        : await getSwapSettlementNotesForOrders(orderIds);
   } catch {
     // A failed read leaves every eligible row without a percentage and does not fail the fetch.
     for (const tx of eligible) progress.set(tx.id, {});
@@ -81,10 +92,16 @@ const resolveSwapHistoryProgressForRows = async (
 
 /**
  * Local evidence only: no sync, balances, quote prices or additional SDK calls.
- * One row reads its own settlement notes. A list — one completed-history fetch —
- * reads every eligible order in that list once, then derives each row from that result.
+ * When a history page already loaded linked rows, completed consumes come from that set;
+ * otherwise the eligible orders are read once. `null` means the shared read failed.
  */
-export async function resolveSwapHistoryProgress(txs: readonly ITransaction[]): Promise<Map<string, HistoryProgress>>;
-export async function resolveSwapHistoryProgress(txs: readonly ITransaction[]): Promise<Map<string, HistoryProgress>> {
-  return resolveSwapHistoryProgressForRows(txs);
+export async function resolveSwapHistoryProgress(
+  txs: readonly ITransaction[],
+  linkedRows?: readonly ITransaction[] | null
+): Promise<Map<string, HistoryProgress>>;
+export async function resolveSwapHistoryProgress(
+  txs: readonly ITransaction[],
+  linkedRows?: readonly ITransaction[] | null
+): Promise<Map<string, HistoryProgress>> {
+  return resolveSwapHistoryProgressForRows(txs, linkedRows);
 }
