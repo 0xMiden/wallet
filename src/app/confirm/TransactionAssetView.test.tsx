@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
@@ -28,6 +28,9 @@ const view = {
   account: 'mtst1acct',
   outgoing: [{ faucetId: 'fA', amount: 10n }],
   incoming: [{ faucetId: 'fB', amount: 3n }],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
   inputNotesConsumed: 1,
   outputNotesCreated: 2,
   storageChanged: false
@@ -227,4 +230,56 @@ it('exposes the storage-changed value to E2E, in verified mode only', async () =
   expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^yes$/);
   rerender(<TransactionAssetView view={verifiedView} mode="declared" />);
   expect(screen.queryByTestId('tx-storage-changed')).not.toBeInTheDocument();
+});
+
+describe('NFTs and unlisted assets (#1600)', () => {
+  // The asset hooks resolve metadata asynchronously, so let that settle inside act.
+  const renderSettled = (ui: React.ReactElement) =>
+    act(async () => {
+      render(ui);
+    });
+
+  const nftOnly: TxAssetView = {
+    account: 'mtst1acct',
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa11bb22…cc33dd' }],
+    incomingNfts: [{ faucetId: 'mtst1otherfaucet', assetId: '0x01020304…050607' }],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false
+  };
+
+  it('lists an NFT that leaves and one that enters, each with its asset id and faucet, when no token moves', async () => {
+    await renderSettled(<TransactionAssetView view={nftOnly} mode="verified" />);
+
+    expect(screen.getByText('assetChanges')).toBeInTheDocument();
+    const [leaving, entering] = screen.getAllByTestId('tx-nft-row');
+    expect(leaving).toHaveAttribute('data-direction', 'out');
+    expect(leaving).toHaveTextContent('-nft 0xaa11bb22…cc33dd');
+    expect(leaving).toHaveTextContent('nftFaucet trunc(mtst1nftfaucet)');
+    expect(entering).toHaveAttribute('data-direction', 'in');
+    expect(entering).toHaveTextContent('+nft 0x01020304…050607');
+    expect(entering).toHaveTextContent('nftFaucet trunc(mtst1otherfaucet)');
+    expect(screen.queryByTestId('tx-unlisted-assets')).not.toBeInTheDocument();
+  });
+
+  it('marks a declared NFT row unverified', async () => {
+    await renderSettled(<TransactionAssetView view={nftOnly} mode="declared" />);
+
+    expect(screen.getAllByText('unverified')).toHaveLength(2);
+  });
+
+  it('warns instead of staying silent when the vault change holds assets it cannot list', async () => {
+    await renderSettled(
+      <TransactionAssetView
+        view={{ ...nftOnly, outgoingNfts: [], incomingNfts: [], unlistedAssets: 1 }}
+        mode="verified"
+      />
+    );
+
+    expect(screen.getByTestId('tx-unlisted-assets')).toHaveTextContent('unlistedAssetsWarning');
+    expect(screen.getByText('assetChanges')).toBeInTheDocument();
+  });
 });

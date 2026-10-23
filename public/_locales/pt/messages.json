@@ -4025,6 +4025,18 @@
     "message": "Alterações nos ativos",
     "englishSource": "Asset changes"
   },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Esta transação também movimenta um ativo que a carteira não pode listar, como um NFT. Só continue se você confiar nela.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
+  },
   "unknown": {
     "message": "Desconhecido",
     "englishSource": "Unknown"
