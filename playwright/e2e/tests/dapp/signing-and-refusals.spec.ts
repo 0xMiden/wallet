@@ -187,8 +187,7 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
               { call: 'signBytes', args: [bytesArg(word), 'word'], asPublicKeyHex: OTHER_KEY },
               ctx.deadline
             ),
-          ctx,
-          { refusal: true }
+          ctx
         );
         expect(result).toEqual(
           refusal('NotGrantedMidenWalletError', "NOT_GRANTED: signing key is not the connected account's key")
@@ -238,8 +237,7 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         const refused = await expectNoPrompt(
           dapp,
           () => callDapp(dapp, 'raw', { call: 'signLoginBytes', args: [bytesArg(modulusWord), 'word'] }, ctx.deadline),
-          ctx,
-          { refusal: true }
+          ctx
         );
         expect(refused).toEqual(
           refusal(
@@ -690,7 +688,7 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx
         );
         const { noteId } = unwrap(imported.result, 'import of a note addressed to B', ctx);
-        const { result } = await answerPrompt(
+        const refused = await expectNoPrompt(
           dapp,
           () =>
             callDapp(
@@ -705,12 +703,17 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
               },
               ctx.deadline
             ),
-          { kind: 'consume', decision: 'approve', origin: dapp.origin, whileOpen: () => popupBlock(dapp, ctx) },
           ctx
         );
-        const { txId } = unwrap(result, 'requestConsume of a note addressed to B', ctx);
-        await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.R10[j.axis.label], ctx);
-        // The failed consume spent nothing: B claims exactly that note, which also leaves B nothing pending.
+        expect(refused).toEqual(
+          refusal(
+            'WalletTransactionError',
+            'INVALID_PARAMS: Error: This account can never consume this note - refusing it',
+            'InvalidParamsMidenWalletError'
+          )
+        );
+        await expectNoNewRows(side, baseline);
+        // The refused consume spent nothing: B claims exactly that note, which also leaves B nothing pending.
         await expectReceivedByRecipient(
           j.walletB,
           [{ noteId: toBNote.noteId, faucetId: toBNote.faucetId, amount: toBNote.amount }],
