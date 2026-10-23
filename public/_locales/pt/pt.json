@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "Você precisa de USDCX para pagar a taxa de rede. Receba alguns USDCX para continuar.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "O valor deve ser inferior ao saldo",
+  "amountExceedsTokenDecimals": "Este valor tem mais casas decimais do que este token permite.",
   "autoConsumeSettings": "Aceitar automaticamente transferências USDCX",
   "autoConsumeSettingsDescription": "Aceita automaticamente as transferências USDCX recebidas no seu saldo - tal como tocar em Aceitar. Não aceita com mais frequência, nem custa mais em taxas, do que tocar em Aceitar manualmente.",
   "encryptedWalletFileExporting": "Criando seu arquivo de carteira…",

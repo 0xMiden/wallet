@@ -3697,6 +3697,10 @@
     "message": "金額は残高より少なければなりません",
     "englishSource": "Amount must be less than balance"
   },
+  "amountExceedsTokenDecimals": {
+    "message": "この金額は、このトークンが許容する小数点以下の桁数を超えています。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
   "autoConsumeSettings": {
     "message": "USDCX の送金を自動で受け取る",
     "englishSource": "Auto-accept USDCX transfers"

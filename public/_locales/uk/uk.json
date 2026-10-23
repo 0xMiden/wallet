@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "Для сплати комісії мережі вам потрібен USDCX. Отримайте трохи USDCX, щоб продовжити.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Сума повинна бути меншою за залишок на рахунку",
+  "amountExceedsTokenDecimals": "Ця сума має більше знаків після коми, ніж дозволяє цей токен.",
   "autoConsumeSettings": "Автоматично приймати перекази USDCX",
   "autoConsumeSettingsDescription": "Автоматично приймає вхідні перекази USDCX на ваш баланс - так само, як натискання «Прийняти». Це не відбувається частіше й не коштує більше комісій, ніж прийняття вручну.",
   "encryptedWalletFileExporting": "Створення файлу вашого гаманця…",
