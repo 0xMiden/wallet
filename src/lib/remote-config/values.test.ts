@@ -78,7 +78,7 @@ const CONFIG: BridgeConfig = {
       }
     }
   },
-  features: { earn: true },
+  features: { earn: true, nearIntents: false },
   earn: {
     vaults: [
       {
@@ -347,7 +347,7 @@ describe('the Earn vaults', () => {
   it('selects no vault while no document is accepted, or while it lists none', () => {
     const { earn: _earn, ...unlisted } = CONFIG;
     expect(selectEarnVaults(EMPTY)).toEqual([]);
-    expect(selectEarnVaults(snapshot({ ...unlisted, features: { earn: false } }))).toEqual([]);
+    expect(selectEarnVaults(snapshot({ ...unlisted, features: { earn: false, nearIntents: false } }))).toEqual([]);
   });
 
   it("reads this realm's list without throwing", () => {

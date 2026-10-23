@@ -18,6 +18,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 concurrency:
   group: e2e-mainnet-nightly
@@ -33,6 +34,7 @@ jobs:
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
       E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
+      MAINNET_ONE_CLICK_CHECKPOINT_ANCHOR_RUN_ID: ${{ vars.MAINNET_ONE_CLICK_CHECKPOINT_ANCHOR_RUN_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,10 +90,142 @@ jobs:
       - name: Build the extension for mainnet
         run: yarn test:e2e:blockchain:build
 
-      - name: Run the mainnet round trip, then the bridge loops
+      - name: Find prior mainnet checkpoint run
+        id: prior-mainnet
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
-          xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
+          runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-mainnet-nightly.yml/runs?branch=main&status=completed&per_page=20" --jq '.workflow_runs[].id')
+          while read -r run_id; do
+            [ -n "$run_id" ] || continue
+            artifacts=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$run_id/artifacts" --jq '.artifacts[].name')
+            if printf '%s\n' "$artifacts" | grep -Fxq "mainnet-1click-final-$run_id"; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              echo 'final=true' >> "$GITHUB_OUTPUT"
+              break
+            fi
+            if printf '%s\n' "$artifacts" | grep -Fxq "mainnet-1click-execute-started-$run_id"; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              echo 'started=true' >> "$GITHUB_OUTPUT"
+              break
+            fi
+            if printf '%s\n' "$artifacts" | grep -Fxq "mainnet-1click-preflight-$run_id"; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              echo 'preflight=true' >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done <<< "$runs"
+
+      - name: Restore prior completed mainnet artifact
+        if: steps.prior-mainnet.outputs.final == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.prior-mainnet.outputs.run_id }}
+          github-token: ${{ github.token }}
+          name: mainnet-1click-final-${{ steps.prior-mainnet.outputs.run_id }}
+          path: test-results/prior-final
+
+      - name: Restore prior execution-start marker
+        if: steps.prior-mainnet.outputs.final != 'true' && steps.prior-mainnet.outputs.started == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.prior-mainnet.outputs.run_id }}
+          github-token: ${{ github.token }}
+          name: mainnet-1click-execute-started-${{ steps.prior-mainnet.outputs.run_id }}
+          path: test-results/prior-started
+
+      - name: Restore prior read-only preflight
+        if: steps.prior-mainnet.outputs.final != 'true' && steps.prior-mainnet.outputs.started != 'true' && steps.prior-mainnet.outputs.preflight == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.prior-mainnet.outputs.run_id }}
+          github-token: ${{ github.token }}
+          name: mainnet-1click-preflight-${{ steps.prior-mainnet.outputs.run_id }}
+          path: test-results/prior-preflight
+
+      - name: Carry forward the strongest prior 1Click checkpoint
+        run: |
+          prior=""
+          if [ -f test-results/prior-final/roundtrip.json ]; then
+            prior="test-results/prior-final/roundtrip.json"
+          elif [ -f test-results/prior-started/roundtrip.json ]; then
+            prior="test-results/prior-started/roundtrip.json"
+          elif [ -f test-results/prior-preflight/roundtrip.json ]; then
+            prior="test-results/prior-preflight/roundtrip.json"
+          fi
+          current="test-results/mainnet-1click-state/roundtrip.json"
+          if [ -n "$prior" ]; then
+            mkdir -p "$(dirname "$current")"
+            cp "$prior" "$current"
+          fi
+
+      - name: Run mainnet round trip, bridge loops, and read-only 1Click preflight
+        run: |
+          set -e
+          E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-round-trip xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
+          E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-bridge-loop xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
+          MAINNET_ONE_CLICK_MODE=preflight E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-1click-preflight xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts
+
+      - name: Check whether 1Click preflight produced an authorized route
+        id: mainnet-1click-ready
+        run: |
+          if [ -f test-results/mainnet-1click-preflight/summary.json ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify reviewed initial 1Click checkpoint anchor
+        if: success() && steps.mainnet-1click-ready.outputs.ready == 'true' && steps.prior-mainnet.outputs.run_id == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          anchor="$MAINNET_ONE_CLICK_CHECKPOINT_ANCHOR_RUN_ID"
+          if ! [[ "$anchor" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'A reviewed completed mainnet nightly run ID is required before first 1Click activation.' >&2
+            exit 1
+          fi
+          workflow_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/e2e-mainnet-nightly.yml" --jq '.id')
+          read -r anchor_workflow anchor_branch anchor_status anchor_conclusion <<< "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$anchor" --jq '[.workflow_id, .head_branch, .status, .conclusion] | @tsv')"
+          if [ "$anchor_workflow" != "$workflow_id" ] || [ "$anchor_branch" != main ] || [ "$anchor_status" != completed ] || [ "$anchor_conclusion" != success ]; then
+            echo 'The configured 1Click checkpoint anchor is not a successful completed run of this mainnet workflow on main.' >&2
+            exit 1
+          fi
+
+      - name: Upload read-only 1Click preflight checkpoint
+        if: success() && steps.mainnet-1click-ready.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-1click-preflight-${{ github.run_id }}
+          path: test-results/mainnet-1click-state/roundtrip.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Create execution-start marker
+        if: steps.mainnet-1click-ready.outputs.ready == 'true'
+        run: MAINNET_ONE_CLICK_MODE=arm E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-1click-arm xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts
+
+      - name: Upload execution-start marker before funded stage
+        if: steps.mainnet-1click-ready.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-1click-execute-started-${{ github.run_id }}
+          path: test-results/mainnet-1click-state/roundtrip.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Run funded 1Click swap-out and swap-back acceptance
+        if: steps.mainnet-1click-ready.outputs.ready == 'true'
+        run: MAINNET_ONE_CLICK_MODE=execute E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-1click-execute xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts
+
+      - name: Retain the current 1Click recovery checkpoint
+        if: always() && hashFiles('test-results/mainnet-1click-state/roundtrip.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-1click-final-${{ github.run_id }}
+          path: test-results/mainnet-1click-state/roundtrip.json
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Publish the spend summary
         if: always()
@@ -110,6 +244,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mainnet-nightly-${{ github.run_id }}
-          path: test-results/
-          retention-days: 14
+          path: |
+            test-results/mainnet-round-trip/
+            test-results/mainnet-bridge-loop/
+            test-results/mainnet-1click-preflight/
+            test-results/mainnet-1click-arm/
+            test-results/mainnet-1click-execute/
+            test-results/mainnet-1click-state/
+            test-results/mainnet-spend.json
+          retention-days: 90
           if-no-files-found: ignore

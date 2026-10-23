@@ -43,7 +43,7 @@ const config = (midenUsdcFaucet?: string): BridgeConfig => ({
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true, nearIntents: false }
 });
 const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;

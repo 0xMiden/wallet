@@ -862,6 +862,7 @@ export const recordSubmitCrossing = async (
 ): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
+    const raised = tx.mayHaveSubmitted !== true;
     tx.mayHaveSubmitted = true;
     tx.submitEvidence = upsertEvidenceEntry(
       tx.submitEvidence,
@@ -870,7 +871,8 @@ export const recordSubmitCrossing = async (
         source: 'stage',
         evidence,
         guardianProposalNonce: attempt.guardianProposalNonce,
-        fromExecute: attempt.fromExecute
+        fromExecute: attempt.fromExecute,
+        ...(raised ? { raisedFlag: true } : {})
       },
       nowSec
     );

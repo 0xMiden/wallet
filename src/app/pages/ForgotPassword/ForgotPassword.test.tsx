@@ -124,7 +124,7 @@ const readySnapshot = (mainnetCountdown?: { enabled: boolean; launchAt?: number 
     version: 1,
     'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
     supportedEvmChains: {},
-    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
     ...(mainnetCountdown ? { mainnetCountdown } : {})
   },
   derived: null,

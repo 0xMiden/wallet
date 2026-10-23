@@ -99,7 +99,8 @@ export async function updateBalancesFromSyncData(
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
       ...balancePrice(tokenPrices, asset.faucetId, tokenMetadata.symbol),
-      balance: balance.toNumber()
+      balance: balance.toNumber(),
+      balanceBaseUnits: asset.amountBaseUnits
     });
   }
 
@@ -118,7 +119,8 @@ export async function updateBalancesFromSyncData(
       tokenSlug: displayMetadata.symbol,
       metadata: displayMetadata,
       ...balancePrice(tokenPrices, midenFaucetId, displayMetadata.symbol),
-      balance: 0
+      balance: 0,
+      balanceBaseUnits: '0'
     });
   }
 
