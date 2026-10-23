@@ -49,8 +49,11 @@ jest.mock('lib/swr', () => ({
 }));
 
 const setTokenPrices = jest.fn();
+const mockSetPriceState = jest.fn();
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: any) => selector({ setTokenPrices })
+  useWalletStore: Object.assign((selector: any) => selector({ setTokenPrices }), {
+    setState: (...args: unknown[]) => mockSetPriceState(...args)
+  })
 }));
 
 beforeEach(() => {
@@ -63,6 +66,7 @@ beforeEach(() => {
   mockWallet.locked = false;
   mockWallet.ready = true;
   setTokenPrices.mockClear();
+  mockSetPriceState.mockClear();
   mockUseRetryableSWR.mockReset();
   mockUseRetryableSWR.mockReturnValue({
     data: {
@@ -77,6 +81,14 @@ beforeEach(() => {
 });
 
 describe('PriceProvider', () => {
+  it('exposes loading and failure separately from quote freshness', () => {
+    mockUseRetryableSWR.mockReturnValue({ isLoading: true });
+    const { rerender } = render(<PriceProvider />);
+    expect(mockSetPriceState).toHaveBeenCalledWith({ tokenPricesStatus: 'loading' });
+    mockUseRetryableSWR.mockReturnValue({ error: new Error('offline') });
+    rerender(<PriceProvider />);
+    expect(mockSetPriceState).toHaveBeenCalledWith({ tokenPricesStatus: 'error' });
+  });
   it('pushes prices into the wallet store on mount', () => {
     render(<PriceProvider />);
     expect(setTokenPrices).toHaveBeenCalledWith({
@@ -168,6 +180,7 @@ describe('PriceProvider', () => {
     });
     const view = render(<PriceProvider />);
     setTokenPrices.mockClear();
+    mockSetPriceState.mockClear();
     mockAssets.delete('duplicate');
     view.rerender(<PriceProvider />);
     expect(setTokenPrices).toHaveBeenLastCalledWith({});
@@ -176,6 +189,7 @@ describe('PriceProvider', () => {
   it('rejects a response from a previous network', () => {
     const view = render(<PriceProvider />);
     setTokenPrices.mockClear();
+    mockSetPriceState.mockClear();
     mockNetwork = 'devnet';
     view.rerender(<PriceProvider />);
     expect(setTokenPrices).toHaveBeenCalledTimes(1);

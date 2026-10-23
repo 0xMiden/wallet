@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { evmQuote } from 'lib/prices/evm';
+
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { BRIDGE_SOURCE_NETWORK_JS } from '../../../../playwright/e2e/helpers/send-flow-scripts';
 
@@ -16,7 +18,11 @@ const mockTranslate = jest.fn((key: string) =>
         : key
 );
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockTranslate }) }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getTestNetworkNameKey: () => 'testnet' }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getTestNetworkNameKey: () => 'testnet',
+  getEffectiveNetworkName: () => 'testnet'
+}));
+jest.mock('lib/prices/evm', () => ({ evmQuote: jest.fn(() => undefined) }));
 jest.mock('components/TokenLogo', () => ({ TokenLogo: () => null }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 
@@ -36,6 +42,15 @@ const props = {
 };
 
 beforeEach(() => jest.clearAllMocks());
+
+it('resolves the configured native ETH selection as the zero-address asset, not a ticker quote', () => {
+  render(<EvmBridgeDepositForm {...props} token={{ ...props.token, id: 'ETH', name: 'ETH', decimals: 18 }} />);
+  expect(evmQuote).toHaveBeenCalledWith(
+    expect.anything(),
+    props.network.chainId,
+    '0x0000000000000000000000000000000000000000'
+  );
+});
 
 it('names the source network and Miden output before continuing', () => {
   render(<EvmBridgeDepositForm {...props} />);

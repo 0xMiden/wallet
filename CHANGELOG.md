@@ -4,8 +4,10 @@
 
 ### Fixes
 
-- [FIX][docs] Correct the Terms and backup instructions to describe Guardian account-state export, file-password and account eligibility requirements, and the separate everyday-key requirements after restoration.
+- [FIX][docs] Clarify Encrypted Wallet File password and account eligibility requirements in the support FAQ.
 
+- [FIX][test] The USDCx burn suites read the faucet's burn fee from an account proof for that one entry instead of downloading the whole faucet account, which the node refuses to build now that the nonce registry has grown past its inline limit.
+- [FIX][all] USD entry and available-balance estimates follow quote expiry, spend checks compare exact base units, and token precision is preserved before selection then refused when the selected token cannot represent it.
 - [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when a stored WalletConnect session is still reconnecting at startup. After ten seconds Connect is freed and the stored session is left in place, so a restore that connects after those ten seconds is kept. Closing the connect modal starts those ten seconds again and does not forget or disconnect a pairing that is still connecting. A session that never connects stays stored, and the next open waits ten seconds again before Connect is freed.
 - [FIX][all] A crash report for a proof the node refused as expired now says whether the transaction waited under half, over half or past the blocks its expiration allowed before it was submitted, so slow proving can be told from a short window (#1768).
 - [FIX][all] A send that the token's issuer has blocked now says so in plain words, in every language, instead of showing the generic failure message (#1767).
@@ -16,6 +18,7 @@
 - [FIX][all] A dApp request to consume a P2ID note addressed to another account is refused before the approval sheet, instead of failing after approval (BREAD-WALLET-5D).
 - [FIX][all] Guardian transaction history recovered from the guardian names the recipient of a P2ID payment again, reading the note's current four-item storage layout.
 - [FIX][all] Crash reports for a failed inbound bridge now name which wallet or network error it was (a chain, provider or RPC class, or a receipt wait that ran out of time), whether its balance was too low or could not be read, and, for a deposit the App closed before recording, how the App knew no screen still owned it and which USDCx route it recorded (BREAD-WALLET-2V, -2W, -2Y, -3S)
+- [FIX][e2e] The Android native Reown bridge smoke reaches the startup eligibility fixture from its emulator, so the wallet leaves its access check and onboarding renders instead of the test timing out.
 - [FIX][e2e] The mainnet nightly consumes outstanding notes on the plain account and the Guardian account before it reads either vault, subtracts that consume from the two-night reserve only when the drain submitted one so a skip cannot pass one transaction budget below that figure, waits out an in-flight balance read before judging the vault, and opens Guardian recovery from the invite-only Welcome so that claim can run.
 - [FIX][all] Crash reports for a Guardian authentication refusal now say whether the key the wallet signed with is one of the account's signers on chain, which key signed, and whether the account was waiting to replace its everyday key
 - [FIX][all] The Earn tab shows the "Not available where you are" notice at the top, above Total earned, when Earn is not offered in your location, instead of only inside a vault (#1753).
@@ -29,9 +32,12 @@
 
 ### Changes
 
+- [CHANGE][all] The Terms of Service describe the Encrypted Wallet File as a backup of Guardian account state and say which losses it covers: a lost device while the Guardian Operator is unavailable is recoverable from a current file together with a saved everyday key pair, and from the file alone once the operator answers (#1617).
 - [CHANGE][all] Show a warning above the review Swap button when no fill or only a partial fill is expected. Users can still continue.
 - [CHANGE][ci] The Guardian lifecycle E2E runs on every push to main instead of on every pull request; a pull request still runs it when its body names a linked Client, Guardian, Protocol or Web SDK PR, and the required gate reports green otherwise.
 - [CHANGE][all] A failed Guardian swap's crash report names which preparation step failed: building or saving the new swap order, rebuilding its request at the current network height, or saving the rebuilt request once the guardian prepared it, in fixed values only; the privacy policy lists them.
+- [CHANGE][all] Add shared token/USD amount entry and action-review conversions for Send, Swap, bridge-in/out and Earn, with exact token precision and verified fresh pricing.
+
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
 - [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
 - [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.

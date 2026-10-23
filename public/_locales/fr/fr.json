@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "Vous avez besoin de USDCX pour payer les frais de réseau. Recevez des USDCX pour continuer.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "Le montant doit être inférieur au solde",
+  "amountExceedsTokenDecimals": "Ce montant comporte plus de décimales que ne le permet ce jeton.",
   "autoConsumeSettings": "Accepter automatiquement les transferts USDCX",
   "autoConsumeSettingsDescription": "Accepte automatiquement les transferts USDCX entrants dans votre solde, comme si vous appuyiez sur Accepter. Cela n'accepte pas plus souvent et ne coûte pas plus de frais que de le faire vous-même.",
   "encryptedWalletFileExporting": "Création de votre fichier de portefeuille…",
@@ -1621,5 +1622,12 @@
   "walletAccessUnavailableTitle": "Impossible de vérifier la disponibilité",
   "walletAccessUnavailableBody": "Vérifiez votre connexion et réessayez.",
   "runtimeUnsupportedTitle": "Ce navigateur ou cet appareil ne peut pas exécuter le portefeuille",
-  "runtimeUnsupportedBody": "Le portefeuille nécessite WebAssembly SIMD, ce que ce navigateur ou cet appareil ne prend pas en charge. Ouvrez le portefeuille sur un autre appareil ou dans un navigateur à jour."
+  "runtimeUnsupportedBody": "Le portefeuille nécessite WebAssembly SIMD, ce que ce navigateur ou cet appareil ne prend pas en charge. Ouvrez le portefeuille sur un autre appareil ou dans un navigateur à jour.",
+  "amountUsdUnavailable": "Estimation en USD indisponible",
+  "amountUsdStale": "Cotation en USD expirée. Actualisation du cours…",
+  "amountInputUnit": "Montant en $unit$",
+  "amountSwitchUnit": "Saisissez $unit$",
+  "amountUsdLoading": "Chargement du cours en USD…",
+  "amountUsdError": "Le cours en USD n’a pas pu être actualisé",
+  "amountUsdEstimate": "Estimation en USD"
 }

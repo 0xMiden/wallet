@@ -11,7 +11,7 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { Notice } from 'components/ui/Notice';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { formatBigInt, stringToBigInt } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -208,6 +208,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [currentStep, onSwapRoute]);
 
   const sameToken = offerToken.faucetId === requestToken.faucetId;
+  // A finer typed side is quoted as blank so `toBigIntOrZero` cannot price the truncated amount.
+  const offerExceedsPrecision = amountExceedsTokenDecimals(offerAmount, offerToken.decimals);
+  const requestExceedsPrecision = amountExceedsTokenDecimals(requestAmount, requestToken.decimals);
 
   // One quote for the whole pair through the Swap Quote API v2: the fill price builds the
   // receive amount at the chosen slippage, and the solver's verdict drives the review screen.
@@ -217,8 +220,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const swapQuote = useSwapQuote({
     offerToken,
     requestToken,
-    offerAmount,
-    requestAmount,
+    offerAmount: offerExceedsPrecision ? '' : offerAmount,
+    requestAmount: requestExceedsPrecision ? '' : requestAmount,
     requestEdited,
     slippageBps,
     enabled: !sameToken,
@@ -227,6 +230,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const { quoteNow } = swapQuote;
 
   const offerAmountBaseUnits = useMemo(() => {
+    if (amountExceedsTokenDecimals(offerAmount, offerToken.decimals)) return undefined;
     try {
       return stringToBigInt(offerAmount, offerToken.decimals);
     } catch {
@@ -309,8 +313,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         : offerBalance,
     [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
   );
-  const offerAmountValue = Number(offerAmount);
   const requestAmountBaseUnits = useMemo(() => {
+    if (amountExceedsTokenDecimals(requestAmount, requestToken.decimals)) return undefined;
     try {
       return stringToBigInt(requestAmount, requestToken.decimals);
     } catch {
@@ -319,7 +323,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [requestAmount, requestToken.decimals]);
   const hasOfferAmount = offerAmountBaseUnits !== undefined && offerAmountBaseUnits > 0n;
   const hasRequestAmount = requestAmountBaseUnits !== undefined && requestAmountBaseUnits > 0n;
-  const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
+  const offerAmountExceedsBalance = typedAmountExceedsBalance(offerAmount, offerSpendable, offerToken.decimals);
   // A landed wallet-built ask of zero (a price too small for the receive token's precision) gives
   // the field nothing to show: it reads as unavailable, so the field leaves its skeleton for entry.
   const quoteAskIsZero =

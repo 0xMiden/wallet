@@ -829,6 +829,7 @@
   "insufficientFeeAsset": "Você precisa de USDCX para pagar a taxa de rede. Receba alguns USDCX para continuar.",
   "insufficientFeeAssetShort": "You need USDCX for the network fee.",
   "amountMustBeLessThanBalance": "O valor deve ser inferior ao saldo",
+  "amountExceedsTokenDecimals": "Este valor tem mais casas decimais do que este token permite.",
   "autoConsumeSettings": "Aceitar automaticamente transferências USDCX",
   "autoConsumeSettingsDescription": "Aceita automaticamente as transferências USDCX recebidas no seu saldo - tal como tocar em Aceitar. Não aceita com mais frequência, nem custa mais em taxas, do que tocar em Aceitar manualmente.",
   "encryptedWalletFileExporting": "Criando seu arquivo de carteira…",
@@ -1621,5 +1622,12 @@
   "walletAccessUnavailableTitle": "Não foi possível verificar a disponibilidade",
   "walletAccessUnavailableBody": "Verifique a sua ligação e tente novamente.",
   "runtimeUnsupportedTitle": "Este navegador ou dispositivo não é compatível com a carteira",
-  "runtimeUnsupportedBody": "A carteira precisa do WebAssembly SIMD, que este navegador ou dispositivo não oferece. Abra a carteira em outro dispositivo ou em um navegador atualizado."
+  "runtimeUnsupportedBody": "A carteira precisa do WebAssembly SIMD, que este navegador ou dispositivo não oferece. Abra a carteira em outro dispositivo ou em um navegador atualizado.",
+  "amountUsdUnavailable": "Estimativa em USD indisponível",
+  "amountUsdStale": "Cotação em USD expirou. Atualizando o preço…",
+  "amountInputUnit": "Valor em $unit$",
+  "amountSwitchUnit": "Insira $unit$",
+  "amountUsdLoading": "Carregando o preço em USD…",
+  "amountUsdError": "O preço em USD não pôde ser atualizado",
+  "amountUsdEstimate": "Estimativa em USD"
 }

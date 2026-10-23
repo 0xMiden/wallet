@@ -66,6 +66,7 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
   error: null,
   symbol: 'USDC'
 };
+let mockEpochQuoteArgs: { amount?: bigint } = {};
 let mockBurnMinimum = 5_000_000n;
 let mockUseRealBurnMinimum = false;
 // The native asset's chain metadata; null until a test discovers one, as before discovery.
@@ -86,7 +87,7 @@ jest.mock('lib/usdcx/use-burn-minimum', () => ({
 }));
 
 const mockWalletStoreState = {
-  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
+  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number; observedAt?: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
   readSpendingLimit: jest.fn()
@@ -339,8 +340,15 @@ jest.mock('lib/epoch', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
   toAdaptiveFixed: (v: number) => v.toFixed(2),
-  stringToBigInt: jest.fn()
+  stringToBigInt: jest.fn(),
+  // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
+  // return, so the guard has to call the real helper.
+  typedAmountExceedsBalance: (...a: [string, number, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
+  amountExceedsTokenDecimals: (...a: [string, number]) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -456,7 +464,10 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => mockEpochQuote
+  useEpochQuote: (args: { amount?: bigint }) => {
+    mockEpochQuoteArgs = args;
+    return mockEpochQuote;
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -573,6 +584,7 @@ beforeEach(() => {
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
+  mockEpochQuoteArgs = {};
   mockNativeMetadata = null;
 
   delete process.env.MIDEN_E2E_TEST;
@@ -761,6 +773,14 @@ describe('ReviewTransaction — redirect guards', () => {
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
 
+  it('redirects when a typed base unit exceeds an 18-decimal token balance', async () => {
+    mockSearch = 'amount=1.000000000000000001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 1, metadata: { ...VALID_TOKEN.metadata, decimals: 18 } }];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
   // Epoch and Agglayer settle on Sepolia alone; the send flow clears a non-USDCx token on these chains, and this is the
   // backstop for a link that skips the flow.
   it.each([
@@ -802,7 +822,7 @@ describe('ReviewTransaction — rendering', () => {
     mockBalanceData = [
       { tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
     ];
-    mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
+    mockWalletStoreState.tokenPrices = { ETH: { price: 3, observedAt: Date.now() } };
     try {
       render(<ReviewTransaction />);
       await flush();
@@ -944,7 +964,7 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
-    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-recall-note')).not.toBeInTheDocument();
     expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
     // A bridge has neither a transfer type nor an expiration, so nothing to fold away.
     expect(screen.queryByTestId('review-advanced-options')).not.toBeInTheDocument();
@@ -1109,6 +1129,28 @@ describe('ReviewTransaction — onSubmit', () => {
     });
     await flush();
   };
+
+  it.each([
+    ['same-chain', 'miden', ''],
+    ['Epoch', 'ethereum', '&network=sepolia&route=epoch'],
+    ['Agglayer', 'ethereum', '&network=sepolia&route=agglayer']
+  ])('refuses a direct %s review URL with digits past token precision', async (_label, chain, suffix) => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockDetectedChain = chain as 'miden' | 'ethereum';
+    mockSearch = `amount=1.001&to=0xrecipient&tokenId=tok1${suffix}`;
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await clickSubmit();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+  });
 
   // This screen is reachable by URL and re-derives its own token, so it cannot
   // rely on the amount screen having refused. Every conversion below it runs
@@ -2225,6 +2267,19 @@ describe('ReviewTransaction user-visible errors', () => {
     expect(screen.getByTestId('review-error')).toHaveTextContent(message);
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
     await expectReport('raw_send_submit_failed');
+  });
+
+  it('reports an unrepresentable review amount with its precision error id', async () => {
+    const actualNumbers = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    stringToBigIntMock.mockImplementation(actualNumbers.stringToBigInt);
+    mockSearch = 'amount=1.001&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, metadata: { ...VALID_TOKEN.metadata, decimals: 2 } }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockEpochQuoteArgs.amount).toBeUndefined();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('amountExceedsTokenDecimals');
+    await expectReport('amountExceedsTokenDecimals');
   });
 
   it('reports the specific UsdcxBurnError code from a burn submit refusal', async () => {
