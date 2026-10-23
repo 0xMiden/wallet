@@ -245,7 +245,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           {
             id: 'swap',
             label: t('swap'),
-            icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap-icon" />
+            icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap" />
           }
         ]
       : [])

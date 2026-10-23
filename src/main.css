@@ -779,8 +779,6 @@ body[data-home-band]::before {
     --action-receive: var(--card-green);
     --action-earn: var(--card-slate);
     --action-swap: var(--card-purple);
-    /* The Swap action's glyph only: the light lavender, kept off --action-swap so the Swap buttons keep their contrast. */
-    --action-swap-icon: #beacd2;
     --action-send-tint: #eceff2;
     --action-receive-tint: #eff1ee;
     --action-earn-tint: #efeef0;
@@ -957,7 +955,6 @@ body[data-home-band]::before {
     --action-receive-ink: var(--action-receive);
     --action-earn-ink: #8d8a9a;
     --action-swap-ink: var(--action-swap);
-    --action-swap-icon: var(--action-swap);
     /* Dark mode's send, receive and swap fills are pastels, where white falls under 3:1. */
     --accent-brand-on: #ffffff;
     --accent-send-on: #191919;

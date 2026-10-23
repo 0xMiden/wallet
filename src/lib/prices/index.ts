@@ -52,11 +52,19 @@ export function PriceProvider() {
   const assets = getPriceAssets();
   const symbols = [...new Set(assets.values())].filter(symbol => symbol !== 'USDCX').sort();
   const assetKey = JSON.stringify(Array.from(assets).sort(([a], [b]) => a.localeCompare(b)));
-  const { data: prices } = useRetryableSWR(
+  const {
+    data: prices,
+    error: priceError,
+    isLoading: pricesLoading
+  } = useRetryableSWR(
     enabled ? ['token-prices', network, assetKey] : null,
     async () => ({ network, assetKey, prices: await fetchTokenPrices(symbols) }),
     { refreshInterval: 5 * 60_000, dedupingInterval: 30_000, keepPreviousData: false }
   );
+
+  useEffect(() => {
+    useWalletStore.setState({ tokenPricesStatus: pricesLoading ? 'loading' : priceError ? 'error' : 'ready' });
+  }, [pricesLoading, priceError]);
 
   useEffect(() => {
     setTokenPrices({});

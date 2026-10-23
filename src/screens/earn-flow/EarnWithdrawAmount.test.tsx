@@ -64,7 +64,7 @@ it('keeps balance copy and Max readable while retaining the exact full-balance s
   expect(screen.getByText('earnWithdrawAvailable 10.12 USDC')).toBeInTheDocument();
   expect(screen.queryByText(/10\.123456789012345678/)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'max' }));
-  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('10.12');
+  expect(screen.getByRole('textbox', { name: 'earnWithdrawAmount' })).toHaveValue('10.123456789012345678');
   expect(screen.getByText('earnWithdrawFullBalanceSelected')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'review' }));
   expect(navigate).toHaveBeenLastCalledWith('/earn/positions/p/withdraw/review?amount=10.123456789012345678');

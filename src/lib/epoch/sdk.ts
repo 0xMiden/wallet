@@ -7,7 +7,7 @@ import { sepolia } from 'viem/chains';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
-import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, getEvmConnection } from './client';
+import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, epochChain, getEvmConnection } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { buildVaultEvmWalletClient } from './evm-account';
 
@@ -96,38 +96,41 @@ export async function getEpochReadOnlySdk(
  * account (the Epoch position owner). Needs NO connected external wallet —
  * signing round-trips to the vault via the WalletClient from
  * buildVaultEvmWalletClient. This is the withdraw path: the SDK's Compact
- * writes (`withdrawToken` etc.) sign & broadcast on Sepolia as `evmAddress`.
- * Caches one instance per owner address.
+ * writes (`withdrawToken` etc.) sign and broadcast on `chainId` as `evmAddress`.
+ * The chain defaults to Sepolia. The cache key is the owner address, that chain, and the allocator.
  */
 export async function getEpochSigningSdk(
   midenAccountPublicKey: string,
-  evmAddress: `0x${string}`
+  evmAddress: `0x${string}`,
+  chainId: number = sepolia.id
 ): Promise<EpochIntentSDK> {
   await initBridgeConfig();
   const apiBaseUrl = getEpochAllocatorUrl();
   const cached = signingCache;
-  if (cached?.address === evmAddress && cached.chainId === sepolia.id && cached.apiBaseUrl === apiBaseUrl) {
+  if (cached?.address === evmAddress && cached.chainId === chainId && cached.apiBaseUrl === apiBaseUrl) {
     return cached.sdk;
   }
-  const walletClient = buildVaultEvmWalletClient(midenAccountPublicKey, evmAddress);
+  const walletClient = buildVaultEvmWalletClient(midenAccountPublicKey, evmAddress, undefined, epochChain(chainId));
   const sdk = new EpochIntentSDK({ apiBaseUrl, walletClient });
-  signingCache = { address: evmAddress, chainId: sepolia.id, apiBaseUrl, sdk };
+  signingCache = { address: evmAddress, chainId, apiBaseUrl, sdk };
   return sdk;
 }
 
 /**
  * Ensure the wallet-derived EVM owner is delegated to Epoch's EIP-7702 smart
- * account on Sepolia. This is intentionally separate from the Miden-funded
- * deposit path: only EVM write flows (notably Smart Withdraw) need the
- * delegation. The status probe makes this safe to call before every write.
+ * account on `chainId` (Sepolia when none is given). This is intentionally
+ * separate from the Miden-funded deposit path: only EVM write flows (notably
+ * Smart Withdraw) need the delegation. The status probe makes this safe to
+ * call before every write.
  */
 export async function ensureEpochSmartAccount(
   midenAccountPublicKey: string,
   evmAddress: `0x${string}`,
-  guardedSdk?: EpochIntentSDK
+  guardedSdk?: EpochIntentSDK,
+  chainId: number = sepolia.id
 ): Promise<EpochIntentSDK> {
-  const sdk = guardedSdk ?? (await getEpochSigningSdk(midenAccountPublicKey, evmAddress));
-  const status = await sdk.getWalletGaslessStatus(sepolia.id);
+  const sdk = guardedSdk ?? (await getEpochSigningSdk(midenAccountPublicKey, evmAddress, chainId));
+  const status = await sdk.getWalletGaslessStatus(chainId);
 
   if (status.delegation === 'epoch') {
     return sdk;
@@ -136,12 +139,12 @@ export async function ensureEpochSmartAccount(
     throw new Error('The EVM account is delegated to an unsupported smart-account implementation.');
   }
 
-  const setup = await sdk.convertToSmartAccount({ chainId: sepolia.id });
+  const setup = await sdk.convertToSmartAccount({ chainId });
   if (!setup.ok) {
     throw new Error(setup.reason ?? 'Failed to enable the Epoch smart account.');
   }
 
-  const ready = await sdk.getWalletGaslessStatus(sepolia.id);
+  const ready = await sdk.getWalletGaslessStatus(chainId);
   if (ready.delegation !== 'epoch') {
     throw new Error('Epoch smart-account setup completed but the delegation is not active.');
   }

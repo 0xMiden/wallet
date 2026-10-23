@@ -120,6 +120,10 @@ let mockTelemetryCopy = false;
 const mockT = (key: string, opts?: Record<string, string | number | boolean | undefined>) => {
   if (mockTelemetryCopy && key === 'smthWentWrong') return 'Visible generic action failure';
   if (mockTelemetryCopy && key === 'historyDetailsLoadError') return 'Visible detail load failure';
+  if (key === 'oneClickNetworkEthereum') return 'Ethereum';
+  if (key === 'oneClickNetworkMiden') return 'Miden';
+  if (key === 'oneClickNetworkArbitrum') return 'Arbitrum';
+  if (key === 'oneClickNetworkOptimism') return 'Optimism';
   if (key === 'insufficientFeeAsset') return mockFeeCopy;
   const values = opts ? Object.values(opts) : [];
   return values.length > 0 ? `${key}_${values.join('_')}` : key;
@@ -563,6 +567,173 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  const setOneClickHistoryRow = (
+    originBlockchain = 'eth',
+    destinationBlockchain = 'miden',
+    direction: 'evm-to-miden' | 'miden-to-evm' = 'evm-to-miden'
+  ) => {
+    const outbound = direction === 'miden-to-evm';
+    const originAssetId = outbound ? 'miden-usdc' : 'usdc';
+    const destinationAssetId = outbound ? 'usdc' : 'miden-usdc';
+    setMockRow({
+      ...baseSendTx,
+      id: 'one-click-history',
+      type: outbound ? 'send' : 'bridged-receive',
+      extraInputs: {
+        provider: 'near-intents',
+        phase: 'submitting',
+        oneClick: {
+          direction,
+          request: {
+            amount: '1000000',
+            originAsset: originAssetId,
+            destinationAsset: destinationAssetId,
+            refundTo: outbound ? 'account' : 'refund',
+            recipient: outbound ? '0x0000000000000000000000000000000000000001' : 'account',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'correlation',
+            timestamp: '2026-10-22T11:00:00.000Z',
+            signature: 'signature',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: originAssetId,
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: destinationAssetId,
+              amount: '1000000',
+              refundTo: outbound ? 'account' : 'refund',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: outbound ? '0x0000000000000000000000000000000000000001' : 'account',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'deposit',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'account',
+          accountAddress: 'account',
+          faucetId: 'faucet',
+          amount: '245000000',
+          originAsset: {
+            assetId: originAssetId,
+            blockchain: originBlockchain,
+            symbol: outbound ? 'MID' : 'USDC',
+            decimals: 6
+          },
+          destinationAsset: {
+            assetId: destinationAssetId,
+            blockchain: destinationBlockchain,
+            symbol: outbound ? 'USDC' : 'MUSDC',
+            decimals: 6
+          },
+          phase: 'arriving',
+          depositAddress: 'deposit',
+          providerStatus: 'SUCCESS',
+          updatedAt: Date.now(),
+          statusResponse: {
+            correlationId: 'correlation',
+            quoteResponse: { signature: 'signature' },
+            status: 'SUCCESS',
+            updatedAt: '2026-10-22T11:01:00.000Z',
+            swapDetails: {
+              intentHashes: [],
+              nearTxHashes: [],
+              amountIn: '1000000',
+              amountOut: '245000000',
+              depositedAmount: '1000000',
+              originChainTxHashes: [],
+              destinationChainTxHashes: []
+            }
+          }
+        }
+      }
+    });
+  };
+  it('formats persisted 1Click amounts with their asset decimals and shows the friendly origin network name', async () => {
+    setOneClickHistoryRow();
+    (formatAmount as jest.Mock).mockClear();
+
+    await renderAndLoad({ transactionId: 'one-click-history' });
+
+    expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'Ethereum'
+    );
+    expect(formatAmount).toHaveBeenCalledWith(245000000n, 6);
+    expect(formatAmount).toHaveBeenCalledWith(240000000n, 6);
+    expect(formatAmount).toHaveBeenCalledWith(1000000n, 6);
+  });
+
+  it('shows the friendly destination network name', async () => {
+    setOneClickHistoryRow();
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+      'Miden'
+    );
+  });
+
+  it('does not show Miden delivery status for an outbound swap reported successful', async () => {
+    setOneClickHistoryRow('miden', 'eth', 'miden-to-evm');
+
+    await renderAndLoad({ transactionId: 'one-click-history' });
+
+    expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+    expect(screen.queryByText('oneClickDeliveryArriving')).not.toBeInTheDocument();
+    expect(screen.queryByText('oneClickStatusDelivered')).not.toBeInTheDocument();
+    expect(
+      screen.getAllByTestId('detail-row').some(row => row.getAttribute('data-label') === 'oneClickDeliveryStatus')
+    ).toBe(false);
+  });
+
+  it('shows the friendly Arbitrum label for the arb route ID', async () => {
+    setOneClickHistoryRow('arb');
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'Arbitrum'
+    );
+  });
+
+  it('shows the friendly Optimism label for the op route ID', async () => {
+    setOneClickHistoryRow('op');
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'Optimism'
+    );
+  });
+
+  it('keeps an unknown route network visible as its raw ID', async () => {
+    setOneClickHistoryRow('unknown-chain');
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
+      'unknown-chain'
+    );
+  });
+
   it('shows both Guardians on a recovered switch receipt', async () => {
     setMockRow({
       ...baseSendTx,
@@ -3999,7 +4170,7 @@ describe('HistoryDetails earn-withdraw', () => {
     setMockRow(earnWithdrawTx({ phase: 'received', outputSymbol: 'USDC' }, { amount: 999n }));
     await renderAndLoad();
 
-    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('Dummy Lending');
     expect(document.body.textContent).not.toContain('USDC');
   });
 
@@ -4198,7 +4369,7 @@ describe('HistoryDetails earn-withdraw', () => {
     await renderAndLoad();
 
     // Market shows only the protocol segment of the `PROTOCOL:chainId:token` uid.
-    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('Dummy Lending');
     expect(rowByLabel('positionOwnerLabel')?.textContent).toContain('0x1111111111111111111111111111111111111111');
     expect(rowByLabel('redeemIntentLabel')?.textContent).toContain('NONCE-1');
     expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
@@ -4206,6 +4377,40 @@ describe('HistoryDetails earn-withdraw', () => {
       'https://sepolia.etherscan.io/tx/0xfeed'
     );
     expect(rowByLabel('note')?.textContent).toContain('note-delivered');
+  });
+
+  it('links the owner and the settlement tx of a withdrawal to the explorer of its market chain', async () => {
+    setMockRow(
+      earnWithdrawTx(
+        {
+          phase: 'delivering',
+          marketUid: 'AAVE_V3:42161:0xaf88d065e77c8cc2239327c5edb3a432268e5831',
+          evmTxHash: '0xfeed'
+        },
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://arbiscan.io/address/0x1111111111111111111111111111111111111111'
+    );
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute('href', 'https://arbiscan.io/tx/0xfeed');
+  });
+
+  it('shows the owner and the settlement tx of a withdrawal on an unknown chain without a link', async () => {
+    setMockRow(
+      earnWithdrawTx(
+        { phase: 'delivering', marketUid: 'AAVE_V3:999999:0xunderlying', evmTxHash: '0xfeed' },
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).not.toHaveAttribute('href');
+    expect(rowByLabel('txIdLabel')?.textContent).toContain('0xfeed');
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).not.toHaveAttribute('href');
   });
 
   it('falls back to the raw market uid when it has no protocol segment', async () => {
@@ -4263,7 +4468,7 @@ describe('HistoryDetails earn-deposit', () => {
     );
     await renderAndLoad();
 
-    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('Dummy Lending');
     expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
       'href',
       'https://sepolia.etherscan.io/address/0x2222222222222222222222222222222222222222'
@@ -4326,6 +4531,78 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(screen.getByText('1000')).toBeInTheDocument();
     expect(rowByLabel('earnMarketLabel')).toBeUndefined();
+  });
+
+  // The EVM links go to the explorer of the market's own chain, which the market uid names.
+  it.each([
+    ['Base', 8453, 'https://basescan.org'],
+    ['Arbitrum', 42161, 'https://arbiscan.io'],
+    ['Ethereum', 1, 'https://etherscan.io'],
+    ['Base Sepolia', 84532, 'https://sepolia.basescan.org']
+  ])('links the owner and the tx of a deposit on %s to that chain explorer', async (_name, chainId, explorer) => {
+    setMockRow(
+      earnDepositTx(
+        {
+          evmRecipient: '0x9d981c9e8fa515d7fde5a58b9bf4e8c6cacacb16',
+          marketUid: `MORPHO_BLUE_D7520AD198B497B6EB75BC690268F4597630DBC12E305E9D4105843BAB36E41D:${chainId}:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`,
+          evmTxHash: '0xe54c3744e9b319b21c9f3db739a29d07a547a76388a0f4fc23ff15dedb8b8428',
+          epochStatus: 'confirmed'
+        },
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      `${explorer}/address/0x9d981c9e8fa515d7fde5a58b9bf4e8c6cacacb16`
+    );
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      `${explorer}/tx/0xe54c3744e9b319b21c9f3db739a29d07a547a76388a0f4fc23ff15dedb8b8428`
+    );
+  });
+
+  it.each([
+    ['an empty market id', ''],
+    ['no market id', undefined]
+  ])('keeps the default chain explorer for a deposit with %s', async (_label, marketUid) => {
+    const extraInputs = {
+      evmRecipient: '0x2222222222222222222222222222222222222222',
+      sourceFaucetId: 'faucet-1',
+      evmTxHash: '0xbeef'
+    };
+    setMockRow(
+      earnDepositTx(
+        {},
+        { transactionId: undefined, extraInputs: marketUid === undefined ? extraInputs : { ...extraInputs, marketUid } }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://sepolia.etherscan.io/address/0x2222222222222222222222222222222222222222'
+    );
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://sepolia.etherscan.io/tx/0xbeef'
+    );
+  });
+
+  // A chain the registry does not know, or knows no explorer for, never falls back to another chain's explorer.
+  it.each([
+    ['a chain the registry does not know', 'MORPHO_BLUE_X:999999:0xunderlying'],
+    ['a chain with no explorer', `MORPHO_BLUE_X:${NO_EXPLORER_CHAIN.id}:0xunderlying`],
+    ['no chain id', 'MORPHO_BLUE_X:base:0xunderlying']
+  ])('shows the owner and the tx without a link for %s', async (_label, marketUid) => {
+    setMockRow(earnDepositTx({ marketUid, evmTxHash: '0xbeef' }, { transactionId: undefined }));
+    await renderAndLoad();
+
+    expect(rowByLabel('positionOwnerLabel')?.textContent).toContain('0x2222222222222222222222222222222222222222');
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).not.toHaveAttribute('href');
+    expect(rowByLabel('txIdLabel')?.textContent).toContain('0xbeef');
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).not.toHaveAttribute('href');
   });
 
   // The Review shows the amount exactly as typed; the page's 3-decimal pass would cut 10.6555 to 10.655.

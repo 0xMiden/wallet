@@ -192,7 +192,7 @@ const ACCEPTED_DOCUMENT: BridgeConfig = {
   version: 1,
   'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
   supportedEvmChains: {},
-  features: { earn: false }
+  features: { earn: false, nearIntents: false }
 };
 let mockBridgeConfig: BridgeConfig | null = ACCEPTED_DOCUMENT;
 jest.mock('lib/remote-config/use-feature-availability', () => ({

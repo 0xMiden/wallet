@@ -60,7 +60,13 @@ const REMOTE_CONFIG_KEYS = [
       .flatMap(file => envReads(readSource(file)))
   )
 ]
-  .filter(key => key !== 'MIDEN_E2E_TEST' && key !== 'NODE_ENV' && key !== 'MIDEN_ELIGIBILITY_OPEN')
+  .filter(
+    key =>
+      key !== 'MIDEN_E2E_TEST' &&
+      key !== 'MIDEN_E2E_ONE_CLICK_TESTNET' &&
+      key !== 'NODE_ENV' &&
+      key !== 'MIDEN_ELIGIBILITY_OPEN'
+  )
   .sort();
 
 describe('remote config defines', () => {
@@ -71,6 +77,18 @@ describe('remote config defines', () => {
 
   it('declares the Explore catalog URL in ProcessEnv, writable so tests can set it', () => {
     expect(readSource('src/react-app.d.ts')).toContain('    MIDEN_EXPLORE_CONFIG_URL?: string;');
+  });
+
+  it.each(CONFIGS)('%s forwards the opt-in 1Click testnet gate with a false default', config => {
+    const defines = defineSource(readSource(config));
+    expect(occurrences(defines, `'process.env.MIDEN_E2E_ONE_CLICK_TESTNET':`)).toBe(1);
+    expect(defines).toMatch(
+      defineEntry('MIDEN_E2E_ONE_CLICK_TESTNET', `process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'`)
+    );
+    expect(occurrences(defines, `'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY':`)).toBe(1);
+    expect(defines).toMatch(
+      defineEntry('MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY', `process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''`)
+    );
   });
 
   it.each(CONFIGS.flatMap(config => REMOTE_CONFIG_KEYS.map(key => [config, key])))(

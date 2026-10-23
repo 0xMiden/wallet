@@ -7,10 +7,13 @@ jest.mock('./kraken');
 
 const primary = jest.mocked(binance);
 const fallback = jest.mocked(kraken);
-const dollars = { price: 1, change24h: 0, percentageChange24h: 0 };
+const mockPriceNow = 1800000000000;
+jest.spyOn(Date, 'now').mockReturnValue(mockPriceNow);
+const dollars = { observedAt: mockPriceNow, price: 1, change24h: 0, percentageChange24h: 0 };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  jest.spyOn(Date, 'now').mockReturnValue(mockPriceNow);
   primary.fetchTokenPrices.mockResolvedValue({ USDT: dollars, USDC: dollars });
   primary.fetchKlineData.mockResolvedValue([]);
   primary.isListedSymbol.mockReturnValue(true);

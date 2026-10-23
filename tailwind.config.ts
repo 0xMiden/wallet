@@ -150,7 +150,6 @@ export default {
         'action-swap': 'var(--action-swap)',
         'action-swap-tint': 'var(--action-swap-tint)',
         'action-swap-ink': 'var(--action-swap-ink)',
-        'action-swap-icon': 'var(--action-swap-icon)',
         'accent-send': 'var(--accent-send)',
         'accent-send-tint': 'var(--accent-send-tint)',
         'accent-send-ink': 'var(--accent-send-ink)',

@@ -118,6 +118,43 @@ it('approves only the session chains it was given', async () => {
   ]);
 });
 
+it('retries when the app never emits a pairing URI instead of hanging the browser evaluation', async () => {
+  const cp = new WcCounterparty();
+  const getUri = jest.fn(() => new Promise<string>(() => undefined));
+
+  jest.useFakeTimers();
+  try {
+    const connection = cp
+      .connectWithRetry(getUri, async () => false, {
+        attempts: 2,
+        backoffMs: 0,
+        uriTimeoutMs: 5
+      })
+      .then(
+        () => ({ status: 'resolved' as const }),
+        error => ({ status: 'rejected' as const, message: String(error) })
+      );
+    const boundedWait = new Promise<{ status: 'still-pending' }>(resolve => {
+      setTimeout(() => resolve({ status: 'still-pending' }), 20);
+    });
+
+    await jest.advanceTimersByTimeAsync(20);
+    const outcome = await Promise.race([connection, boundedWait]);
+
+    expect(outcome.status).toBe('rejected');
+    expect(outcome).toEqual({
+      status: 'rejected',
+      message:
+        'Error: WalletConnect handshake failed after 2 attempts (public relay subscribe/rate-limit): Error: WC pairing URI was not emitted within 5ms'
+    });
+    expect(getUri).toHaveBeenCalledTimes(2);
+  } finally {
+    await cp.stop();
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  }
+});
+
 describe('with a send hook', () => {
   const setUp = async () => {
     const send = jest.fn(async () => HASH);

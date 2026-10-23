@@ -1,3 +1,4 @@
+import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -10,6 +11,8 @@ import {
   isNoteTransportConfigured
 } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { assertOneClickQuoteBinding } from 'lib/one-click/client';
+import { assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -843,7 +846,8 @@ export const initiateSendTransaction = async (
   delegateTransaction?: boolean,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
-  dappOrigin?: string
+  dappOrigin?: string,
+  oneClick?: IOneClickTrackingData
 ): Promise<string> => {
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
@@ -854,6 +858,33 @@ export const initiateSendTransaction = async (
   // `parseInt`ing a date the user picked from a calendar, so an out-of-range
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
+
+  if (oneClick) {
+    assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
+    const fundingDeadline = assertOneClickFundingDeadlineMatches(
+      oneClick.fundingDeadline,
+      oneClick.request.deadline,
+      oneClick.quote.quote.deadline
+    );
+    oneClick = { ...oneClick, fundingDeadline };
+    const midenAsset = oneClick.originAsset;
+    const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
+    if (
+      oneClick.direction !== 'miden-to-evm' ||
+      midenAsset.blockchain !== 'miden' ||
+      oneClick.destinationAsset.blockchain === 'miden' ||
+      oneClick.accountId !== senderAccountId ||
+      !sameWalletAccountId(oneClick.request.refundTo, oneClick.accountAddress) ||
+      !sameWalletAccountId(oneClick.accountAddress, senderAccountId) ||
+      oneClick.quote.quote.depositAddress !== recipientAccountId ||
+      oneClick.quote.quote.amountIn !== amount.toString() ||
+      oneClick.faucetId !== faucetId ||
+      !configuredAsset ||
+      configuredAsset.faucetId !== faucetId
+    ) {
+      throw new Error('The 1Click send does not match the signed Miden route.');
+    }
+  }
 
   if (noteType === NoteTypeEnum.Private && !isNoteTransportConfigured()) {
     throw new Error(
@@ -870,6 +901,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },
@@ -952,7 +984,9 @@ export const initiateEarnDepositTransaction = async (
   delegateTransaction: boolean,
   requestBytes: Uint8Array,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  protocol?: '1delta' | 'dummy-lending',
+  chainId?: number
 ): Promise<string> => {
   if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
@@ -963,7 +997,9 @@ export const initiateEarnDepositTransaction = async (
     faucetId,
     sendParams,
     delegateTransaction,
-    requestBytes
+    requestBytes,
+    protocol,
+    chainId
   );
   dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
@@ -985,7 +1021,9 @@ export const initiateEarnWithdrawTransaction = async (
   sourceSymbol = 'USDC',
   submissionAttemptId?: string,
   attemptStartedAt?: number,
-  sourceDecimals?: number
+  sourceDecimals?: number,
+  protocol?: '1delta' | 'dummy-lending',
+  chainId?: number
 ): Promise<string> => {
   const dbTransaction = new EarnWithdrawTransaction(
     accountId,
@@ -997,7 +1035,9 @@ export const initiateEarnWithdrawTransaction = async (
     sourceSymbol,
     submissionAttemptId,
     attemptStartedAt,
-    sourceDecimals
+    sourceDecimals,
+    protocol,
+    chainId
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;

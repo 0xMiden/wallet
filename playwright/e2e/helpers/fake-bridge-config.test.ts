@@ -35,7 +35,7 @@ describe('served documents', () => {
   // feature "not configured" and each suite timing out on a greyed-out control.
   it('the localnet Epoch document passes the wallet parser with Earn and Fast on', () => {
     const config = parseBridgeConfig(localnetEpochDocument(), 'localnet', { allowLocalHttp: true });
-    expect(config?.features).toEqual({ earn: true });
+    expect(config?.features).toEqual({ earn: true, nearIntents: false });
     expect(config?.['bridge-providers'].epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
     expect(config?.['bridge-providers'].epoch.positionsUrl).toBe('http://127.0.0.1:8549');
     expect(config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId).toBeUndefined();
@@ -55,7 +55,7 @@ describe('served documents', () => {
       '0x537c15a622074e91188aa894456c52'
     );
     expect(config?.['bridge-providers'].epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
-    expect(config?.features).toEqual({ earn: true });
+    expect(config?.features).toEqual({ earn: true, nearIntents: false });
     expect(document.version).toBe(4);
   });
 
