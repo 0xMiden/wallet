@@ -2,6 +2,7 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { pagerMotion } from 'lib/animation';
 import {
   guardianSyncFuseKey,
   __resetSyncFuseStateForTests,
@@ -1758,5 +1759,48 @@ describe('useClaimableNotes note refresh while the pager moves', () => {
       jest.advanceTimersByTime(50);
     });
     expect(mutate()).not.toHaveBeenCalled();
+  });
+
+  it('holds a read, the 5s poll included, until the pager gesture ends', async () => {
+    jest.useFakeTimers();
+    _resetInteractionPriorityForTest();
+    _g.__cnTest.isExtension = false;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => []);
+    const end = beginInteraction();
+    renderHook(() => useClaimableNotes('pk-1'));
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
+
+    await act(async () => {
+      end();
+      jest.advanceTimersByTime(50);
+    });
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs a held read at the cap while the gesture continues', async () => {
+    jest.useFakeTimers();
+    _resetInteractionPriorityForTest();
+    _g.__cnTest.isExtension = false;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => []);
+    beginInteraction();
+    renderHook(() => useClaimableNotes('pk-1'));
+    await act(async () => {
+      jest.advanceTimersByTime(pagerMotion.interactionDeferCapMs - 100);
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
   });
 });

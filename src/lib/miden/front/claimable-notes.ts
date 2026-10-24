@@ -648,6 +648,9 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   const liveLandedForRef = useRef<string | null>(null);
 
   const fetchClaimableNotes = useCallback(async () => {
+    // Every read, the 5s SWR poll's included, takes the WASM lock and re-renders the list; let a
+    // moving pager finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
+    await whenInteractionIdle();
     const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(
       note => !note.swapOrder || note.swapOrder.autoConsume === false
     );
