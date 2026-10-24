@@ -1788,15 +1788,16 @@ describe('the never-committed verdict', () => {
     const priorError = new Error(
       `failed to execute transaction: failed to fetch transaction inputs from the data store: account with id ${ACCOUNT_HEX}, amount 4200`
     );
-    reportTransactionFailure({
+    const failure: TransactionFailure = {
       point: 'node_verdict',
       type: 'send',
       reason: 'never_committed',
       neverCommittedRule: 'expired',
-      priorError,
       proofWaitBlocks: 360,
       expiryWindowBlocks: 600
-    });
+    };
+    Reflect.set(failure, 'priorError', priorError);
+    reportTransactionFailure(failure);
 
     const message = await reportedMessage();
     expect(message).toContain(
