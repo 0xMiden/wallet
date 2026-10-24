@@ -2003,6 +2003,61 @@ describe('native morph adoption', () => {
     expect(control().motion).toBeNull();
   });
 
+  it('keeps a session restored while the watchdog park of its lost collapse captures its snapshot', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    act(() => void control().park('origin'));
+    await settle();
+    let release: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string | null>(resolve => {
+          release = resolve;
+        })
+    );
+    jest.useFakeTimers();
+    emitMorph('started', 'collapsed');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    jest.useRealTimers();
+    expect(control().motion).toBeNull();
+
+    await act(async () => void control().restore('origin'));
+    await settle();
+    await act(async () => release(null));
+    await settle();
+
+    expect(control().mode).toBe('active');
+    expect(parked()).not.toContain('origin');
+  });
+
+  it('keeps an outgoing session restored while its outgoing park captures its snapshot', async () => {
+    await openForeground();
+    act(() => control().open(session('second')));
+    await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+    await act(async () => void control().restore('origin', { card: CARD }));
+    let release: (snapshot: string | null) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string | null>(resolve => {
+          release = resolve;
+        })
+    );
+    emitMorph('settled', 'expanded');
+    await settle();
+
+    await act(async () => void control().restore('second'));
+    await settle();
+    expect(parked()).toEqual(['origin']);
+    await act(async () => release(null));
+    await settle();
+
+    expect(control().sessionStates.find(state => state.session.id === 'second')?.status).toBe('active');
+    expect(parked()).toEqual(['origin']);
+  });
+
   it('springs a rejected native minimize back', async () => {
     await openForeground();
 
