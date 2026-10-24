@@ -15,6 +15,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowChoreographer;
 import org.robolectric.util.ReflectionHelpers;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -31,7 +32,9 @@ public class BreadMorphControllerTest {
     private View page;
     private BreadMorphController controller;
 
+    // An unpaused Choreographer advances the clock and runs each vsync as soon as it is requested.
     static void resetSpringFrames() throws Exception {
+        ShadowChoreographer.setPaused(true);
         ThreadLocal<?> handler = ReflectionHelpers.getStaticField(
             Class.forName("androidx.dynamicanimation.animation.AnimationHandler"), "sAnimatorHandler");
         handler.remove();
