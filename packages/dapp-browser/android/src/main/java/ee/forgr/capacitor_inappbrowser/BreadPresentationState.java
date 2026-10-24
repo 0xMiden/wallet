@@ -2,6 +2,7 @@ package ee.forgr.capacitor_inappbrowser;
 
 final class BreadPresentationState {
     enum Phase { PREPARING, VISIBLE, TEMPORARILY_HIDDEN, ERROR, CLOSED }
+    enum Motion { NONE, EXPANDING, COLLAPSING }
 
     private final long timeout;
     private long generation;
@@ -41,6 +42,12 @@ final class BreadPresentationState {
             && !failed && acknowledgedPolicy == policyRevision);
     }
     boolean active() { return visible && foreground && !closed; }
+    Motion motion() { return Motion.NONE; }
+    boolean beginMotion(Motion motion) { return false; }
+    void endMotion() { }
+    void captureProxy() { }
+    void dropProxy() { }
+    boolean proxyUsable() { return false; }
 
     Phase phase() {
         if (closed) return Phase.CLOSED;
