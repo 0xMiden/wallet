@@ -57,6 +57,7 @@ const EDGE_PADDING = 16;
 
 /** A restore without a native morph: its snapshot flies from the card to the slot instead of the page. */
 interface ColdExpand {
+  gestureId: number;
   session: DappSession;
   snapshot: string | null;
   sourceRect: SlotRect;
@@ -93,6 +94,10 @@ export const DappPeekTray: FC = () => {
   // measured slot instead of the computed fallback.
   const lastMeasuredSlotRef = useRef<SlotRect | null>(null);
   if (slotRect && slotRect.width > 0 && slotRect.height > 0) lastMeasuredSlotRef.current = slotRect;
+  // Assigned during render so a warm refusal that resolves after this commit reads the sessions listed now.
+  const sessionStatesRef = useRef(sessionStates);
+  sessionStatesRef.current = sessionStates;
+  const gestureIdRef = useRef(0);
   // Cyclic rotation pointer into `orderedAll`. The session at
   // `orderedAll[activeIndex]` becomes the frontmost card. Swiping the front
   // card rotates it; a card arriving resets it so the new card is in front.
@@ -125,14 +130,24 @@ export const DappPeekTray: FC = () => {
   }, [footerClearance, reportLandingCard]);
   useEffect(() => () => reportLandingCard(null), [reportLandingCard]);
 
+  // Once the session is gone from the list, its overlay is too, including while its restore is still pending.
+  useLayoutEffect(() => {
+    setColdExpand(current =>
+      current !== null && !sessionStates.some(s => s.session.id === current.session.id) ? null : current
+    );
+  }, [sessionStates]);
+
   // A warm card hands its rect and release velocity to the native morph, which moves the live page from it. A cold
   // session has no page to move yet, and a plugin that refuses the morph shows the page without one: then the
-  // snapshot overlay makes the trip.
+  // snapshot overlay makes the trip. The overlay belongs to one gesture: a newer restore replaces it, and a stale
+  // refusal neither installs nor clears the newer one.
   const handleCommitRestore = useCallback(
     (session: DappSession, rect: DOMRect, velocity: MorphVelocity) => {
+      const gestureId = ++gestureIdRef.current;
       const card = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
       const expandSnapshot = () =>
         setColdExpand({
+          gestureId,
           session,
           snapshot: getSnapshot(session.id) ?? null,
           sourceRect: card,
@@ -144,12 +159,20 @@ export const DappPeekTray: FC = () => {
         void restore(session.id);
         return;
       }
+      // This gesture is the latest, so the previous overlay is no longer the one on screen.
+      setColdExpand(current => (current !== null && current.gestureId < gestureId ? null : current));
       void restore(session.id, {
         // A back card is scaled down, and its corners with it.
         card: { ...card, cornerRadius: CARD_CORNER_RADIUS * (rect.width / CARD_WIDTH) },
         velocity
       }).then(moved => {
-        if (!moved) expandSnapshot();
+        if (
+          !moved &&
+          gestureId === gestureIdRef.current &&
+          sessionStatesRef.current.some(s => s.session.id === session.id)
+        ) {
+          expandSnapshot();
+        }
       });
     },
     [restore, sessionStates]
@@ -282,12 +305,12 @@ export const DappPeekTray: FC = () => {
       </div>
       {coldExpand && (
         <DappExpanderOverlay
-          key={coldExpand.session.id}
+          key={coldExpand.gestureId}
           sourceRect={coldExpand.sourceRect}
           snapshot={coldExpand.snapshot}
           origin={coldExpand.session.origin}
           targetRect={coldExpand.targetRect}
-          onDone={() => setColdExpand(null)}
+          onDone={() => setColdExpand(current => (current?.gestureId === coldExpand.gestureId ? null : current))}
         />
       )}
     </div>,
