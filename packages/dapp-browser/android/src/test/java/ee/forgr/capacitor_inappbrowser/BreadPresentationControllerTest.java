@@ -1598,9 +1598,10 @@ public class BreadPresentationControllerTest {
         root.getLocationInWindow(rootOrigin);
     }
 
+    // A scheduled traversal holds a sync barrier until its vsync, so the fence's posted update waits for a frame.
     private void paintFence() {
         controller.render();
-        shadowOf(Looper.getMainLooper()).idle();
+        BreadMorphControllerTest.advance(32);
         assertFalse("metrics before the fence", metricsReplies.isEmpty());
         metricsReplies.get(metricsReplies.size() - 1).onReceiveValue("true");
         PaintWebView renderer = Shadow.extract(webView);
@@ -1859,7 +1860,7 @@ public class BreadPresentationControllerTest {
         assertTrue(results.isEmpty());
         snapshots.runEncodesOffTheMainThread();
         assertTrue(results.isEmpty());
-        shadowOf(Looper.getMainLooper()).idle();
+        BreadMorphControllerTest.advance(32);
         assertEquals(1, results.size());
         assertTrue(results.get(0).startsWith("data:image/jpeg;base64,"));
         assertTrue(collapse(card(), "m1"));
@@ -1869,7 +1870,7 @@ public class BreadPresentationControllerTest {
         dialog.takeSnapshotData(0.5f, 0.7f, results::add);
         assertEquals("a snapshot during a collapse reuses its start capture", 2, snapshots.captures.size());
         snapshots.runEncodesOffTheMainThread();
-        shadowOf(Looper.getMainLooper()).idle();
+        BreadMorphControllerTest.advance(32);
         assertEquals(2, results.size());
         assertTrue(results.get(1).startsWith("data:image/jpeg;base64,"));
     }
@@ -2275,7 +2276,7 @@ public class BreadPresentationControllerTest {
         verify(call, never()).resolve(any());
         snapshots.runEncodesOffTheMainThread();
         verify(call, never()).resolve(any());
-        shadowOf(Looper.getMainLooper()).idle();
+        BreadMorphControllerTest.advance(32);
         org.mockito.ArgumentCaptor<JSObject> result = org.mockito.ArgumentCaptor.forClass(JSObject.class);
         verify(call).resolve(result.capture());
         assertTrue(result.getValue().getString("data").startsWith("data:image/jpeg;base64,"));
