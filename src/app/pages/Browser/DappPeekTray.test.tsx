@@ -250,6 +250,30 @@ describe('DappPeekTray under a moving page', () => {
     await waitFor(() => expect(card).not.toBeInTheDocument());
   });
 
+  it('puts an arriving card in front when another card leaves on the same render', () => {
+    const S3 = session('s3');
+    const S4 = session('s4');
+    mockBrowser.parkedSessions = [{ session: S1 }, { session: S2 }, { session: S3 }];
+    const { rerender } = render(<DappPeekTray />);
+    act(() => mockCardProps.filter(props => props.stackIndex === 0).at(-1)?.onNavigate?.('right'));
+    expect(cardIds()[0]).toBe('s2');
+
+    mockBrowser.parkedSessions = [{ session: S2 }, { session: S3 }, { session: S4 }];
+    rerender(<DappPeekTray />);
+    expect(cardIds()[0]).toBe('s4');
+  });
+
+  it('keeps the rotated front card when a card only leaves', () => {
+    const S3 = session('s3');
+    mockBrowser.parkedSessions = [{ session: S1 }, { session: S2 }, { session: S3 }];
+    const { rerender } = render(<DappPeekTray />);
+    act(() => mockCardProps.filter(props => props.stackIndex === 0).at(-1)?.onNavigate?.('right'));
+
+    mockBrowser.parkedSessions = [{ session: S2 }, { session: S3 }];
+    rerender(<DappPeekTray />);
+    expect(cardIds()[0]).toBe('s2');
+  });
+
   it('keeps a card mounted when its snapshot updates', () => {
     mockBrowser.parkedSessions = [{ session: S1 }];
     render(<DappPeekTray />);
