@@ -63,16 +63,9 @@ interface DappPeekCardProps {
   stackIndex: number;
   /** Overflow count rendered as "+N" on the frontmost card only. */
   overflowCount?: number;
-  /** Whether this specific card is being restored and should fade out
-   *  in-place while the ExpanderOverlay takes over. */
-  isExpanding?: boolean;
   /**
-   * Whether this card is the landing target of a minimize-shrink
-   * animation in progress. When true, the card skips its entry
-   * animation and snaps directly to its steady state — it sits
-   * invisible (covered by the shrinking overlay above it) until the
-   * overlay unmounts, at which point the user sees the card already
-   * in position with no bounce-in jank.
+   * Whether a collapsing page is landing on this card: it skips its entry animation and rests under the page, so it is
+   * already in place when the page hides.
    */
   isShrinking?: boolean;
   /**
@@ -101,7 +94,6 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   snapshot,
   stackIndex,
   overflowCount = 0,
-  isExpanding = false,
   isShrinking = false,
   chromeVisible = true,
   exitInstantly = false,
@@ -274,13 +266,6 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         }
       : { opacity: 0, y: 40, scale: scale * 0.9 };
 
-  // When this card is the one being restored, the tray's ExpanderOverlay
-  // is growing from its position to fullscreen. We fade the card to 0
-  // opacity in-place so it doesn't visually collide with the expander,
-  // while keeping the motion.div mounted until the parent filters it
-  // out (a tick later, once `restore()` removes it from parkedSessions).
-  const animatedOpacity = isExpanding ? 0 : opacity;
-
   return (
     <motion.div
       ref={rootRef}
@@ -288,18 +273,12 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       // or removed (e.g. park a new dApp → existing cards slide left to
       // make room for the new frontmost card on the right).
       layout
-      // When this card is the landing target of a shrink animation, skip
-      // the entry animation entirely (`initial={false}` tells framer-
-      // motion to start at the animate values). The shrinking overlay
-      // sits on top of the card throughout the morph, so the card would
-      // otherwise play its bounce-in under the overlay and be caught
-      // mid-spring the moment the overlay fades out. Skipping entry
-      // means when the overlay lands the card is already at its
-      // resting pose, producing a seamless handoff.
+      // A collapsing page covers its landing card for the whole morph, so the card skips its bounce-in
+      // (`initial={false}` starts at the animate values) and is at rest when the page hides over it.
       initial={isShrinking ? false : { opacity: 0, y: 40, scale: scale * 0.9 }}
-      animate={{ opacity: animatedOpacity, x: xOffset, y: 0, scale }}
+      animate={{ opacity, x: xOffset, y: 0, scale }}
       exit={exitVariant}
-      transition={isExpanding ? { duration: 0.15 } : springs.sheetPresent}
+      transition={springs.sheetPresent}
       // Front card is draggable in 2D with direction lock:
       //   - Vertical drag: up = restore, down = close (existing behavior).
       //   - Horizontal drag: left/right = navigate the deck (rotate
@@ -308,7 +287,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       // of motion so diagonal drags don't fire both handlers. Zero-
       // sized constraints + elastic pull mean the card springs back
       // to origin on release-below-threshold in either axis.
-      drag={isFront && !isExpanding && !isShrinking ? true : false}
+      drag={isFront && !isShrinking}
       dragDirectionLock
       dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
       dragElastic={0.5}

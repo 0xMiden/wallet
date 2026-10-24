@@ -44,7 +44,7 @@ import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { type DappSession } from 'lib/dapp-browser';
 import { getSnapshot, subscribeSnapshots } from 'lib/dapp-browser/snapshot-store';
 
-import { DappExpanderOverlay, EXPAND_TOTAL_DURATION_MS } from './DappExpanderOverlay';
+import { DappExpanderOverlay } from './DappExpanderOverlay';
 import { CARD_HEIGHT, CARD_STACK_OFFSET, CARD_WIDTH, DappPeekCard } from './DappPeekCard';
 import { FOOTER_CLEARANCE_FALLBACK, subscribeFooterClearance } from './peek-footer';
 import { CARD_CORNER_RADIUS, type SlotRect, frontCardRect, resolveTargetRect } from './peek-target-rect';
@@ -55,7 +55,7 @@ const MAX_VISIBLE_CARDS = 3;
 // else visually.
 const EDGE_PADDING = 16;
 
-/** A cold session's restore: its snapshot flies from the card to the slot while the page loads (no page to move). */
+/** A restore without a native morph: its snapshot flies from the card to the slot instead of the page. */
 interface ColdExpand {
   session: DappSession;
   snapshot: string | null;
@@ -87,11 +87,12 @@ export const DappPeekTray: FC = () => {
   const [, setSnapshotTick] = useState(0);
   const [footerClearance, setFooterClearance] = useState(FOOTER_CLEARANCE_FALLBACK);
   const [coldExpand, setColdExpand] = useState<ColdExpand | null>(null);
+  const slotRectRef = useRef(slotRect);
+  slotRectRef.current = slotRect;
   // Cyclic rotation pointer into `orderedAll`. The session at
   // `orderedAll[activeIndex]` becomes the frontmost card. Swiping the front
   // card rotates it; a card arriving resets it so the new card is in front.
   const [activeIndex, setActiveIndex] = useState(0);
-  const coldTimerRef = useRef<number | null>(null);
   const trayRef = useRef<HTMLDivElement>(null);
 
   // Re-render when the snapshot store updates so freshly-captured
@@ -101,13 +102,6 @@ export const DappPeekTray: FC = () => {
   // Measure the footer's top edge while the bar is at rest so the tray sits just above BottomNav
   // (see peek-footer).
   useEffect(() => subscribeFooterClearance(setFooterClearance), []);
-
-  useEffect(
-    () => () => {
-      if (coldTimerRef.current != null) window.clearTimeout(coldTimerRef.current);
-    },
-    []
-  );
 
   // The front card is where a native collapse lands (#1817), so its rect is published whenever the tray moves.
   useLayoutEffect(() => {
@@ -127,33 +121,34 @@ export const DappPeekTray: FC = () => {
   }, [footerClearance, reportLandingCard]);
   useEffect(() => () => reportLandingCard(null), [reportLandingCard]);
 
-  // A warm card hands its rect and release velocity to the native morph, which moves the live page from it.
+  // A warm card hands its rect and release velocity to the native morph, which moves the live page from it. A cold
+  // session has no page to move yet, and a plugin that refuses the morph shows the page without one: then the
+  // snapshot overlay makes the trip.
   const handleCommitRestore = useCallback(
     (session: DappSession, rect: DOMRect, velocity: MorphVelocity) => {
-      const state = sessionStates.find(s => s.session.id === session.id);
-      if (state?.instance && !state.isCold) {
-        const card = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-        void restore(session.id, {
-          // A back card is scaled down, and its corners with it.
-          card: { ...card, cornerRadius: CARD_CORNER_RADIUS * (rect.width / CARD_WIDTH) },
-          velocity
+      const card = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+      const expandSnapshot = () =>
+        setColdExpand({
+          session,
+          snapshot: getSnapshot(session.id) ?? null,
+          sourceRect: card,
+          targetRect: resolveTargetRect(slotRectRef.current, null)
         });
+      const state = sessionStates.find(s => s.session.id === session.id);
+      if (!state?.instance || state.isCold) {
+        expandSnapshot();
+        void restore(session.id);
         return;
       }
-      setColdExpand({
-        session,
-        snapshot: getSnapshot(session.id) ?? null,
-        sourceRect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-        targetRect: resolveTargetRect(slotRect, null)
+      void restore(session.id, {
+        // A back card is scaled down, and its corners with it.
+        card: { ...card, cornerRadius: CARD_CORNER_RADIUS * (rect.width / CARD_WIDTH) },
+        velocity
+      }).then(moved => {
+        if (!moved) expandSnapshot();
       });
-      if (coldTimerRef.current != null) window.clearTimeout(coldTimerRef.current);
-      coldTimerRef.current = window.setTimeout(() => {
-        setColdExpand(null);
-        coldTimerRef.current = null;
-      }, EXPAND_TOTAL_DURATION_MS + 100);
-      void restore(session.id);
     },
-    [restore, sessionStates, slotRect]
+    [restore, sessionStates]
   );
 
   // Cards render newest-first so the dApp the user most recently
@@ -283,10 +278,12 @@ export const DappPeekTray: FC = () => {
       </div>
       {coldExpand && (
         <DappExpanderOverlay
+          key={coldExpand.session.id}
           sourceRect={coldExpand.sourceRect}
           snapshot={coldExpand.snapshot}
           origin={coldExpand.session.origin}
           targetRect={coldExpand.targetRect}
+          onDone={() => setColdExpand(null)}
         />
       )}
     </div>,

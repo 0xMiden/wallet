@@ -50,7 +50,7 @@ const mockBrowser: {
   reportLandingCard: jest.fn(),
   slotRect: null
 };
-const mockOverlayProps: { targetRect: Rect }[] = [];
+const mockOverlayProps: { sourceRect: Rect; targetRect: Rect; onDone: () => void }[] = [];
 const mockCardProps: CardProps[] = [];
 const mockSnapshots = new Map<string, string>();
 const mockSnapshotListeners = new Set<() => void>();
@@ -65,10 +65,9 @@ jest.mock('lib/dapp-browser/snapshot-store', () => ({
   }
 }));
 jest.mock('./DappExpanderOverlay', () => ({
-  EXPAND_TOTAL_DURATION_MS: jest.requireActual('./DappExpanderOverlay').EXPAND_TOTAL_DURATION_MS,
-  DappExpanderOverlay: (props: { targetRect: Rect }) => {
+  DappExpanderOverlay: (props: { sourceRect: Rect; targetRect: Rect; onDone: () => void }) => {
     mockOverlayProps.push(props);
-    return null;
+    return <div data-testid="expander-overlay" />;
   }
 }));
 jest.mock('./DappPeekCard', () => {
@@ -292,6 +291,42 @@ describe('DappPeekTray under a moving page', () => {
       card: { x: 282, y: 650, width: CARD_WIDTH * 0.94, height: 124, cornerRadius: 16 * 0.94 },
       velocity: { x: 12, y: -900 }
     });
+  });
+});
+
+describe('DappPeekTray cold restore overlay', () => {
+  it('uses the overlay only for a cold session', async () => {
+    mockBrowser.parkedSessions = [{ session: S1 }, { session: S2 }];
+    mockBrowser.sessionStates = [{ session: S1, instance: null, isCold: true }, warm(S2)];
+    render(<DappPeekTray />);
+
+    await act(async () =>
+      mockCardProps.find(props => props.session.id === 's2')?.onCommitRestore(new DOMRect(), { x: 0, y: 0 })
+    );
+    expect(screen.queryByTestId('expander-overlay')).toBeNull();
+    await act(async () =>
+      mockCardProps
+        .find(props => props.session.id === 's1')
+        ?.onCommitRestore(new DOMRect(282, 650, 104, 132), { x: 0, y: 0 })
+    );
+
+    expect(mockBrowser.restore).toHaveBeenLastCalledWith('s1');
+    expect(screen.getByTestId('expander-overlay')).toBeInTheDocument();
+    expect(mockOverlayProps.at(-1)?.sourceRect).toEqual({ x: 282, y: 650, width: 104, height: 132 });
+    act(() => mockOverlayProps.at(-1)?.onDone());
+    expect(screen.queryByTestId('expander-overlay')).toBeNull();
+  });
+
+  it('uses the overlay when native does not accept the morph', async () => {
+    mockBrowser.restore.mockResolvedValue(false);
+    mockBrowser.parkedSessions = [{ session: S1 }];
+    mockBrowser.sessionStates = [warm(S1)];
+    render(<DappPeekTray />);
+
+    await act(async () => fireEvent.click(screen.getByTestId('dapp-peek-card')));
+
+    expect(mockBrowser.restore).toHaveBeenCalledWith('s1', expect.objectContaining({ velocity: { x: 0, y: 0 } }));
+    expect(screen.getByTestId('expander-overlay')).toBeInTheDocument();
   });
 });
 
