@@ -334,8 +334,9 @@ final class BreadMorphAnimator {
             container.view.layer.add(animation, forKey: BreadMorphContainerViewController.keyPrefix + "opacity")
         } else {
             fade = nil
-            spring = BreadMorphSpring(from: from, to: target, velocity: velocity, physics: physics, start: start)
             let relative = CGFloat(BreadMorphGeometry.initialVelocity(velocity, from: from, to: target))
+            // Near the target the rendered springs start at rest, so the analytic one must too or the next retarget jumps.
+            spring = BreadMorphSpring(from: from, to: target, velocity: relative == 0 ? 0 : velocity, physics: physics, start: start)
             settling = 0
             let starts = container.morphValues(fromPose) + companionValues(from)
             let ends = container.morphValues(toPose) + companionValues(target)
