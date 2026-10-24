@@ -142,12 +142,22 @@ enum BreadMorphGeometry {
 
 final class BreadMorphFrameTarget: NSObject {
     weak var animator: BreadMorphAnimator?
+    #if DEBUG
+    private static let logger = Logger(subsystem: "com.miden.bread", category: "morph")
+    private let trace = UserDefaults.standard.bool(forKey: "BreadMorphTrace")
+    #endif
 
     init(animator: BreadMorphAnimator) {
         self.animator = animator
     }
 
-    @objc func frame(_ link: CADisplayLink) {}
+    @objc func frame(_ link: CADisplayLink) {
+        #if DEBUG
+        guard trace, let animator else { return }
+        let frame = NSCoder.string(for: animator.presentationFrame())
+        Self.logger.debug("bread.morph p=\(animator.progress(), privacy: .public) frame=\(frame, privacy: .public)")
+        #endif
+    }
 }
 
 final class BreadMorphAnimator {
@@ -201,6 +211,8 @@ final class BreadMorphAnimator {
     }
 
     func velocity() -> Double { spring?.sample(at: now()).velocity ?? 0 }
+
+    func presentationFrame() -> CGRect { container?.presentationFrame() ?? .zero }
 
     func run(to target: Double, card: BreadMorphCard?, velocity: Double, physics: BreadMorphPhysics, onSettle: @escaping () -> Void) {
         boost()
