@@ -312,6 +312,14 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
   };
 });
 
+jest.mock('lib/miden/swap/balance', () => {
+  const g = globalThis as any;
+  return {
+    readSwapFeeContext: (...a: any[]) => g.__off.readSwapFeeContext(...a),
+    assertSwapFeeContextMatches: (...a: any[]) => g.__off.assertSwapFeeContextMatches(...a)
+  };
+});
+
 // The dry run's request preparation, which reads the account through the client, answered per test.
 jest.mock('lib/miden/sdk/custom-request', () => ({
   prepareCustomRequestBytes: (...a: any[]) => (globalThis as any).__off.prepareCustomRequestBytes(...a)
@@ -439,6 +447,24 @@ function resetControl() {
     // serialized bytes back).
     clientSendTransaction: jest.fn(async (_tx: unknown) => ({ serialize: () => new Uint8Array([11, 22, 33]) })),
     clientSwapTransaction: jest.fn(async (_tx: unknown) => ({ serialize: () => new Uint8Array([44, 55, 66, 77]) })),
+    readSwapFeeContext: jest.fn(async (scope: string) => ({
+      scope,
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    })),
+    assertSwapFeeContextMatches: jest.fn((queued: any, current: any, expectedScope: string) => {
+      if (
+        queued.scope !== expectedScope ||
+        current.scope !== expectedScope ||
+        queued.nativeAssetId !== current.nativeAssetId ||
+        queued.feeFaucetId !== current.feeFaucetId ||
+        queued.baseFee !== current.baseFee
+      ) {
+        throw new Error('swapBalanceUnavailable');
+      }
+      return current;
+    }),
     clientNewTransaction: jest.fn(async (_a: unknown, _b: unknown, _c: unknown) => ({
       serialize: () => new Uint8Array([88, 99])
     })),
@@ -3398,7 +3424,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
           accountId: 'mtst1qacc',
           faucetId: 'mtst1qoffered',
           amount: '1',
-          extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' }
+          extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' },
+          swapFeeContext: {
+            scope: 'testnet|queued-endpoint',
+            nativeAssetId: 'mtst1qfee',
+            feeFaucetId: null,
+            baseFee: '7'
+          }
         })
       ]
     ],
@@ -3411,7 +3443,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       return undefined;
     });
     const leaf = jest.fn(async (...args: unknown[]) => {
-      const onStage = args[args.length - 1];
+      const onStage = args.find(arg => typeof arg === 'function');
       if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
       return { serialize: () => new Uint8Array([1]) };
     });
@@ -3474,28 +3506,124 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it('dispatches swapTransaction (whole-op write), re-widens both string amounts to BigInt, serializes the result (slice 5b)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
+    G.__off.readSwapFeeContext.mockResolvedValue({
+      scope: 'testnet|queued-endpoint',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
     const dto = {
       accountId: 'mtst1qacc',
       faucetId: 'mtst1qoffered',
       amount: '500',
       delegateTransaction: false,
-      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+      extraInputs: {
+        requestedFaucetId: 'mtst1qrequested',
+        requestedAmount: '250',
+        balanceScope: 'testnet|queued-endpoint'
+      },
+      swapFeeContext: {
+        scope: 'testnet|queued-endpoint',
+        nativeAssetId: 'mtst1qfee',
+        feeFaucetId: null,
+        baseFee: '7'
+      }
     };
     const ret = capturedListener!(callReq({ method: 'swapTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
     expect(ret).toBe(true);
     await flush();
 
+    expect(G.__off.readSwapFeeContext).toHaveBeenCalledWith('testnet|queued-endpoint');
     expect(G.__off.clientSwapTransaction).toHaveBeenCalledTimes(1);
-    expect(G.__off.clientSwapTransaction).toHaveBeenCalledWith(expect.anything(), expect.any(Function));
+    expect(G.__off.clientSwapTransaction).toHaveBeenCalledWith(expect.anything(), expect.any(Function), {
+      scope: 'testnet|queued-endpoint',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
     const receivedTx = G.__off.clientSwapTransaction.mock.calls[0][0];
     // Offered amount AND requested amount both re-widened to BigInt.
     expect(receivedTx.amount).toBe(500n);
     expect(typeof receivedTx.extraInputs.requestedAmount).toBe('bigint');
     expect(receivedTx.extraInputs.requestedAmount).toBe(250n);
     expect(receivedTx.extraInputs.requestedFaucetId).toBe('mtst1qrequested');
+    expect(receivedTx.extraInputs.balanceScope).toBe('testnet|queued-endpoint');
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([44, 55, 66, 77]);
+  });
+
+  it('rejects swap submission when the protocol fee asset changed since the queued balance check', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    G.__off.readSwapFeeContext.mockResolvedValue({
+      scope: 'testnet|queued-endpoint',
+      nativeAssetId: 'mtst1qchanged-fee',
+      feeFaucetId: null,
+      baseFee: 7n
+    });
+    const dto = {
+      accountId: 'mtst1qacc',
+      faucetId: 'mtst1qoffered',
+      amount: '500',
+      delegateTransaction: false,
+      extraInputs: {
+        requestedFaucetId: 'mtst1qrequested',
+        requestedAmount: '250',
+        balanceScope: 'testnet|queued-endpoint'
+      },
+      swapFeeContext: {
+        scope: 'testnet|queued-endpoint',
+        nativeAssetId: 'mtst1qfee',
+        feeFaucetId: null,
+        baseFee: '7'
+      }
+    };
+
+    capturedListener!(callReq({ method: 'swapTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
+    await flush();
+
+    expect(G.__off.assertSwapFeeContextMatches).toHaveBeenCalledWith(
+      { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: 7n },
+      { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qchanged-fee', feeFaucetId: null, baseFee: 7n },
+      'testnet|queued-endpoint'
+    );
+    expect(G.__off.clientSwapTransaction).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: 'swapBalanceUnavailable' });
+  });
+
+  it('rejects swap submission when offscreen fee discovery is older than the queued fee', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    G.__off.readSwapFeeContext.mockResolvedValue({
+      scope: 'testnet|queued-endpoint',
+      nativeAssetId: 'mtst1qfee',
+      feeFaucetId: null,
+      baseFee: 5n
+    });
+    const dto = {
+      accountId: 'mtst1qacc',
+      faucetId: 'mtst1qoffered',
+      amount: '500',
+      delegateTransaction: false,
+      extraInputs: {
+        requestedFaucetId: 'mtst1qrequested',
+        requestedAmount: '250',
+        balanceScope: 'testnet|queued-endpoint'
+      },
+      swapFeeContext: {
+        scope: 'testnet|queued-endpoint',
+        nativeAssetId: 'mtst1qfee',
+        feeFaucetId: null,
+        baseFee: '7'
+      }
+    };
+
+    capturedListener!(callReq({ method: 'swapTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
+    await flush();
+
+    expect(G.__off.clientSwapTransaction).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: 'swapBalanceUnavailable' });
   });
 
   it.each(['sendTransaction', 'swapTransaction', 'consumeNoteId', 'newTransaction'])(
@@ -3528,7 +3656,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
             accountId: 'a',
             faucetId: 'f',
             amount: '1',
-            extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' }
+            extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' },
+            swapFeeContext: {
+              scope: 'testnet|queued-endpoint',
+              nativeAssetId: 'mtst1qfee',
+              feeFaucetId: null,
+              baseFee: '7'
+            }
           }
         ],
         consumeNoteId: [{ accountId: 'a', noteId: 'n', noteIds: ['n'] }],
@@ -3559,7 +3693,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
           accountId: 'a',
           faucetId: 'f',
           amount: '1',
-          extraInputs: { requestedFaucetId: 'g', requestedAmount: 'not-a-number' }
+          extraInputs: { requestedFaucetId: 'g', requestedAmount: 'not-a-number' },
+          swapFeeContext: {
+            scope: 'testnet|queued-endpoint',
+            nativeAssetId: 'mtst1qfee',
+            feeFaucetId: null,
+            baseFee: '7'
+          }
         }
       };
       capturedListener!(callReq({ method, argsB64: [encodeArg(dtos[method])] }), {}, sendResponse);

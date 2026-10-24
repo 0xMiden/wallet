@@ -1103,12 +1103,12 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('gives a tappable row pressed feedback and leaves a plain row without it', () => {
     renderFull();
     expect(rowByTitle('Received')).toHaveClass('active:bg-fill-pressed');
-    expect(rowByTitle('')).not.toHaveClass('active:bg-fill-pressed');
+    expect(rowByTitle('sent')).not.toHaveClass('active:bg-fill-pressed');
   });
 
-  it('renders the default row (unknown icon, empty title, no amount, not clickable)', () => {
+  it('renders the default row (unknown icon, action fallback, no amount, not clickable)', () => {
     renderFull();
-    const row = rowByTitle('');
+    const row = rowByTitle('sent');
     expect(iconNameIn(row)).toBe('More');
     // On `page` with an `ink` glyph, so the circle stays visible on the card's `fill`.
     expect(row).toHaveAttribute('data-iconbg', 'bg-page');
@@ -2103,5 +2103,27 @@ describe('user-visible history load errors', () => {
       jest.advanceTimersByTime(2000);
     });
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+describe('cancelled partial swap progress', () => {
+  it('retains the order time, progress and reclaim status without replacing the offered amount', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'ETH',
+      amount: '0.001',
+      requestedToken: 'USDT',
+      requestedAmount: '10',
+      swapSettlement: 'reclaimed',
+      swapFillProgress: '40'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'reclaimed');
+    expect(screen.getByTestId('activity-row')).toHaveAttribute(
+      'data-subtitle',
+      'amountFilled: swapProgressPercent · swapPlacedAt'
+    );
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+    expect(mockT).toHaveBeenCalledWith('swapProgressPercent', { percentage: '40' });
   });
 });

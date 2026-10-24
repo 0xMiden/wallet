@@ -25,6 +25,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
+import { swapPayEstimate } from './amount-display';
 import { EXPIRY_PRESETS, ExpiryPresetId, presetForSeconds } from './expiry';
 import { SLIPPAGE_PERCENT_BOUNDS, slippageBpsToPercent, slippagePercentToBps } from './slippage';
 
@@ -245,7 +246,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         }
         value={
           <span className="inline-flex items-center gap-1">
-            {`${offerAmount} ${offerLabel}`}
+            {`${requestEdited ? t('swapApproxAmount', { amount: swapPayEstimate(offerAmount) }) : offerAmount} ${offerLabel}`}
             <SwapTokenInfoButton faucetId={offerToken.faucetId} label={offerLabel} />
           </span>
         }
@@ -309,6 +310,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
+      {requestEdited && <p className="mt-5 text-body-sm text-muted">{t('swapReceiveTargetNote')}</p>}
       <DetailCard surface="outline" face="heading" className="mt-8">
         {/* The slippage and fee explain the rate figure, but it is a sentence: as a sub-line it
             wrapped over three lines and pushed the rows apart, so it waits behind the (i). */}
@@ -333,6 +335,13 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             />
           )}
         </DetailRow>
+        {requestEdited && (
+          <DetailRow label={t('swapExactPayAmount')} stacked data-testid="swap-exact-pay-row">
+            <span className="break-all">
+              {offerAmount} {offerLabel}
+            </span>
+          </DetailRow>
+        )}
         {/* The solver's verdict on this exact ask, in the service's own priority order. A blocking
             one (no market, no price, off market) is what the Swap press refuses on; the rest, the
             testnet's usual "no orders yet" included, are advisory. */}
@@ -363,7 +372,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           label={t('swapSlippage')}
           info={
             <InfoHint label={t('moreInfoAbout', { label: t('swapSlippage') })} data-testid="swap-slippage-info">
-              {t(requestEdited ? 'swapSlippageEditedNote' : 'swapSlippageNote')}
+              {t(requestEdited ? 'swapReceiveSlippageNote' : 'swapSlippageNote')}
             </InfoHint>
           }
           stacked
@@ -378,7 +387,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             enterKeyHint="done"
             aria-label={t('swapSlippage')}
             value={slippageDraft}
-            disabled={submitting || requestEdited}
+            disabled={submitting}
             clearable={false}
             onChange={event => onSlippageChange(event.target.value)}
             trailing={<span className="text-body text-muted">{t('percentSign')}</span>}

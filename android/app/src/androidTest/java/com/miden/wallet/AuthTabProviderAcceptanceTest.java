@@ -24,9 +24,11 @@ public class AuthTabProviderAcceptanceTest {
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         String expectedProvider = InstrumentationRegistry.getArguments().getString("expectedProvider");
         Assert.assertNotNull("expectedProvider instrumentation argument", expectedProvider);
+        String authTabProvider = InstrumentationRegistry.getArguments().getString("authTabProvider");
+        Assert.assertNotNull("authTabProvider instrumentation argument", authTabProvider);
         String selectedProvider = CustomTabsClient.getPackageName(context, null);
         Assert.assertEquals("selected Custom Tabs provider", expectedProvider, selectedProvider);
-        assertProvider(context, "com.android.chrome", true);
+        assertProvider(context, authTabProvider, true);
         assertProvider(context, "org.mozilla.firefox", false);
         PackageInfo selectedInfo = context.getPackageManager().getPackageInfo(
             selectedProvider, PackageManager.GET_META_DATA);

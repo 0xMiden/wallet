@@ -17,7 +17,7 @@ import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
-import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+import { isUnconfirmedRotation } from 'lib/miden/guardian/rotation-verdict';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
@@ -25,7 +25,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
-import { guardianHistoryActionKey } from './guardianHistoryLabels';
+import { historyEntryActionTitle } from './guardianHistoryLabels';
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -263,14 +263,6 @@ function buildRowProps(
   // subtitle, and show the requested side (what the user receives) on the right.
   const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
 
-  // A completed rotation's title derives from its verdict at render, not from
-  // the frozen `displayMessage` snapshot - the claim stays attached to the
-  // evidence rather than to whatever the row said the day it completed.
-  // An unknown outcome still reads as not confirmed, ahead of that title.
-  const guardianTitleKey =
-    entry.txType === 'switch-guardian' && !isFailed && !isCancelled && entry.guardianSwitchVerdict
-      ? rotationRowTitleKey(entry.guardianSwitchVerdict)
-      : undefined;
   const title = isUnconfirmed
     ? t('notConfirmed')
     : isCancelled
@@ -281,13 +273,7 @@ function buildRowProps(
           ? entry.swapSettlement === 'reclaimed' || entry.swapSettlement === 'reclaiming'
             ? `${entry.token} → ${entry.requestedToken}`
             : `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-          : entry.guardianRecovered
-            ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
-            : guardianTitleKey
-              ? t(guardianTitleKey)
-              : entry.message === 'Transaction failed'
-                ? t('transactionFailedNotificationTitle')
-                : entry.message || '';
+          : historyEntryActionTitle(entry, t);
   const placedAt = new Date(entry.timestamp * 1000);
   const swapPlacement = isSwap
     ? t('swapPlacedAt', { time: Number.isFinite(placedAt.getTime()) ? format(placedAt, 'HH:mm') : t('unknown') })
@@ -299,7 +285,14 @@ function buildRowProps(
           t('unknown')
         )} → ${guardianEndpointDisplayName(entry.newGuardianEndpoint, t('unknown'))}`
       : isSwap
-        ? swapPlacement
+        ? [
+            entry.swapFillProgress === undefined
+              ? undefined
+              : `${t('amountFilled')}: ${t('swapProgressPercent', { percentage: entry.swapFillProgress })}`,
+            swapPlacement
+          ]
+            .filter(Boolean)
+            .join(' · ')
         : entry.secondaryAddress
           ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
           : undefined;

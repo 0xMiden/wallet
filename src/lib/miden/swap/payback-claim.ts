@@ -72,18 +72,27 @@ export function paybackClaimStateFrom(
 }
 
 /**
- * Every swap's state from one linked-claim read and one note read, so a history refresh costs two queries however
- * many swaps it lists. The note read follows the claim dedup's rule (`queueConsumeRows`): a consume of the same
- * account covers a note, Completed or still live, and a row restored from a backup covers nothing.
+ * Every swap's state from its linked claims and one note read. A history page that already loaded those claims
+ * passes those rows in `linkedRows`, so this does not open `extraInputs.swapOrderTxId` again. Failed and in-flight
+ * rows stay in that set. The note read follows the claim dedup's rule (`queueConsumeRows`): a consume of the same
+ * account covers a note, Completed or still live, and a row restored from a backup covers nothing. When
+ * `linkedRows` is omitted, claims are read here; `null` means the shared read failed.
  */
-export async function getPaybackClaimStates(swaps: ITransaction[]): Promise<Map<string, PaybackClaimState>> {
+export async function getPaybackClaimStates(
+  swaps: ITransaction[],
+  linkedRows?: readonly ITransaction[] | null
+): Promise<Map<string, PaybackClaimState>> {
   const states = new Map<string, PaybackClaimState>();
   const completed = swaps.filter(isCompletedSwap);
   if (completed.length === 0) return states;
-  const linked = await Repo.transactions
-    .where('extraInputs.swapOrderTxId')
-    .anyOf(completed.map(swap => swap.id))
-    .toArray();
+  if (linkedRows === null) return states;
+  const linked =
+    linkedRows !== undefined
+      ? linkedRows
+      : await Repo.transactions
+          .where('extraInputs.swapOrderTxId')
+          .anyOf(completed.map(swap => swap.id))
+          .toArray();
   const failedNoteIds = [...new Set(linked.filter(row => row.status === ITransactionStatus.Failed).flatMap(noteIdsOf))];
   const [byScalar, byBatch] =
     failedNoteIds.length === 0

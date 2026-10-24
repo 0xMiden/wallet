@@ -92,7 +92,9 @@ export const zustandProvider: GuardianAccountProvider = {
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) =>
     useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey),
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
-    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
+    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint),
+  markHotKeyRotatedOut: (accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) =>
+    useWalletStore.getState().markHotKeyRotatedOut(accountPublicKey, hotPublicKey, onChainHotCommitment)
 };
 
 /** The app realm's reconciler pass (#1081), releasing kept Guardian candidates through the store. */
@@ -1900,6 +1902,24 @@ async function attemptColdReRegisterSelfHeal(
             `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
             `the device that now owns the account.`
         );
+        // The verdict is persisted so the wallet can SAY so: without it this device
+        // looks healthy between ticks (reads never touch the guardian) and every
+        // write fails one at a time with a generic error. `account.hotPublicKey` is
+        // set here, since the keyless case returned above. Best-effort: a failed
+        // write leaves the next tick to persist it, and the budget closes either way.
+        // A try, not a `.catch`: a store without the action throws synchronously, and that must not
+        // turn a permanent verdict into a failed attempt that re-asks the guardian next cooldown.
+        if (account.hotPublicKey) {
+          try {
+            await zustandProvider.markHotKeyRotatedOut?.(
+              account.publicKey,
+              account.hotPublicKey,
+              onChainHot.commitment
+            );
+          } catch (markError) {
+            console.warn(`[Guardian Sync] could not record that ${account.publicKey} was rotated out:`, markError);
+          }
+        }
         // PERMANENT: this device was rotated out, and no later tick changes that.
         // The caller closes the budget on this outcome, which is what stops this
         // from re-reading once a cooldown forever for a repair that cannot apply.

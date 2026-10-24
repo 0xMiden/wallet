@@ -118,6 +118,30 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(images(android)).toEqual(['system-images;android-37.0;google_apis;x86_64']);
     expect(images(browserAndroid)).toEqual(['system-images;android-34;default;x86_64']);
     expect(images(authTab)).toEqual(['system-images;android-36;google_apis_playstore;x86_64']);
+    // Every Android 37 image aborts surfaceflinger in a loop on these runners, so a pinned Chromium is the provider.
+    expect(authTab).not.toContain('system-image-api-level');
+    expect(authTab).toContain('AUTH_TAB_PROVIDER: org.chromium.chrome');
+    expect(authTab).toMatch(/AUTH_TAB_CHROMIUM_SHA256: [0-9a-f]{64}\n/);
+    expect(authTab).toContain('sha256sum --check');
+    expect(authTab).toContain('uses: ./.github/actions/start-eligibility-fixture');
+    const authTabScript = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
+    // Gradle's connected task commits installs without retrying, which the Android 37 image intermittently drops.
+    expect(authTabScript).not.toContain('connectedDebugAndroidTest');
+    expect(authTabScript).toContain("grep -qxF 'OK (1 test)'");
+    expect(authTabScript).toContain('"${provider_version%%.*}" -lt 137');
+    // Android 36 keeps one system_server for the whole run, so installs wait only for the package manager.
+    for (const probe of [
+      'wait_for_stable_system',
+      'pidof system_server',
+      'restart-reason.txt',
+      'system-server-pids.txt'
+    ]) {
+      expect(authTabScript).not.toContain(probe);
+    }
+    expect(authTabScript).toContain('for attempt in 1 2 3');
+    expect(authTabScript).toContain('for _ in $(seq 1 30); do timeout 15s adb shell pm path android');
+    expect(authTabScript).toContain('logcat-crash.txt');
+    expect(authTabScript).toContain('verifier_verify_adb_installs');
     expect(authTab).toContain("if: github.event_name == 'workflow_dispatch' && inputs.suite == 'auth-tab'");
     expect(authTab).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 90 \|\| 60 \}\}/);
     expect(android).toContain('E2E_ANDROID_BASE_AVD: Pixel_API_37');
@@ -139,18 +163,36 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(emulator).toContain("const BASE_AVD = process.env.E2E_ANDROID_BASE_AVD ?? 'Pixel_API_34';");
   });
 
-  it('stops the Auth Tab Gradle daemon after the Firefox probe and before Playwright', () => {
+  it('stops the Auth Tab Gradle daemon before the emulator boots and readies Firefox before Playwright', () => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
     const authTab = jobBlock('android-auth-tab-acceptance', browser, 'e2e-dapp-browser.yml');
     const acceptance = readFileSync(resolve(__dirname, '../../../.github/scripts/run-auth-tab-acceptance.sh'), 'utf8');
-    const firefox = acceptance.indexOf('expectedProvider=org.mozilla.firefox');
-    const stop = acceptance.indexOf('./gradlew --stop');
+    const build = authTab.indexOf('./gradlew :app:assembleDebugAndroidTest && ./gradlew --stop');
+    const runner = authTab.indexOf('name: Run Auth Tab acceptance on Google Play emulator');
+    const certificate = acceptance.indexOf('run_instrumentation_test com.miden.wallet.AuthTabCertificateSetupTest');
+    const firefoxSetup = acceptance.indexOf('run_instrumentation_test com.miden.wallet.FirefoxCustomTabSetupTest');
+    const firefoxProbe = acceptance.indexOf('expectedProvider org.mozilla.firefox');
     const playwright = acceptance.indexOf('yarn playwright test --config playwright.android.auth-tab.config.ts');
 
     expect(authTab).toContain('bash .github/scripts/run-auth-tab-acceptance.sh');
-    expect(firefox).toBeGreaterThan(-1);
-    expect(stop).toBeGreaterThan(firefox);
-    expect(stop).toBeLessThan(playwright);
+    expect(build).toBeGreaterThan(-1);
+    expect(build).toBeLessThan(runner);
+    expect(acceptance).not.toContain('gradlew');
+    // Firefox trusts the fixture CA only once its setting is on, so the setting follows the CA install.
+    expect(certificate).toBeGreaterThan(-1);
+    expect(firefoxSetup).toBeGreaterThan(certificate);
+    expect(firefoxProbe).toBeGreaterThan(firefoxSetup);
+    expect(playwright).toBeGreaterThan(firefoxProbe);
+    expect(acceptance).toContain(
+      "grep -F 'firefoxThirdPartyCaEnabled=true firefoxOpenLinksInApps=always' \"$results_dir/firefox-setup.log\""
+    );
+    const firefoxTest = readFileSync(
+      resolve(__dirname, '../../../android/app/src/androidTest/java/com/miden/wallet/FirefoxCustomTabSetupTest.java'),
+      'utf8'
+    );
+    expect(firefoxTest).toContain('Uri.parse("fenix://settings")');
+    expect(firefoxTest).toContain('By.res(FIREFOX, "wordmark")');
+    expect(firefoxTest).toContain('"Use third party CA certificates"');
   });
 
   it('runs the full Auth Tab acceptance inside the bounded shared Google Play emulator runner', () => {
@@ -176,12 +218,19 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     const pinBinding = acceptance.indexOf('device_pin=1234');
     const pinSet = acceptance.indexOf('adb shell locksettings set-pin "$device_pin"');
     const certificateSetup = acceptance.indexOf('AuthTabCertificateSetupTest');
-    const pinArgument = acceptance.indexOf('-Pandroid.testInstrumentationRunnerArguments.devicePin=$device_pin');
+    const pinArgument = acceptance.indexOf('caSubject "$AUTH_TAB_CA_SUBJECT" devicePin "$device_pin"');
+    const firefoxPinArgument = acceptance.indexOf(
+      'FirefoxCustomTabSetupTest firefox-setup.log devicePin "$device_pin"'
+    );
     expect(pinBinding).toBeGreaterThan(-1);
     expect(pinSet).toBeGreaterThan(pinBinding);
-    expect(acceptance.split('devicePin=$device_pin')).toHaveLength(2);
+    // A sleeping screen would return on the PIN keyguard and hide every app the run opens.
+    expect(acceptance.indexOf('adb shell svc power stayon true')).toBeGreaterThan(-1);
+    expect(acceptance.indexOf('adb shell svc power stayon true')).toBeLessThan(pinSet);
+    expect(acceptance.split('devicePin "$device_pin"')).toHaveLength(3);
     expect(pinArgument).toBeGreaterThan(certificateSetup);
-    expect(pinArgument).toBeLessThan(acceptance.indexOf('expectedProvider=com.android.chrome'));
+    expect(firefoxPinArgument).toBeGreaterThan(pinArgument);
+    expect(firefoxPinArgument).toBeLessThan(acceptance.indexOf('expectedProvider "$AUTH_TAB_PROVIDER"'));
     const certificateTest = readFileSync(
       resolve(__dirname, '../../../android/app/src/androidTest/java/com/miden/wallet/AuthTabCertificateSetupTest.java'),
       'utf8'
@@ -191,6 +240,16 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(certificateTest).toContain('By.res("com.android.settings", "next_button")');
     expect(acceptance).toContain('yarn playwright test --config playwright.android.auth-tab.config.ts');
     expect(authTab).not.toContain('adb wait-for-device');
+    // The script installs the wallet APK; the spec only resets and launches it.
+    const spec = readFileSync(resolve(__dirname, '../android/tests/auth-tab.android.spec.ts'), 'utf8');
+    expect(acceptance).toContain('install_apk android/app/build/outputs/apk/debug/app-debug.apk');
+    expect(spec.indexOf('emulator.install')).toBe(-1);
+    expect(spec.indexOf('APK_PATH')).toBe(-1);
+    const reset = ['emulator.terminate', 'emulator.wipeAppState', 'emulator.grantNotifications', 'emulator.launch'].map(
+      call => spec.indexOf(call)
+    );
+    expect(reset[0]).toBeGreaterThan(-1);
+    expect(reset).toEqual([...reset].sort((x, y) => x - y));
   });
 
   it('keeps Auth Tab evidence collection bounded when emulator boot or acceptance fails', () => {

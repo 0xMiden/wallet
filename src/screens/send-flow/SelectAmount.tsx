@@ -310,6 +310,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       showDivider={showAmountDivider && !!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
+      aria-label={typeof label === 'string' ? label : undefined}
       onValueChange={value => onAmountChange(value || '')}
     />
   );

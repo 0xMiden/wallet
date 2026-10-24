@@ -34,7 +34,31 @@ import { holdNavbarHidden } from './useHideNavbarWhileOpen';
  * the top with an empty gap above the keyboard. So `--keyboard-height` is left
  * at 0 on Android and the native resize does the work. The listeners still
  * register there, so the navbar is held hidden while the keyboard is up.
+ *
+ * The keyboard notifications are application wide. A keyboard that an embedded dApp WebView
+ * raises (the native dApp browser's window) reaches these listeners too, and that keyboard
+ * is not over the wallet's layout. Padding the body for it shrinks the dApp slot, the native
+ * side re-fits the dApp window under its opaque cover, and that re-fit takes the key window
+ * back from the dApp, which dismisses the keyboard the dApp had just raised. So a WillShow
+ * is applied only while an element of the wallet document is being edited.
  */
+
+/**
+ * True while the focused element of the wallet document takes keyboard input. The page itself must
+ * hold focus too: when the dApp window takes it, the wallet field stays `document.activeElement`.
+ */
+function walletIsEditing(): boolean {
+  if (!document.hasFocus()) return false;
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return false;
+  return (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement ||
+    active instanceof HTMLSelectElement ||
+    active.isContentEditable
+  );
+}
+
 export async function initKeyboardInset(): Promise<void> {
   if (!isMobile()) return;
 
@@ -69,6 +93,9 @@ export async function initKeyboardInset(): Promise<void> {
   const registrations = await Promise.allSettled([
     Keyboard.addListener('keyboardWillShow', info => {
       if (!active) return;
+      // A keyboard raised by a dApp WebView: the wallet's layout is not under it. iOS only: the
+      // dApp window re-fit that dismisses it is native iOS behavior.
+      if (ios && !walletIsEditing()) return;
       if (ios) root.style.setProperty('--keyboard-height', `${info.keyboardHeight || 0}px`);
       // A keyboard type change reports WillShow again without a hide: one hold, not two.
       releaseNavbar ??= holdNavbarHidden();

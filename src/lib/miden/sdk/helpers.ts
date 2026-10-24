@@ -19,6 +19,8 @@ import {
 
 import { getNetworkId } from 'lib/miden-chain/constants';
 
+import { selectFungibleAssetSlot } from './fungible-asset-slot';
+
 export function getBech32AddressFromAccountId(accountId: AccountId): string {
   const accountAddress = Address.fromAccountId(accountId, 'BasicWallet');
   return accountAddress.toBech32(getNetworkId());
@@ -177,12 +179,7 @@ export function resolveHeldFungibleAsset(
   // faucet both could, this decides which CALLBACK FLAG the outgoing asset
   // carries — the largest-slot fallback below would otherwise pick by size and
   // could hand back the wrong variant.
-  const held =
-    heldForFaucet.find(asset => asset.amount() >= amount) ??
-    heldForFaucet.reduce<FungibleAsset | undefined>(
-      (largest, asset) => (largest && largest.amount() >= asset.amount() ? largest : asset),
-      undefined
-    );
+  const held = selectFungibleAssetSlot(heldForFaucet, amount);
   if (!held) {
     // The local vault shows nothing from this faucet. Usually stale local state
     // rather than a real shortfall, so this still builds the request and lets

@@ -330,7 +330,7 @@ const Explore: FC = () => {
       </div>
 
       <div
-        className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        className="relative flex-1 min-h-0 overflow-y-auto overscroll-y-contain"
         data-testid="explore-scroll-container"
         onTouchStart={isMobileApp ? handleTouchStart : undefined}
         onTouchMove={isMobileApp ? handleTouchMove : undefined}

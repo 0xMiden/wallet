@@ -682,6 +682,18 @@ final class BreadPresentationController: NSObject {
         animator.startAnimation()
     }
 
+    /// True while the first responder is inside the dApp web view (WebKit's content view holds it
+    /// for a focused field, not the `WKWebView` itself).
+    private var webViewIsEditing: Bool {
+        guard let webView else { return false }
+        return Self.containsFirstResponder(webView)
+    }
+
+    private static func containsFirstResponder(_ view: UIView) -> Bool {
+        if view.isFirstResponder { return true }
+        return view.subviews.contains { containsFirstResponder($0) }
+    }
+
     private func tick() {
         let now = ProcessInfo.processInfo.systemUptime
         state.elapse(now - lastTick)
@@ -711,7 +723,10 @@ final class BreadPresentationController: NSObject {
             applyWarmth(to: window)
             if systemUIHeld == nil {
                 if immersive { window.makeKey() }
-                else if window.isKeyWindow { hostWindow?.makeKey() }
+                // The dApp window becomes key when a field in its web view takes focus. A render that
+                // lands then (a slot re-fit, a policy publish) must not hand key status back to the
+                // host: that resigns the field and dismisses the keyboard the dApp has just raised.
+                else if window.isKeyWindow, !webViewIsEditing { hostWindow?.makeKey() }
             }
         }
         if systemUIHeld == nil {

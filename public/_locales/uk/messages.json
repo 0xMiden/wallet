@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Створіть резервну копію вашої фрази-насіння",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Створіть резервну копію зараз",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Сума на вашому гаманці досягла 150 доларів США. Щоб продовжити, вам необхідно створити резервну копію вашої фрази-насіння. Запишіть її, зберігайте в безпечному місці та пройдіть перевірку, щоб користуватися гаманцем.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Не вдалося зберегти резервну копію чека. Спробуйте ще раз.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Не вдалося перевірити ваш доступний баланс. Спробуйте ще раз.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Дочекайтеся завершення вашої транзакції, що перебуває в стані очікування, перед тим, як здійснювати обмін.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Точна сума виплати",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Орієнтовна сума виплати за ваш об’єкт отримання. Повне виконання може принести більшу суму; часткове виконання може залишити вам менше коштів на момент закінчення терміну дії.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Прослизання коригує розраховану суму виплати, тоді як запитувана вами сума отримання залишається незмінною.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3489,6 +3534,34 @@
     "message": "Це видаляє гаманець з цього пристрою, щоб ви могли відновити його пізніше, наприклад, за допомогою іншого URL-адреси «guardian». Ваші кошти залишаються в мережі. Для відновлення гаманця вам знадобиться ваша фраза відновлення.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Цей рахунок зберігається на іншому пристрої",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Повсякденний ключ цього облікового запису було перенесено на інший пристрій, зазвичай шляхом відновлення гаманця на ньому. Цей пристрій не може використовувати обліковий запис, доки ви знову не зробите його основним пристроєм.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Повсякденний ключ цього облікового запису було перенесено на інший пристрій, зазвичай шляхом відновлення гаманця на ньому. Цей пристрій не має ключа відновлення, тому не може повернути обліковий запис. Відновіть гаманець за допомогою своєї фрази відновлення, щоб користуватися ним тут.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Зробити цей пристрій основним",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Зробити цей пристрій основним?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Гаманець переносить щоденний ключ на цей пристрій. Інший пристрій втрачає доступ до цього рахунку і бачить те саме повідомлення. З рахунку сплачується невелика мережева комісія.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Видалити гаманець з цього пристрою",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Щоденна ротація ключів не підтверджена",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4924,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet Запит",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Діяльність",

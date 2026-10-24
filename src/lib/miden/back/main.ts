@@ -773,6 +773,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SetGuardianSyncStatusResponse
       };
+    case WalletMessageType.MarkHotKeyRotatedOutRequest:
+      await Actions.markHotKeyRotatedOut(req.accountPublicKey, req.hotPublicKey, req.onChainHotCommitment);
+      return {
+        type: WalletMessageType.MarkHotKeyRotatedOutResponse
+      };
+    case WalletMessageType.RetireRotatedOutHotKeyRequest:
+      await Actions.retireRotatedOutHotKey(req.accountPublicKey, req.expectedHotPubKey);
+      return {
+        type: WalletMessageType.RetireRotatedOutHotKeyResponse
+      };
     case WalletMessageType.CheckGuardianDriftRequest:
       const driftStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
       return {

@@ -50,8 +50,8 @@ public class AuthTabCertificateSetupTest {
         clickText(device, "CA certificate");
         clickPastMore(device, "Install anyway");
         confirmPinIfAsked(device, devicePin, "Downloads", CERTIFICATE_FILE);
-        // The picker can open on Recent files with the certificate already listed.
-        if (!waitForEither(device, CERTIFICATE_FILE, "Downloads")) clickText(device, "Downloads");
+        // The picker can open on Recent files, with or without the certificate listed; Downloads is then in its drawer.
+        if (!waitForEither(device, CERTIFICATE_FILE, "Downloads")) openDownloads(device);
         clickText(device, CERTIFICATE_FILE);
         confirmPinIfAsked(device, devicePin, "Install anyway", "Install", "OK", "Done");
         clickFirstAvailable(device, "Install anyway", "Install", "OK");
@@ -82,7 +82,7 @@ public class AuthTabCertificateSetupTest {
 
     // A user-CA install on a PIN-locked device asks for the screen lock before it continues.
     // The runner sets the device PIN just before this test, so the screen can already be on the PIN keyguard.
-    private static void unlockWithPin(UiDevice device, String devicePin) throws Exception {
+    static void unlockWithPin(UiDevice device, String devicePin) throws Exception {
         device.wakeUp();
         KeyguardManager keyguard = (KeyguardManager) InstrumentationRegistry.getInstrumentation()
             .getTargetContext().getSystemService(Context.KEYGUARD_SERVICE);
@@ -129,9 +129,10 @@ public class AuthTabCertificateSetupTest {
     }
 
     // Settings redraws its lists after navigating, so a found row can go stale before the click lands.
-    private static void clickText(UiDevice device, String text) {
+    static void clickText(UiDevice device, String text) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
         while (true) {
+            dismissPlayServicesPrompt(device);
             UiObject2 element = findText(device, text, UI_TIMEOUT_MS);
             assertNotNull("Settings text not found: " + text + "; on screen: " + visibleLabels(device), element);
             try {
@@ -142,6 +143,14 @@ public class AuthTabCertificateSetupTest {
                 if (System.nanoTime() >= deadline) throw stale;
                 device.waitForIdle();
             }
+        }
+    }
+
+    // Play services can pop an account prompt ("Sign in with ease") over Settings at any moment on a fresh Play image.
+    private static void dismissPlayServicesPrompt(UiDevice device) {
+        for (int i = 0; i < 3 && "com.google.android.gms".equals(device.getCurrentPackageName()); i++) {
+            device.pressBack();
+            device.waitForIdle();
         }
     }
 
@@ -167,11 +176,11 @@ public class AuthTabCertificateSetupTest {
     }
 
     // Settings renders some buttons in capitals ("INSTALL ANYWAY"), so labels match without case.
-    private static BySelector label(String text) {
+    static BySelector label(String text) {
         return By.text(Pattern.compile("(?i)" + Pattern.quote(text)));
     }
 
-    private static String visibleLabels(UiDevice device) {
+    static String visibleLabels(UiDevice device) {
         StringBuilder labels = new StringBuilder();
         labels.append("pkg=").append(device.getCurrentPackageName()).append(' ');
         for (UiObject2 node : device.findObjects(By.text(Pattern.compile("(?s).+")))) {
@@ -198,18 +207,32 @@ public class AuthTabCertificateSetupTest {
         }
     }
 
-    // True when `first` shows; false when only `second` does. Waits without scrolling, since the picker is still opening.
+    // True when `first` shows; false when it does not, once `second` or the picker's Recent view is up.
+    // Waits without scrolling, since the picker is still opening.
     private static boolean waitForEither(UiDevice device, String first, String second) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
+        int recentPolls = 0;
         while (System.nanoTime() < deadline) {
             if (device.findObject(label(first)) != null) return true;
             if (device.findObject(label(second)) != null) return false;
+            // Recent lists its files a moment after its header, so give it two seconds before going to Downloads.
+            if (device.findObject(label("Recent files")) != null && ++recentPolls > 4) return false;
             device.waitForWindowUpdate(null, 500);
         }
         throw new AssertionError("neither " + first + " nor " + second + " showed; on screen: " + visibleLabels(device));
     }
 
-    private static UiObject2 findText(UiDevice device, String text, long timeoutMs) {
+    private static void openDownloads(UiDevice device) {
+        if (device.findObject(label("Downloads")) == null) {
+            UiObject2 roots = device.wait(Until.findObject(By.desc(Pattern.compile("(?i)show roots"))), UI_TIMEOUT_MS);
+            assertNotNull("picker roots drawer not found; on screen: " + visibleLabels(device), roots);
+            roots.click();
+            device.waitForIdle();
+        }
+        clickText(device, "Downloads");
+    }
+
+    static UiObject2 findText(UiDevice device, String text, long timeoutMs) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         while (System.nanoTime() < deadline) {
             UiObject2 element = device.findObject(label(text));

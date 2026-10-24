@@ -1,6 +1,11 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+
+import { HISTORY_PAGE_SIZE } from 'app/defaults';
+import { getUncompletedTransactions, supersededFailedConsumeIds, suppressedLinkedConsumeIds } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
+import type { CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
 
 import { ActivityGroupedHistory } from './ActivityGroupedHistory';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
@@ -24,6 +29,9 @@ let mockRealHistory = false;
 const mockLatest: IHistoryEntry[] = [];
 // What the stubbed History reports about paging.
 const mockView = { hasMore: false };
+// Real History, with the fetcher actually run, so a Groups case can page.
+let mockRunFetcher = false;
+const mockGetCompletedTransactionsPage = jest.fn();
 // Set by a case that needs the real list, to see what the reads' state draws.
 let mockRealGroupList = false;
 // Each read's state, keyed by its SWR key's first element.
@@ -92,23 +100,82 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
 }));
 
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: (key: unknown[] | null) => {
+  useRetryableSWR: (
+    key: unknown[] | null,
+    fetcher: () => Promise<unknown>,
+    config?: { onSuccess?: (...args: unknown[]) => void }
+  ) => {
+    const latestPage = React.useMemo(
+      () => ({
+        entries: mockLatest,
+        rawIds: mockLatest.flatMap(entry => (entry.txId ? [entry.txId] : [])),
+        rawCount: mockLatest.length,
+        hasMore: false,
+        nextCursor: null
+      }),
+      []
+    );
+    const fetchingResult = useFetchingHistorySWR(key, fetcher, config, mockRunFetcher);
     // A read that is not running holds a null key: no data, not loading.
-    if (key === null) return { data: undefined, isLoading: false, error: undefined, mutate: jest.fn() };
-    const read = mockRead(String(key[0]));
-    return {
-      data: read.isLoading || read.error ? undefined : key[0] === 'latest-transactions' ? mockLatest : [],
-      isLoading: read.isLoading,
-      error: read.error,
-      mutate: read.mutate
-    };
+    if (!mockRunFetcher) {
+      if (key === null) return { data: undefined, isLoading: false, error: undefined, mutate: jest.fn() };
+      const read = mockRead(String(key[0]));
+      const data = read.isLoading || read.error ? undefined : key[0] === 'latest-transactions' ? latestPage : [];
+      return {
+        data,
+        isLoading: read.isLoading,
+        error: read.error,
+        mutate: read.mutate
+      };
+    }
+    return fetchingResult;
   }
+}));
+
+const useFetchingHistorySWR = (
+  key: unknown[] | null,
+  fetcher: () => Promise<unknown>,
+  config: { onSuccess?: (...args: unknown[]) => void } | undefined,
+  enabled: boolean
+) => {
+  const keyStr = JSON.stringify(key);
+  const [state, setState] = React.useState<{ data: unknown; isLoading: boolean; error?: unknown }>({
+    data: undefined,
+    isLoading: key !== null
+  });
+  React.useEffect(() => {
+    if (!enabled || key === null) return undefined;
+    let active = true;
+    Promise.resolve(fetcher()).then(
+      data => {
+        if (!active) return;
+        setState({ data, isLoading: false });
+        config?.onSuccess?.(data, key, config);
+      },
+      error => {
+        if (active) setState({ data: undefined, isLoading: false, error });
+      }
+    );
+    return () => {
+      active = false;
+    };
+    // The key string stands in for the key array; the fetcher closes over the test's page mock.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyStr, enabled]);
+  if (!enabled || key === null) return { data: undefined, isLoading: false, error: undefined, mutate: jest.fn() };
+  return { data: state.data, isLoading: state.isLoading, error: state.error, mutate: jest.fn() };
+};
+
+jest.mock('lib/miden/transaction/get', () => ({
+  ...jest.requireActual('lib/miden/transaction/get'),
+  getCompletedTransactionsPage: (request: unknown) => mockGetCompletedTransactionsPage(request)
 }));
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: jest.fn(),
   getCompletedTransactions: jest.fn(),
   getUncompletedTransactions: jest.fn(),
   isCancellableTransaction: () => false,
+  isOutcomeUnconfirmed: () => false,
   isUserCancelledTransaction: () => false,
   suppressedLinkedConsumeIds: jest.fn(),
   supersededFailedConsumeIds: jest.fn(async () => new Set()),
@@ -134,7 +201,12 @@ const claim = (id: string, status: PendingActivityItem['status']): PendingActivi
   status
 });
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: { count?: number }) =>
+      key === 'activityGroupPartialCount' && options?.count !== undefined ? `${options.count}+` : key
+  })
+}));
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
     items: mockClaims.items,
@@ -158,7 +230,33 @@ jest.mock('lib/animation', () => ({
   usePreset: () => ({ initial: {}, animate: {}, exit: {}, transition: { duration: 0 } })
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: '/history' }) }));
+jest.mock('lib/woozie', () => ({
+  navigate: jest.fn(),
+  useLocation: () => ({ pathname: '/history' }),
+  Link: ({ to, children, ...rest }: { to: string; children: React.ReactNode }) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  )
+}));
+
+type MockScrollerProps = {
+  children: React.ReactNode;
+  hasMore: boolean;
+  loadMore: (page: number) => void;
+};
+const mockScroller: { props?: MockScrollerProps } = {};
+jest.mock('react-infinite-scroller', () => ({
+  __esModule: true,
+  default: (props: MockScrollerProps) => {
+    mockScroller.props = props;
+    return (
+      <div data-testid="infinite-scroll" data-has-more={String(props.hasMore)}>
+        {props.children}
+      </div>
+    );
+  }
+}));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
 jest.mock('components/Button', () => ({
@@ -182,7 +280,9 @@ describe('ActivityGroupedHistory', () => {
     mockRealHistory = false;
     mockLatest.length = 0;
     mockView.hasMore = false;
+    mockRunFetcher = false;
     mockRealGroupList = false;
+    mockScroller.props = undefined;
     for (const key of Object.keys(mockReads)) delete mockReads[key];
     mockClaims.items = [];
     mockClaims.isLoadingNotes = false;
@@ -192,7 +292,7 @@ describe('ActivityGroupedHistory', () => {
 
   it('draws an incoming transfer above the groups, with Accept and Decline', async () => {
     mockClaims.items = [claim('note-1', 'pending')];
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     const card = screen.getByTestId('activity-group-claims').querySelector('[data-pending-note-id="note-1"]');
     if (!(card instanceof HTMLElement)) throw new Error('Missing claim card');
@@ -210,7 +310,7 @@ describe('ActivityGroupedHistory', () => {
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {
     mockClaims.items = [claim('note-declined', 'pending'), claim('note-open', 'pending')];
     mockHidden.ids = new Set(['note-declined', 'gone']);
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
     const restore = screen.getByRole('button', { name: 'activityRestoreTransfers' });
@@ -226,17 +326,17 @@ describe('ActivityGroupedHistory', () => {
   it('offers no Restore when no declined transfer can still be accepted', () => {
     mockClaims.items = [claim('note-declined', 'claimed')];
     mockHidden.ids = new Set(['note-declined', 'gone']);
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).toBeNull();
   });
 
   it('shows the claims loading while incoming notes are still being read', () => {
-    const { rerender } = render(<ActivityGroupedHistory search="" />);
+    const { rerender } = render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
     expect(screen.queryByRole('progressbar')).toBeNull();
 
     mockClaims.isLoadingNotes = true;
-    rerender(<ActivityGroupedHistory search="" />);
+    rerender(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
@@ -248,7 +348,7 @@ describe('ActivityGroupedHistory', () => {
       entry({ key: 'consume-claiming', txType: 'consume', consumedNoteIds: ['note-claiming'] }),
       entry({ key: 'send-1' })
     );
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(historyProps.pendingItems).toEqual([claiming]);
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-keys', 'send-1');
@@ -262,7 +362,7 @@ describe('ActivityGroupedHistory', () => {
       entry({ key: 'consume-claiming', txType: 'consume', consumedNoteIds: ['note-claiming'] }),
       entry({ key: 'send-1' })
     );
-    render(<ActivityGroupedHistory search="zzzz-nothing" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="zzzz-nothing" />);
 
     expect(historyProps.pendingItems).toEqual([claiming]);
     expect(screen.queryByTestId('activity-group-claims')).toBeNull();
@@ -271,7 +371,7 @@ describe('ActivityGroupedHistory', () => {
 
   it('rolls up the loaded entries and searches the groups rather than the entries', () => {
     loaded.push(entry(), entry({ key: 'entry-2' }));
-    render(<ActivityGroupedHistory search="usdc" programId="prog-1" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="usdc" programId="prog-1" />);
 
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-count', '2');
     expect(historyProps.searchQuery).toBeUndefined();
@@ -280,15 +380,88 @@ describe('ActivityGroupedHistory', () => {
     expect(historyProps.address).toBe('0xme');
   });
 
-  it("gives the groups final counts, since History's first read already holds the whole history", () => {
+  it('forwards History hasMore so a count stays partial while older pages remain', () => {
     mockView.hasMore = true;
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
-    expect(screen.getByTestId('group-list')).toHaveAttribute('data-has-more', 'false');
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-has-more', 'true');
+  });
+
+  it('pages an older counterparty and keeps the count partial until the history is exhausted', async () => {
+    mockRealHistory = true;
+    mockRealGroupList = true;
+    mockRunFetcher = true;
+    const newest = Array.from({ length: HISTORY_PAGE_SIZE }, (_, index) => ({
+      id: `alice-${index}`,
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      displayMessage: 'Sent',
+      displayIcon: 'SEND',
+      secondaryAccountId: 'mtst1alice',
+      completedAt: 20_000 - index,
+      initiatedAt: 20_000 - index
+    }));
+    const older = {
+      id: 'bob-only',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      displayMessage: 'Sent',
+      displayIcon: 'SEND',
+      secondaryAccountId: 'mtst1bob',
+      completedAt: 1,
+      initiatedAt: 1
+    };
+    const cursorFor = (row: { id: string; completedAt: number; initiatedAt: number; status: ITransactionStatus }) => ({
+      effectiveTimestamp: row.completedAt,
+      transactionId: row.id,
+      status: row.status,
+      initiatedAt: row.initiatedAt
+    });
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) => {
+      if (request.fromEnd) {
+        return {
+          transactions: newest,
+          rawCount: newest.length,
+          hasMore: true,
+          nextCursor: cursorFor(newest[newest.length - 1]!)
+        };
+      }
+      return {
+        transactions: [older],
+        rawCount: 1,
+        hasMore: false,
+        nextCursor: cursorFor(older)
+      };
+    });
+    jest.mocked(suppressedLinkedConsumeIds).mockResolvedValue(new Set());
+    jest.mocked(supersededFailedConsumeIds).mockResolvedValue(new Set());
+    jest.mocked(getUncompletedTransactions).mockResolvedValue([]);
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    await waitFor(() => expect(screen.getByText(`${HISTORY_PAGE_SIZE}+`)).toBeTruthy());
+    expect(document.querySelector('[data-group-id="mtst1bob"]')).toBeNull();
+    expect(mockScroller.props?.hasMore).toBe(true);
+
+    await act(async () => {
+      await mockScroller.props?.loadMore(1);
+    });
+
+    await waitFor(() => expect(document.querySelector('[data-group-id="mtst1bob"]')).toBeTruthy());
+    expect(document.querySelector('[data-group-id="mtst1alice"]')).toHaveAttribute(
+      'data-group-count',
+      String(HISTORY_PAGE_SIZE)
+    );
+    expect(screen.getByText(String(HISTORY_PAGE_SIZE))).toBeTruthy();
+    expect(screen.getByText('1')).toBeTruthy();
+    expect(screen.queryByText(`${HISTORY_PAGE_SIZE}+`)).toBeNull();
+    expect(mockScroller.props?.hasMore).toBe(false);
   });
 
   it('narrows by nothing else: grouping the whole history is what this view filters by', () => {
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(historyProps.filter).toBeUndefined();
     expect(historyProps.predicate).toBeUndefined();
@@ -296,13 +469,13 @@ describe('ActivityGroupedHistory', () => {
 
   it('keeps the rows still in flight, so a group can report them', () => {
     loaded.push(entry({ type: HistoryEntryType.PendingTransaction }), entry({ key: 'entry-2' }));
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-count', '2');
   });
 
   it('resolves a counterparty to its contact, whatever the case, and ignores a blank name', () => {
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     const list = screen.getByTestId('group-list');
     expect(list).toHaveAttribute('data-alice', 'Alice');
@@ -313,7 +486,7 @@ describe('ActivityGroupedHistory', () => {
     mockRealHistory = true;
     mockRealGroupList = true;
     mockRead('latest-pending-transactions').isLoading = true;
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.queryByText('noOperationsFound')).toBeNull();
     expect(screen.queryByTestId('history-load-error')).toBeNull();
@@ -324,7 +497,7 @@ describe('ActivityGroupedHistory', () => {
     mockRealHistory = true;
     mockRealGroupList = true;
     mockRead('latest-pending-transactions').error = new Error('boom');
-    render(<ActivityGroupedHistory search="" />);
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
     expect(screen.queryByText('noOperationsFound')).toBeNull();
     const card = screen.getByTestId('history-load-error');

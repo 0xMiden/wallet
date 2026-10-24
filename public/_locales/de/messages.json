@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Sichern Sie Ihre Seed-Phrase",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Jetzt sichern",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Das Guthaben in Ihrer Wallet hat 150 US-Dollar erreicht. Sie müssen Ihre Seed-Phrase sichern, bevor Sie fortfahren können. Notieren Sie sie, bewahren Sie sie an einem sicheren Ort auf und schließen Sie die Überprüfung ab, um Ihre Wallet nutzen zu können.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Die Sicherungsprüfung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Ihr verfügbares Guthaben konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Warten Sie, bis Ihre ausstehende Transaktion abgeschlossen ist, bevor Sie den Swap durchführen.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Genauer Zahlungsbetrag",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Geschätzte Auszahlung für Ihr Empfangsziel. Bei einer vollständigen Ausführung kann die Auszahlung höher ausfallen; bei teilweisen Ausführungen erhalten Sie bei Fälligkeit möglicherweise weniger.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Durch Slippage wird der berechnete Auszahlungsbetrag angepasst, während Ihr angeforderter Empfangsbetrag unverändert bleibt.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3489,6 +3534,34 @@
     "message": "Dadurch wird die Wallet von diesem Gerät entfernt, sodass Sie sie wiederherstellen können, beispielsweise mit einer anderen „guardian“-URL. Ihr Guthaben verbleibt im Netzwerk. Zur Wiederherstellung der Wallet benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Ein anderes Gerät verwaltet dieses Konto",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Der Alltagsschlüssel dieses Kontos wurde auf ein anderes Gerät übertragen, in der Regel durch die Wiederherstellung der Wallet auf diesem Gerät. Dieses Gerät kann das Konto erst wieder nutzen, wenn Sie es erneut als Hauptgerät festlegen.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Der Alltagsschlüssel dieses Kontos wurde auf ein anderes Gerät übertragen, in der Regel durch die Wiederherstellung der Wallet dort. Dieses Gerät verfügt über keinen Wiederherstellungsschlüssel, sodass das Konto nicht zurückübertragen werden kann. Stellen Sie die Wallet mit Ihrer Wiederherstellungsphrase wieder her, um sie hier nutzen zu können.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Machen Sie dieses Gerät zum Hauptgerät",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Dieses Gerät als Hauptgerät festlegen?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Die Wallet wechselt den täglichen Schlüssel auf dieses Gerät. Das andere Gerät verliert den Zugriff auf dieses Konto und sieht dieselbe Benachrichtigung. Eine geringe Netzwerkgebühr wird vom Konto abgebucht.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Entfernen Sie die Wallet von diesem Gerät",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Tägliche Schlüsselrotation nicht bestätigt",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4924,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet Anfrage",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Aktivität",

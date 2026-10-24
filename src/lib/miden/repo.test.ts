@@ -9,6 +9,7 @@ import {
   StorageOwner
 } from 'lib/telemetry/crash-diagnostics';
 
+import { compareAccountIds } from './activity/utils';
 import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
   createSchemaFor,
@@ -24,6 +25,7 @@ import {
   SPENDING_LIMITS_V19_STORE
 } from './repo';
 import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
+import { getCompletedTransactionsPage } from './transaction/get';
 import { isRequeueableTransaction } from './transaction/retry';
 import { NoteTypeEnum } from './types';
 
@@ -2084,6 +2086,146 @@ describe('wallet storage rejection boundaries', () => {
       expect(snapshotCrashDiagnostics(caught)).toEqual(pair('wallet_limits', 'mutate'));
     } finally {
       await dispose(target);
+    }
+  });
+});
+
+describe('bounded transaction history', () => {
+  const historyRow = (id: string, overrides: Partial<ITransaction> = {}): ITransaction => ({
+    id,
+    type: 'send',
+    accountId: 'acc-1',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    displayIcon: 'SEND',
+    faucetId: 'f1',
+    ...overrides
+  });
+
+  // The legacy full read sorts by `(completedAt || initiatedAt)` and keeps primary-key order on ties.
+  const legacyHistoryOrder = (rows: readonly ITransaction[], includeFailed: boolean): ITransaction[] =>
+    rows
+      .filter(tx => {
+        const statusMatches =
+          tx.status === ITransactionStatus.Completed ||
+          (includeFailed && (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed));
+        if (!statusMatches || !compareAccountIds(tx.accountId, 'acc-1')) return false;
+        return (
+          tx.faucetId === 'f1' ||
+          (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === 'f1') ||
+          tx.assetTotals?.some(total => total.faucetId === 'f1') === true
+        );
+      })
+      .sort(
+        (a, b) =>
+          (a.completedAt || a.initiatedAt) - (b.completedAt || b.initiatedAt) ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      );
+
+  it('merges the completedAt and initiatedAt indexes in the legacy order', async () => {
+    const name = `history-index-page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isolated = createSchemaFor(name);
+    const rows = [
+      historyRow('neg', { completedAt: -5, initiatedAt: 100 }),
+      historyRow('miss', { initiatedAt: 10 }),
+      historyRow('zero-a', {
+        type: 'consume',
+        faucetId: 'other',
+        initiatedAt: 10,
+        completedAt: 0,
+        assetTotals: [{ faucetId: 'f1', amount: 1n }]
+      }),
+      historyRow('zero-b', {
+        type: 'swap',
+        faucetId: 'f2',
+        initiatedAt: 10,
+        completedAt: 0,
+        extraInputs: { requestedFaucetId: 'f1' }
+      }),
+      historyRow('fail', { status: ITransactionStatus.Failed, initiatedAt: 1, completedAt: 15 }),
+      historyRow('fall-20', { initiatedAt: 20, completedAt: 0 }),
+      historyRow('prim', { initiatedAt: 1, completedAt: 20 }),
+      historyRow('tie-a', { initiatedAt: 3, completedAt: 20 }),
+      historyRow('tie-b', { initiatedAt: 50, completedAt: 20 }),
+      historyRow('unconf', {
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1_tag',
+        initiatedAt: 30,
+        completedAt: 30
+      }),
+      historyRow('other-acct', { accountId: 'acc-2', initiatedAt: 1, completedAt: 1 }),
+      historyRow('other-tok', { faucetId: 'f2', initiatedAt: 12, completedAt: 12 }),
+      historyRow('queued', { status: ITransactionStatus.Queued, initiatedAt: 16, completedAt: 16 }),
+      historyRow('newer-wrong', { faucetId: 'f2', initiatedAt: 90, completedAt: 90 }),
+      historyRow('newer-other', { accountId: 'acc-2', initiatedAt: 100, completedAt: 100 })
+    ];
+    try {
+      await isolated.open();
+      const table = isolated.table<ITransaction, string>(Table.Transactions);
+      expect(table.schema.idxByName.completedAt).toBeDefined();
+      expect(table.schema.idxByName.initiatedAt).toBeDefined();
+      await table.bulkAdd(rows);
+      const legacy = legacyHistoryOrder(rows, true).map(tx => tx.id);
+      expect(legacy).toEqual([
+        'neg',
+        'miss',
+        'zero-a',
+        'zero-b',
+        'fail',
+        'fall-20',
+        'prim',
+        'tie-a',
+        'tie-b',
+        'unconf'
+      ]);
+
+      const openCursor = jest.spyOn(table.core, 'openCursor');
+      const request = { accountId: 'acc-1', tokenId: 'f1', includeFailed: true };
+      const newest = await getCompletedTransactionsPage({ ...request, fromEnd: true, limit: 3 }, table);
+      const older = await getCompletedTransactionsPage({ ...request, limit: 3, cursor: newest.nextCursor }, table);
+      const rest = await getCompletedTransactionsPage({ ...request, limit: 10, cursor: older.nextCursor }, table);
+      const seen = [...newest.transactions, ...older.transactions, ...rest.transactions].map(tx => tx.id);
+
+      expect(newest.transactions.map(tx => tx.id)).toEqual(['unconf', 'tie-b', 'tie-a']);
+      expect(newest.rawCount).toBe(3);
+      expect(newest.hasMore).toBe(true);
+      expect(newest.nextCursor).toEqual({
+        effectiveTimestamp: 20,
+        transactionId: 'tie-a',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 3
+      });
+      expect(older.transactions.map(tx => tx.id)).toEqual(['prim', 'fall-20', 'fail']);
+      expect(older.nextCursor).toEqual({
+        effectiveTimestamp: 15,
+        transactionId: 'fail',
+        status: ITransactionStatus.Failed,
+        initiatedAt: 1
+      });
+      expect(rest.hasMore).toBe(false);
+      expect(rest.rawCount).toBe(4);
+      expect([...seen].reverse()).toEqual(legacy);
+
+      const completedOnly = await getCompletedTransactionsPage(
+        { accountId: 'acc-1', tokenId: 'f1', includeFailed: false, fromEnd: true, limit: 20 },
+        table
+      );
+      expect(completedOnly.transactions.map(tx => tx.id)).toEqual(
+        legacyHistoryOrder(rows, false)
+          .map(tx => tx.id)
+          .reverse()
+      );
+      expect(completedOnly.hasMore).toBe(false);
+
+      const names = openCursor.mock.calls
+        .map(call => call[0].query.index.name)
+        .filter((name): name is string => typeof name === 'string');
+      expect(names).toContain('completedAt');
+      expect(names).toContain('initiatedAt');
+      expect(names.every(name => name === 'completedAt' || name === 'initiatedAt')).toBe(true);
+    } finally {
+      isolated.close();
+      await Dexie.delete(name);
     }
   });
 });

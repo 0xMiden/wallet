@@ -336,6 +336,46 @@ describe('EmulatorControl', () => {
     });
   });
 
+  describe('install', () => {
+    const APK = __filename;
+    const isInstall = (args: string[]): boolean => args.includes('install');
+
+    it('retries an install whose commit the package service dropped, then succeeds', async () => {
+      const replies: AdbReply[] = [{ error: new Error('cmd: Failure calling service package: Broken pipe (32)') }, {}];
+      const calls = adbAnswers(args => (isInstall(args) ? replies.shift()! : {}));
+
+      const installed = new EmulatorControl().install(SERIAL, APK);
+      await jest.advanceTimersByTimeAsync(10_000);
+      await installed;
+
+      expect(calls.filter(call => isInstall(call.args)).map(call => call.args)).toEqual([
+        ['-s', SERIAL, 'install', '-r', '-t', APK],
+        ['-s', SERIAL, 'install', '-r', '-t', APK]
+      ]);
+    });
+
+    it('fails at once on any other install error', async () => {
+      const calls = adbAnswers(args =>
+        isInstall(args) ? { error: new Error('INSTALL_FAILED_INSUFFICIENT_STORAGE') } : {}
+      );
+
+      await expect(new EmulatorControl().install(SERIAL, APK)).rejects.toThrow('INSUFFICIENT_STORAGE');
+      expect(calls.filter(call => isInstall(call.args))).toHaveLength(1);
+    });
+
+    it('gives up after three dropped commits', async () => {
+      const calls = adbAnswers(args => (isInstall(args) ? { error: new Error('Broken pipe (32)') } : {}));
+
+      const outcome = new EmulatorControl().install(SERIAL, APK).then(
+        () => 'installed',
+        (err: Error) => err.message
+      );
+      await jest.advanceTimersByTimeAsync(20_000);
+      await expect(outcome).resolves.toContain('Broken pipe');
+      expect(calls.filter(call => isInstall(call.args))).toHaveLength(3);
+    });
+  });
+
   describe('launch', () => {
     afterEach(() => jest.restoreAllMocks());
 
