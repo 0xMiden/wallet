@@ -11,7 +11,7 @@ import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { prepareMainnet } from 'lib/miden/prepare-mainnet';
 import { clearClientStorage } from 'lib/miden/reset';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, hasDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
@@ -44,7 +44,7 @@ const ForgotPassword: FC = () => {
   // A new wallet on an invite-only network (mainnet, or any network once mainnet has launched) needs a
   // code, which this page does not take: its Welcome offers recovery only.
   const launched = useMainnetLaunched();
-  const liveRecoverOnly = isInviteOnlyRequired(launched, getEffectiveNetworkName());
+  const liveRecoverOnly = isInviteOnlyRequired(launched, getEffectiveNetworkName(), hasDeveloperNetworkChoice());
   // Fixed when the user leaves Welcome: a document that changes mid-reset must not move a recovery, or a fresh
   // wallet, made for the network it started on.
   const [startedRecoverOnly, setStartedRecoverOnly] = useState<boolean | null>(null);

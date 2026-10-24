@@ -49,6 +49,7 @@ import {
   GuardianRecoveryAction,
   SeedPhraseStatus,
   GuardianSyncStatus,
+  HotKeyRotatedOutVerdict,
   ImportedAccountBackup,
   KeyDerivation,
   SignEvmOperation,
@@ -59,6 +60,7 @@ import {
 } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
 import {
   MNEMONIC_PATTERN,
@@ -2171,23 +2173,121 @@ export class Vault {
       // release the old one. The inverse order has a lockout window: if removing
       // the old blobs succeeded but this write then threw, `hotPublicKey` would
       // point at a deleted key and the account could never sign again.
+      // The new key is the on-chain hot signer, so a rotated-out verdict about the old
+      // one is finished with: this device is the account's main device again.
       const newAllAccounts = allAccounts.map(acc =>
-        acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false } : acc
+        acc.publicKey === accountPublicKey
+          ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false, hotKeyRotatedOut: undefined }
+          : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
 
       // Now best-effort release the old hot key. A crash here only orphans the
       // old blobs (inert) — never a broken pointer.
       if (oldHotPubKey && oldHotPubKey !== newHotPubKey) {
-        try {
-          const oldCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(oldHotPubKey), this.vaultKey);
-          await secureHotKey.deleteHotKey(oldCiphertext);
-        } catch (e) {
-          console.warn('swapHotKey: failed to release old native key (non-fatal):', e);
-        }
-        await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)]);
+        await this.releaseHotKeyBlobs(oldHotPubKey, 'swapHotKey');
       }
 
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
+   * Release a hot key this wallet no longer points at: the native wrapper key
+   * (best-effort, the JS fallback's delete is a no-op) and the two blobs. Only
+   * called AFTER the account pointer has moved off the key, so a crash here
+   * orphans inert blobs and never breaks a pointer.
+   */
+  private async releaseHotKeyBlobs(hotPubKey: string, caller: string): Promise<void> {
+    try {
+      const ciphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(hotPubKey), this.vaultKey);
+      await secureHotKey.deleteHotKey(ciphertext);
+    } catch (e) {
+      console.warn(`${caller}: failed to release old native key (non-fatal):`, e);
+    }
+    await removeMany([accAuthPubKeyStrgKey(hotPubKey), accAuthSecretKeyStrgKey(hotPubKey)]);
+  }
+
+  /**
+   * Record that another device rotated the account's hot key (see
+   * `HotKeyRotatedOutVerdict` in `lib/shared/types`). The detector read the
+   * account in another realm, so the write holds only while the stored hot key
+   * is still the one it judged: a rotation back that landed in between moves
+   * the pointer, and the verdict would then accuse a live key. Returns whether
+   * the verdict was written; a refused write is not an error, since the record
+   * it was about is gone.
+   */
+  async markHotKeyRotatedOut(
+    accountPublicKey: string,
+    hotPublicKey: string,
+    onChainHotCommitment: string
+  ): Promise<{ written: boolean; accounts: WalletAccount[]; currentAccount: WalletAccount | undefined }> {
+    return withError('Failed to record the hot-key rotation', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const currentAccount = await this.getCurrentAccount();
+      if (account.hotPublicKey !== hotPublicKey) {
+        return { written: false, accounts: allAccounts, currentAccount };
+      }
+      // Idempotent on the same key: the sync tick reaches this once per cooldown.
+      if (account.hotKeyRotatedOut?.hotPublicKey === hotPublicKey) {
+        return { written: false, accounts: allAccounts, currentAccount };
+      }
+      const hotKeyRotatedOut: HotKeyRotatedOutVerdict = { hotPublicKey, onChainHotCommitment, detectedAt: Date.now() };
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, hotKeyRotatedOut } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      return { written: true, accounts: newAllAccounts, currentAccount: await this.getCurrentAccount() };
+    });
+  }
+
+  /**
+   * Make this device the account's main device again, step one: drop the hot
+   * key another device rotated out and flag the account for a rotation
+   * (`requiresHotKeyRotation`, no `hotPublicKey`), the exact shape of a
+   * seed-recovered account, so `HotKeyRotationGate` runs the cold-signed
+   * rotation that installs a new key here and, through its post-rotation
+   * re-register, revokes the other device. Needs the cold key, which signs the
+   * rotation; a hot-key-only import has none and is refused. Refused with
+   * `HOT_KEY_CHANGED` unless the stored key is still `expectedHotPubKey`, so a
+   * tap on a stale banner cannot retire a key a rotation back just installed.
+   */
+  async retireRotatedOutHotKey(accountPublicKey: string, expectedHotPubKey: string) {
+    return withError('Failed to retire the rotated-out hot key', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      if (account.hotPublicKey !== expectedHotPubKey) {
+        throw Object.assign(new PublicError('The account hot key changed'), { code: HOT_KEY_CHANGED });
+      }
+      if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
+        throw new PublicError('This account has no recovery key to rotate with');
+      }
+      // Only a persisted verdict about this very key may retire it: a healthy account's live key is
+      // never droppable by a request that merely knows its public key.
+      if (account.hotKeyRotatedOut?.hotPublicKey !== expectedHotPubKey) {
+        throw Object.assign(new PublicError('The account hot key is not rotated out'), { code: HOT_KEY_CHANGED });
+      }
+      // The pointer moves FIRST, as in swapHotKey: a release that lands before the
+      // write would leave the account pointing at a deleted key.
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey
+          ? { ...acc, hotPublicKey: undefined, requiresHotKeyRotation: true, hotKeyRotatedOut: undefined }
+          : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      // The pointer has moved, so a failed release only orphans inert blobs: it must not fail the
+      // call and leave the caller on the stale record.
+      await this.releaseHotKeyBlobs(expectedHotPubKey, 'retireRotatedOutHotKey').catch(releaseError => {
+        console.warn('retireRotatedOutHotKey: failed to remove old key blobs (non-fatal):', releaseError);
+      });
       const currentAccount = await this.getCurrentAccount();
       return { accounts: newAllAccounts, currentAccount };
     });
@@ -2444,8 +2544,9 @@ export class Vault {
   }
 
   /**
-   * Sign the login message for `word`, base64 of a 32-byte word, with `accountId`'s login key for `domain`: Poseidon2
-   * of the login tag and the word, never the word itself. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
+   * Sign the login message for `word` with `accountId`'s login key for `domain`: Poseidon2 of the login tag and the
+   * word, never the word itself. `word` is base64 of 32 bytes holding four little-endian u64 field elements, each
+   * strictly below 0xffffffff00000001. Returns base64 of the 66-byte signature `[0x01, r, s, v]`.
    */
   async signWithLoginKey(accountId: string, domain: string, word: string): Promise<string> {
     return withError('Failed to sign with the login key', async () => {
@@ -2973,15 +3074,10 @@ function decodeLoginKeyRoot(hex: string): Uint8Array {
   return root;
 }
 
-/** The 32 bytes `word` encodes in base64, refused before any key is read when it encodes anything else. */
+/** Decode base64 of 32 bytes holding four little-endian u64s strictly below 0xffffffff00000001, before any key read. */
 function loginWordBytes(word: string): Uint8Array {
-  let bytes: Uint8Array;
-  try {
-    bytes = b64ToU8(word);
-  } catch {
-    throw notAWordToSign();
-  }
-  if (bytes.length !== 32) throw notAWordToSign();
+  const bytes = fieldWordFromBase64(word);
+  if (bytes === null) throw notAWordToSign();
   return bytes;
 }
 

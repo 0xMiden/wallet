@@ -160,6 +160,20 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
         accountsUpdated(updated);
       })
     );
+  },
+  markHotKeyRotatedOut: async (accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) => {
+    // Same shape as swapHotKey: queued, then broadcast, but only a verdict the vault
+    // accepted (the stored key is still the judged one) moves the Effector snapshot.
+    return withUnlocked(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const { written, ...updated } = await vault.markHotKeyRotatedOut(
+          accountPublicKey,
+          hotPublicKey,
+          onChainHotCommitment
+        );
+        if (written) accountsUpdated(updated);
+      })
+    );
   }
 };
 

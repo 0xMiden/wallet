@@ -1,0 +1,1823 @@
+---
+layout: null
+permalink: /developers/
+title: Build for Bread
+---
+<!DOCTYPE html>
+<!-- {% raw %} -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Build for Bread - dApp developer guide</title>
+<meta name="description" content="How to build dApps for Bread, the Miden wallet: connect with the wallet adapter, send transactions, sign people in, and go fullscreen in the mobile browser.">
+<meta name="theme-color" content="#15120f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fff9f4" media="(prefers-color-scheme: light)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='64 68 273 263.2'%3E%3Cpath fill='%23E77537' d='M305.773 187.624C336.332 200.049 344.631 237.592 329.924 265.52C319.99 284.382 300.867 296.923 281.208 304.023C250.87 314.976 216.662 321.919 185.637 331.178C176.552 331.574 147.489 319.23 140.04 313.405C133.399 308.213 128.994 299.181 128.336 290.813C125.828 258.868 130.286 223.723 128.319 191.447C89.7516 125.155 183.542 75.6996 238.899 85.6221C253.017 88.1537 273.729 93.2809 287.417 97.5932C302.217 102.255 315.288 112.783 320.915 127.477C329.447 149.755 320.607 170.694 305.778 187.635Z'/%3E%3Cpath fill='%23E77537' d='M206.299 76.0532C206.211 76.8855 203.732 77.0542 203.034 77.1415C149.848 83.6945 78.8709 130.188 116.163 190.806C116.443 224.327 115.71 257.878 116.111 291.399C116.152 294.949 117.089 298.307 116.134 302.125C115.459 302.823 108.732 299.995 107.428 299.488C90.615 292.953 74.9193 286.097 73.0978 265.792C70.4614 236.386 75.0415 203.184 73.0978 173.382C39.4134 116.686 106.561 74.4237 155.47 68.5691C173.516 66.41 189.299 70.7166 206.287 76.0591Z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Nunito:wght@600;700;800;900&display=swap">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('bread-dev-theme'); } catch (e) {}
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    document.documentElement.classList.add('js');
+  })();
+</script>
+<style>
+:root {
+  --bg: #fff9f4;
+  --bg-2: #fdf1e7;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-solid: #ffffff;
+  --fill: #f3f0ec;
+  --ink: #221d19;
+  --ink-2: #3f3a36;
+  --muted: #675f58;
+  --hairline: rgba(60, 40, 25, 0.12);
+  --hairline-strong: rgba(60, 40, 25, 0.2);
+  --accent: #e77537;
+  --accent-ink: #a84a18;
+  --accent-soft: #fdeee5;
+  --accent-glow: rgba(231, 117, 55, 0.35);
+  --accent-fill: linear-gradient(135deg, #c0531d, #b34c1a 50%, #b8434f);
+  --honey: #f2b45a;
+  --rose: #e9708c;
+  --plum: #8d6bd8;
+  --ok: #2f8a57;
+  --warn-bg: #fff3e8;
+  --note-bg: #f4f1fb;
+  --shadow: 0 1px 2px rgba(60, 35, 15, 0.06), 0 12px 32px -12px rgba(60, 35, 15, 0.18);
+  --shadow-lift: 0 2px 4px rgba(60, 35, 15, 0.06), 0 28px 60px -20px rgba(160, 70, 20, 0.35);
+  --grain-opacity: 0.05;
+  --blob-opacity: 0.55;
+  --code-bg: #1d1915;
+  --code-bar: #26211c;
+  --code-ink: #efe7df;
+  --font-display: 'Nunito', ui-rounded, system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --radius-lg: 22px;
+  --radius-md: 14px;
+  --radius-sm: 9px;
+  --nav-h: 64px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #15120f;
+    --bg-2: #1b1713;
+    --surface: rgba(38, 33, 29, 0.62);
+    --surface-solid: #221e1a;
+    --fill: #262422;
+    --ink: #fbf5ef;
+    --ink-2: #e6ddd4;
+    --muted: #aaa29b;
+    --hairline: rgba(255, 235, 215, 0.09);
+    --hairline-strong: rgba(255, 235, 215, 0.16);
+    --accent-ink: #f2a57a;
+    --accent-soft: #3a2418;
+    --accent-glow: rgba(231, 117, 55, 0.45);
+    --ok: #6fd39b;
+    --warn-bg: rgba(231, 117, 55, 0.09);
+    --note-bg: rgba(141, 107, 216, 0.1);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -18px rgba(0, 0, 0, 0.7);
+    --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.35), 0 30px 70px -24px rgba(231, 117, 55, 0.4);
+    --grain-opacity: 0.09;
+    --blob-opacity: 0.5;
+    --code-bg: #120f0c;
+    --code-bar: #1c1814;
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #15120f;
+  --bg-2: #1b1713;
+  --surface: rgba(38, 33, 29, 0.62);
+  --surface-solid: #221e1a;
+  --fill: #262422;
+  --ink: #fbf5ef;
+  --ink-2: #e6ddd4;
+  --muted: #aaa29b;
+  --hairline: rgba(255, 235, 215, 0.09);
+  --hairline-strong: rgba(255, 235, 215, 0.16);
+  --accent-ink: #f2a57a;
+  --accent-soft: #3a2418;
+  --accent-glow: rgba(231, 117, 55, 0.45);
+  --ok: #6fd39b;
+  --warn-bg: rgba(231, 117, 55, 0.09);
+  --note-bg: rgba(141, 107, 216, 0.1);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px -18px rgba(0, 0, 0, 0.7);
+  --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.35), 0 30px 70px -24px rgba(231, 117, 55, 0.4);
+  --grain-opacity: 0.09;
+  --blob-opacity: 0.5;
+  --code-bg: #120f0c;
+  --code-bar: #1c1814;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { overflow-x: clip; scroll-behavior: smooth; scroll-padding-top: calc(var(--nav-h) + 24px); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink-2);
+  font: 400 16.5px/1.68 var(--font-body);
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+img, svg { display: block; max-width: 100%; }
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+::selection { background: var(--accent); color: #fff; }
+code, kbd { font-family: var(--font-mono); font-size: 0.86em; }
+code, kbd, pre, .install, .float-card, .builder input, .out, .probe .flag, .stage-chips span, .app .hud .score { font-feature-settings: normal; font-variant-ligatures: none; }
+:not(pre) > code {
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  color: var(--ink);
+  overflow-wrap: break-word;
+}
+h1, h2, h3, h4 { font-family: var(--font-display); color: var(--ink); margin: 0; letter-spacing: -0.022em; }
+p { margin: 0 0 1em; }
+.skip { position: absolute; left: 16px; top: -60px; z-index: 100; background: var(--accent-fill); color: #fff; padding: 10px 16px; border-radius: 10px; font-weight: 600; }
+.skip:focus { top: 12px; }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.sky { position: fixed; inset: 0; z-index: -2; pointer-events: none; overflow: hidden; }
+.sky .blob { position: absolute; border-radius: 50%; filter: blur(90px); opacity: var(--blob-opacity); will-change: transform; }
+.sky .b1 { width: 54vmax; height: 54vmax; left: -14vmax; top: -22vmax; background: radial-gradient(circle at 40% 40%, var(--accent), transparent 66%); animation: drift1 28s ease-in-out infinite alternate; }
+.sky .b2 { width: 46vmax; height: 46vmax; right: -16vmax; top: -10vmax; background: radial-gradient(circle at 50% 50%, var(--rose), transparent 64%); opacity: calc(var(--blob-opacity) * 0.7); animation: drift2 34s ease-in-out infinite alternate; }
+.sky .b3 { width: 40vmax; height: 40vmax; left: 30vw; top: 18vmax; background: radial-gradient(circle at 50% 50%, var(--honey), transparent 62%); opacity: calc(var(--blob-opacity) * 0.55); animation: drift3 40s ease-in-out infinite alternate; }
+.sky .b4 { width: 36vmax; height: 36vmax; right: 6vw; top: 34vmax; background: radial-gradient(circle at 50% 50%, var(--plum), transparent 62%); opacity: calc(var(--blob-opacity) * 0.45); animation: drift2 46s ease-in-out infinite alternate-reverse; }
+.sky .fade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 0, transparent 38vh, var(--bg) 110vh); }
+.grain { position: fixed; inset: -50%; z-index: -1; pointer-events: none; opacity: var(--grain-opacity); background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5  0 0 0 0 0.4  0 0 0 0 0.3  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"); }
+@keyframes drift1 { to { transform: translate3d(12vmax, 8vmax, 0) scale(1.08); } }
+@keyframes drift2 { to { transform: translate3d(-10vmax, 10vmax, 0) scale(0.94); } }
+@keyframes drift3 { to { transform: translate3d(-8vmax, -6vmax, 0) scale(1.12); } }
+
+.progress { position: fixed; top: 0; left: 0; height: 2px; width: 100%; z-index: 60; transform-origin: 0 50%; transform: scaleX(var(--p, 0)); background: linear-gradient(90deg, var(--honey), var(--accent), var(--rose)); }
+.nav {
+  position: sticky; top: 0; z-index: 50; height: var(--nav-h);
+  display: flex; align-items: center; gap: 16px; padding: 0 max(16px, env(safe-area-inset-left)) 0 max(16px, env(safe-area-inset-left));
+  backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+.nav.scrolled { border-bottom-color: var(--hairline); }
+.nav-inner { width: 100%; max-width: 1240px; margin: 0 auto; display: flex; align-items: center; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: -0.02em; white-space: nowrap; }
+.brand svg { width: 28px; height: 28px; filter: drop-shadow(0 4px 10px var(--accent-glow)); }
+.brand .sub { color: var(--muted); font-weight: 700; }
+.nav-links { display: flex; gap: 4px; margin-left: auto; }
+.nav-links a { color: var(--ink-2); text-decoration: none; font-weight: 500; font-size: 14.5px; padding: 7px 12px; border-radius: 10px; transition: background-color 0.2s ease, color 0.2s ease; }
+.nav-links a:hover { background: var(--fill); color: var(--ink); }
+.icon-btn {
+  display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; border: 1px solid var(--hairline-strong);
+  background: var(--surface); color: var(--ink); cursor: pointer; transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.icon-btn:hover { transform: translateY(-1px); background: var(--fill); }
+.icon-btn:active { transform: scale(0.94); }
+.icon-btn svg { width: 18px; height: 18px; }
+.theme-toggle .sun { display: none; }
+:root[data-theme='dark'] .theme-toggle .sun { display: block; }
+:root[data-theme='dark'] .theme-toggle .moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .theme-toggle .sun { display: block; }
+  :root:not([data-theme='light']) .theme-toggle .moon { display: none; }
+}
+.nav .icon-btn { margin-left: 6px; flex: none; }
+.nav-gh { display: inline-flex; }
+
+.hero { position: relative; max-width: 1240px; margin: 0 auto; padding: 72px 24px 56px; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); gap: 56px; align-items: center; }
+.hero::before {
+  content: ''; position: absolute; inset: -40px 0 0; z-index: -1; pointer-events: none;
+  background-image: linear-gradient(var(--hairline) 1px, transparent 1px), linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 70% at 30% 40%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(ellipse 60% 70% at 30% 40%, #000 0%, transparent 72%);
+}
+.pill {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border-radius: 999px;
+  border: 1px solid var(--hairline-strong); background: var(--surface); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  font-size: 13.5px; font-weight: 500; color: var(--ink-2); text-decoration: none;
+}
+.pill b { display: inline-grid; place-items: center; height: 22px; padding: 0 9px; border-radius: 999px; background: var(--accent-fill); color: #fff; font-size: 12px; font-weight: 700; }
+.hero h1 { font-size: clamp(42px, 6.6vw, 84px); line-height: 0.98; font-weight: 900; letter-spacing: -0.045em; margin: 22px 0 22px; }
+.hero h1 .grad {
+  background: linear-gradient(100deg, var(--honey) 0%, var(--accent) 38%, var(--rose) 78%, var(--plum) 110%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: sheen 9s ease-in-out infinite alternate;
+}
+@keyframes sheen { to { background-position: 100% 0; } }
+.hero .lead { font-size: clamp(17px, 1.6vw, 19.5px); line-height: 1.6; color: var(--muted); max-width: 33em; margin: 0 0 30px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn {
+  position: relative; display: inline-flex; align-items: center; gap: 10px; height: 50px; padding: 0 22px; border-radius: 14px;
+  font: 700 16px/1 var(--font-display); letter-spacing: -0.01em; text-decoration: none; cursor: pointer; border: 0;
+  transition: transform 0.25s cubic-bezier(.2,.8,.2,1), box-shadow 0.25s ease, background-color 0.25s ease;
+}
+.btn-primary { color: #fff; background: linear-gradient(135deg, #c0531d, #b34c1a 45%, #9e3f17); box-shadow: 0 10px 30px -8px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.35); overflow: hidden; }
+.btn-primary::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%); transform: translateX(-120%); transition: transform 0.7s ease; }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -10px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.35); }
+.btn-primary:hover::after { transform: translateX(120%); }
+.btn:active { transform: translateY(0) scale(0.97); }
+.btn svg { width: 18px; height: 18px; transition: transform 0.25s ease; }
+.btn:hover svg { transform: translateX(3px); }
+.install {
+  margin-top: 26px; display: inline-flex; align-items: flex-start; gap: 12px; max-width: 100%; padding: 8px 8px 8px 16px; border-radius: 14px;
+  background: var(--code-bg); color: var(--code-ink); font: 500 14px/1.2 var(--font-mono); border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: var(--shadow);
+}
+.install .prompt { color: var(--accent); user-select: none; padding: 5px 0; line-height: 20px; }
+/* The command wraps only between words: a package name never splits at its hyphens */
+.install code { background: none; border: 0; padding: 5px 0; color: inherit; font-size: 13.5px; line-height: 20px; min-width: 0; }
+.install code span { white-space: nowrap; }
+
+.stage { position: relative; display: grid; place-items: center; min-height: 600px; }
+.stage::before { content: ''; position: absolute; width: 78%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, var(--accent-glow), transparent 65%); filter: blur(30px); z-index: -1; }
+.phone {
+  --w: 292px; position: relative; width: var(--w); height: calc(var(--w) * 2.06); border-radius: 50px; padding: 11px;
+  background: linear-gradient(145deg, #3a332d, #15110e 40%, #2b2520); box-shadow: 0 0 0 1.5px rgba(255,255,255,0.08) inset, 0 50px 90px -30px rgba(0,0,0,0.65), 0 30px 60px -30px var(--accent-glow);
+  transform: perspective(1400px) rotateY(-11deg) rotateX(4deg) rotateZ(1deg);
+  transition: transform 0.8s cubic-bezier(.2,.8,.2,1);
+}
+.stage:hover .phone { transform: perspective(1400px) rotateY(-4deg) rotateX(2deg) rotateZ(0deg); }
+.phone::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(125deg, rgba(255,255,255,0.14), transparent 30%); }
+.screen { position: relative; width: 100%; height: 100%; border-radius: 40px; overflow: hidden; background: #0f0d1a; isolation: isolate; }
+.island { position: absolute; top: 10px; left: 50%; width: 92px; height: 27px; margin-left: -46px; background: #000; border-radius: 20px; z-index: 9; }
+.status { position: absolute; top: 0; left: 0; right: 0; height: 46px; display: flex; justify-content: space-between; align-items: center; padding: 4px 26px 0; color: #fff; font: 600 13px/1 var(--font-body); z-index: 8; }
+.status .dots { display: flex; gap: 4px; }
+.status .dots i { width: 15px; height: 9px; border-radius: 3px; background: rgba(255,255,255,0.9); display: block; }
+.status .dots i:first-child { width: 12px; background: rgba(255,255,255,0.55); }
+/* Hero storyline: one loop of --loop, in percent of it.
+   0-11    Explore in Bread, the dApp's card in its list
+   11-15   tap the card: touch ring, card pressed
+   15-22   the card grows into the fullscreen dApp
+   22-41   the dApp runs fullscreen, the Bread capsule in its corner
+   41-47   it shrinks into the app switcher
+   47-58   switcher; tap the dApp's card at 55.5
+   58-64   it grows back to fullscreen
+   64-74   fullscreen; tap the Bread capsule at 71.5
+   74-82   it shrinks back to its card in Explore
+   82-100  Explore again, then the loop restarts */
+.stage { --loop: 16s; }
+.explore { position: absolute; inset: 0; z-index: 0; background: #15120f; color: #fbf5ef; }
+.ex-title { position: absolute; top: 9.5%; left: 6%; font: 800 20px/1 var(--font-display); letter-spacing: -0.02em; }
+.ex-search { position: absolute; top: 15.5%; left: 5.9%; right: 5.9%; height: 6%; display: flex; align-items: center; padding: 0 12px; border-radius: 12px; background: rgba(255,255,255,0.08); color: #aaa29b; font: 500 11.5px/1 var(--font-body); white-space: nowrap; overflow: hidden; }
+.ex-label { position: absolute; top: 23.4%; left: 6%; color: #aaa29b; font: 700 11.5px/1 var(--font-body); }
+.ex-row { position: absolute; left: 5.9%; right: 5.9%; height: 8%; display: flex; align-items: center; gap: 10px; }
+.ex-row.r1 { top: 57%; }
+.ex-row.r2 { top: 67%; }
+.ex-row i { flex: none; width: 36px; height: 36px; border-radius: 11px; background: rgba(255,255,255,0.12); }
+.ex-row span { flex: 1; display: grid; gap: 6px; }
+.ex-row b { display: block; width: 70%; height: 7px; border-radius: 4px; background: rgba(255,255,255,0.16); }
+.ex-row b + b { width: 45%; opacity: 0.6; }
+.ex-nav { position: absolute; left: 0; right: 0; bottom: 0; height: 9%; display: flex; justify-content: space-around; align-items: center; padding-bottom: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
+.ex-nav i { display: block; width: 18px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.35); }
+.ex-nav i:nth-child(3) { background: var(--accent); }
+.switcher { position: absolute; inset: 0; z-index: 1; display: grid; align-content: start; gap: 12px; padding: 64px 18px 0; background: #1a1714; opacity: 0; animation: hero-switcher var(--loop) infinite; }
+.switcher i { display: block; height: 54px; border-radius: 14px; background: rgba(255,255,255,0.06); }
+.switcher i:first-child { height: 120px; background: linear-gradient(135deg, rgba(231,117,55,0.5), rgba(231,117,55,0.15)); }
+.app {
+  position: absolute; z-index: 3; top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; overflow: hidden;
+  background: radial-gradient(120% 70% at 50% 110%, #ff7a3d 0%, #c43d6b 32%, #3b1f5e 62%, #120d24 100%);
+  animation: hero-frame var(--loop) cubic-bezier(.65,0,.35,1) infinite;
+}
+.app .face { position: absolute; inset: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: end; align-items: center; gap: 2px 10px; padding: 14px; animation: hero-face var(--loop) infinite; }
+.app .face .icon { grid-row: span 2; width: 40px; height: 40px; border-radius: 12px; background: radial-gradient(circle at 50% 75%, #ffd27a, #ff7a3d 42%, #c43d6b 78%); box-shadow: 0 6px 16px -6px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.25); }
+.app .face .name { color: #fff; font: 800 15px/1.1 var(--font-display); white-space: nowrap; }
+.app .face .tag { color: rgba(255,255,255,0.82); font: 500 11px/1.2 var(--font-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app .scene { position: absolute; inset: 0; opacity: 0; animation: hero-scene var(--loop) infinite; }
+.app .stars { position: absolute; inset: 0; background-image: radial-gradient(1.4px 1.4px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 18%, #fff, transparent), radial-gradient(1.2px 1.2px at 40% 60%, #ffe9c7, transparent), radial-gradient(1px 1px at 85% 46%, #fff, transparent), radial-gradient(1.3px 1.3px at 12% 72%, #fff, transparent), radial-gradient(1px 1px at 58% 40%, #fff, transparent); opacity: 0.8; }
+.app .sun { position: absolute; left: 50%; bottom: 22%; width: 150px; height: 150px; margin-left: -75px; border-radius: 50%; background: linear-gradient(#ffd27a, #ff7a3d 60%, #ff4f6d); box-shadow: 0 0 60px 10px rgba(255,140,80,0.45); }
+.app .hills { position: absolute; left: -10%; right: -10%; bottom: -2px; height: 34%; background: radial-gradient(60% 100% at 30% 100%, #2a1240 60%, transparent 61%), radial-gradient(70% 100% at 80% 100%, #1c0d30 60%, transparent 61%); }
+.app .hud { position: absolute; top: 54px; left: 14px; right: 14px; height: 40px; padding-left: 62px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.app .hud .title { font: 800 15px/1 var(--font-display); color: #fff; letter-spacing: -0.01em; white-space: nowrap; }
+.app .hud .score { font: 600 12px/1 var(--font-mono); color: #ffe2c4; background: rgba(0,0,0,0.3); padding: 7px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); white-space: nowrap; }
+.app .play { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%); padding: 11px 26px; border-radius: 999px; background: #fff; color: #2a1240; font: 800 14px/1 var(--font-display); box-shadow: 0 10px 30px -6px rgba(0,0,0,0.5); white-space: nowrap; }
+.capsule {
+  position: absolute; z-index: 7; top: 50px; left: 12px; width: 50px; height: 38px; border-radius: 19px; display: grid; place-items: center;
+  background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.3); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  opacity: 0; animation: hero-capsule var(--loop) cubic-bezier(.65,0,.35,1) infinite;
+}
+.capsule svg { width: 22px; height: 22px; }
+.tap { position: absolute; z-index: 10; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; border: 2.5px solid #fff; background: rgba(255,255,255,0.42); box-shadow: 0 0 0 6px rgba(255,255,255,0.18), 0 4px 18px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; }
+.tap.t1 { top: 39.75%; left: 50%; animation: hero-tap1 var(--loop) ease-out infinite; }
+.tap.t2 { top: 84%; left: 50%; animation: hero-tap2 var(--loop) ease-out infinite; }
+.tap.t3 { top: 69px; left: 37px; animation: hero-tap3 var(--loop) ease-out infinite; }
+.home-ind { position: absolute; bottom: 8px; left: 50%; width: 110px; height: 4px; margin-left: -55px; border-radius: 3px; background: rgba(255,255,255,0.75); z-index: 8; }
+@keyframes hero-frame {
+  0%, 11% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: none; }
+  12.5% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: scale(0.95); }
+  14.5% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: none; animation-timing-function: cubic-bezier(.2,.85,.25,1); }
+  22%, 41% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; transform: none; }
+  47%, 54.5% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 46px; transform: translateY(46%) scale(0.5); }
+  55.5% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 46px; transform: translateY(46%) scale(0.47); }
+  57% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 46px; transform: translateY(46%) scale(0.5); animation-timing-function: cubic-bezier(.2,.85,.25,1); }
+  64%, 74% { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; transform: none; animation-timing-function: cubic-bezier(.3,0,.2,1); }
+  82%, 100% { top: 26.5%; left: 5.9%; right: 5.9%; bottom: 47%; border-radius: 18px; transform: none; }
+}
+@keyframes hero-face { 0%, 15% { opacity: 1; } 18%, 77% { opacity: 0; } 81%, 100% { opacity: 1; } }
+@keyframes hero-scene { 0%, 15% { opacity: 0; } 20%, 77% { opacity: 1; } 80%, 100% { opacity: 0; } }
+@keyframes hero-switcher { 0%, 41% { opacity: 0; } 44%, 58% { opacity: 1; } 62%, 100% { opacity: 0; } }
+@keyframes hero-capsule {
+  0%, 21% { opacity: 0; transform: scale(0.6); }
+  25%, 40% { opacity: 1; transform: none; }
+  43%, 61% { opacity: 0; transform: scale(0.6); }
+  65%, 70.5% { opacity: 1; transform: none; }
+  71.5% { opacity: 1; transform: scale(0.84); }
+  73% { opacity: 1; transform: none; }
+  75.5%, 100% { opacity: 0; transform: scale(0.6); }
+}
+@keyframes hero-tap1 { 0%, 10.5% { opacity: 0; transform: scale(0.4); } 11.5% { opacity: 1; transform: scale(0.75); } 12.5% { opacity: 1; transform: scale(0.85); } 16%, 100% { opacity: 0; transform: scale(1.8); } }
+@keyframes hero-tap2 { 0%, 54% { opacity: 0; transform: scale(0.4); } 55% { opacity: 1; transform: scale(0.75); } 56% { opacity: 1; transform: scale(0.85); } 59.5%, 100% { opacity: 0; transform: scale(1.8); } }
+@keyframes hero-tap3 { 0%, 70% { opacity: 0; transform: scale(0.4); } 71% { opacity: 1; transform: scale(0.75); } 72% { opacity: 1; transform: scale(0.85); } 75.5%, 100% { opacity: 0; transform: scale(1.8); } }
+.stage-chips { position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); height: 34px; width: 300px; display: grid; place-items: center; }
+.stage-chips span {
+  grid-area: 1 / 1; padding: 7px 14px; border-radius: 999px; background: var(--surface-solid); border: 1px solid var(--hairline-strong); box-shadow: var(--shadow);
+  font: 500 12.5px/1 var(--font-mono); color: var(--ink); white-space: nowrap; opacity: 0;
+}
+.stage-chips span:nth-child(1) { animation: hero-cap1 var(--loop) infinite; }
+.stage-chips span:nth-child(2) { animation: hero-cap2 var(--loop) infinite; }
+.stage-chips span:nth-child(3) { animation: hero-cap3 var(--loop) infinite; }
+.stage-chips span:nth-child(4) { animation: hero-cap4 var(--loop) infinite; }
+.stage-chips span:nth-child(5) { animation: hero-cap5 var(--loop) infinite; }
+@keyframes hero-cap1 { 0%, 9% { opacity: 1; } 10.5%, 84.5% { opacity: 0; } 86%, 100% { opacity: 1; } }
+@keyframes hero-cap2 { 0%, 9.5% { opacity: 0; } 11%, 19.5% { opacity: 1; } 21%, 100% { opacity: 0; } }
+@keyframes hero-cap3 { 0%, 20% { opacity: 0; } 21.5%, 40% { opacity: 1; } 41.5%, 100% { opacity: 0; } }
+@keyframes hero-cap4 { 0%, 40.5% { opacity: 0; } 42%, 62% { opacity: 1; } 63.5%, 100% { opacity: 0; } }
+@keyframes hero-cap5 { 0%, 62.5% { opacity: 0; } 64%, 84% { opacity: 1; } 85.5%, 100% { opacity: 0; } }
+.float-card {
+  position: absolute; z-index: 3; padding: 14px 16px; border-radius: 16px; max-width: 250px;
+  background: color-mix(in srgb, var(--code-bg) 88%, transparent); border: 1px solid rgba(255,255,255,0.1); color: var(--code-ink);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 24px 50px -20px rgba(0,0,0,0.6);
+  font: 500 12px/1.6 var(--font-mono);
+}
+.rig { position: relative; }
+.float-card.meta { top: 330px; left: -170px; animation: bob 7s ease-in-out infinite; }
+.float-card.vars { white-space: nowrap; max-width: none; bottom: 64px; right: -190px; animation: bob 8s ease-in-out -3s infinite; }
+.float-card .k { color: #ff9a62; } .float-card .s { color: #f3d58a; } .float-card .a { color: #e8b4ff; } .float-card .v { color: #ffb38a; } .float-card .c { color: #8a817a; }
+@keyframes bob { 50% { transform: translateY(-10px); } }
+.stage.paused *, .stage.paused *::before, .stage.paused *::after { animation-play-state: paused !important; }
+.stage-ctrl { position: absolute; top: 4px; right: 0; z-index: 4; }
+
+.probe { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+.probe-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 18px; border-radius: 16px; border: 1px dashed var(--hairline-strong); background: var(--surface); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font-size: 14px; color: var(--muted); }
+.probe-inner strong { color: var(--ink); font-weight: 600; margin-right: 4px; }
+.probe .flag { display: inline-flex; align-items: center; gap: 7px; font: 500 12.5px/1 var(--font-mono); color: var(--ink-2); padding: 6px 10px; border-radius: 9px; background: var(--fill); }
+.probe .flag::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--hairline-strong); transition: background-color 0.3s ease, box-shadow 0.3s ease; }
+.probe .flag.on::before { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
+
+.band { max-width: 1240px; margin: 0 auto; padding: 72px 24px 24px; }
+.band-head { max-width: 760px; margin-bottom: 30px; }
+.band-head h2 { font-size: clamp(30px, 3.6vw, 44px); font-weight: 900; line-height: 1.05; letter-spacing: -0.035em; margin-bottom: 14px; }
+.band-head p { color: var(--muted); font-size: 18px; margin: 0; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.card {
+  position: relative; padding: 26px 24px 24px; border-radius: var(--radius-lg); border: 1px solid transparent;
+  background: linear-gradient(var(--surface-solid), var(--surface-solid)) padding-box, linear-gradient(150deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--hairline) 38%, var(--hairline) 70%, color-mix(in srgb, var(--plum) 40%, transparent)) border-box;
+  box-shadow: var(--shadow); transition: transform 0.35s cubic-bezier(.2,.8,.2,1), box-shadow 0.35s ease;
+}
+.card::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity 0.35s ease; background: radial-gradient(400px circle at var(--mx, 50%) var(--my, 0%), color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%); }
+.card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lift); }
+.card:hover::before { opacity: 1; }
+.card .ic { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; margin-bottom: 18px; color: #fff; background: linear-gradient(135deg, var(--accent), var(--rose)); box-shadow: 0 10px 24px -10px var(--accent-glow); }
+.card .ic svg { width: 22px; height: 22px; }
+.card h3 { font-size: 21px; font-weight: 800; margin-bottom: 4px; }
+.card .meta { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+.card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; font-size: 14.5px; }
+.card li { position: relative; padding-left: 27px; }
+.card li::before { content: ''; position: absolute; left: 5px; top: 0.6em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.card li.no::before { background: transparent; border: 1.5px solid var(--muted); width: 8px; height: 8px; }
+
+.docs { max-width: 1240px; margin: 0 auto; padding: 48px 24px 80px; display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 64px; }
+.toc { position: sticky; top: calc(var(--nav-h) + 28px); align-self: start; max-height: calc(100vh - var(--nav-h) - 56px); overflow: auto; padding-right: 6px; scrollbar-width: thin; }
+.toc h2 { font: 700 13px/1 var(--font-body); color: var(--muted); letter-spacing: 0; margin: 0 0 14px 18px; }
+.toc .track { position: relative; }
+.toc ol { list-style: none; margin: 0; padding: 0 0 0 18px; }
+.toc .track::before { content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; background: var(--hairline-strong); }
+.toc .rail { position: absolute; left: 0; top: 4px; width: 2px; border-radius: 2px; height: calc((100% - 8px) * var(--tp, 0)); background: linear-gradient(var(--honey), var(--accent), var(--rose)); box-shadow: 0 0 12px var(--accent-glow); }
+.toc a { display: block; padding: 6px 10px; margin-left: -10px; border-radius: 9px; color: var(--muted); text-decoration: none; font-size: 14.5px; line-height: 1.35; transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease; }
+.toc a:hover { color: var(--ink); background: var(--fill); }
+.toc a.active { color: var(--ink); font-weight: 600; background: color-mix(in srgb, var(--accent) 11%, transparent); transform: translateX(3px); }
+.toc a.sub { padding-left: 24px; font-size: 13.5px; }
+.toc .back-top { margin-top: 18px; margin-left: 18px; font-size: 13.5px; color: var(--muted); }
+.mtoc { display: none; }
+
+.content { min-width: 0; max-width: 800px; }
+.section { padding-top: 24px; margin-bottom: 72px; }
+.section > h2 { font-size: clamp(30px, 3.4vw, 42px); font-weight: 900; line-height: 1.06; letter-spacing: -0.035em; margin: 0 0 16px; }
+.section > h2 a.anchor { color: inherit; text-decoration: none; }
+.section > h2 a.anchor:hover::after { content: ' #'; color: var(--accent); }
+.section h3 { font-size: 22px; font-weight: 800; margin: 40px 0 12px; letter-spacing: -0.02em; }
+.section h4 { font-size: 17px; font-weight: 800; margin: 26px 0 8px; }
+.section .intro { font-size: 18.5px; line-height: 1.62; color: var(--muted); margin-bottom: 26px; }
+.content ul.list, .content ol.list { padding-left: 1.2em; margin: 0 0 1.2em; }
+.content ul.list li, .content ol.list li { margin: 0.35em 0; }
+.content ul.list li::marker { color: var(--accent); }
+
+.steps { counter-reset: step; display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; margin: 26px 0; }
+.step { position: relative; min-width: 0; padding-left: 58px; }
+.step::before {
+  counter-increment: step; content: counter(step); position: absolute; left: 0; top: 0; width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center;
+  font: 900 18px/1 var(--font-display); color: #fff; background: var(--accent-fill); box-shadow: 0 10px 22px -10px var(--accent-glow);
+}
+.step:not(:last-child)::after { content: ''; position: absolute; left: 19px; top: 48px; bottom: -16px; width: 2px; background: linear-gradient(var(--accent), transparent); opacity: 0.4; }
+.step h3 { margin: 6px 0 8px; font-size: 20px; }
+.step p code { white-space: nowrap; }
+
+.code {
+  position: relative; margin: 18px 0 26px; border-radius: var(--radius-md); overflow: hidden; background: var(--code-bg); color: var(--code-ink);
+  border: 1px solid rgba(255,255,255,0.07); box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset, var(--shadow);
+}
+.code::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(231,117,55,0.7), transparent); }
+.code-bar { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px 0 14px; background: var(--code-bar); border-bottom: 1px solid rgba(255,255,255,0.06); }
+.code-bar .fname { font: 500 12.5px/1 var(--font-mono); color: #a99f96; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { position: relative; flex: none; height: 44px; padding: 0 12px; border: 0; background: none; color: #a99f96; font: 600 13px/1 var(--font-body); cursor: pointer; transition: color 0.2s ease; }
+.tab:hover { color: #fff; }
+.tab[aria-selected='true'] { color: #fff; }
+.tab[aria-selected='true']::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--honey), var(--accent)); }
+.tab:focus-visible { outline-offset: -4px; }
+.copy {
+  margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border-radius: 9px;
+  border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); color: #e9e1d9; font: 600 12.5px/1 var(--font-body); cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.15s ease, color 0.2s ease;
+}
+.copy:hover { background: rgba(255,255,255,0.1); }
+.copy:active { transform: scale(0.94); }
+.copy svg { width: 14px; height: 14px; }
+.copy .ok { display: none; }
+.copy.done { color: #9ff0bf; border-color: rgba(111,211,155,0.5); background: rgba(111,211,155,0.12); }
+.copy.done .ok { display: block; animation: pop 0.35s cubic-bezier(.2,1.6,.4,1); }
+.copy.done .cp { display: none; }
+@keyframes pop { from { transform: scale(0.3); } }
+.panel[hidden] { display: none; }
+pre { margin: 0; padding: 18px 0; overflow-x: auto; font: 400 13.6px/1.72 var(--font-mono); tab-size: 2; scrollbar-width: thin; scrollbar-color: #3a332d transparent; }
+pre code { display: block; min-width: max-content; counter-reset: ln; }
+pre .ln { display: block; padding: 0 22px 0 0; }
+pre .ln::before { counter-increment: ln; content: counter(ln); display: inline-block; width: 3.2em; padding-right: 1.3em; text-align: right; color: #5a524b; user-select: none; }
+pre.nolines .ln::before { display: none; }
+pre.nolines .ln { padding-left: 20px; }
+pre .ln.hl { background: linear-gradient(90deg, rgba(231,117,55,0.18), rgba(231,117,55,0.03)); box-shadow: inset 2px 0 0 var(--accent); }
+.js .code.reveal-code .ln { opacity: 0; transform: translateX(-6px); }
+.js .code.reveal-code.typed .ln { opacity: 1; transform: none; transition: opacity 0.4s ease, transform 0.4s ease; transition-delay: calc(var(--i) * 28ms); }
+.t-kw { color: #ff9a62; } .t-str { color: #f3d58a; } .t-com { color: #998e85; font-style: italic; } .t-num { color: #f59ab6; }
+.t-fn { color: #7fc8f8; } .t-type { color: #9ee6c9; } .t-prop { color: #e8b4ff; } .t-tag { color: #ff9a62; } .t-attr { color: #e8b4ff; }
+.t-var { color: #ffb38a; } .t-punc { color: #b9aea4; }
+
+.callout { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; margin: 22px 0 26px; padding: 16px 18px; border-radius: var(--radius-md); background: var(--note-bg); border: 1px solid var(--hairline); font-size: 15.5px; }
+.callout .ci { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; color: #fff; background: var(--plum); }
+.callout .ci svg { width: 16px; height: 16px; }
+.callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+.callout strong.t { display: block; color: var(--ink); font-family: var(--font-display); font-weight: 800; font-size: 16.5px; margin-bottom: 2px; }
+.callout.gotcha { background: var(--warn-bg); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.callout.gotcha .ci { background: linear-gradient(135deg, var(--accent), var(--rose)); }
+.callout.nope .ci { background: var(--muted); }
+.callout.nope { background: var(--fill); }
+
+.table-wrap { margin: 18px 0 26px; border-radius: var(--radius-md); border: 1px solid var(--hairline-strong); overflow-x: auto; background: var(--surface); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+th { font: 700 13px/1.3 var(--font-body); color: var(--muted); background: color-mix(in srgb, var(--fill) 70%, transparent); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+td.wrap code { white-space: normal; }
+
+.anatomy { margin: 26px 0 34px; padding: 26px; border-radius: 26px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 34px; align-items: start; border: 1px solid transparent;
+  background: linear-gradient(var(--surface-solid), var(--surface-solid)) padding-box, linear-gradient(140deg, color-mix(in srgb, var(--accent) 60%, transparent), var(--hairline) 40%, color-mix(in srgb, var(--plum) 50%, transparent)) border-box; box-shadow: var(--shadow); }
+.device-wrap { display: grid; justify-items: center; gap: 14px; }
+.device {
+  --sa-top: 44px; --sa-bottom: 26px; --sa-left: 0px; --sa-right: 0px; --dw: 250px; --dh: 520px;
+  position: relative; width: var(--dw); height: var(--dh); border-radius: 40px; padding: 9px; background: linear-gradient(145deg, #3a332d, #15110e 45%, #2b2520);
+  box-shadow: 0 30px 60px -28px rgba(0,0,0,0.6); transition: width 0.6s cubic-bezier(.65,0,.35,1), height 0.6s cubic-bezier(.65,0,.35,1);
+}
+.device.landscape { --sa-top: 0px; --sa-bottom: 18px; --sa-left: 40px; --sa-right: 40px; --dw: 520px; --dh: 250px; }
+.device .scr { position: relative; width: 100%; height: 100%; border-radius: 32px; overflow: hidden; background: linear-gradient(160deg, #3b1f5e, #c43d6b 60%, #ff7a3d); }
+.device .notch { position: absolute; top: 9px; left: 50%; width: 76px; height: 22px; margin-left: -38px; border-radius: 14px; background: #000; z-index: 6; transition: all 0.6s cubic-bezier(.65,0,.35,1); }
+.device.landscape .notch { top: 50%; left: 9px; width: 22px; height: 76px; margin: -38px 0 0; }
+.region { position: absolute; transition: opacity 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, top 0.6s cubic-bezier(.65,0,.35,1), left 0.6s cubic-bezier(.65,0,.35,1), width 0.6s cubic-bezier(.65,0,.35,1), height 0.6s cubic-bezier(.65,0,.35,1); }
+.r-bleed { inset: 0; }
+.r-safe { inset: 0; pointer-events: none; }
+.r-safe i { position: absolute; background: repeating-linear-gradient(-45deg, rgba(255,255,255,0.32) 0 5px, rgba(255,255,255,0.08) 5px 10px); transition: all 0.6s cubic-bezier(.65,0,.35,1); }
+.r-safe .t { top: 0; left: 0; right: 0; height: var(--sa-top); }
+.r-safe .b { bottom: 0; left: 0; right: 0; height: var(--sa-bottom); }
+.r-safe .l { top: 0; bottom: 0; left: 0; width: var(--sa-left); }
+.r-safe .r { top: 0; bottom: 0; right: 0; width: var(--sa-right); }
+.r-inset { left: 0; right: 0; top: 0; height: calc(var(--sa-top) + 54px); border-bottom: 2px dashed rgba(255,255,255,0.75); background: rgba(255,255,255,0.06); }
+.r-capsule { z-index: 5; top: calc(var(--sa-top) + 8px); left: calc(var(--sa-left) + 12px); width: 52px; height: 40px; border-radius: 20px; display: grid; place-items: center; background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.4); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.r-capsule svg { width: 22px; height: 22px; }
+.r-header { z-index: 4; top: calc(var(--sa-top) + 8px); left: calc(var(--sa-left) + 12px + 52px + 10px); right: calc(var(--sa-right) + 12px); height: 40px; border-radius: 12px; background: rgba(15,10,30,0.45); border: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; padding: 0 12px; color: #fff; font: 800 13px/1 var(--font-display); white-space: nowrap; overflow: hidden; }
+.r-controls { z-index: 4; left: calc(var(--sa-left) + 14px); right: calc(var(--sa-right) + 14px); bottom: calc(var(--sa-bottom) + 12px); height: 44px; border-radius: 14px; background: #fff; color: #2a1240; display: grid; place-items: center; font: 800 13px/1 var(--font-display); }
+.anatomy[data-active] .region:not(.r-bleed) { opacity: 0.28; }
+.anatomy[data-active] .r-bleed { filter: saturate(0.6) brightness(0.8); }
+.anatomy[data-active='bleed'] .r-bleed { filter: none; box-shadow: inset 0 0 0 3px #fff; }
+.anatomy[data-active='safe'] .region.r-safe, .anatomy[data-active='inset'] .region.r-inset, .anatomy[data-active='capsule'] .region.r-capsule, .anatomy[data-active='header'] .region.r-header, .anatomy[data-active='controls'] .region.r-controls { opacity: 1; box-shadow: 0 0 0 3px #fff, 0 0 26px 6px rgba(255,190,140,0.75); }
+.anatomy[data-active='safe'] .region.r-safe { box-shadow: none; }
+.anatomy[data-active='safe'] .r-safe i { background: repeating-linear-gradient(-45deg, rgba(255,214,170,0.85) 0 5px, rgba(255,255,255,0.2) 5px 10px); }
+.r-bleed { transition: filter 0.3s ease, box-shadow 0.3s ease; }
+.orient { display: inline-flex; padding: 4px; border-radius: 12px; background: var(--fill); border: 1px solid var(--hairline); }
+.orient button { border: 0; background: none; padding: 7px 12px; border-radius: 9px; font: 600 13px/1 var(--font-body); color: var(--muted); cursor: pointer; }
+.orient button[aria-pressed='true'] { background: var(--surface-solid); color: var(--ink); box-shadow: var(--shadow); }
+.legend { display: grid; gap: 8px; }
+.legend button {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 12px; align-items: start; text-align: left; width: 100%; padding: 12px 14px; border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--hairline); background: transparent; color: var(--ink-2); font: inherit; font-size: 14.5px; transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.legend button:hover, .legend button[aria-pressed='true'] { background: color-mix(in srgb, var(--accent) 9%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); transform: translateX(3px); }
+.legend .sw { width: 14px; height: 14px; margin-top: 4px; border-radius: 5px; background: var(--accent); }
+.legend b { display: block; color: var(--ink); font-family: var(--font-display); font-weight: 800; font-size: 15.5px; }
+.legend .vars { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.legend code { font-size: 12px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.anatomy.is-landscape { grid-template-columns: minmax(0, 1fr); }
+.anatomy.is-landscape .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.legend .sw.s-bleed { background: linear-gradient(135deg, #3b1f5e, #ff7a3d); }
+.legend .sw.s-safe { background: repeating-linear-gradient(-45deg, var(--accent) 0 3px, transparent 3px 6px); border: 1px solid var(--accent); }
+.legend .sw.s-inset { background: transparent; border: 2px dashed var(--accent); }
+.legend .sw.s-capsule { border-radius: 7px; background: var(--muted); }
+.legend .sw.s-header { background: #3b1f5e; }
+.legend .sw.s-controls { background: #fff; border: 1px solid var(--hairline-strong); }
+.anatomy-note { font-size: 13px; color: var(--muted); margin: 0; text-align: center; max-width: 250px; }
+
+.flow { list-style: none; margin: 22px 0 30px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; counter-reset: flow; }
+.flow li { position: relative; padding: 16px 16px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--hairline-strong); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 14px; }
+.flow li b { display: flex; align-items: center; gap: 8px; color: var(--ink); font-family: var(--font-display); font-weight: 800; font-size: 16px; margin-bottom: 4px; }
+.flow li b::before { counter-increment: flow; content: counter(flow); display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; font-size: 12.5px; color: #fff; background: var(--accent-fill); }
+.flow li span { color: var(--muted); }
+
+.builder { margin: 22px 0 30px; padding: 22px; border-radius: 22px; border: 1px solid var(--hairline-strong); background: var(--surface); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: var(--shadow); }
+.builder label { display: block; font-weight: 600; color: var(--ink); font-size: 14.5px; margin-bottom: 8px; }
+.builder input { width: 100%; height: 50px; padding: 0 16px; border-radius: 13px; border: 1.5px solid var(--hairline-strong); background: var(--surface-solid); color: var(--ink); font: 500 15px/1 var(--font-mono); transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+.builder input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+.builder .msg { min-height: 1.4em; margin: 10px 0 6px; font-size: 14px; color: var(--muted); }
+.builder .msg.bad { color: #b93a2c; }
+:root[data-theme='dark'] .builder .msg.bad { color: #ff8a7a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .builder .msg.bad { color: #ff8a7a; } }
+.out { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 10px; padding: 10px 10px 10px 14px; border-radius: 13px; background: var(--code-bg); color: var(--code-ink); font: 500 13px/1.5 var(--font-mono); transition: opacity 0.2s ease; }
+.out.off { opacity: 0.45; }
+.out span { overflow-wrap: anywhere; min-width: 0; }
+.out .lab { display: block; color: #a99f96; font: 600 11.5px/1.4 var(--font-body); margin-bottom: 2px; }
+
+.links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 22px 0; }
+.link-card { display: block; padding: 18px 20px; border-radius: 18px; text-decoration: none; color: var(--ink-2); border: 1px solid var(--hairline-strong); background: var(--surface); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); transition: transform 0.3s cubic-bezier(.2,.8,.2,1), box-shadow 0.3s ease, border-color 0.3s ease; }
+.link-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lift); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.link-card b { display: block; color: var(--ink); font-family: var(--font-display); font-weight: 800; font-size: 17px; margin-bottom: 4px; }
+.link-card span { font-size: 14px; color: var(--muted); }
+
+footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
+.foot { max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px; align-items: center; font-size: 14px; color: var(--muted); }
+.foot nav { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.foot a { color: var(--muted); text-decoration: none; }
+.foot a:hover { color: var(--ink); }
+
+.js .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.8s cubic-bezier(.2,.8,.2,1), transform 0.8s cubic-bezier(.2,.8,.2,1); }
+.js .reveal.in { opacity: 1; transform: none; }
+.hero-in > * { animation: rise 0.9s cubic-bezier(.2,.8,.2,1) both; }
+.hero-in > *:nth-child(2) { animation-delay: 0.08s; }
+.hero-in > *:nth-child(3) { animation-delay: 0.16s; }
+.hero-in > *:nth-child(4) { animation-delay: 0.24s; }
+.hero-in > *:nth-child(5) { animation-delay: 0.32s; }
+@keyframes rise { from { opacity: 0; transform: translateY(22px); } }
+
+@media (max-width: 1080px) {
+  .hero { grid-template-columns: minmax(0, 1fr); padding-top: 48px; gap: 30px; }
+  .stage { min-height: 560px; }
+  .docs { grid-template-columns: minmax(0, 1fr); gap: 0; padding-top: 24px; }
+  .toc { display: none; }
+  .mtoc { display: block; position: sticky; top: var(--nav-h); z-index: 40; margin: 0 -24px 18px; padding: 8px 24px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--hairline); }
+  .mtoc summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; height: 40px; font-size: 14.5px; color: var(--muted); }
+  .mtoc summary::-webkit-details-marker { display: none; }
+  .mtoc summary b { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .mtoc summary svg { width: 16px; height: 16px; margin-left: auto; flex: none; transition: transform 0.25s ease; }
+  .mtoc[open] summary svg { transform: rotate(180deg); }
+  .mtoc ol { list-style: none; margin: 0; padding: 4px 0 12px; max-height: 60vh; overflow: auto; }
+  .mtoc a { display: block; padding: 8px 4px; color: var(--ink-2); text-decoration: none; font-size: 15px; }
+  .mtoc a.sub { padding-left: 18px; color: var(--muted); }
+  .mtoc a.active { color: var(--accent-ink); font-weight: 600; }
+  .mtoc .bar { position: absolute; left: 0; bottom: -1px; height: 2px; width: 100%; transform-origin: 0 50%; transform: scaleX(var(--p, 0)); background: linear-gradient(90deg, var(--honey), var(--accent), var(--rose)); }
+  .progress { display: none; }
+  .content { max-width: none; }
+}
+@media (max-width: 900px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .anatomy { grid-template-columns: minmax(0, 1fr); padding: 20px; }
+  .anatomy.is-landscape .legend { grid-template-columns: minmax(0, 1fr); }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nav-links { display: none; }
+  .nav .nav-gh { margin-left: auto; }
+}
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  .hero { padding: 36px 16px 40px; }
+  .band, .probe { padding-left: 16px; padding-right: 16px; }
+  .docs { padding-left: 16px; padding-right: 16px; }
+  .mtoc { margin: 0 -16px 18px; padding: 8px 16px; }
+  .brand .sub { display: none; }
+  .stage { min-height: 520px; }
+  .phone { --w: 252px; }
+  .float-card { display: none; }
+  .device { --dw: 230px; --dh: 480px; }
+  .device.landscape { --dw: 100%; --dh: 170px; --sa-left: 30px; --sa-right: 30px; }
+  .device-wrap { width: 100%; }
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .links { grid-template-columns: minmax(0, 1fr); }
+  .anatomy { padding: 16px; margin-left: -4px; margin-right: -4px; }
+  .step { padding-left: 0; padding-top: 52px; }
+  .step:not(:last-child)::after { display: none; }
+  pre { font-size: 12.6px; }
+  .install code { font-size: 11.5px; }
+  .install .copy { width: 30px; padding: 0; justify-content: center; }
+  .install .copy span { display: none; }
+  .stage-chips { width: 260px; }
+  .cta .btn { flex: 1 1 auto; justify-content: center; }
+  .stage-chips span { font-size: 11.5px; }
+  .callout { grid-template-columns: minmax(0, 1fr); }
+  /* Phones read each table row as a block: label first, then the text at full width */
+  .table-wrap table, .table-wrap tbody, .table-wrap tr, .table-wrap td { display: block; }
+  .table-wrap thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .table-wrap tr { padding: 11px 14px; border-bottom: 1px solid var(--hairline); }
+  .table-wrap tr:last-child { border-bottom: 0; }
+  .table-wrap td { padding: 2px 0; border: 0; }
+  .table-wrap td:first-child { padding-bottom: 5px; color: var(--ink); font-weight: 600; }
+  .table-wrap td code { white-space: normal; }
+  .table-wrap td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); font-weight: 600; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  .sky .blob { animation: none; }
+  .app { animation: none !important; top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; }
+  .app .face { animation: none !important; opacity: 0; }
+  .app .scene { animation: none !important; opacity: 1; }
+  .capsule { animation: none !important; opacity: 1; }
+  .switcher, .tap { animation: none !important; opacity: 0; }
+  .stage-chips span { animation: none !important; }
+  .stage-chips span:nth-child(3) { opacity: 1; }
+  .float-card { animation: none !important; }
+  .stage-ctrl { display: none; }
+  .js .reveal { opacity: 1; transform: none; }
+  .js .code.reveal-code .ln { opacity: 1; transform: none; }
+}
+@media print {
+  .sky, .grain, .nav, .toc, .mtoc, .progress, .stage { display: none !important; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="sky" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div><div class="fade"></div></div>
+<div class="grain" aria-hidden="true"></div>
+<div class="progress" aria-hidden="true"></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="bread" viewBox="64 68 273 263.2">
+      <path d="M305.773 187.624C336.332 200.049 344.631 237.592 329.924 265.52C319.99 284.382 300.867 296.923 281.208 304.023C250.87 314.976 216.662 321.919 185.637 331.178C176.552 331.574 147.489 319.23 140.04 313.405C133.399 308.213 128.994 299.181 128.336 290.813C125.828 258.868 130.286 223.723 128.319 191.447C89.7516 125.155 183.542 75.6996 238.899 85.6221C253.017 88.1537 273.729 93.2809 287.417 97.5932C302.217 102.255 315.288 112.783 320.915 127.477C329.447 149.755 320.607 170.694 305.778 187.635L305.773 187.624ZM274.946 198.099C302.287 188.34 320.886 152.904 306.075 126.017C290.443 97.6398 252.755 106.177 227.381 113.667C203.503 120.721 177.419 129.206 173.706 157.676V301.847C175.301 312.718 180.905 319.038 192.469 317.647C219.1 309.657 247.948 304.629 274.224 295.876C303.27 286.203 329.348 255.318 315.945 223.665C308.642 206.416 294.901 201.696 277.733 199.077C277.052 198.972 274.911 198.931 274.951 198.093L274.946 198.099Z" fill="#E77537"/>
+      <path d="M206.299 76.0532C206.211 76.8855 203.732 77.0542 203.034 77.1415C149.848 83.6945 78.8709 130.188 116.163 190.806C116.443 224.327 115.71 257.878 116.111 291.399C116.152 294.949 117.089 298.307 116.134 302.125C115.459 302.823 108.732 299.995 107.428 299.488C90.615 292.953 74.9193 286.097 73.0978 265.792C70.4614 236.386 75.0415 203.184 73.0978 173.382C39.4134 116.686 106.561 74.4237 155.47 68.5691C173.516 66.41 189.299 70.7166 206.287 76.0591L206.299 76.0532Z" fill="#E77537"/>
+      <path d="M274.938 198.098C274.898 198.936 277.039 198.977 277.72 199.082C294.888 201.7 308.629 206.42 315.932 223.67C329.341 255.323 303.257 286.202 274.211 295.88C247.935 304.633 219.087 309.656 192.456 317.652C180.892 319.043 175.288 312.723 173.693 301.851V157.68C177.406 129.21 203.49 120.719 227.368 113.672C252.742 106.176 290.43 97.6444 306.062 126.021C320.879 152.908 302.273 188.344 274.933 198.104L274.938 198.098Z" fill="#fff"/>
+    </symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8.5a2 2 0 0 0 2 2h.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 16H3z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12 10v4.5M12 17.2v.3" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-nope" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M6 18L18 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav" id="top">
+  <div class="nav-inner">
+    <a class="brand" href="#top" aria-label="Build for Bread, back to top">
+      <svg aria-hidden="true"><use href="#bread"/></svg>
+      <span>Bread <span class="sub">for developers</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="#quickstart">Quickstart</a>
+      <a href="#transactions">Transactions</a>
+      <a href="#fullscreen">Fullscreen</a>
+    </nav>
+    <a class="icon-btn nav-gh" href="https://github.com/0xMiden/wallet" aria-label="Bread on GitHub">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.3 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+    </a>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Switch between light and dark theme">
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-in">
+      <a class="pill" href="#fullscreen"><b>New</b> Fullscreen dApps on iOS and Android</a>
+      <h1 id="hero-title">Build dApps that feel <span class="grad">at home in Bread</span></h1>
+      <p class="lead">Bread is the Miden wallet for Chrome, Firefox, iOS, Android and desktop. Connect with the Miden wallet adapter, ask for sends, consumes and custom transactions, sign people in with a key made for your site, and on phones take the whole screen with one meta tag.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#quickstart">Start building <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+      </div>
+      <div class="install" role="group" aria-label="Install command">
+        <span class="prompt" aria-hidden="true">$</span>
+        <code><span>npm i</span> <span>@miden-sdk/miden-wallet-adapter</span> <span>@miden-sdk/miden-sdk</span> <span>@miden-sdk/react</span></code>
+        <button class="copy" type="button" data-copy="npm i @miden-sdk/miden-wallet-adapter @miden-sdk/miden-sdk @miden-sdk/react" aria-label="Copy install command"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <button class="icon-btn stage-ctrl" type="button" aria-label="Pause animation" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="pz"><path d="M8 5v14M16 5v14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+      </button>
+      <div class="rig" role="img" aria-label="Illustrative animation: in Bread's Explore screen a tap on a game's card opens it fullscreen with a smooth morph and the Bread capsule in its corner. The app switcher shows it as a card, a tap brings it back, and a tap on the Bread capsule minimizes it to its card in Explore.">
+      <div class="float-card meta" aria-hidden="true">
+        <span class="c">&lt;!-- in your &lt;head&gt; --&gt;</span><br>
+        <span class="k">&lt;meta</span> <span class="a">name</span>=<span class="s">"bread-display"</span><br>
+        &nbsp;&nbsp;<span class="a">content</span>=<span class="s">"fullscreen"</span> <span class="k">/&gt;</span>
+      </div>
+      <div class="float-card vars" aria-hidden="true">
+        <span class="k">.hud</span> {<br>
+        &nbsp;&nbsp;<span class="a">top</span>: <span class="v">var(--bread-control-top)</span>;<br>
+        }
+      </div>
+      <div class="phone" aria-hidden="true">
+        <div class="screen">
+          <div class="explore">
+            <div class="ex-title">Explore</div>
+            <div class="ex-search">Search or type a URL</div>
+            <div class="ex-label">Games</div>
+            <div class="ex-row r1"><i></i><span><b></b><b></b></span></div>
+            <div class="ex-row r2"><i></i><span><b></b><b></b></span></div>
+            <div class="ex-nav"><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="switcher"><i></i><i></i><i></i><i></i></div>
+          <div class="app">
+            <div class="face"><span class="icon"></span><span class="name">Skyline Run</span><span class="tag">Race the sunset</span></div>
+            <div class="scene">
+              <div class="stars"></div><div class="sun"></div><div class="hills"></div>
+              <div class="hud"><span class="title">Skyline Run</span><span class="score">1,280</span></div>
+              <div class="play">Play</div>
+            </div>
+          </div>
+          <div class="capsule"><svg><use href="#bread"/></svg></div>
+          <span class="tap t1"></span><span class="tap t2"></span><span class="tap t3"></span>
+          <div class="status"><span>9:41</span><span class="dots"><i></i><i></i></span></div>
+          <div class="island"></div>
+          <div class="home-ind"></div>
+        </div>
+      </div>
+      </div>
+      <div class="stage-chips" aria-hidden="true">
+        <span>Explore in Bread</span>
+        <span>Tap the dApp</span>
+        <span>Opens fullscreen</span>
+        <span>Switch apps</span>
+        <span>Tap Bread to minimize</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="probe">
+    <div class="probe-inner" aria-live="polite">
+      <strong>Detected in this browser right now</strong>
+      <span class="flag" data-probe="midenWallet">window.midenWallet</span>
+      <span class="flag" data-probe="bread">window.bread</span>
+      <span class="flag" data-probe="presentation">bread.presentation</span>
+      <span class="flag" data-probe="auth">bread.auth</span>
+      <span class="probe-hint">Open this page in Bread to light them up.</span>
+    </div>
+  </div>
+
+  <section class="band" id="platforms" aria-labelledby="platforms-title">
+    <div class="band-head reveal">
+      <h2 id="platforms-title">One provider, three places your dApp runs</h2>
+      <p>Every Bread app injects the same <code>window.midenWallet</code> provider, so one integration covers them all. The phone apps add <code>window.bread</code> for fullscreen and sign-in.</p>
+    </div>
+    <div class="cards">
+      <article class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 9h18" stroke="currentColor" stroke-width="2"/><circle cx="6.5" cy="6.5" r="0.9" fill="currentColor"/><circle cx="9.5" cy="6.5" r="0.9" fill="currentColor"/></svg></div>
+        <h3>Browser extension</h3>
+        <p class="meta">Chrome and Firefox</p>
+        <ul>
+          <li>Injected at document start into <code>https://</code> pages, <code>http://localhost</code> and <code>http://127.0.0.1</code>; Firefox also injects it into every <code>http://</code> page</li>
+          <li>Approvals open in the extension's own window</li>
+          <li class="no">No <code>window.bread</code></li>
+        </ul>
+      </article>
+      <article class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.5 18.5h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <h3>Mobile browser</h3>
+        <p class="meta">iOS and Android, inside the Bread app</p>
+        <ul>
+          <li>Bread's in-app browser injects the provider after each page load</li>
+          <li>Approvals open in a dialog over your page</li>
+          <li><code>window.bread.presentation</code> for fullscreen and <code>window.bread.auth</code> for Google and Apple sign-in</li>
+        </ul>
+      </article>
+      <article class="card reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="12.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16.5V20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <h3>Desktop app</h3>
+        <p class="meta">macOS, Windows and Linux</p>
+        <ul>
+          <li>Explore opens your page in its own window, provider injected at document start in the top frame</li>
+          <li>Approvals appear in the main Bread window</li>
+          <li class="no"><code>window.bread</code> is an empty marker: no fullscreen, no sign-in sheet</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <div class="docs">
+    <nav class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <div class="track"><span class="rail" aria-hidden="true"></span><ol>
+        <li><a href="#quickstart">Quickstart</a></li>
+        <li><a href="#connect">Connect and permissions</a></li>
+        <li><a href="#networks">Networks</a></li>
+        <li><a href="#reading">Read balances and notes</a></li>
+        <li><a href="#transactions">Transactions</a></li>
+        <li><a href="#signing">Sign bytes</a></li>
+        <li><a href="#login">Sign in with Bread</a></li>
+        <li><a href="#mobile">The mobile browser</a></li>
+        <li><a href="#fullscreen">Fullscreen</a></li>
+        <li><a class="sub" href="#anatomy">Layout anatomy</a></li>
+        <li><a class="sub" href="#lifecycle">Lifecycle</a></li>
+        <li><a href="#auth-sheet">Google and Apple sign-in</a></li>
+        <li><a href="#deep-links">Open links</a></li>
+        <li><a href="#explore">Explore listing (optional)</a></li>
+        <li><a href="#testing">Test your dApp</a></li>
+        <li><a href="#gotchas">Gotchas</a></li>
+        <li><a href="#under-the-hood">Under the hood</a></li>
+      </ol></div>
+      <a class="back-top" href="#top">Back to top</a>
+    </nav>
+
+    <div class="content">
+      <details class="mtoc">
+        <summary><span>On this page</span> <b class="mtoc-current">Quickstart</b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <ol></ol>
+        <span class="bar" aria-hidden="true"></span>
+      </details>
+
+      <section class="section" id="quickstart" aria-labelledby="h-quickstart">
+        <h2 id="h-quickstart"><a class="anchor" href="#quickstart">Quickstart</a></h2>
+        <p class="intro">Three steps from an empty page to a confirmed transfer. React is the shortest path; the adapter also works on its own in plain TypeScript.</p>
+        <div class="steps">
+          <div class="step reveal">
+            <h3>Install the adapter</h3>
+            <p><code>@miden-sdk/miden-wallet-adapter</code> is the umbrella package: the Bread adapter, its types, the React hooks and the UI components in one install. It imports <code>@miden-sdk/miden-sdk</code> and <code>@miden-sdk/react</code> 0.17 but installs neither, so name both. npm 7+ and pnpm 8+ add the SDK on their own as a required peer; nothing adds <code>@miden-sdk/react</code>, an optional peer, and Yarn adds no peers.</p>
+            <div class="code reveal-code" data-tabs>
+              <div class="code-bar">
+                <div class="tabs" role="tablist" aria-label="Package manager">
+                  <button class="tab" role="tab" aria-selected="true">React</button>
+                  <button class="tab" role="tab" aria-selected="false">Without React</button>
+                </div>
+                <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+              </div>
+              <div class="panel" role="tabpanel"><pre class="nolines"><code data-lang="bash">npm i @miden-sdk/miden-wallet-adapter \
+  @miden-sdk/miden-sdk @miden-sdk/react</code></pre></div>
+              <div class="panel" role="tabpanel" hidden><pre class="nolines"><code data-lang="bash">npm i @miden-sdk/miden-sdk \
+  @miden-sdk/miden-wallet-adapter-miden \
+  @miden-sdk/miden-wallet-adapter-base</code></pre></div>
+            </div>
+            <p>The umbrella needs React 19.1 or later and pulls React into any app that imports it. Without React, or on React 18, install its parts, the <code>@miden-sdk/miden-wallet-adapter-*</code> packages: <code>-miden</code> and <code>-base</code> for the adapter, <code>-react</code> for the hooks (React 18 or 19) and <code>-reactui</code> for the UI (React 19.1). They export the same names: <code>MidenWalletAdapter</code> and <code>MidenWalletName</code> come from <code>-miden</code>, <code>WalletProvider</code> and <code>useWallet</code> from <code>-react</code>, and every other name in these samples from <code>-base</code>.</p>
+          </div>
+          <div class="step reveal">
+            <h3>Wrap your app</h3>
+            <p><code>WalletProvider</code> holds the connection. Its <code>network</code>, <code>privateDataPermission</code> and <code>allowedPrivateData</code> props are what it asks Bread for when it connects.</p>
+            <div class="code reveal-code">
+              <div class="code-bar"><span class="fname">main.tsx</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+              <pre><code data-lang="tsx">import {
+  MidenWalletAdapter,
+  PrivateDataPermission,
+  WalletAdapterNetwork,
+  WalletProvider
+} from '@miden-sdk/miden-wallet-adapter';
+
+// Create adapters once, outside render: a new adapter disconnects the old one.
+const wallets = [new MidenWalletAdapter({ appName: 'My dApp' })];
+
+export function Root() {
+  return (
+    &lt;WalletProvider
+      wallets={wallets}
+      network={WalletAdapterNetwork.Testnet}
+      privateDataPermission={PrivateDataPermission.UponRequest}
+    &gt;
+      &lt;App /&gt;
+    &lt;/WalletProvider&gt;
+  );
+}</code></pre>
+            </div>
+          </div>
+          <div class="step reveal">
+            <h3>Connect and send</h3>
+            <p>Select Bread once, connect on a click, then ask for a transfer. The call resolves with a transaction id when Bread accepts it; <code>waitForTransaction</code> tells you how it ended.</p>
+            <div class="code reveal-code" data-tabs>
+              <div class="code-bar">
+                <div class="tabs" role="tablist" aria-label="Example">
+                  <button class="tab" role="tab" aria-selected="true">React</button>
+                  <button class="tab" role="tab" aria-selected="false">TypeScript</button>
+                </div>
+                <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+              </div>
+              <div class="panel" role="tabpanel"><pre><code data-lang="tsx">import { useEffect } from 'react';
+import {
+  MidenWalletName,
+  PrivateDataPermission,
+  SendTransaction,
+  useWallet,
+  WalletAdapterNetwork
+} from '@miden-sdk/miden-wallet-adapter';
+
+export function App() {
+  const { wallet, select, connect, connected, address, requestSend, waitForTransaction } = useWallet();
+
+  useEffect(() => {
+    if (!wallet) select(MidenWalletName);
+  }, [wallet, select]);
+
+  async function pay(recipient: string, faucetId: string) {
+    // WalletProvider connects with its own props; these arguments only satisfy the type.
+    if (!connected) await connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+    const txId = await requestSend!(new SendTransaction(address!, recipient, faucetId, 'public', 1_000_000));
+    const { txHash } = await waitForTransaction!(txId);
+    console.log('committed', txHash);
+  }
+
+  return &lt;button onClick={() =&gt; pay(RECIPIENT, FAUCET_ID)}&gt;Pay with Bread&lt;/button&gt;;
+}</code></pre></div>
+              <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { MidenWalletAdapter } from '@miden-sdk/miden-wallet-adapter-miden';
+import {
+  PrivateDataPermission,
+  SendTransaction,
+  WalletAdapterNetwork,
+  WalletReadyState
+} from '@miden-sdk/miden-wallet-adapter-base';
+
+const adapter = new MidenWalletAdapter({ appName: 'My dApp' });
+
+// The adapter polls for window.midenWallet and may find it at once, in its constructor.
+if (adapter.readyState === WalletReadyState.Installed) enableConnectButton();
+adapter.on('readyStateChange', state =&gt; {
+  if (state === WalletReadyState.Installed) enableConnectButton();
+});
+
+async function pay(recipient: string, faucetId: string) {
+  await adapter.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+  const txId = await adapter.requestSend(
+    new SendTransaction(adapter.address, recipient, faucetId, 'public', 1_000_000)
+  );
+  const { txHash, outputNotes } = await adapter.waitForTransaction(txId);
+  return { txHash, outputNotes };
+}</code></pre></div>
+            </div>
+          </div>
+        </div>
+        <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">Amounts are integers</strong><p>Pass <code>amount</code> in the token's smallest unit, as a whole number. Bread reads it with <code>BigInt</code>, so <code>1_000_000</code> of a token with 6 decimals is one token.</p></div></div>
+      </section>
+
+      <section class="section" id="connect" aria-labelledby="h-connect">
+        <h2 id="h-connect"><a class="anchor" href="#connect">Connect and permissions</a></h2>
+        <p class="intro">A connection is a grant from one account to one origin. You say what you want to read without asking each time; the user decides.</p>
+        <div class="code reveal-code"><div class="code-bar"><span class="fname">signature</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+<pre><code data-lang="ts">connect(
+  privateDataPermission: PrivateDataPermission,
+  network: WalletAdapterNetwork,
+  allowedPrivateData?: AllowedPrivateData
+): Promise&lt;void&gt;</code></pre></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>PrivateDataPermission</th><th>What Bread does</th></tr></thead>
+          <tbody>
+            <tr><td><code>UponRequest</code></td><td>Asks the user each time you read balances or notes. The default.</td></tr>
+            <tr><td><code>Auto</code></td><td>Answers reads in the categories of <code>allowedPrivateData</code> without a prompt. Because that is standing access, the connect sheet asks the user to confirm it explicitly.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>AllowedPrivateData</th><th>Value</th><th>Covers</th></tr></thead>
+          <tbody>
+            <tr><td><code>None</code></td><td>0</td><td>Nothing; the default</td></tr>
+            <tr><td><code>Assets</code></td><td>1</td><td><code>requestAssets</code></td></tr>
+            <tr><td><code>Notes</code></td><td>2</td><td><code>requestPrivateNotes</code>, <code>requestConsumableNotes</code></td></tr>
+            <tr><td><code>Storage</code></td><td>4</td><td>Accepted, but no request reads it today</td></tr>
+            <tr><td><code>All</code></td><td>65535</td><td>Every category</td></tr>
+          </tbody>
+        </table></div>
+        <p>Combine categories with a bitwise or, for example <code>AllowedPrivateData.Assets | AllowedPrivateData.Notes</code>.</p>
+        <h3>What the user sees</h3>
+        <ul class="list">
+          <li>Approval screens name your site by its verified origin, never by a name you send.</li>
+          <li>Connecting again from the same origin returns the saved grant without a prompt. A locked wallet asks the user to unlock first.</li>
+          <li>Users review and revoke connections in Settings, Authorized DApps. <code>disconnect()</code> removes the session too.</li>
+          <li>If the user turns off DApps Interaction in that screen, every request fails: the phone and desktop apps refuse it with <code>NOT_GRANTED</code>, the extension with a plain <code>Not Found</code> error.</li>
+          <li>If Bread is not installed, <code>connect()</code> throws <code>WalletNotReadyError</code>. Through the React <code>WalletProvider</code> it also opens Bread's Chrome Web Store page.</li>
+        </ul>
+        <h3>Errors</h3>
+        <p>Bread's refusals carry a code at the start of the message. Through the adapter most arrive wrapped in its <code>Wallet...Error</code> classes with the same message; <code>importPrivateNote</code>, <code>requestConsumableNotes</code> and a refused <code>waitForTransaction</code> pass the provider's error through as it is.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Code</th><th>Means</th></tr></thead>
+          <tbody>
+            <tr><td><code>NOT_GRANTED</code></td><td>The user declined, the origin has no session, or DApps Interaction is off (phone and desktop apps)</td></tr>
+            <tr><td><code>NOT_FOUND</code></td><td>Nothing to act on, such as disconnecting without a session</td></tr>
+            <tr><td><code>INVALID_PARAMS</code></td><td>A request field Bread refused, explained in the rest of the message</td></tr>
+            <tr><td><code>NETWORK_NOT_GRANTED</code></td><td>An unknown network name, or <code>mainnet</code> while the wallet is not on mainnet</td></tr>
+            <tr><td><code>LOGIN_KEY_UNAVAILABLE</code></td><td>The account has no login key on this device (see <a href="#login">Sign in with Bread</a>)</td></tr>
+          </tbody>
+        </table></div>
+        <div class="callout gotcha"><span class="ci"><svg aria-hidden="true"><use href="#i-warn"/></svg></span><div><strong class="t">Raw provider errors are not <code>Error</code> instances</strong><p>Calling <code>window.midenWallet</code> directly, failures are <code>MidenWalletError</code> objects that implement <code>Error</code> but do not extend it, so <code>instanceof Error</code> is false. Read <code>error.message</code> and match the code.</p></div></div>
+      </section>
+
+      <section class="section" id="networks" aria-labelledby="h-networks">
+        <h2 id="h-networks"><a class="anchor" href="#networks">Networks</a></h2>
+        <p class="intro">You name a network when you connect; Bread runs every request on the network the wallet is on.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Network</th><th>RPC</th><th>Faucet</th><th>Explorer</th></tr></thead>
+          <tbody>
+            <tr><td><b>mainnet</b></td><td class="wrap"><code>https://rpc.cedar.miden.io</code></td><td>None</td><td><a href="https://explorer.cedar.miden.io">explorer.cedar.miden.io</a></td></tr>
+            <tr><td><b>testnet</b></td><td class="wrap"><code>https://rpc.testnet.miden.io</code></td><td><a href="https://faucet.testnet.miden.io">faucet.testnet.miden.io</a></td><td><a href="https://testnet.midenscan.com">testnet.midenscan.com</a></td></tr>
+            <tr><td><b>devnet</b></td><td class="wrap"><code>https://rpc.devnet.miden.io</code></td><td><a href="https://faucet.devnet.miden.io">faucet.devnet.miden.io</a></td><td><a href="https://devnet.midenscan.com">devnet.midenscan.com</a></td></tr>
+            <tr><td><b>localnet</b></td><td class="wrap"><code>http://localhost:57291</code></td><td>Your own</td><td>None</td></tr>
+          </tbody>
+        </table></div>
+        <ul class="list">
+          <li>Bread accepts <code>mainnet</code>, <code>testnet</code>, <code>devnet</code> and <code>localnet</code>. Any other name is refused with <code>NETWORK_NOT_GRANTED</code>.</li>
+          <li>Asking for a valid network the wallet is not on is not refused. The connect sheet tells the user: "This app asked for Miden Testnet, but your wallet is on Miden Mainnet." Requests then run on the wallet's network.</li>
+          <li><code>mainnet</code> is granted only while the wallet itself is on mainnet.</li>
+        </ul>
+        <div class="callout gotcha"><span class="ci"><svg aria-hidden="true"><use href="#i-warn"/></svg></span><div><strong class="t">The adapter has no Mainnet member</strong><p><code>WalletAdapterNetwork</code> 0.17 lists only <code>Devnet</code>, <code>Testnet</code> and <code>Localnet</code>, and <code>WalletProvider</code> defaults to <code>Testnet</code>, so a mainnet wallet shows the mismatch notice on every default connect. A mainnet dApp passes the string itself: <code>'mainnet' as WalletAdapterNetwork</code>.</p></div></div>
+      </section>
+
+      <section class="section" id="reading" aria-labelledby="h-reading">
+        <h2 id="h-reading"><a class="anchor" href="#reading">Read balances and notes</a></h2>
+        <p class="intro">After connecting, <code>address</code> and <code>publicKey</code> are on the adapter. Everything else is a request, answered with a prompt or silently according to the grant.</p>
+        <div class="code reveal-code"><div class="code-bar"><span class="fname">reads.ts</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+<pre><code data-lang="ts">import { NoteFilterTypes } from '@miden-sdk/miden-sdk';
+
+const assets = await adapter.requestAssets();
+// [{ faucetId, amount }]: faucetId as a bech32 address, amount as a decimal string
+
+const consumable = await adapter.requestConsumableNotes();
+const committed = await adapter.requestPrivateNotes(NoteFilterTypes.Committed);
+// each: { noteId, senderAccountId, assets, noteType, nullifier, state }
+
+const guardian = await adapter.requestGuardianInfo();
+// { isGuardianAccount, guardianEndpoint, guardianProvider, guardianSyncStatus }</code></pre></div>
+        <ul class="list">
+          <li><code>requestPrivateNotes(filter, noteIds?)</code> takes the SDK's <code>NoteFilterTypes</code>; pass <code>NoteFilterTypes.List</code> with ids to ask for specific notes.</li>
+          <li>Every Bread account is a Guardian account. <code>requestGuardianInfo</code> reports its Guardian operator and sync state; the desktop provider does not implement it yet.</li>
+        </ul>
+      </section>
+
+      <section class="section" id="transactions" aria-labelledby="h-transactions">
+        <h2 id="h-transactions"><a class="anchor" href="#transactions">Transactions</a></h2>
+        <p class="intro">Three shapes, one confirmation flow. Each call opens Bread's approval, and resolves with a transaction id once Bread has accepted the transaction.</p>
+        <div class="code reveal-code" data-tabs>
+          <div class="code-bar">
+            <div class="tabs" role="tablist" aria-label="Transaction type">
+              <button class="tab" role="tab" aria-selected="true">Send</button>
+              <button class="tab" role="tab" aria-selected="false">Consume</button>
+              <button class="tab" role="tab" aria-selected="false">Custom</button>
+              <button class="tab" role="tab" aria-selected="false">Wait</button>
+            </div>
+            <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+          </div>
+          <div class="panel" role="tabpanel"><pre><code data-lang="ts">import { SendTransaction } from '@miden-sdk/miden-wallet-adapter';
+
+const txId = await adapter.requestSend(
+  new SendTransaction(
+    adapter.address, // sender: the connected account
+    recipient,       // a Miden address
+    faucetId,        // which token
+    'private',       // 'public' or 'private' note
+    250_000          // integer, smallest unit
+  )
+);</code></pre></div>
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { ConsumeTransaction } from '@miden-sdk/miden-wallet-adapter';
+
+// Claim a note addressed to the connected account.
+const txId = await adapter.requestConsume(
+  new ConsumeTransaction(faucetId, noteId, 'public', amount)
+);
+
+// A private note the wallet has not seen yet travels with its bytes:
+// new ConsumeTransaction(faucetId, noteId, 'private', amount, noteBytes)</code></pre></div>
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { Transaction } from '@miden-sdk/miden-wallet-adapter';
+import type { TransactionRequest } from '@miden-sdk/miden-sdk';
+
+// Build any TransactionRequest with the Miden SDK, then hand it to Bread.
+const request: TransactionRequest = buildMyRequest();
+
+const txId = await adapter.requestTransaction(
+  Transaction.createCustomTransaction(
+    adapter.address,   // the account that executes it
+    recipientAddress,
+    request,
+    inputNoteIds,      // optional: notes the request consumes
+    inputNoteBytes     // optional: Uint8Array[] of notes to import first
+  )
+);</code></pre></div>
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">try {
+  const { txHash, outputNotes } = await adapter.waitForTransaction(txId);
+  // outputNotes are SDK Note objects, for example a private note to hand on
+} catch (error) {
+  // WalletTransactionError: it failed or did not settle in time.
+  // A refused request rejects with the provider's own error.
+}</code></pre></div>
+        </div>
+        <ul class="list">
+          <li><code>requestTransaction</code> also accepts <code>Transaction.createSendTransaction(...)</code> and <code>createConsumeTransaction(...)</code>; the adapter routes those to the send and consume requests.</li>
+          <li><code>CustomTransaction</code> serializes the request in its constructor and Bread deserializes it with its own SDK, so build it with the same <code>@miden-sdk/miden-sdk</code> minor version Bread uses, 0.17.</li>
+          <li><code>SendTransaction</code> takes an optional sixth argument, <code>recallBlocks</code>.</li>
+        </ul>
+        <div class="callout gotcha"><span class="ci"><svg aria-hidden="true"><use href="#i-warn"/></svg></span><div><strong class="t">A transaction id is not a confirmation</strong><p>Bread resolves the request when the transaction enters its queue, not when it lands on chain. Show progress, then call <code>waitForTransaction(txId)</code> before treating it as done. If Bread answers without an id, the adapter throws instead of resolving.</p></div></div>
+        <h3 id="private-notes">Private notes</h3>
+        <p>Send with <code>noteType: 'private'</code> and the note's details stay off chain. To pass a private note to Bread yourself, for example one your server holds for the user, import its serialized bytes:</p>
+        <div class="code reveal-code"><div class="code-bar"><span class="fname">import-note.ts</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+<pre><code data-lang="ts">const noteId = await adapter.importPrivateNote(noteBytes); // Uint8Array
+const notes = await adapter.requestConsumableNotes();     // listed if this account can consume it</code></pre></div>
+      </section>
+
+      <section class="section" id="signing" aria-labelledby="h-signing">
+        <h2 id="h-signing"><a class="anchor" href="#signing">Sign bytes</a></h2>
+        <p class="intro"><code>signBytes</code> asks the connected account to sign data you prepared with the Miden SDK. The user approves every signature.</p>
+        <div class="code reveal-code"><div class="code-bar"><span class="fname">sign.ts</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+<pre><code data-lang="ts">import { Word } from '@miden-sdk/miden-sdk';
+
+const signature = await adapter.signBytes(word.serialize(), 'word');
+// or: adapter.signBytes(signingInputs.serialize(), 'signingInputs')
+// signature: the SDK's serialized Signature bytes</code></pre></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>kind</th><th>message holds</th></tr></thead>
+          <tbody>
+            <tr><td><code>'word'</code></td><td>A serialized <code>Word</code>, 32 bytes</td></tr>
+            <tr><td><code>'signingInputs'</code></td><td>Serialized <code>SigningInputs</code></td></tr>
+          </tbody>
+        </table></div>
+        <p>To sign people in, use the login key below instead: it is separate from the account's transaction keys.</p>
+      </section>
+
+      <section class="section" id="login" aria-labelledby="h-login">
+        <h2 id="h-login"><a class="anchor" href="#login">Sign in with Bread</a></h2>
+        <p class="intro">Each account has one login key per site. It comes from the account's root key and your registrable domain, so the same recovery phrase brings the same login back on every device and in every Bread app. It signs only sign-in messages, never transactions.</p>
+        <div class="code reveal-code" data-tabs>
+          <div class="code-bar">
+            <div class="tabs" role="tablist" aria-label="Login side">
+              <button class="tab" role="tab" aria-selected="true">Page</button>
+              <button class="tab" role="tab" aria-selected="false">Login message</button>
+            </div>
+            <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+          </div>
+          <div class="panel" role="tabpanel"><pre><code data-lang="ts">// After connecting. Not in the adapter or its types: call the provider directly.
+const wallet = (window as any).midenWallet;
+
+if (wallet?.requestLoginKey) {
+  const { loginKey } = await wallet.requestLoginKey(); // 32 bytes, no prompt
+
+  const word = await fetchChallengeWord();           // 32 bytes from your server
+  const { signature } = await wallet.signLoginBytes(word, 'word'); // prompts
+
+  await fetch('/login', {
+    method: 'POST',
+    body: JSON.stringify({ loginKey: toHex(loginKey), signature: toHex(signature) })
+  });
+}</code></pre></div>
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="ts">import { Felt, FeltArray, Poseidon2, Word } from '@miden-sdk/miden-sdk';
+
+// Bread signs M, never the word itself.
+function loginMessage(word: Word) {
+  const tag = new Uint8Array(16);
+  tag.set(new TextEncoder().encode('Bread login v1'));
+  const view = new DataView(tag.buffer);
+  const tagElements = [0, 4, 8, 12].map(at =&gt; new Felt(BigInt(view.getUint32(at, true))));
+  return Poseidon2.hashElements(new FeltArray([...tagElements, ...word.toFelts()]));
+}</code></pre></div>
+        </div>
+        <ul class="list">
+          <li><b>Key:</b> <code>requestLoginKey()</code> resolves to <code>{ loginKey }</code>, the 32-byte commitment of the login key, in the same form as the <code>publicKey</code> a connection returns. It needs a connected session and shows no prompt.</li>
+          <li><b>Signature:</b> <code>signLoginBytes(data, 'word')</code> always asks for approval, on a screen that names your site. It resolves to <code>{ signature }</code>, a 66-byte recoverable ECDSA signature over secp256k1 with Keccak: <code>[0x01, r, s, v]</code>.</li>
+          <li><b>Verify:</b> on your server, compute the login message M from your own word. Bread never sends the public key and the SDK's <code>PublicKey.recoverFrom</code> supports only Falcon keys, so recover the secp256k1 key with an ECDSA library from <code>r</code>, <code>s</code> and <code>v</code> over keccak256 of M's 32 serialized bytes. Deserialize it as an SDK <code>PublicKey</code> (<code>0x01</code> and the 33-byte compressed point), check <code>publicKey.verify(M, signature)</code>, and accept only when <code>publicKey.toCommitment()</code> equals <code>loginKey</code>. Checking against the raw word fails by design.</li>
+          <li><b>Domain:</b> Bread takes the domain from your page's real origin, never from the request. <code>app.example.com</code> and <code>www.example.com</code> share one key. Pages must be https, except <code>localhost</code> and loopback addresses.</li>
+        </ul>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Refusal</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td><code>LOGIN_KEY_UNAVAILABLE</code></td><td>The account's root key is not on this device, which is always the case for an account imported from a single private key. Bread never falls back to another key.</td></tr>
+            <tr><td><code>INVALID_PARAMS</code></td><td class="wrap">The data is not a word (32 bytes holding four little-endian field elements), or the page is not https</td></tr>
+            <tr><td><code>NOT_GRANTED</code></td><td>No session for this origin, or the user declined</td></tr>
+          </tbody>
+        </table></div>
+        <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">Detect the methods, not a version</strong><p>Older Bread builds have neither method. <code>LOGIN_KEY_UNAVAILABLE</code> arrives as a plain <code>MidenWalletError</code>; match it in <code>error.message</code>.</p></div></div>
+      </section>
+
+      <section class="section" id="mobile" aria-labelledby="h-mobile">
+        <h2 id="h-mobile"><a class="anchor" href="#mobile">The mobile browser</a></h2>
+        <p class="intro">On iOS and Android, Explore opens your dApp in Bread's own browser. The adapter works unchanged; a few details differ from the extension.</p>
+        <ul class="list">
+          <li><b>Injected after load.</b> <code>window.midenWallet</code> appears after each page load, not at document start. The adapter polls for it every second, so wait for <code>readyState</code> to be <code>Installed</code> instead of checking the global once at startup.</li>
+          <li><b>Origin first.</b> Bread refuses requests with <code>NOT_GRANTED</code> until it has confirmed your page's origin, which takes a moment after navigation.</li>
+          <li><b>Dialogs, not windows.</b> Approvals open in a dialog over your page. Requests time out in the page after five minutes.</li>
+          <li><b>Toolbar space.</b> In ordinary browser mode Bread adds <code>padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important</code> to your <code>body</code> so content clears its bottom toolbar.</li>
+          <li><b>Kept alive.</b> A dApp the user leaves is parked, and picking it again restores the same page and JavaScript state without a reload. A repeat <code>connect()</code> repopulates the account.</li>
+        </ul>
+        <div class="callout gotcha"><span class="ci"><svg aria-hidden="true"><use href="#i-warn"/></svg></span><div><strong class="t">Don't name a global <code>bread</code></strong><p>Inside Bread on mobile, <code>window.bread</code> is a non-configurable, frozen property. A classic script must not declare a top-level <code>bread</code> with <code>let</code>, <code>const</code>, <code>class</code>, <code>function</code> or <code>var</code>, and a bundle must not expose a library global named <code>bread</code>. Module scripts and bundler-wrapped code are unaffected.</p></div></div>
+      </section>
+
+      <section class="section" id="fullscreen" aria-labelledby="h-fullscreen">
+        <h2 id="h-fullscreen"><a class="anchor" href="#fullscreen">Fullscreen</a></h2>
+        <p class="intro">Games and immersive dApps can drop Bread's browser chrome on iOS and Android. Your page fills the display; a small translucent Bread capsule stays in the corner as the way back.</p>
+        <div class="code reveal-code" data-tabs>
+          <div class="code-bar">
+            <div class="tabs" role="tablist" aria-label="Fullscreen setup">
+              <button class="tab" role="tab" aria-selected="true">HTML</button>
+              <button class="tab" role="tab" aria-selected="false">JS</button>
+              <button class="tab" role="tab" aria-selected="false">CSS</button>
+            </div>
+            <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+          </div>
+          <div class="panel" role="tabpanel"><pre data-hl="2"><code data-lang="html">&lt;head&gt;
+  &lt;meta name="bread-display" content="fullscreen" /&gt;
+  &lt;meta name="bread-ready" content="manual" /&gt;
+  &lt;meta name="theme-color" content="#101010" /&gt;
+&lt;/head&gt;</code></pre></div>
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="js">// With bread-ready="manual", reveal once your first correctly sized frame is drawn.
+await renderFirstFrame();
+if (window.bread?.presentation) {
+  // Rejects where Bread falls back to browser mode; the page then shows as usual.
+  await window.bread.presentation.ready().catch(() =&gt; {});
+}
+
+// Leave fullscreen and close the page from your own UI.
+quitButton.onclick = async () =&gt; {
+  if (window.bread?.presentation) await window.bread.presentation.close();
+};</code></pre></div>
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="css">/* Sit beside the capsule when the rectangle is known */
+:root[data-bread-control-bounds='true'] .hud {
+  top: var(--bread-control-top);
+  height: var(--bread-control-height);
+  margin-left: calc(var(--bread-control-left) + var(--bread-control-width) + 12px);
+}
+
+/* No rectangle, as on older hosts: reserve the whole top row */
+:root:not([data-bread-control-bounds='true']) .hud {
+  padding-top: var(--bread-control-inset-top, 0px);
+}
+
+/* Backgrounds may bleed; controls stay inside the safe area */
+.controls {
+  padding-bottom: var(--bread-safe-area-bottom, 0px);
+  padding-left: var(--bread-safe-area-left, 0px);
+  padding-right: var(--bread-safe-area-right, 0px);
+}</code></pre></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Meta tag</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>bread-display</code></td><td>Only the exact value <code>fullscreen</code> opts in. Anything else keeps the ordinary browser layout.</td></tr>
+            <tr><td><code>bread-ready</code></td><td><code>manual</code> makes Bread wait for <code>presentation.ready()</code>. Without it, Bread reveals the page at <code>DOMContentLoaded</code>.</td></tr>
+            <tr><td><code>theme-color</code></td><td>The color behind your page while it prepares, written as <code>#RRGGBB</code>.</td></tr>
+          </tbody>
+        </table></div>
+        <p>Bread reads these tags while the head parses, so put them in your initial HTML rather than adding them from a bundle. The settings are fixed at <code>DOMContentLoaded</code>.</p>
+
+        <h3 id="anatomy">Layout anatomy</h3>
+        <p>Pick a region to see what Bread reserves and which variable describes it. Every value is in CSS pixels, updated on rotation, resize and safe-area changes.</p>
+        <div class="anatomy wide reveal" data-active="capsule">
+          <div class="device-wrap">
+            <div class="device" aria-hidden="true">
+              <div class="scr">
+                <div class="region r-bleed"></div>
+                <div class="region r-inset"></div>
+                <div class="region r-safe"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+                <div class="region r-capsule"><svg><use href="#bread"/></svg></div>
+                <div class="region r-header">Your header</div>
+                <div class="region r-controls">Your controls</div>
+              </div>
+              <div class="notch"></div>
+            </div>
+            <div class="orient" role="group" aria-label="Orientation">
+              <button type="button" aria-pressed="true" data-orient="portrait">Portrait</button>
+              <button type="button" aria-pressed="false" data-orient="landscape">Landscape</button>
+            </div>
+            <p class="anatomy-note">Illustrative. Read the real rectangle from the variables; don't hardcode its position.</p>
+          </div>
+          <div class="legend" role="group" aria-label="Fullscreen regions">
+            <button type="button" data-region="capsule" aria-pressed="true"><span class="sw s-capsule"></span><span><b>Bread capsule</b>The translucent "Back to Bread" button. One tap minimizes your page.<span class="vars"><code>--bread-control-left</code><code>--bread-control-top</code><code>--bread-control-width</code><code>--bread-control-height</code></span></span></button>
+            <button type="button" data-region="header" aria-pressed="false"><span class="sw s-header"></span><span><b>Your header</b>Place it beside the capsule instead of below it. Valid only while the root has this attribute.<span class="vars"><code>data-bread-control-bounds="true"</code></span></span></button>
+            <button type="button" data-region="safe" aria-pressed="false"><span class="sw s-safe"></span><span><b>Safe areas</b>Keep interactive controls inside.<span class="vars"><code>--bread-safe-area-top</code><code>--bread-safe-area-left</code><code>--bread-safe-area-right</code><code>--bread-safe-area-bottom</code></span></span></button>
+            <button type="button" data-region="inset" aria-pressed="false"><span class="sw s-inset"></span><span><b>Top-row inset</b>One number that reserves a full-width top row: the fallback while the rectangle is unavailable, as on older hosts.<span class="vars"><code>--bread-control-inset-top</code></span></span></button>
+            <button type="button" data-region="controls" aria-pressed="false"><span class="sw s-controls"></span><span><b>Your controls</b>Buttons and inputs sit inside the safe areas, clear of the home indicator.</span></button>
+            <button type="button" data-region="bleed" aria-pressed="false"><span class="sw s-bleed"></span><span><b>Full bleed</b>Backgrounds may run to every edge of the display. No toolbar padding is added in fullscreen.</span></button>
+          </div>
+        </div>
+        <p>The same numbers are available to JavaScript, as frozen snapshots that change on every update:</p>
+        <div class="code reveal-code"><div class="code-bar"><span class="fname">layout.js</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+<pre><code data-lang="js">function layout() {
+  const state = window.__breadPresentationState;
+  if (!state) return;
+  const { controlBounds, safeAreaInsets } = state; // either may be missing on older hosts
+  // controlBounds: { left, top, width, height }
+  // safeAreaInsets: { top, left, right, bottom }
+  resizeRenderer(controlBounds, safeAreaInsets);
+}
+document.addEventListener('breadpresentationchange', layout);
+layout();</code></pre></div>
+
+        <h3 id="lifecycle">Lifecycle</h3>
+        <ol class="flow">
+          <li class="reveal"><b>Prepare</b><span>Bread shows your <code>theme-color</code> and waits up to 30 seconds of foreground time for readiness, then offers Retry and Back to Bread.</span></li>
+          <li class="reveal"><b>Reveal</b><span>Automatic at <code>DOMContentLoaded</code>, or when you call <code>presentation.ready()</code>.</span></li>
+          <li class="reveal"><b>Minimize</b><span>A tap on the capsule parks your page in Bread like any other app. Nothing reloads.</span></li>
+          <li class="reveal"><b>Restore</b><span>Picking it again brings back the same document and session, still fullscreen.</span></li>
+        </ol>
+        <ul class="list">
+          <!-- depends on #1817 shipping -->
+          <li><b>Motion:</b> dApps open and minimize with a smooth morph, a native spring animation that runs at your display's full refresh rate, up to 120 Hz on ProMotion iPhones. Tap the Bread capsule to minimize, or grab the window mid-flight and the motion follows your finger and carries your velocity.</li>
+          <li><b>Overlays:</b> wallet confirmations, alerts and locking suspend your page; it resumes when the last overlay closes.</li>
+          <li><b>Closing:</b> users close a fullscreen page with Bread's usual parked-app controls; you can call <code>presentation.close()</code>. Closing rejects that page's pending wallet confirmation and drops its saved session. A transaction already submitted continues.</li>
+          <li><b>Rotation:</b> fullscreen opens in the current orientation and follows the device.</li>
+          <li><b>Promises:</b> <code>ready()</code> and <code>close()</code> resolve when the native side acknowledges and reject on refusal or after 30 seconds. At most 32 calls may be outstanding.</li>
+        </ul>
+        <div class="callout nope"><span class="ci"><svg aria-hidden="true"><use href="#i-nope"/></svg></span><div><strong class="t">Where fullscreen does not apply</strong><p>Only the main document of Bread's mobile browser has <code>window.bread.presentation</code>; frames, the extension and the desktop app do not. Android WebViews without the required navigation support open the page in normal browser mode; <code>window.bread.presentation</code> still exists there, but <code>ready()</code> and <code>close()</code> reject. Keep your ordinary responsive layout working outside Bread and size your renderer from its container.</p></div></div>
+      </section>
+
+      <section class="section" id="auth-sheet" aria-labelledby="h-auth">
+        <h2 id="h-auth"><a class="anchor" href="#auth-sheet">Google and Apple sign-in</a></h2>
+        <p class="intro">Google and Apple refuse to sign in inside embedded web views. On phones, <code>window.bread.auth.open(url)</code> runs the flow in a secure system sheet while your page stays loaded.</p>
+        <div class="code reveal-code" data-tabs>
+          <div class="code-bar">
+            <div class="tabs" role="tablist" aria-label="Sign-in sheet">
+              <button class="tab" role="tab" aria-selected="true">Page</button>
+              <button class="tab" role="tab" aria-selected="false">Callback page</button>
+            </div>
+            <button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button>
+          </div>
+          <div class="panel" role="tabpanel"><pre><code data-lang="js">const hex = bytes =&gt; Array.from(bytes, b =&gt; b.toString(16).padStart(2, '0')).join('');
+const verifier = hex(crypto.getRandomValues(new Uint8Array(32)));
+const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+const url = new URL('/auth/start', location.origin);
+url.searchParams.set('challenge', hex(new Uint8Array(digest)));
+
+if (window.bread?.auth) {
+  const result = await window.bread.auth.open(url.href);
+  const handle = !result.cancelled &amp;&amp; new URL(result.url).searchParams.get('login');
+  if (handle) {
+    await fetch('/auth/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle, verifier })
+    });
+  }
+}</code></pre></div>
+          <div class="panel" role="tabpanel" hidden><pre><code data-lang="html">&lt;!doctype html&gt;
+&lt;meta charset="utf-8" /&gt;
+&lt;meta name="viewport" content="width=device-width, initial-scale=1" /&gt;
+&lt;!-- Serve with Cache-Control: no-store. Origin and handle are written by your server. --&gt;
+&lt;meta http-equiv="refresh" content="0; url=com.miden.wallet.auth://callback?origin=https%3A%2F%2Fexample.org&amp;amp;login=HANDLE" /&gt;
+&lt;title&gt;Return to Bread&lt;/title&gt;
+&lt;a href="com.miden.wallet.auth://callback?origin=https%3A%2F%2Fexample.org&amp;amp;login=HANDLE"&gt;Return to Bread&lt;/a&gt;</code></pre></div>
+        </div>
+        <ul class="list">
+          <li><b>Result:</b> <code>open</code> resolves to a frozen <code>{ url }</code>, the untouched callback URL, or <code>{ cancelled: true }</code> when the user closes the sheet. It has no timeout.</li>
+          <li><b>URL rules:</b> the URL must be an absolute https URL on your page's own origin, up to 4096 characters. Inside the sheet the flow can redirect to Google or Apple as usual.</li>
+          <li><b>Ending the flow:</b> navigate to <code>com.miden.wallet.auth://callback</code> with exactly one <code>origin</code> parameter naming your page's origin. Bread reads nothing else from the URL, so every other parameter name is yours.</li>
+          <li><b>One at a time:</b> only one sheet can be open across Bread, and only while your page is visible and Bread is in the foreground.</li>
+          <li><b>Platforms:</b> iOS uses the system sign-in sheet, which shares Safari's cookies. Android uses an Auth Tab where the browser supports it, otherwise a Custom Tab.</li>
+        </ul>
+        <div class="callout gotcha"><span class="ci"><svg aria-hidden="true"><use href="#i-warn"/></svg></span><div><strong class="t">A handle alone must never sign anyone in</strong><p>Another app can register the callback scheme on Android's Custom Tab path. Keep the verifier in page memory and redeem a handle only with the secret whose hash started the flow, single use and short-lived. Take the callback's origin from your own configuration, never from the request. The sheet shares no cookies with your page.</p></div></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Rejection</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td><code>AUTH_NOT_MAIN_FRAME</code></td><td>A frame reached the native transport; frames get no <code>window.bread</code> at all</td></tr>
+            <tr><td><code>AUTH_INSECURE_PAGE</code></td><td>The page is not https with a host; <code>http://localhost</code> too</td></tr>
+            <tr><td><code>AUTH_INVALID_URL</code></td><td>The URL breaks a rule above</td></tr>
+            <tr><td><code>AUTH_BUSY</code></td><td>A sheet is already open, for any dApp</td></tr>
+            <tr><td><code>AUTH_UNAVAILABLE</code></td><td>Bread can't show a sheet now: hidden, parked, closing or in the background</td></tr>
+            <tr><td><code>AUTH_ORIGIN_MISMATCH</code></td><td>The callback does not name this page's origin exactly once</td></tr>
+            <tr><td><code>AUTH_FAILED</code></td><td>Anything else, such as a callback with a path</td></tr>
+          </tbody>
+        </table></div>
+        <p>Every URL and callback rule, character by character, is in the <a href="sign-in-sheet/">sign-in sheet reference</a>.</p>
+      </section>
+
+      <section class="section" id="deep-links" aria-labelledby="h-links">
+        <h2 id="h-links"><a class="anchor" href="#deep-links">Open links</a></h2>
+        <p class="intro">Send people straight into your dApp inside Bread on their phone. Type an https address to build both link forms.</p>
+        <div class="builder wide reveal">
+          <label for="link-input">Your dApp's address</label>
+          <input id="link-input" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="https://skyline-run.example/play?level=3">
+          <p class="msg" id="link-msg" aria-live="polite"></p>
+          <div class="out" id="out-https"><span><span class="lab">Universal link and App Link</span><span class="val"></span></span><button class="copy" type="button" aria-label="Copy universal link"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+          <div class="out" id="out-scheme"><span><span class="lab">App scheme</span><span class="val"></span></span><button class="copy" type="button" aria-label="Copy app scheme link"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
+        </div>
+        <ul class="list">
+          <li><b>Formats:</b> <code>https://bread.miden.xyz/open#url=&lt;page&gt;</code> carries the page in the fragment, which browsers never send to the link host. <code>com.miden.wallet://open?url=&lt;page&gt;</code> is the app scheme.</li>
+          <li><b>Rules:</b> Bread opens only https pages, and never a page with a user name or password before the host.</li>
+          <li><b>Prompt:</b> Bread waits until the wallet is unlocked. A page whose origin is listed in Explore opens straight away; any other asks "Open host?" first.</li>
+          <li><b>Mobile only:</b> the desktop app and the extension do not handle open links.</li>
+        </ul>
+      </section>
+
+      <section class="section" id="explore" aria-labelledby="h-explore">
+        <h2 id="h-explore"><a class="anchor" href="#explore">Explore listing (optional)</a></h2>
+        <p class="intro">Your dApp does not need to be listed. Any dApp connects to Bread and works in it without a listing, opened from its address, a link or the search box in Explore. The Explore catalog is only Bread's built-in discovery section.</p>
+        <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">Status: applications welcome, rollout to be announced</strong><p>Listing goes through a vetting process. Applications are welcome and each one is reviewed. The catalog's rollout is not defined yet: there is no timeline, and applying does not guarantee a listing.</p></div></div>
+        <p>To apply, <a href="https://github.com/0xMiden/wallet/issues">open an issue on the wallet repository</a>.</p>
+      </section>
+
+      <section class="section" id="testing" aria-labelledby="h-testing">
+        <h2 id="h-testing"><a class="anchor" href="#testing">Test your dApp</a></h2>
+        <p class="intro">Start on testnet in a desktop browser with the extension, then check the phone apps.</p>
+        <h3>Get a test wallet</h3>
+        <ul class="list">
+          <li>Choose Testnet in Bread's Developer Settings before creating the wallet, then fund it from <a href="https://faucet.testnet.miden.io">faucet.testnet.miden.io</a>. Testnet's Explore also lists faucets.</li>
+          <li>Follow your transactions on <a href="https://testnet.midenscan.com">testnet.midenscan.com</a>.</li>
+        </ul>
+        <h3>Open your build</h3>
+        <ul class="list">
+          <li><b>Extension:</b> the provider is injected on <code>http://localhost</code> and <code>http://127.0.0.1</code>, so a local dev server works as is.</li>
+          <li><b>Phones:</b> type your address into Explore's search box. An address typed without a scheme gets <code>https://</code>, so write <code>http://</code> yourself for a plain-http server.</li>
+          <li><b>iOS</b> loads plain-http pages. <b>Android</b> store builds allow no cleartext to your server, so expose your dev server over https, for example through a tunnel.</li>
+          <li><b>Desktop:</b> Explore accepts http and https addresses and opens them in Bread's dApp window, which the next address reuses.</li>
+          <li><code>window.bread.auth</code> needs an https page; the login key needs https or a loopback host such as <code>localhost</code>.</li>
+        </ul>
+        <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">A complete reference dApp</strong><p>The wallet's own end-to-end suite drives every request through a small test dApp, including the login key check. Read it in <a href="https://github.com/0xMiden/wallet/tree/main/playwright/e2e/test-dapp">playwright/e2e/test-dapp</a>.</p></div></div>
+      </section>
+
+      <section class="section" id="gotchas" aria-labelledby="h-gotchas">
+        <h2 id="h-gotchas"><a class="anchor" href="#gotchas">Gotchas</a></h2>
+        <p class="intro">The ones that cost people an afternoon.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+          <tbody>
+            <tr><td>Could not resolve <code>@miden-sdk/react</code></td><td>The adapter's React hooks import it, but it is an optional peer, so no package manager installs it. Install it, or without React use the <code>-miden</code> and <code>-base</code> packages.</td></tr>
+            <tr><td>Bread never detected on phones</td><td>The provider arrives after page load. Wait for the adapter's <code>readyState</code>, don't read <code>window.midenWallet</code> once at startup.</td></tr>
+            <tr><td>React <code>connect()</code> ignores my network</td><td><code>WalletProvider</code> connects with its own props. Set <code>network</code> and the permissions there.</td></tr>
+            <tr><td>Connect works once, then the account is gone</td><td>Adapters created inside render are new each time, and a replaced adapter disconnects. Create them at module scope.</td></tr>
+            <tr><td>Mismatch notice on mainnet</td><td>The adapter defaults to Testnet and has no Mainnet member. Pass <code>'mainnet' as WalletAdapterNetwork</code>.</td></tr>
+            <tr><td>"Success" but nothing on chain</td><td>A transaction id means queued. Call <code>waitForTransaction</code>.</td></tr>
+            <tr><td><code>catch (e)</code> misses wallet errors</td><td>Raw provider errors fail <code>instanceof Error</code>. Match <code>e.message</code>.</td></tr>
+            <tr><td>Script error about <code>bread</code></td><td>A classic script declared a global <code>bread</code>. Rename it or use a module.</td></tr>
+            <tr><td>Fullscreen ignored</td><td>The meta tag was added after <code>DOMContentLoaded</code>, for example by a bundle, or its value is not exactly <code>fullscreen</code>.</td></tr>
+            <tr><td><code>theme-color</code> ignored</td><td>Bread accepts only <code>#RRGGBB</code>.</td></tr>
+            <tr><td>Blank page on Android</td><td>Plain-http dev server. Use https.</td></tr>
+            <tr><td><code>createAccount</code> fails</td><td>Bread does not create accounts for dApps; the extension and phones refuse it, desktop does not define it.</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="section" id="under-the-hood" aria-labelledby="h-hood">
+        <h2 id="h-hood"><a class="anchor" href="#under-the-hood">Under the hood</a></h2>
+        <p class="intro">Native integration notes and specifications, for when you need every edge case.</p>
+        <div class="links">
+          <a class="link-card" href="fullscreen/"><b>Fullscreen reference</b><span>Readiness, transport messages, presentation updates and native close semantics.</span></a>
+          <a class="link-card" href="sign-in-sheet/"><b>Sign-in sheet reference</b><span>Every URL rule, the callback format and both platforms' transports.</span></a>
+          <a class="link-card" href="https://github.com/0xMiden/wallet/blob/main/packages/bread-connect/PROTOCOL.md"><b>Bread Connect protocol</b><span>For native iOS and Android apps that use Bread as their wallet through app links.</span></a>
+        </div>
+        <p>Found something missing or wrong? <a href="https://github.com/0xMiden/wallet/issues">Open an issue</a>.</p>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="foot">
+    <span>Bread is the Miden wallet. Open source under the MIT license.</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/0xMiden/wallet">GitHub</a>
+      <a href="../support/">Support</a>
+      <a href="../privacy/">Privacy</a>
+      <a href="../tos/">Terms</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  var toggle = document.querySelector('.theme-toggle');
+  function isDark() {
+    var t = root.getAttribute('data-theme');
+    if (t) return t === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  toggle.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('bread-dev-theme', next); } catch (e) {}
+  });
+
+  // A rule's optional third entry checks the character before a match: lookbehind would not parse on iOS 15.
+  function after(re) { return function (src, i) { return i > 0 && re.test(src[i - 1]); }; }
+  var ID = '[A-Za-z_$][\\w$]*';
+  var JS = [
+    ['com', /\/\/[^\n]*|\/\*[\s\S]*?\*\//y],
+    ['str', /'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/y],
+    ['kw', /\b(?:import|from|export|const|let|var|function|return|async|await|if|else|new|true|false|null|undefined|typeof|of|in|for|while|try|catch|throw|class|extends|interface|type|as|default)\b/y],
+    ['num', /\b(?:0x[\da-fA-F]+|\d[\d_]*(?:\.\d+)?n?)\b/y],
+    ['type', /\b[A-Z][A-Za-z0-9_]*\b/y],
+    ['fn', new RegExp(ID + '(?=\\s*\\()', 'y')],
+    ['prop', new RegExp(ID, 'y'), after(/\./)],
+    ['', new RegExp(ID, 'y')]
+  ];
+  var TSX = [['tag', /<\/?[A-Za-z][\w.]*|\/?>(?=\s*$|\s*[\n)<{;])/y]].concat(JS);
+  var LANGS = {
+    js: JS, ts: JS, tsx: TSX,
+    html: [
+      ['com', /<!--[\s\S]*?-->/y],
+      ['kw', /<!doctype[^>]*>/iy],
+      ['tag', /<\/?[\w-]+|\/?>/y],
+      ['attr', /[\w-]+(?==)/y],
+      ['str', /"[^"]*"|'[^']*'/y]
+    ],
+    css: [
+      ['com', /\/\*[\s\S]*?\*\//y],
+      ['var', /--[\w-]+/y],
+      ['str', /'[^']*'|"[^"]*"/y],
+      ['kw', /@[\w-]+|:root\b/y],
+      ['fn', /[a-z-]+(?=\()/y],
+      ['prop', /[a-z-]+(?=\s*:\s)/y],
+      ['num', /#[\da-fA-F]{3,8}\b|-?\b\d+(?:\.\d+)?(?:px|rem|em|%|s|ms|vh|vw)?/y],
+      ['type', /[.#][\w-]+|\[[^\]]+\]/y]
+    ],
+    bash: [
+      ['com', /#[^\n]*/y],
+      ['fn', /(?:npm|yarn|pnpm|npx)\b/y, function (src, i) { return i === 0 || src[i - 1] === '\n'; }],
+      ['kw', /(?:install|add|i)\b/y, after(/\s/)],
+      ['str', /'[^']*'|"[^"]*"/y]
+    ]
+  };
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function tokenize(src, rules) {
+    var out = [], i = 0, plain = '';
+    while (i < src.length) {
+      var hit = null;
+      for (var r = 0; r < rules.length; r++) {
+        var re = rules[r][1];
+        re.lastIndex = i;
+        var m = re.exec(src);
+        if (m && m[0].length && (!rules[r][2] || rules[r][2](src, i))) { hit = [rules[r][0], m[0]]; break; }
+      }
+      if (hit) {
+        if (plain) { out.push(['', plain]); plain = ''; }
+        out.push(hit);
+        i += hit[1].length;
+      } else {
+        plain += src[i++];
+      }
+    }
+    if (plain) out.push(['', plain]);
+    return out;
+  }
+  function render(code) {
+    var src = code.textContent.replace(/\n$/, '');
+    var rules = LANGS[code.getAttribute('data-lang')] || [];
+    var hl = (code.parentNode.getAttribute('data-hl') || '').split(',').map(Number);
+    var lines = [[]];
+    tokenize(src, rules).forEach(function (tok) {
+      tok[1].split('\n').forEach(function (piece, k) {
+        if (k > 0) lines.push([]);
+        if (piece) lines[lines.length - 1].push(tok[0] ? '<span class="t-' + tok[0] + '">' + esc(piece) + '</span>' : esc(piece));
+      });
+    });
+    code.innerHTML = lines.map(function (l, n) {
+      return '<span class="ln' + (hl.indexOf(n + 1) >= 0 ? ' hl' : '') + '" style="--i:' + Math.min(n, 40) + '">' + (l.join('') || ' ') + '</span>';
+    }).join('');
+    code.setAttribute('data-src', src);
+  }
+  document.querySelectorAll('pre code[data-lang]').forEach(render);
+
+  // Tables stack into blocks on phones: keep their semantics, and label the cells of wider tables.
+  document.querySelectorAll('.table-wrap table').forEach(function (table) {
+    var heads = Array.prototype.map.call(table.querySelectorAll('thead th'), function (th) { return th.textContent; });
+    table.setAttribute('role', 'table');
+    table.querySelectorAll('thead, tbody').forEach(function (g) { g.setAttribute('role', 'rowgroup'); });
+    table.querySelectorAll('tr').forEach(function (tr) { tr.setAttribute('role', 'row'); });
+    table.querySelectorAll('th').forEach(function (th) { th.setAttribute('role', 'columnheader'); });
+    table.querySelectorAll('tbody tr').forEach(function (tr) {
+      Array.prototype.forEach.call(tr.children, function (td, k) {
+        td.setAttribute('role', 'cell');
+        if (heads.length > 2 && k > 0) td.setAttribute('data-label', heads[k]);
+      });
+    });
+  });
+
+  // A code block or table that scrolls sideways takes focus, so a keyboard can scroll it.
+  var scrollers = document.querySelectorAll('pre, .table-wrap');
+  function markScrollable() {
+    scrollers.forEach(function (el) {
+      if (el.scrollWidth > el.clientWidth) el.tabIndex = 0;
+      else el.removeAttribute('tabindex');
+    });
+  }
+
+  document.querySelectorAll('[data-tabs]').forEach(function (box, b) {
+    var tabs = Array.prototype.slice.call(box.querySelectorAll('.tab'));
+    var panels = Array.prototype.slice.call(box.querySelectorAll('.panel'));
+    function select(n, focus) {
+      tabs.forEach(function (t, k) {
+        t.setAttribute('aria-selected', k === n ? 'true' : 'false');
+        t.tabIndex = k === n ? 0 : -1;
+        panels[k].hidden = k !== n;
+      });
+      markScrollable();
+      if (focus) tabs[n].focus();
+      var ln = panels[n].querySelectorAll('.ln');
+      if (!reduced.matches) ln.forEach(function (l) { l.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: Math.min(+l.style.getPropertyValue('--i'), 20) * 18, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' }); });
+    }
+    tabs.forEach(function (t, k) {
+      t.id = 'tab-' + b + '-' + k;
+      panels[k].id = 'panel-' + b + '-' + k;
+      t.setAttribute('aria-controls', panels[k].id);
+      panels[k].setAttribute('aria-labelledby', t.id);
+      t.tabIndex = k === 0 ? 0 : -1;
+      t.addEventListener('click', function () { select(k, false); });
+      t.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          select((k + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length, true);
+        }
+      });
+    });
+  });
+
+  var live = document.createElement('div');
+  live.className = 'visually-hidden';
+  live.setAttribute('aria-live', 'polite');
+  document.body.appendChild(live);
+  function writeText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy') ? resolve() : reject(); } catch (e) { reject(e); }
+      ta.remove();
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.copy');
+    if (!btn) return;
+    var text = btn.getAttribute('data-copy');
+    if (!text) {
+      var box = btn.closest('.code, .out');
+      if (box && box.classList.contains('out')) text = box.querySelector('.val').textContent;
+      else if (box) {
+        var panel = box.querySelector('.panel:not([hidden]) code') || box.querySelector('pre code');
+        text = panel ? panel.getAttribute('data-src') : '';
+      }
+    }
+    if (!text) return;
+    writeText(text).then(function () {
+      btn.classList.add('done');
+      var label = btn.querySelector('span');
+      if (label) label.textContent = 'Copied';
+      live.textContent = 'Copied to clipboard';
+      clearTimeout(btn._t);
+      btn._t = setTimeout(function () { btn.classList.remove('done'); if (label) label.textContent = 'Copy'; }, 1800);
+    }).catch(function () { live.textContent = 'Copy failed. Select the text instead.'; });
+  });
+
+  var revealables = document.querySelectorAll('.reveal, .reveal-code');
+  if ('IntersectionObserver' in window && !reduced.matches) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        en.target.classList.add(en.target.classList.contains('reveal-code') ? 'typed' : 'in');
+        io.unobserve(en.target);
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    revealables.forEach(function (el) { io.observe(el); });
+  } else {
+    revealables.forEach(function (el) { el.classList.add('in', 'typed'); });
+  }
+
+  document.querySelectorAll('.card').forEach(function (card) {
+    card.addEventListener('pointermove', function (e) {
+      var r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      card.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    });
+  });
+
+  var tocLinks = Array.prototype.slice.call(document.querySelectorAll('.toc a[href^="#"]:not(.back-top)'));
+  var mList = document.querySelector('.mtoc ol');
+  var mtoc = document.querySelector('.mtoc');
+  var mCurrent = document.querySelector('.mtoc-current');
+  tocLinks.forEach(function (a) {
+    var li = document.createElement('li');
+    var c = a.cloneNode(true);
+    li.appendChild(c);
+    mList.appendChild(li);
+  });
+  mList.addEventListener('click', function (e) { if (e.target.closest('a')) mtoc.open = false; });
+  var allLinks = Array.prototype.slice.call(document.querySelectorAll('.toc a[href^="#"]:not(.back-top), .mtoc a'));
+  var targets = tocLinks.map(function (a) { return document.getElementById(a.getAttribute('href').slice(1)); }).filter(Boolean);
+  var content = document.querySelector('.content');
+  var nav = document.querySelector('.nav');
+  var bar = document.querySelector('.progress');
+  var rail = document.querySelector('.toc .track');
+  var ticking = false;
+  function onScroll() {
+    ticking = false;
+    var y = window.scrollY;
+    nav.classList.toggle('scrolled', y > 8);
+    var doc = document.documentElement.scrollHeight - window.innerHeight;
+    var p = doc > 0 ? Math.min(1, y / doc) : 0;
+    bar.style.setProperty('--p', p);
+    if (mtoc) mtoc.style.setProperty('--p', p);
+    var cTop = content.getBoundingClientRect().top + y;
+    var cH = content.offsetHeight - window.innerHeight * 0.6;
+    rail.style.setProperty('--tp', Math.max(0, Math.min(1, (y - cTop + 120) / cH)));
+    var line = window.innerHeight * 0.3;
+    var current = targets[0];
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i].getBoundingClientRect().top - line <= 0) current = targets[i];
+    }
+    if (window.innerHeight + y >= document.documentElement.scrollHeight - 4) current = targets[targets.length - 1];
+    var id = current && current.id;
+    allLinks.forEach(function (a) {
+      var on = a.getAttribute('href') === '#' + id;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'location'); else a.removeAttribute('aria-current');
+    });
+    var active = document.querySelector('.toc a.active');
+    if (active && mCurrent) mCurrent.textContent = active.textContent;
+  }
+  window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
+  window.addEventListener('resize', onScroll);
+  window.addEventListener('resize', markScrollable);
+  markScrollable();
+  onScroll();
+
+  var stage = document.querySelector('.stage');
+  var pause = document.querySelector('.stage-ctrl');
+  var PLAY = '<path d="M8 5.5v13l11-6.5z" fill="currentColor"/>';
+  var PAUSE = '<path d="M8 5v14M16 5v14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>';
+  pause.addEventListener('click', function () {
+    var paused = stage.classList.toggle('paused');
+    pause.setAttribute('aria-pressed', paused ? 'true' : 'false');
+    pause.setAttribute('aria-label', paused ? 'Play animation' : 'Pause animation');
+    pause.querySelector('svg').innerHTML = paused ? PLAY : PAUSE;
+  });
+
+  var anatomy = document.querySelector('.anatomy');
+  var device = anatomy.querySelector('.device');
+  var regionBtns = anatomy.querySelectorAll('[data-region]');
+  function setRegion(name) {
+    anatomy.setAttribute('data-active', name);
+    regionBtns.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-region') === name ? 'true' : 'false'); });
+  }
+  regionBtns.forEach(function (b) {
+    b.addEventListener('click', function () { setRegion(b.getAttribute('data-region')); });
+    b.addEventListener('pointerenter', function (e) { if (e.pointerType === 'mouse') setRegion(b.getAttribute('data-region')); });
+    b.addEventListener('focus', function () { setRegion(b.getAttribute('data-region')); });
+  });
+  anatomy.querySelectorAll('[data-orient]').forEach(function (b, _, all) {
+    b.addEventListener('click', function () {
+      var land = b.getAttribute('data-orient') === 'landscape';
+      device.classList.toggle('landscape', land);
+      anatomy.classList.toggle('is-landscape', land);
+      all.forEach(function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+    });
+  });
+
+  var input = document.getElementById('link-input');
+  var msg = document.getElementById('link-msg');
+  var outs = [document.getElementById('out-https'), document.getElementById('out-scheme')];
+  function build() {
+    var raw = input.value.trim();
+    var page = null, problem = '';
+    try { page = new URL(raw); } catch (e) { problem = raw ? 'Type a complete address, starting with https://' : 'Type an address to build a link.'; }
+    if (page && page.protocol !== 'https:') { problem = 'Bread opens only https pages.'; page = null; }
+    if (page && (page.username || page.password)) { problem = 'Remove the user name or password before the host.'; page = null; }
+    msg.textContent = problem || 'Opens ' + page.host + ' inside Bread on iOS and Android.';
+    msg.classList.toggle('bad', !!problem && !!raw);
+    var enc = page ? encodeURIComponent(page.href) : '';
+    outs[0].querySelector('.val').textContent = page ? 'https://bread.miden.xyz/open#url=' + enc : 'https://bread.miden.xyz/open#url=...';
+    outs[1].querySelector('.val').textContent = page ? 'com.miden.wallet://open?url=' + enc : 'com.miden.wallet://open?url=...';
+    outs.forEach(function (o) { o.classList.toggle('off', !page); o.querySelector('.copy').disabled = !page; });
+  }
+  input.addEventListener('input', build);
+  build();
+
+  function probe() {
+    var w = window.midenWallet, b = window.bread;
+    var state = { midenWallet: !!w, bread: !!b, presentation: !!(b && b.presentation), auth: !!(b && b.auth) };
+    document.querySelectorAll('[data-probe]').forEach(function (el) { el.classList.toggle('on', state[el.getAttribute('data-probe')]); });
+    if (state.midenWallet) document.querySelector('.probe-hint').textContent = 'Bread is here. Everything below works on this page.';
+  }
+  probe();
+  window.addEventListener('load', function () { probe(); setTimeout(probe, 1500); });
+})();
+</script>
+</body>
+</html>
+<!-- {% endraw %} -->

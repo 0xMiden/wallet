@@ -42,6 +42,40 @@ import { isKilledPipeline } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { syncBeforeVerdict } from '../sync-lock';
 
+export const HOT_KEY_ROTATED_OUT = 'HotKeyRotatedOutError';
+
+/**
+ * The direct switch's refusal to sign with a hot key the chain no longer names
+ * in signer slot 0: another device rotated the key. Carries what the persisted
+ * verdict needs (`HotKeyRotatedOutVerdict`), so the pipeline that catches it
+ * can record the finding instead of failing the row with an opaque error.
+ */
+export class HotKeyRotatedOutError extends Error {
+  readonly hotPublicKey: string;
+  readonly onChainHotCommitment: string;
+
+  constructor(accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) {
+    super(
+      `Guardian account ${accountPublicKey} names a different hot signer on chain than this device holds; ` +
+        'another device has rotated the hot key, so this device cannot sign a direct guardian switch'
+    );
+    this.name = HOT_KEY_ROTATED_OUT;
+    this.hotPublicKey = hotPublicKey;
+    this.onChainHotCommitment = onChainHotCommitment;
+  }
+}
+
+/** Name-based, like the module's other classifiers: the error may cross a realm boundary. */
+export const isHotKeyRotatedOutError = (
+  error: unknown
+): error is Error & { hotPublicKey: string; onChainHotCommitment: string } =>
+  error instanceof Error &&
+  error.name === HOT_KEY_ROTATED_OUT &&
+  'hotPublicKey' in error &&
+  typeof error.hotPublicKey === 'string' &&
+  'onChainHotCommitment' in error &&
+  typeof error.onChainHotCommitment === 'string';
+
 /**
  * Direct on-chain guardian rotation — the fallback for when the OUTGOING
  * guardian is unreachable.
@@ -451,10 +485,7 @@ export const createDirectSwitchGuardianRequest = async (
     return undefined;
   });
   if (deviceHotCommitment !== undefined && !sameCommitment(deviceHotCommitment, built.hotCommitment)) {
-    throw new Error(
-      `Guardian account ${walletAccount.publicKey} names a different hot signer on chain than this device holds; ` +
-        'another device has rotated the hot key, so this device cannot sign a direct guardian switch'
-    );
+    throw new HotKeyRotatedOutError(walletAccount.publicKey, hotPublicKey, built.hotCommitment);
   }
 
   // Sign OUTSIDE the lock — vault signing doesn't touch the WASM client, and

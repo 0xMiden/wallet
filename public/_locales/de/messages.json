@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Sichern Sie Ihre Seed-Phrase",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Jetzt sichern",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Das Guthaben in Ihrer Wallet hat 150 US-Dollar erreicht. Sie müssen Ihre Seed-Phrase sichern, bevor Sie fortfahren können. Notieren Sie sie, bewahren Sie sie an einem sicheren Ort auf und schließen Sie die Überprüfung ab, um Ihre Wallet nutzen zu können.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Die Sicherungsprüfung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Ihr verfügbares Guthaben konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Warten Sie, bis Ihre ausstehende Transaktion abgeschlossen ist, bevor Sie den Swap durchführen.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Genauer Zahlungsbetrag",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Geschätzte Auszahlung für Ihr Empfangsziel. Bei einer vollständigen Ausführung kann die Auszahlung höher ausfallen; bei teilweisen Ausführungen erhalten Sie bei Fälligkeit möglicherweise weniger.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Durch Slippage wird der berechnete Auszahlungsbetrag angepasst, während Ihr angeforderter Empfangsbetrag unverändert bleibt.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3489,6 +3534,34 @@
     "message": "Dadurch wird die Wallet von diesem Gerät entfernt, sodass Sie sie wiederherstellen können, beispielsweise mit einer anderen „guardian“-URL. Ihr Guthaben verbleibt im Netzwerk. Zur Wiederherstellung der Wallet benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Ein anderes Gerät verwaltet dieses Konto",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Der Alltagsschlüssel dieses Kontos wurde auf ein anderes Gerät übertragen, in der Regel durch die Wiederherstellung der Wallet auf diesem Gerät. Dieses Gerät kann das Konto erst wieder nutzen, wenn Sie es erneut als Hauptgerät festlegen.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Der Alltagsschlüssel dieses Kontos wurde auf ein anderes Gerät übertragen, in der Regel durch die Wiederherstellung der Wallet dort. Dieses Gerät verfügt über keinen Wiederherstellungsschlüssel, sodass das Konto nicht zurückübertragen werden kann. Stellen Sie die Wallet mit Ihrer Wiederherstellungsphrase wieder her, um sie hier nutzen zu können.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Machen Sie dieses Gerät zum Hauptgerät",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Dieses Gerät als Hauptgerät festlegen?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Die Wallet wechselt den täglichen Schlüssel auf dieses Gerät. Das andere Gerät verliert den Zugriff auf dieses Konto und sieht dieselbe Benachrichtigung. Eine geringe Netzwerkgebühr wird vom Konto abgebucht.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Entfernen Sie die Wallet von diesem Gerät",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Tägliche Schlüsselrotation nicht bestätigt",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4924,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet Anfrage",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Aktivität",
@@ -7321,6 +7406,27 @@
     "message": "Stays invested",
     "englishSource": "Stays invested"
   },
+  "earnWithdrawArrivesOn": {
+    "message": "Erscheint am",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 Min.",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gas",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Gesponsert",
+    "englishSource": "Sponsored"
+  },
   "earnWithdrawAll": {
     "message": "Full balance",
     "englishSource": "Full balance"
@@ -7804,5 +7910,226 @@
   "amountUsdEstimate": {
     "message": "USD-Schätzung",
     "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Vorschau",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Beenden",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Beispieldaten dienen ausschließlich der Designvorschau. Es handelt sich hierbei nicht um Ihr Wallet-Guthaben oder echte Spieler-Ranglisten. Es wird nichts veröffentlicht.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Beispiel-Akteur",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Nur Vorschau",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Beispiel-Update anwenden",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Ihr Rang",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Eingereichter Saldo",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC-Rangliste",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Beispiel-Snapshot lokal aktualisiert. Es wurde nichts übermittelt.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Entdecken Sie Spiele in Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Arcade entdecken",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Empfohlene Spiele",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Spiele zum Ausprobieren",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade-Tastenkombinationen",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Ranglisten",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Spielmünzen",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Meine Aktivitäten",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Das Spiel ist eröffnet",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Keine Spiele verfügbar",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Spiele werden hier erscheinen, sobald sie in diesem Netzwerk verfügbar sind.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Das Starten eines Spiels stellt keine Verbindung zu Ihrer Wallet her. Bread fragt zuerst nach.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC-Rankings",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "GC-Guthaben überprüfen",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC-Guthaben",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Nicht gelesen",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Saldo übermitteln",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Saldo aktualisieren",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Durch das Einreichen eines Kontostands-Snapshots werden Ihre Konto-ID, Ihr GC-Guthaben, das Netzwerk und der Zeitpunkt des Snapshots an die Rangliste übermittelt. Ihre anderen Vermögensguthaben sind darin nicht enthalten.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "Das Auslesen des GC-Guthabens und die Übermittlung an die Rangliste sind noch nicht miteinander verbunden. Es wurde noch kein Guthaben ausgelesen oder übermittelt.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Ranglisten werden hier angezeigt",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Rankings sind in diesem Netzwerk noch nicht live.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Ihr Guthaben wird hier angezeigt",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Spielmünzen sind in diesem Netzwerk noch nicht verfügbar.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Es sind ausschließlich die in der Arcade aufgeführten Spiele enthalten.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Finanzen",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Sonstiges",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "Coins",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Aktivität",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Spiele durchsuchen",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Ihr Guthaben bleibt vertraulich.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Es werden nur die Guthaben in die Rangliste aufgenommen, die Sie freigeben möchten.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Noch keine Spielaktivität",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Transaktionen, die du in Arcade-Spielen durchführst, werden hier angezeigt.",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1.000 GC für 1 USDCx, zuzüglich Netzwerkgebühren.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Der Kauf von GC ist in Bread noch nicht verfügbar.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "Mehr GC kaufen",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Guthaben nicht verfügbar",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Spielmünzen",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "Jedes Spiel legt seine eigenen Einsätze, Auszahlungen und Rückerstattungen fest. Prüfe die Regeln, bevor du eine Transaktion genehmigst.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

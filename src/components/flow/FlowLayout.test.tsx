@@ -45,9 +45,8 @@ describe('FlowLayout', () => {
     expect(screen.queryByText('chip')).not.toBeInTheDocument();
   });
 
-  it('styles back as an ink arrow on the fill circle, never the flow accent', () => {
-    // Flow accents are under 3:1 on white, so the shared back glyph uses its contrast-safe token.
-    // PageHeader applies the class to the IconButton and the glyph inherits it through currentColor.
+  it('paints the back arrow as back-glyph by the back appearance, never the flow accent', () => {
+    // Flow accents are under 3:1 on white, so the arrow is `back-glyph`, painted by the `back` appearance.
     render(
       <SendStepLayout title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
         <p>content</p>
@@ -55,7 +54,7 @@ describe('FlowLayout', () => {
     );
 
     const back = screen.getByTestId('flow-back');
-    // The shared pushed-page back button: text-back-glyph on the 44px round fill circle.
+    // The shared pushed-page back button: `back-glyph` painted by the `back` appearance.
     expect(back).toHaveClass('bg-fill', 'rounded-full', 'text-back-glyph');
     expect(back).not.toHaveClass('text-accent-send');
     const glyph = back.querySelector('svg');

@@ -8,6 +8,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
+import { ArcadeBanner } from 'app/templates/ArcadeBanner';
 import Balance from 'app/templates/Balance';
 import { HomeMoveActions } from 'app/templates/HomeMoveActions';
 import HomePrompts from 'app/templates/HomePrompts';
@@ -329,7 +330,7 @@ const Explore: FC = () => {
       </div>
 
       <div
-        className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        className="relative flex-1 min-h-0 overflow-y-auto overscroll-y-contain"
         data-testid="explore-scroll-container"
         onTouchStart={isMobileApp ? handleTouchStart : undefined}
         onTouchMove={isMobileApp ? handleTouchMove : undefined}
@@ -475,6 +476,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         fundingNotes={fundingNotes}
         tokenPrices={tokenPrices}
       />
+
+      <ArcadeBanner />
 
       <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">

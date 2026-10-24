@@ -17,7 +17,7 @@ import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { prepareMainnet, waitForMainnetPreparation } from 'lib/miden/prepare-mainnet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
-import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
+import { getTestNetworkNameKey, hasDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -514,7 +514,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
     } else {
       // The rendered inviteOnly flag follows a shared sample a wake may not have published. A create
       // re-reads the document's moment here and ignores that sample.
-      if (hasMainnetLaunched(getBridgeConfigSnapshot(), Date.now())) {
+      if (!hasDeveloperNetworkChoice() && hasMainnetLaunched(getBridgeConfigSnapshot(), Date.now())) {
         onUnlockInviteOnly();
         await prepareMainnet();
         if (!accessCode) {

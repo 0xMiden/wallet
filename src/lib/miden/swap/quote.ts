@@ -232,6 +232,42 @@ export function buildRequestedAmount(offeredAmount: bigint, price: SwapPairPrice
   return numerator / denominator;
 }
 
+/**
+ * Inverse of buildRequestedAmount, in the SAME offered → requested direction. fillPrice already
+ * includes the clearing fee. Ceiling division reserves enough offered base units for the typed
+ * ask at the selected slippage; reciprocating a reverse pair's price would apply its fee backwards.
+ * This builds PSWAP order terms, not an exact-output execution guarantee.
+ */
+export function buildOfferedAmount(requestedAmount: bigint, price: SwapPairPrice, slippageBps: number): bigint {
+  if (!isValidSlippageBps(slippageBps) || requestedAmount <= 0n) {
+    throw new SwapQuoteError('bad_amount', 'Invalid receive amount or slippage');
+  }
+  const denominator =
+    scale18(price.fillPrice) * (BPS_DENOMINATOR - BigInt(slippageBps)) * 10n ** BigInt(price.requestedDecimals);
+  if (denominator <= 0n) throw new SwapQuoteError('no_price', 'The pair has no positive fill price');
+  const numerator = requestedAmount * 10n ** 18n * BPS_DENOMINATOR * 10n ** BigInt(price.offeredDecimals);
+  return (numerator + denominator - 1n) / denominator;
+}
+
+/** Receive-driven order: retain the user's ask, derive the offer, then check BOTH with the solver. */
+export async function quoteSwapForReceive(
+  offerToken: SwapToken,
+  requestedAmount: bigint,
+  requestToken: SwapToken,
+  { slippageBps, now = Date.now }: Pick<QuoteSwapOptions, 'slippageBps' | 'now'>
+): Promise<SwapQuote> {
+  const check = async (): Promise<SwapQuote> => {
+    const fetchedAt = now();
+    const price = await getSwapPairPrice(offerToken, requestToken);
+    assertDecimalsMatch(price, offerToken, requestToken);
+    const offeredAmount = buildOfferedAmount(requestedAmount, price, slippageBps);
+    const eta = await getSwapEta(offerToken, offeredAmount, requestToken, requestedAmount);
+    return { price, offeredAmount, requestedAmount, builtAsk: false, slippageBps, eta, fetchedAt };
+  };
+  const first = await check();
+  return first.eta.priceBand === 'off_market' ? check() : first;
+}
+
 function quoteBaseUrl(): string {
   const etaUrl = getBridgeConfigSnapshot().config?.swap?.etaUrl;
   if (etaUrl === undefined) throw new SwapEtaUnavailableError();

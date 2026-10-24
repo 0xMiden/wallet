@@ -14,10 +14,6 @@ import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 
-import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
-import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { NoteTypeEnum } from '../types';
 import {
   completeCustomTransaction,
   generateTransaction,
@@ -29,6 +25,10 @@ import {
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { ITransactionStatus } from '../db/types';
+import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import { NoteTypeEnum } from '../types';
 
 // The lock's HOLD, owned for the duration of the callback: the guardian pipeline
 // re-checks ownership before proving and before submit (#777).
@@ -2011,3 +2011,10 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
     expect(row.requestBytes).toBeUndefined();
   });
 });
+
+// Vault admission is tested separately; retain these fixtures' WASM eviction boundaries.
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

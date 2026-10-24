@@ -153,6 +153,7 @@ const mockHistoryRenders: Array<{
   renderPendingItem: unknown;
   filter?: string;
   hideLoadingSpinner?: boolean;
+  deferInitialLoad?: boolean;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -162,7 +163,8 @@ jest.mock('./History', () => ({
     renderPendingItem,
     filter,
     onLoadingChange,
-    hideLoadingSpinner
+    hideLoadingSpinner,
+    deferInitialLoad
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
@@ -170,11 +172,19 @@ jest.mock('./History', () => ({
     onLoadingChange: (loading: boolean) => void;
     filter?: string;
     hideLoadingSpinner?: boolean;
+    deferInitialLoad?: boolean;
   }) => {
     jest.requireActual<typeof import('react')>('react').useEffect(() => {
       onLoadingChange(mockState.isLoadingHistory);
     }, [onLoadingChange, mockState.isLoadingHistory]);
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter, hideLoadingSpinner });
+    mockHistoryRenders.push({
+      pendingItems,
+      drawnPendingItems,
+      renderPendingItem,
+      filter,
+      hideLoadingSpinner,
+      deferInitialLoad
+    });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -268,6 +278,17 @@ it('revalues an unchanged pending list on verified price asset changes and remov
   } finally {
     _setSwapTokensForTest(undefined);
   }
+});
+
+it('shows the fetching bar and passes deferInitialLoad while the catalog is pending', () => {
+  const view = render(<ActivityPendingHistory search="" filter="all" catalogPending />);
+  expect(screen.getByRole('progressbar')).toHaveAccessibleName('activityFetchingHistoryAndNotes');
+  expect(screen.getByRole('status')).toHaveTextContent('activityFetchingHistoryAndNotes');
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(true);
+
+  view.rerender(<ActivityPendingHistory search="" filter="all" catalogPending={false} />);
+  expect(mockHistoryRenders.at(-1)?.deferInitialLoad).toBe(false);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 });
 
 it('hides the list spinner under its own progress bar', () => {
@@ -444,53 +465,35 @@ describe('a faucet claim card by network', () => {
   });
   const faucetCard = () => screen.getByTestId('timeline').querySelector('[data-pending-note-id="faucet-note"]');
 
-  it('shows the card off Mainnet', () => {
-    mockWalletNetwork = 'testnet';
+  it.each(['testnet', 'mainnet'])('shows the card on %s and counts it for Accept All', network => {
+    // On Mainnet the native faucet is the USDCx minter, so such a note is a bridge-in, never noise.
+    mockWalletNetwork = network;
     render(<ActivityPendingHistory search="" filter="pending" />);
     expect(faucetCard()).not.toBeNull();
-  });
-
-  it('hides the card on Mainnet, keeps it out of Accept All and keeps the other cards', () => {
-    mockWalletNetwork = 'mainnet';
-    render(<ActivityPendingHistory search="" filter="pending" />);
-    expect(faucetCard()).toBeNull();
-    expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
     expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual([
       'first',
       'second',
-      'third'
+      'third',
+      'faucet-note'
     ]);
   });
 
-  it('hides the card on Mainnet once the native faucet id resolves', async () => {
-    mockWalletNetwork = 'mainnet';
-    mockNativeAssetId = null;
-    let resolveLookup!: (id: string) => void;
-    mockNativeAssetLookup = new Promise(resolve => {
-      resolveLookup = resolve;
-    });
-    render(<ActivityPendingHistory search="" filter="pending" />);
-    // With the id unknown nothing recognises a faucet claim yet.
-    expect(faucetCard()).not.toBeNull();
-
-    mockNativeAssetId = NATIVE;
-    await act(async () => {
-      resolveLookup(NATIVE);
-    });
-
-    await waitFor(() => expect(faucetCard()).toBeNull());
-    expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).not.toBeNull();
-  });
-
-  it('does not count a declined faucet claim for Restore on Mainnet', () => {
+  it('counts a declined faucet claim for Restore on Mainnet', () => {
     mockWalletNetwork = 'mainnet';
     mockState.items = [faucetItem];
     mockHidden.ids = new Set(['faucet-note']);
     render(<ActivityPendingHistory search="" filter="pending" />);
-    expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).not.toBeNull();
   });
+});
+
+it('does not classify incoming claim cards as Arcade or offer bulk acceptance there', () => {
+  render(<ActivityPendingHistory search="" filter="arcade" predicate={() => true} />);
+  expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  expect(mockHistoryRenders[mockHistoryRenders.length - 1]?.pendingItems).toEqual([]);
 });
 
 it('shows Accept All on the pending tab and claims every listed note that can be accepted', () => {

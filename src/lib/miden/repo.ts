@@ -1,4 +1,12 @@
-import Dexie, { DBCore, DBCoreCursor, DBCoreMutateResponse, DBCoreTable, Middleware, Transaction } from 'dexie';
+import Dexie, {
+  DBCore,
+  DBCoreCursor,
+  DBCoreMutateResponse,
+  DBCoreTable,
+  Middleware,
+  Transaction,
+  type Table as TransactionTable
+} from 'dexie';
 
 import {
   annotateCrash,
@@ -21,6 +29,10 @@ export enum Table {
  * Exported so the migration-proving tests in repo.test.ts seed a database in this
  * EXACT shape rather than a hand-typed duplicate that could silently drift from what
  * `defineSchema` below actually declares.
+ *
+ * `completedAt` and `initiatedAt` are the ordered cursors for a bounded history page.
+ * A nonzero `completedAt` is read from that index; a missing or zero one falls back to
+ * `initiatedAt`, and the two streams merge by `(completedAt || initiatedAt, id)`.
  */
 export const TRANSACTIONS_V17_STORE = indexes(
   'id',
@@ -211,6 +223,8 @@ function defineSchema(target: Dexie): void {
   // `bridged-send` rows every eight seconds, and without an index each ask walked the whole
   // history. No upgrade step: IndexedDB builds a new index over the rows already stored.
   // `spendingLimits` is named again at its 1.9 shape so this version does not drop that table.
+  // Bounded history pages keep walking the existing `completedAt` and `initiatedAt` indexes on
+  // this store. The `type` index does not replace them.
   target.version(2).stores({
     [Table.Transactions]: TRANSACTIONS_V2_STORE,
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
@@ -403,6 +417,86 @@ function installWalletStorageDiagnostics(target: Dexie): void {
 export const db = buildTridentDb('TridentMain');
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+
+/** One row of an ordered `completedAt` or `initiatedAt` cursor, plus the step that advances it. */
+export interface HistoryIndexCursor {
+  readonly value: ITransaction;
+  readonly done: boolean;
+  next(): Promise<HistoryIndexCursor>;
+}
+
+/** Inclusive bounds omit `lowerOpen` / `upperOpen`. An absent bound is the whole index. */
+export interface HistoryIndexBound {
+  lower?: number;
+  lowerOpen?: boolean;
+  upper?: number;
+  upperOpen?: boolean;
+}
+
+/**
+ * Opens an ordered cursor on `completedAt` or `initiatedAt`. Caller must already be inside
+ * `table.db.transaction`, which is what keeps the cursor's IndexedDB transaction alive.
+ * Records Dexie does not index (a missing `completedAt`) are not on that cursor.
+ */
+export async function openTransactionIndexCursor(
+  table: TransactionTable<ITransaction, string>,
+  indexName: 'completedAt' | 'initiatedAt',
+  reverse: boolean,
+  bound?: HistoryIndexBound
+): Promise<HistoryIndexCursor | null> {
+  const current = Dexie.currentTransaction;
+  if (current === null) throw new Error('openTransactionIndexCursor requires a transaction');
+  const index = table.core.schema.getIndexByKeyPath(indexName);
+  if (index === undefined) throw new Error(`transactions ${indexName} index is missing`);
+  const cursor = await table.core.openCursor({
+    trans: current.idbtrans,
+    values: true,
+    reverse,
+    query: { index, range: historyIndexRange(bound) }
+  });
+  if (cursor === null) return null;
+  return wrapHistoryIndexCursor(cursor);
+}
+
+function historyIndexRange(bound: HistoryIndexBound | undefined) {
+  // Dexie range kinds are numeric: Any is 3 and Range is 2. The const enum does not exist at runtime.
+  if (bound === undefined || (bound.lower === undefined && bound.upper === undefined)) {
+    return { type: 3, lower: undefined, upper: undefined };
+  }
+  return {
+    type: 2,
+    lower: bound.lower,
+    upper: bound.upper,
+    lowerOpen: bound.lowerOpen === true,
+    upperOpen: bound.upperOpen === true
+  };
+}
+
+function isHistoryIndexRow(value: unknown): value is ITransaction {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('id' in value) || !('status' in value) || !('initiatedAt' in value) || !('accountId' in value)) return false;
+  return typeof value.id === 'string';
+}
+
+function historyRowFromCursor(cursor: DBCoreCursor): ITransaction {
+  const value: unknown = cursor.value;
+  if (!isHistoryIndexRow(value)) throw new Error('history index cursor returned a non-transaction');
+  return value;
+}
+
+function wrapHistoryIndexCursor(cursor: DBCoreCursor): HistoryIndexCursor {
+  return {
+    get value() {
+      return historyRowFromCursor(cursor);
+    },
+    get done() {
+      return cursor.done === true;
+    },
+    next() {
+      return cursor.next().then(advanced => wrapHistoryIndexCursor(advanced));
+    }
+  };
+}
 
 /**
  * Non-negative safe integer: the spending-limit policy's rule for a transaction time it can judge (a

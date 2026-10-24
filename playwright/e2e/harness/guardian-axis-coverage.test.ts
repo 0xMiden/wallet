@@ -169,6 +169,11 @@ describe('the dApp journey in the mobile in-app browser', () => {
   it('keeps the in-app browser specs out of the base iOS and Android suites', () => {
     expect(MOBILE_LEGS.filter(leg => listed(leg.base).includes(leg.spec)).map(leg => leg.base)).toEqual([]);
   });
+
+  it('keeps the Auth Tab acceptance spec out of the base Android suite', () => {
+    expect(listed('playwright.android.config.ts')).not.toContain('auth-tab.android.spec.ts');
+    expect(listPlaywrightTests('playwright.android.auth-tab.config.ts')).toContain('auth-tab.android.spec.ts');
+  });
 });
 
 describe('Guardian account journey invariants', () => {

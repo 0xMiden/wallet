@@ -38,6 +38,7 @@ import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
+import { assertSwapAccountBalance, getSwapFeeContextSync, type SwapFeeContext } from 'lib/miden/swap/balance';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
@@ -82,6 +83,7 @@ import {
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
 import {
+  assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   retireWasmClientForCaughtTrap,
   withWasmLockWatchdogPaused,
@@ -1902,8 +1904,13 @@ export class MidenClientInterface {
    * A delegated attempt that fails before `markSubmitting()` falls back to a
    * local one through `proveWithFallback`; nothing falls back once it has run.
    */
-  async swapTransaction(transaction: SwapTransaction, onStage?: LeafStage): Promise<TransactionResult> {
+  async swapTransaction(
+    transaction: SwapTransaction,
+    onStage?: LeafStage,
+    feeContext?: SwapFeeContext
+  ): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
+    const fee = feeContext ?? getSwapFeeContextSync(extraInputs.balanceScope);
 
     const access = this.innerClientAccess();
 
@@ -1919,7 +1926,17 @@ export class MidenClientInterface {
         // spelled out on the send path above: the account a request is EXECUTED
         // against must be the one its asset's vault key came from.
         const canonicalId = walletAccountIdToSdk(accountId).toString();
+        const hold = getCurrentWasmLockHold();
         const creatorAccount = await this.client.accounts.get(canonicalId);
+        if (hold) assertWasmHoldCurrent(hold, 'swap execution: after creator account read');
+        assertSwapAccountBalance(
+          creatorAccount,
+          accountId,
+          faucetId,
+          BigInt(amount),
+          fee,
+          extraInputs.balanceScope ?? fee.scope
+        );
         const reference = await access._withInnerWebClient(async inner =>
           inner.newPswapCreateTransactionRequest(
             walletAccountIdToSdk(accountId),

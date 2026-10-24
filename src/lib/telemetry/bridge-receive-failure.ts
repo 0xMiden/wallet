@@ -261,6 +261,92 @@ export function bridgeReceiveNativeFailure(cause: unknown): ReownNativeFailure |
   return undefined;
 }
 
+/** Why a native session precheck refused the bridge network. Closed; never a chain id, topic, or message. */
+export const NATIVE_SESSION_PRECHECK_FAILURES = ['state_unread', 'session_missing', 'chain_unapproved'] as const;
+
+/**
+ * What the add-and-switch attempt did before that refusal. Closed. `not_attempted` is no request,
+ * `unsupported` is a network that could not be proposed, `rejected` is a refused request whose session state was read
+ * again, `rejected_unread` is a refused request whose session state could not be read again, `unconfirmed` is requests
+ * that returned while the session still had not approved the network, and `unconfirmed_unread` is those requests when
+ * the session state could not be read.
+ */
+export const NATIVE_SESSION_PRECHECK_RECOVERIES = [
+  'not_attempted',
+  'unsupported',
+  'rejected',
+  'rejected_unread',
+  'unconfirmed',
+  'unconfirmed_unread'
+] as const;
+
+export type NativeSessionPrecheckFailure = (typeof NATIVE_SESSION_PRECHECK_FAILURES)[number];
+export type NativeSessionPrecheckRecovery = (typeof NATIVE_SESSION_PRECHECK_RECOVERIES)[number];
+
+export interface NativeSessionPrecheck {
+  failure: NativeSessionPrecheckFailure;
+  recovery: NativeSessionPrecheckRecovery;
+}
+
+// Keyed by identity, so the refusal's own fields stay the message the user sees and no caller can forge the mark.
+const SESSION_PRECHECKS = new WeakMap<object, NativeSessionPrecheck>();
+
+function readOwn(source: object, key: string): unknown {
+  try {
+    return Reflect.get(source, key);
+  } catch {
+    return undefined;
+  }
+}
+
+function validateNativeSessionPrecheck(value: unknown): NativeSessionPrecheck | undefined {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+    const failure = NATIVE_SESSION_PRECHECK_FAILURES.find(entry => entry === readOwn(value, 'failure'));
+    const recovery = NATIVE_SESSION_PRECHECK_RECOVERIES.find(entry => entry === readOwn(value, 'recovery'));
+    if (failure === undefined || recovery === undefined) return undefined;
+    return { failure, recovery };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Records the closed precheck fact on `error`. A second mark, or a fact outside the lists, is ignored. */
+export function markNativeSessionPrecheck(error: object, fact: NativeSessionPrecheck): boolean {
+  try {
+    if (SESSION_PRECHECKS.has(error)) return false;
+    const validated = validateNativeSessionPrecheck(fact);
+    if (validated === undefined) return false;
+    SESSION_PRECHECKS.set(error, Object.freeze(validated));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The nearest closed precheck fact on `cause`, or none. Own properties and free text are not a fact. */
+export function readNativeSessionPrecheck(cause: unknown): NativeSessionPrecheck | undefined {
+  const seen = new Set<object>();
+  let current = cause;
+  // A thrown function is a markable object. `typeof` reports it as `function`, not `object`.
+  while (
+    current !== null &&
+    (typeof current === 'object' || typeof current === 'function') &&
+    seen.size < MAX_LINKS &&
+    !seen.has(current)
+  ) {
+    seen.add(current);
+    const fact = SESSION_PRECHECKS.get(current);
+    if (fact !== undefined) return fact;
+    try {
+      current = Reflect.get(current, 'cause');
+    } catch {
+      break;
+    }
+  }
+  return undefined;
+}
+
 const listed = (value: unknown, allowed: readonly string[]): string =>
   allowed.find(entry => entry === value) ?? 'other';
 
@@ -270,7 +356,15 @@ export function bridgeReceiveIdentity(failure: BridgeReceiveFailure): string {
   const step = listed(failure.step, BRIDGE_RECEIVE_STEPS);
   // Never the row's stored text: for a failure the wallet raised, that is the App's own words, not an answer.
   const error = bridgeReceiveLibraryError(failure.cause);
-  // Labels of words outside BIP-39: the crash reporter drops a report holding four wordlist words in a row (redact.ts),
-  // and `route other; step other` is four.
-  return `via ${route}; failed at ${step}; evm error ${error}`;
+  const precheck = readNativeSessionPrecheck(failure.cause);
+  // `recovery` would drop the report: it is mnemonic context, and this sentence already holds wordlist words such as
+  // `session`. The attempt's value is the recovery outcome. Labels stay outside a four-word run (redact.ts).
+  const attempt =
+    precheck === undefined
+      ? ''
+      : ` precheck ${listed(precheck.failure, NATIVE_SESSION_PRECHECK_FAILURES)}; attempt ${listed(
+          precheck.recovery,
+          NATIVE_SESSION_PRECHECK_RECOVERIES
+        )};`;
+  return `via ${route}; failed at ${step};${attempt} evm error ${error}`;
 }

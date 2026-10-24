@@ -12,7 +12,7 @@ import { isMobile } from 'lib/platform';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { Link } from 'lib/woozie';
 
-import { guardianHistoryActionKey } from './guardianHistoryLabels';
+import { guardianHistoryActionKey, historyEntryActionTitle } from './guardianHistoryLabels';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
@@ -78,7 +78,9 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       ? t('faucetRequest')
       : entry.isUnconfirmed
         ? t('notConfirmed')
-        : entry.message;
+        : entry.message === 'Transaction failed'
+          ? t('transactionFailedNotificationTitle')
+          : historyEntryActionTitle(entry, t);
   return (
     <div
       className={classNames(

@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "シードフレーズをバックアップしてください",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "今すぐバックアップしてください",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "ウォレットの残高が150米ドルに達しました。続行するには、シードフレーズをバックアップする必要があります。シードフレーズを書き留め、安全な場所に保管してから、確認手続きを完了させてウォレットをご利用ください。",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "バックアップチェックを保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "利用可能残高を確認できませんでした。もう一度お試しください。",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "スワップを行う前に、保留中の取引が完了するのを待ってください。",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "正確な支払額",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "受取対象の推定支払額。完全約定の場合は支払額が多くなる可能性がありますが、部分約定の場合は満期時に受け取る金額が少なくなる可能性があります。",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "スリッページとは、要求した受取額が固定されたまま、計算された支払額が調整されることを指します。",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3489,6 +3534,34 @@
     "message": "これにより、このデバイスからウォレットが削除されるため、例えば別のguardian URLを使用してウォレットを復元することが可能になります。資金はネットワーク上に残ります。ウォレットを復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "別のデバイスがこのアカウントを保持しています",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "このアカウントの日常用キーは、通常はウォレットを復元することで、別のデバイスに移行されました。このデバイスは、あなたが再びメインデバイスに設定するまで、そのアカウントを使用することはできません。",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "このアカウントの日常用キーは、通常はウォレットを別のデバイスに復元することで、そのデバイスに移行されました。このデバイスにはリカバリーキーがないため、アカウントを取り戻すことはできません。ここで使用するには、リカバリーフレーズを使用してウォレットを復元してください。",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "このデバイスをメインにする",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "このデバイスをメインにしますか？",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "ウォレットは、このデバイスへの日常的な鍵をローテーションします。もう一方のデバイスはこのアカウントへのアクセス権を失い、同じ通知が表示されます。アカウントから少額のネットワーク手数料が支払われます。",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "このデバイスからウォレットを削除する",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "毎日の鍵のローテーションは確認されていません",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4924,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet リクエスト",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "アクティビティ",
@@ -7321,6 +7406,27 @@
     "message": "Stays invested",
     "englishSource": "Stays invested"
   },
+  "earnWithdrawArrivesOn": {
+    "message": "到着日：",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · 約1分",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "ガス",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "スポンサー提供",
+    "englishSource": "Sponsored"
+  },
   "earnWithdrawAll": {
     "message": "Full balance",
     "englishSource": "Full balance"
@@ -7804,5 +7910,226 @@
   "amountUsdEstimate": {
     "message": "米ドルの推定額",
     "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "プレビュー",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "終了",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "サンプルデータはデザインプレビュー専用です。これらはお客様のウォレットの資金や実際のプレイヤーランキングではありません。何も公開されていません。",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "サンプルプレイヤー",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "プレビューのみ",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "サンプル更新を適用",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "あなたのランク",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "提出残高",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GCリーダーボード",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "ローカルで更新されたスナップショットのサンプルです。何も送信されていません。",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Breadでゲームを探してみましょう。",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Arcade を探索する",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "注目のゲーム",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "試してみるべきゲーム",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcadeのショートカット",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "ランキング",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "ゲームコイン",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "私のアクティビティ",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "オープンゲーム",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "利用可能なゲームはありません",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "このネットワーク上で利用可能になったゲームは、ここに表示されます。",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "ゲームを開始しても、ウォレットは自動的に接続されません。Breadが事前に確認を求めます。",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GCランキング",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "GC残高の確認",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC残高",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "未読",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "残高を送信",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "残高を更新する",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "残高スナップショットを送信すると、アカウント識別子、GC残高、ネットワーク、およびスナップショット時刻がリーダーボードと共有されます。その他の資産の残高は含まれません。",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC残高の読み取りとリーダーボードへの送信は、現時点では連携されていません。残高の読み取りや送信は行われていません。",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "ランキングはここに表示されます",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "このネットワークでは、ランキング機能はまだ実装されていません。",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "残高はここに表示されます",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "ゲームコインは、このネットワーク上ではまだ利用可能になっていません。",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "「Arcade」に掲載されているゲームのみが対象となります。",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "ファイナンス",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "その他",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "コイン",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "アクティビティ",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "ゲームを閲覧する",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "残高は非公開のままです。",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "ランク付けの対象となるのは、ユーザーが共有することを選択した残高のみです。",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "まだゲーム活動はありません",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Arcadeゲームで行った取引は、ここに表示されます。",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1,000 GCを1 USDCxで購入（ネットワーク手数料別）。",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "BreadでのGC購入はまだ利用できません。",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "GCを追加購入",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "残高利用不可",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "ゲームコイン",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

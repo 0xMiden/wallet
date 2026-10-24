@@ -302,6 +302,12 @@ describe('HistoryView empty state', () => {
     expect(screen.getByTestId('activity-spinner')).toBeInTheDocument();
   });
 
+  it("swaps the generic card for a filter's own empty state", () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState emptyState={<p>custom empty</p>} />);
+    expect(screen.getByText('custom empty')).toBeInTheDocument();
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+  });
+
   it('renders the Activity-tab empty state flush under the filters, not vertically centered', () => {
     const { container } = render(<HistoryView {...baseProps} entries={[]} centerEmptyState />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
@@ -896,7 +902,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
 
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
     renderFull();
-    const row = rowByTitle('Transaction failed');
+    const row = rowByTitle('transactionFailedNotificationTitle');
     expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
@@ -1004,7 +1010,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(rowByTitle('cancelled')).toHaveAttribute('data-status', 'cancelled');
     const failedRow = screen
       .getAllByTestId('activity-row')
-      .find(el => el.getAttribute('data-title') === 'Transaction failed')!;
+      .find(el => el.getAttribute('data-title') === 'transactionFailedNotificationTitle')!;
     expect(failedRow).toHaveAttribute('data-status', 'failed');
     expect(failedRow).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
@@ -1097,12 +1103,12 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('gives a tappable row pressed feedback and leaves a plain row without it', () => {
     renderFull();
     expect(rowByTitle('Received')).toHaveClass('active:bg-fill-pressed');
-    expect(rowByTitle('')).not.toHaveClass('active:bg-fill-pressed');
+    expect(rowByTitle('sent')).not.toHaveClass('active:bg-fill-pressed');
   });
 
-  it('renders the default row (unknown icon, empty title, no amount, not clickable)', () => {
+  it('renders the default row (unknown icon, action fallback, no amount, not clickable)', () => {
     renderFull();
-    const row = rowByTitle('');
+    const row = rowByTitle('sent');
     expect(iconNameIn(row)).toBe('More');
     // On `page` with an `ink` glyph, so the circle stays visible on the card's `fill`.
     expect(row).toHaveAttribute('data-iconbg', 'bg-page');
@@ -1663,7 +1669,7 @@ describe('HistoryView Guardian switch audit trail', () => {
     expect(degraded).toHaveAttribute('data-status', 'confirmed');
     expect(queued).toHaveAttribute('data-title', 'Switching guardian');
     expect(queued).toHaveAttribute('data-status', 'pending');
-    expect(failed).toHaveAttribute('data-title', 'Transaction failed');
+    expect(failed).toHaveAttribute('data-title', 'transactionFailedNotificationTitle');
     expect(failed).toHaveAttribute('data-status', 'failed');
   });
 });
@@ -2097,5 +2103,27 @@ describe('user-visible history load errors', () => {
       jest.advanceTimersByTime(2000);
     });
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+describe('cancelled partial swap progress', () => {
+  it('retains the order time, progress and reclaim status without replacing the offered amount', () => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'ETH',
+      amount: '0.001',
+      requestedToken: 'USDT',
+      requestedAmount: '10',
+      swapSettlement: 'reclaimed',
+      swapFillProgress: '40'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'reclaimed');
+    expect(screen.getByTestId('activity-row')).toHaveAttribute(
+      'data-subtitle',
+      'amountFilled: swapProgressPercent · swapPlacedAt'
+    );
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+    expect(mockT).toHaveBeenCalledWith('swapProgressPercent', { percentage: '40' });
   });
 });

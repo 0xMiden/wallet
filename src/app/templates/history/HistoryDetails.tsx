@@ -666,7 +666,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       : entry.isCancelled
         ? t('cancelled')
         : entry.status === ITransactionStatus.Failed
-          ? FAILED_ROW_MESSAGE
+          ? t('transactionFailedNotificationTitle')
           : !entry.guardianRecovered && guardianSwitchTitleKey
             ? t(guardianSwitchTitleKey)
             : entry.message;

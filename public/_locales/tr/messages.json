@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Tohum ifadenizi yedekleyin",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Şimdi yedekleyin",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Cüzdanınızın bakiyesi 150 ABD dolarına ulaştı. Devam edebilmeniz için önce tohum ifadenizi yedeklemeniz gerekir. Bunu bir yere yazın, güvenli bir yerde saklayın ve cüzdanınızı kullanabilmek için kontrol işlemini tamamlayın.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Yedekleme kontrolü kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Harcanabilir bakiyenizi doğrulayamadık. Lütfen tekrar deneyin.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Takas yapmadan önce bekleyen işleminizin tamamlanmasını bekleyin.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Kesin ödeme tutarı",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Alım hedefiniz için tahmini ödeme tutarı. Tam doldurma daha fazla ödeme sağlayabilir; kısmi doldurmalar ise vade sonunda elinizde daha az tutar bırakabilir.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Kayma, talep ettiğiniz alım tutarı sabit kalırken hesaplanan ödeme tutarını ayarlar.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Hızlı · Epoch",
     "englishSource": "Fast · Epoch"
@@ -3489,6 +3534,34 @@
     "message": "Bu işlem, cüzdanı bu cihazdan kaldırır; böylece örneğin farklı bir guardian URL'si kullanarak cüzdanı yeniden geri yükleyebilirsiniz. Paranız ağda kalır. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacaktır.",
     "englishSource": "This removes the wallet from this device so you can restore it again, for example with a different guardian URL. Your funds stay on the network. You will need your recovery phrase to restore the wallet."
   },
+  "hotKeyRotatedOutTitle": {
+    "message": "Bu hesap başka bir cihazda tutulmaktadır",
+    "englishSource": "Another device holds this account"
+  },
+  "hotKeyRotatedOutBody": {
+    "message": "Bu hesabın günlük anahtarı, genellikle cüzdanın o cihaza geri yüklenmesi yoluyla başka bir cihaza taşınmıştır. Bu cihaz, siz onu tekrar ana cihaz olarak belirleyene kadar hesabı kullanamaz.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device cannot use the account until you make it the main device again."
+  },
+  "hotKeyRotatedOutBodyNoRecoveryKey": {
+    "message": "Bu hesabın günlük anahtarı, genellikle cüzdanı o cihaza geri yükleyerek başka bir cihaza taşınmıştır. Bu cihazda kurtarma anahtarı bulunmadığından, hesabı geri alamaz. Burada kullanmak için cüzdanı kurtarma ifadesinizle geri yükleyin.",
+    "englishSource": "This account's everyday key was moved to another device, usually by restoring the wallet there. This device has no recovery key, so it cannot take the account back. Restore the wallet with your recovery phrase to use it here."
+  },
+  "hotKeyRotatedOutMakeMain": {
+    "message": "Bu cihazı ana cihaz olarak ayarlayın",
+    "englishSource": "Make this device the main one"
+  },
+  "hotKeyRotatedOutMakeMainTitle": {
+    "message": "Bu cihazı ana cihaz olarak ayarlamak ister misiniz?",
+    "englishSource": "Make this device the main one?"
+  },
+  "hotKeyRotatedOutMakeMainBody": {
+    "message": "Cüzdan, bu cihaza ait günlük anahtarı değiştirir. Diğer cihaz bu hesaba erişimini kaybeder ve aynı bildirimi görür. Hesaptan küçük bir ağ ücreti ödenir.",
+    "englishSource": "The wallet rotates the everyday key to this device. The other device loses access to this account and sees this same notice. A small network fee is paid from the account."
+  },
+  "hotKeyRotatedOutRemove": {
+    "message": "Cüzdanı bu cihazdan kaldırın",
+    "englishSource": "Remove wallet from this device"
+  },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Günlük anahtar rotasyonu doğrulanmadı",
     "englishSource": "Everyday key rotation not confirmed"
@@ -4924,6 +4997,18 @@
   "faucetRequest": {
     "message": "Faucet Talep",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "Etkinlik",
@@ -7321,6 +7406,27 @@
     "message": "Stays invested",
     "englishSource": "Stays invested"
   },
+  "earnWithdrawArrivesOn": {
+    "message": "Yayınlanma tarihi",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 dakika",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gaz",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Sponsorlu",
+    "englishSource": "Sponsored"
+  },
   "earnWithdrawAll": {
     "message": "Full balance",
     "englishSource": "Full balance"
@@ -7804,5 +7910,226 @@
   "amountUsdEstimate": {
     "message": "USD tahmini",
     "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Önizleme",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Çıkış",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Örnek veriler yalnızca tasarım önizlemesi içindir. Bunlar cüzdan bakiyeniz veya gerçek oyuncu sıralamalarınız değildir. Hiçbir şey yayınlanmamıştır.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Örnek oyuncu",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Yalnızca önizleme",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Örnek güncellemeyi uygulayın",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Sıralamanız",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Gönderilen bakiye",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC liderlik tablosu",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Örnek anlık görüntü yerel olarak güncellendi. Hiçbir şey gönderilmedi.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Bread'de oyunları keşfedin.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Arcade'i keşfedin",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Öne çıkan oyunlar",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Denemeniz gereken oyunlar",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade kısayolları",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Sıralamalar",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Oyun Paraları",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Etkinliklerim",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Açık oyun",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Ayrıntılar",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Oynanabilir oyun yok",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Oyunlar, bu ağda kullanıma sunulduğunda burada görünecektir.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Bir oyun açmak cüzdanınızı bağlamaz. Bread önce izin ister.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC sıralamaları",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "GC bakiyesini inceleyin",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC bakiyesi",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Okunmadı",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Bakiyeyi gönder",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Bakiyeyi güncelle",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Bir bakiye anlık görüntüsünü göndermek, hesap tanımlayıcınızı, GC bakiyenizi, ağınızı ve anlık görüntü zamanınızı liderlik tablosuyla paylaşmak anlamına gelir. Diğer varlık bakiyeleriniz dahil edilmez.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC bakiyesi okuma ve liderlik tablosu gönderimi henüz birbirine bağlı değildir. Henüz hiçbir bakiye okunmamış veya gönderilmemiştir.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Sıralamalar burada görünecektir",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Sıralamalar bu ağda henüz aktif değildir.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Bakiyeniz burada görünecektir",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Oyun Paraları henüz bu ağda aktif değildir.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "Yalnızca Arcade'de listelenen oyunlar dahil edilir.",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Finans",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Diğer",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "Madeni paralar",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Etkinlik",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Oyunlara göz atın",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Bakiyeniz gizli kalır.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "Yalnızca paylaşmayı seçtiğiniz bakiyeler sıralanır.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Henüz oyun etkinliği yok",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Arcade oyunlarında yaptığınız işlemler burada görünür.",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1 USDCx karşılığında 1.000 GC, ağ ücretleri hariç.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Bread’de GC satın alma henüz kullanılamıyor.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "Daha fazla GC satın al",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Bakiye mevcut değil",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Oyun Paraları",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "Her oyun kendi bahislerini, ödemelerini ve iadelerini belirler. Bir işlemi onaylamadan önce oyunun kurallarını inceleyin.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

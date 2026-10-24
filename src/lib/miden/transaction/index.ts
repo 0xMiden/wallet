@@ -25,6 +25,7 @@ import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   GuardianWriteDiscardedError,
+  isHotKeyRotatedOutError,
   isGuardianAccountUnusable,
   isGuardianSwitchDiscardedError,
   isGuardianUnreachableError,
@@ -50,6 +51,7 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
+import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } from 'lib/miden/swap/balance';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -2879,11 +2881,28 @@ const generateDirectSwitchGuardianTransaction = async (
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
   await setTransactionStage(transaction.id, 'signing-locally');
-  const tr = await createDirectSwitchGuardianRequest(
-    walletAccount,
-    transaction.extraInputs.newGuardianEndpoint,
-    guardianProvider.signWord
-  );
+  let tr: TransactionRequest;
+  try {
+    tr = await createDirectSwitchGuardianRequest(
+      walletAccount,
+      transaction.extraInputs.newGuardianEndpoint,
+      guardianProvider.signWord
+    );
+  } catch (error) {
+    // The build compared this device's hot key with the chain's signer slot 0 and
+    // found another device's key there. That is a finding about the ACCOUNT, not
+    // about this switch, and the row's failure is the only place it would otherwise
+    // surface; persist it so the wallet can say that another device holds the
+    // account (`isHotKeyRotatedOut`). Best-effort, then the row fails as before.
+    if (isHotKeyRotatedOutError(error)) {
+      await guardianProvider
+        .markHotKeyRotatedOut?.(walletAccount.publicKey, error.hotPublicKey, error.onChainHotCommitment)
+        .catch(markError => {
+          console.warn(`[Guardian] could not record that ${walletAccount.publicKey} was rotated out:`, markError);
+        });
+    }
+    throw error;
+  }
 
   await setTransactionStage(transaction.id, 'sending');
   const attempt = attemptContextOf(transaction);
@@ -3720,6 +3739,14 @@ const generateGuardianTransaction = async (
       });
       service = swapService;
       const swapTx = transaction as SwapTransaction;
+      if (!transaction.mayHaveSubmitted) {
+        await assertSwapVaultBalance(
+          swapTx.accountId,
+          swapTx.faucetId,
+          BigInt(swapTx.amount),
+          swapTx.extraInputs.balanceScope
+        );
+      }
       // PSWAP notes carry a randomly-generated serial number, so the request
       // must be built ONCE and the exact same bytes reused for BOTH
       // `createCustomProposal` and `signAndCreateTransactionRequest` below (the
@@ -3729,9 +3756,10 @@ const generateGuardianTransaction = async (
       // second, divergent proposal.
       if (!transaction.requestBytes) {
         const requestBytes = await swapStep('request_build', () =>
-          withProposalStep('swap_request_build', () => {
+          withProposalStep('swap_request_build', async () => {
             // Resolved BEFORE the lock: the reads drive their own RpcClient through the
             // WASM module and re-entering it under the client lock traps.
+            const swapFeeContext = await readSwapFeeContext(swapTx.extraInputs.balanceScope);
             const swapFeeSalt = randomFeeSalt();
             return withWasmClientLock(async hold => {
               // The offered asset has to carry the vault key of the slot it is
@@ -3750,6 +3778,14 @@ const generateGuardianTransaction = async (
               // flow on the reader its successor uses. Pre-proposal throughout, so
               // stopping costs one retry.
               assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
+              assertSwapAccountBalance(
+                creatorAccount,
+                swapTx.accountId,
+                swapTx.faucetId,
+                swapTx.amount,
+                swapFeeContext,
+                swapTx.extraInputs.balanceScope ?? swapFeeContext.scope
+              );
               // The realm's reader client (see `getRealmReaderClient`), not a per-call
               // client: 0.16 can release neither, so a client per swap build leaked.
               // Its first build is the long parking await here (a genesis fetch on a
