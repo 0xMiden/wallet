@@ -1468,3 +1468,70 @@ final class BreadMorphMathTests: XCTestCase {
         XCTAssertEqual(BreadMorphGeometry.rubberBand(-30, length: length), -BreadMorphGeometry.rubberBand(30, length: length), accuracy: 1e-9)
     }
 }
+
+final class BreadMorphStateTests: XCTestCase {
+    private typealias Motion = BreadPresentationState.Motion
+
+    private func openState() -> BreadPresentationState {
+        let state = BreadPresentationState(timeout: 30)
+        let generation = state.beginNavigation()
+        state.configure(.browser, generation: generation)
+        state.requestVisibility(true, policyRevision: state.policyRevision, sequence: 1)
+        return state
+    }
+
+    func testMotionStartsOnlyWhileOpenAndEndsOnce() {
+        let state = openState()
+        XCTAssertEqual(state.motion, Motion.none)
+        XCTAssertFalse(state.beginMotion(Motion.none))
+        XCTAssertTrue(state.beginMotion(.collapsing))
+        XCTAssertEqual(state.motion, .collapsing)
+        state.endMotion()
+        XCTAssertEqual(state.motion, Motion.none)
+        state.endMotion()
+        XCTAssertEqual(state.motion, Motion.none)
+        state.close()
+        XCTAssertFalse(state.beginMotion(.expanding))
+        XCTAssertEqual(state.motion, Motion.none)
+    }
+
+    func testProxyIsUsableOnlyForTheGenerationItWasCapturedIn() {
+        let state = openState()
+        XCTAssertFalse(state.proxyUsable)
+        state.captureProxy()
+        XCTAssertTrue(state.proxyUsable)
+        state.beginNavigation()
+        XCTAssertFalse(state.proxyUsable)
+        state.captureProxy()
+        XCTAssertTrue(state.proxyUsable)
+        state.dropProxy()
+        XCTAssertFalse(state.proxyUsable)
+    }
+
+    func testHiddenRequestCancelsMotion() {
+        let state = openState()
+        XCTAssertTrue(state.beginMotion(.expanding))
+        XCTAssertFalse(state.requestVisibility(false, sequence: 1))
+        XCTAssertEqual(state.motion, .expanding)
+        XCTAssertTrue(state.requestVisibility(false, sequence: 2))
+        XCTAssertEqual(state.motion, Motion.none)
+    }
+
+    func testCollapseKeepsDesiredVisibilityUntilHiddenRequest() {
+        let state = openState()
+        XCTAssertTrue(state.beginMotion(.collapsing))
+        XCTAssertTrue(state.desiredVisibility)
+        XCTAssertTrue(state.requestVisibility(true, sequence: 2))
+        XCTAssertEqual(state.motion, .collapsing)
+        XCTAssertTrue(state.desiredVisibility)
+    }
+
+    func testCloseCancelsMotion() {
+        let state = openState()
+        XCTAssertTrue(state.beginMotion(.collapsing))
+        state.captureProxy()
+        state.close()
+        XCTAssertEqual(state.motion, Motion.none)
+        XCTAssertFalse(state.proxyUsable)
+    }
+}

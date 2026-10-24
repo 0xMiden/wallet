@@ -3,6 +3,7 @@ import Foundation
 final class BreadPresentationState {
     enum Display: String { case browser, fullscreen }
     enum Phase { case preparing, visible, temporarilyHidden, error, closed }
+    enum Motion { case none, expanding, collapsing }
     private(set) var generation = 0
     private(set) var display: Display = .browser
     private(set) var desiredVisibility = true
@@ -13,6 +14,8 @@ final class BreadPresentationState {
     private var acknowledgedPolicy: Int?
     private var visibilitySequence = 0
     private(set) var acknowledgedVisibilitySequence = 0
+    private(set) var motion: Motion = .none
+    var proxyUsable: Bool { false }
     var policyResolved: Bool { configured || failed }
     var effectiveVisibility: Bool { desiredVisibility && foreground && policyResolved && acknowledgedPolicy == policyRevision && !closed }
     // Keep the privacy-covered game authoritative for the system snapshot until its host revokes ownership.
@@ -109,6 +112,14 @@ final class BreadPresentationState {
             failed = true
         }
     }
+
+    @discardableResult func beginMotion(_ motion: Motion) -> Bool { false }
+
+    func endMotion() {}
+
+    func captureProxy() {}
+
+    func dropProxy() {}
 
     @discardableResult func close() -> Bool {
         guard !closed else { return false }
