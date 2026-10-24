@@ -1961,6 +1961,48 @@ describe('native morph adoption', () => {
     expect(firstParkSettled).toBe(true);
   });
 
+  it('does not park the replaced foreground again when a rejected restore of it drops the settled collapse', async () => {
+    await openForeground();
+    act(() => control().open(session('second')));
+    await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+    await act(async () => void control().restore('origin', { card: CARD }));
+    jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+    jest.useFakeTimers();
+    emitMorph('retargeted', 'collapsed');
+    emitMorph('settled', 'collapsed');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(control().motion).toMatchObject({ id: 'origin', acknowledging: true });
+    expect(parked().sort()).toEqual(['origin', 'second']);
+
+    await act(async () => void control().restore('second', { card: CARD }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(control().mode).toBe('active');
+    expect(parked()).toEqual(['origin']);
+  });
+
+  it('keeps following an expand when native rejects the collapse sent over it', async () => {
+    await openForeground();
+    await act(async () => control().park('origin'));
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+    await act(async () => void control().restore('origin', { card: CARD }));
+    const expandId = lastMorphId();
+
+    await act(async () => void control().park('origin'));
+    await settle();
+    expect(lastMorphId()).not.toBe(expandId);
+    expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded', morphId: expandId });
+
+    emitMorph('settled', 'expanded', expandId);
+    await settle();
+    expect(control().motion).toBeNull();
+  });
+
   it('springs a rejected native minimize back', async () => {
     await openForeground();
 

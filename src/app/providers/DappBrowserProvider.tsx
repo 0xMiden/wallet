@@ -261,6 +261,8 @@ interface MorphFlight {
   instance: DappWebViewInstance;
   /** Settles the park() waiting on this motion: true once a collapse committed its park. */
   finish: (parked: boolean) => void;
+  /** Armed once this flight is settled, so finish and its outgoing park run one time. */
+  settled?: boolean;
   /** A collapse's snapshot, requested once native accepted the morph. */
   snapshot: Promise<string | null> | null;
   guard?: ParkGuard;
@@ -1310,6 +1312,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         flightRef.current = null;
         setMotion(null);
       }
+      // The first stop owns finish and the outgoing park. The acknowledgement hide does not come through here.
+      if (flight.settled) return;
+      flight.settled = true;
       flight.finish(parked);
       parkOutgoing(flight);
     },
@@ -1319,6 +1324,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const supersede = useCallback(
     (previous: MorphFlight, next: MorphFlight) => {
       // Native retargeted the replaced spring, so that motion ends without parking.
+      if (previous.settled) return;
+      previous.settled = true;
       previous.finish(false);
       parkOutgoing(previous, next);
     },
@@ -1334,14 +1341,34 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   // Native leaves a morph it rejects untouched, so whatever was flying still is; a settled collapse is dropped instead,
-  // since its acknowledgement may have passed while the rejected morph was followed.
+  // since its acknowledgement may have passed while the rejected morph was followed. Resume only while this rejection
+  // is still the flight followed and the caller allows it. A flight this call does not resume is settled, including
+  // when a newer flight has already taken its place.
   const restoreFlight = useCallback(
-    (rejected: MorphFlight, previous: MorphFlight | null) => {
-      if (flightRef.current !== rejected) return;
-      flightRef.current = previous && flightLive(previous) && !previous.motion.acknowledging ? previous : null;
-      setMotion(flightRef.current?.motion ?? null);
+    (rejected: MorphFlight, previous: MorphFlight | null, allowResume: boolean) => {
+      const resume =
+        flightRef.current === rejected &&
+        allowResume &&
+        previous &&
+        flightLive(previous) &&
+        !previous.motion.acknowledging
+          ? previous
+          : null;
+      if (flightRef.current === rejected) {
+        flightRef.current = resume;
+        setMotion(resume?.motion ?? null);
+      }
+      const followed = flightRef.current;
+      if (rejected !== followed) {
+        if (followed) supersede(rejected, followed);
+        else endFlight(rejected, false);
+      }
+      if (previous && previous !== followed && previous !== rejected) {
+        if (followed) supersede(previous, followed);
+        else endFlight(previous, false);
+      }
     },
-    [flightLive]
+    [endFlight, flightLive, supersede]
   );
 
   // The settled page holds the card pose until its card has painted under it (two frames, at most the timeout); the
@@ -1387,7 +1414,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       });
       // Still followed: the page stays shown at the card pose until the acknowledgement hides it.
       updateFlight(flight, { ...flight.motion, acknowledging: true });
-      flight.finish(true);
+      if (!flight.settled) {
+        flight.settled = true;
+        flight.finish(true);
+      }
       acknowledgeCollapse(flight);
     },
     [acknowledgeCollapse, endFlight, flightLive, getSessionStateById, parkOutgoing, updateFlight, updateSession]
@@ -1461,7 +1491,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       setMotion(flight.motion);
       const accepted = await sent;
       if (!accepted) {
-        restoreFlight(flight, previous);
+        restoreFlight(flight, previous, true);
         return 'unaccepted';
       }
       if (previous && previous !== flight) supersede(previous, flight);
@@ -1522,11 +1552,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // ended it: a collapse parks the legacy way, an expand is left at rest.
   const expireFlight = useCallback(
     (flight: MorphFlight) => {
-      if (flightRef.current !== flight) return;
+      if (flightRef.current !== flight || flight.settled) return;
       if (flight.motion.target === 'expanded') {
         endFlight(flight, false);
         return;
       }
+      // Claimed before the legacy park resolves, which is what finishes the waiter.
+      flight.settled = true;
       flightRef.current = null;
       setMotion(null);
       parkOutgoing(flight);
@@ -1633,16 +1665,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const accepted = await sent;
       if (!accepted) {
         // The position effect shows the page the way it always has; the replaced foreground parks now, so a collapse
-        // of it that was flying is not resumed.
-        restoreFlight(flight, previous?.motion.id === outgoingId ? null : previous);
-        if (outgoingId) void parkLegacy(outgoingId);
+        // of it that was flying is not resumed. That settlement parks the outgoing once.
+        restoreFlight(flight, previous, previous?.motion.id !== outgoingId);
         return false;
       }
       // Accepted: native retargeted whatever motion this page or the replaced one had.
       if (previous && previous !== flight) supersede(previous, flight);
       return true;
     },
-    [acknowledgedRevision, parkLegacy, restoreFlight, setActiveDappSession, supersede, updateSession]
+    [acknowledgedRevision, restoreFlight, setActiveDappSession, supersede, updateSession]
   );
 
   // Deduped by value: the tray republishes on every layout change and resize, and each one is a bridge call.
