@@ -180,6 +180,8 @@ if (P.version !== 9) {
     opts = opts || {};
     var track = P.findTrack();
     if (!track) return 'no-track';
+    // A native scroller ignores synthetic pointer events, so a flick here would measure nothing.
+    if (P.findPager().native) return 'native-pager-needs-real-touch';
 
     var y = Math.round(innerHeight * 0.45);
     var cx = Math.round(innerWidth * 0.78);
