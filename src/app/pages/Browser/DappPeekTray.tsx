@@ -89,6 +89,10 @@ export const DappPeekTray: FC = () => {
   const [coldExpand, setColdExpand] = useState<ColdExpand | null>(null);
   const slotRectRef = useRef(slotRect);
   slotRectRef.current = slotRect;
+  // DappActive clears the slot when it unmounts, so a restore from a parked tray reads null and lands on the last
+  // measured slot instead of the computed fallback.
+  const lastMeasuredSlotRef = useRef<SlotRect | null>(null);
+  if (slotRect && slotRect.width > 0 && slotRect.height > 0) lastMeasuredSlotRef.current = slotRect;
   // Cyclic rotation pointer into `orderedAll`. The session at
   // `orderedAll[activeIndex]` becomes the frontmost card. Swiping the front
   // card rotates it; a card arriving resets it so the new card is in front.
@@ -132,7 +136,7 @@ export const DappPeekTray: FC = () => {
           session,
           snapshot: getSnapshot(session.id) ?? null,
           sourceRect: card,
-          targetRect: resolveTargetRect(slotRectRef.current, null)
+          targetRect: resolveTargetRect(slotRectRef.current, lastMeasuredSlotRef.current)
         });
       const state = sessionStates.find(s => s.session.id === session.id);
       if (!state?.instance || state.isCold) {
