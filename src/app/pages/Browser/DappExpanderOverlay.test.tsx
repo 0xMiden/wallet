@@ -74,6 +74,14 @@ it('animates only transform and opacity', () => {
   expect(animation?.options).toMatchObject({ easing: expect.stringMatching(/^linear\(/), fill: 'forwards' });
 });
 
+it('paints between the peek tray and the host modal', () => {
+  render(<Harness onDone={jest.fn()} />);
+
+  // A confirmation at the host modal tier (z-80) must never sit under this untouchable snapshot.
+  expect(overlay()).toHaveStyle({ zIndex: '70' });
+  expect(overlay()).toHaveClass('pointer-events-none');
+});
+
 it('unmounts when its animation finishes', () => {
   const onDone = jest.fn();
   render(<Harness onDone={onDone} />);
