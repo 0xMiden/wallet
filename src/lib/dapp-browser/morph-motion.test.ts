@@ -62,6 +62,9 @@ it('maps phases to actions', () => {
 
 it('ignores a malformed event from the bridge', () => {
   const malformed: PresentationMorphEvent[] = [
+    JSON.parse('null'),
+    JSON.parse('"morph"'),
+    JSON.parse('0'),
     JSON.parse('{"id":"a","managedHostCloseToken":"L","morphId":"m1","phase":"started"}'),
     morphEvent({ phase: JSON.parse('"paused"') }),
     morphEvent({ phase: 'retargeted', target: JSON.parse('null') }),
