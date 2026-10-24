@@ -411,7 +411,8 @@ const HomeSwipeContainer: FC = () => {
     };
     // Also covers a touch that never scrolled (a tap on content), which fires no scrollend.
     const onTouchEnd = (event: Event) => {
-      touchDown = event instanceof TouchEvent && event.touches.length > 0;
+      // Only fingers that started on the pager hold it: a release outside it is never heard here.
+      touchDown = event instanceof TouchEvent && Array.from(event.touches).some(touch => endTargets.has(touch.target));
       if (touchDown) return;
       releaseEndTargets();
       releaseCatch();

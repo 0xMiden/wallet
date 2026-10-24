@@ -385,7 +385,7 @@ describe('HomeSwipeContainer', () => {
       row.remove();
       settleAt(scroller, W);
 
-      fire(row, 'touchend', 1);
+      fire(row, 'touchend', [scroller]);
       act(() => {
         jest.advanceTimersByTime(pagerMotion.settleIdleMs);
       });
@@ -396,6 +396,22 @@ describe('HomeSwipeContainer', () => {
         jest.advanceTimersByTime(pagerMotion.settleIdleMs);
       });
       expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('lets go once the pager fingers lift, though a finger outside the pager is still down', () => {
+      const { scroller } = mount();
+      measure(W);
+      const outside = document.createElement('div');
+      document.body.appendChild(outside);
+      fire(scroller, 'touchstart', 1);
+      settleAt(scroller, W);
+
+      fire(scroller, 'touchend', [outside]);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+      outside.remove();
     });
 
     it('waits out a fling that is still coasting after the finger lifts', () => {
