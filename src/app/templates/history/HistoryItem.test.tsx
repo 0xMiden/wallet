@@ -126,6 +126,11 @@ beforeEach(() => {
 });
 
 describe('HistoryItem', () => {
+  it('titles a legacy row with no stored message by its action', () => {
+    render(<HistoryItem entry={makeEntry({ message: undefined, txType: 'send' })} />);
+    expect(screen.getByText('t:sent')).toBeInTheDocument();
+  });
+
   it('shows a bridge row output under its label', () => {
     jest.mocked(bridgeRowDisplay).mockReturnValue({
       inSymbol: 'USDC',
