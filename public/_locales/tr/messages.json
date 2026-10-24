@@ -1,4 +1,33 @@
 {
+  "swapBalanceUnavailable": {
+    "message": "Harcanabilir bakiyenizi doğrulayamadık. Lütfen tekrar deneyin.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Takas yapmadan önce bekleyen işleminizin tamamlanmasını bekleyin.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Kesin ödeme tutarı",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Alım hedefiniz için tahmini ödeme tutarı. Tam doldurma daha fazla ödeme sağlayabilir; kısmi doldurmalar ise vade sonunda elinizde daha az tutar bırakabilir.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Kayma, talep ettiğiniz alım tutarı sabit kalırken hesaplanan ödeme tutarını ayarlar.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Hızlı · Epoch",
     "englishSource": "Fast · Epoch"

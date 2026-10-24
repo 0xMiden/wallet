@@ -56,7 +56,20 @@ describe('submissionFeedback (#1689)', () => {
     ).toMatchObject({ kind: 'rejected', messageKey: 'submissionRejectedByNetwork' });
     expect(
       submissionFeedback(row({ error: during('get_transaction_encryption_key', 'operation was aborted') }))
-    ).toMatchObject({ kind: 'unanswered', messageKey: 'submissionUnanswered' });
+    ).toBeUndefined();
+    expect(
+      submissionFeedback(
+        row({
+          error: during(
+            'get_transaction_encryption_key',
+            'request to Miden node timed out; the node may be under heavy load'
+          )
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      submissionFeedback(row({ error: during('get_transaction_encryption_key', 'a status no table lists') }))
+    ).toBeUndefined();
     expect(submissionFeedback(row({ error: during('submit_proven_batch', 'resource already exists') }))).toMatchObject({
       kind: 'rejected',
       messageKey: 'submissionRejectedByNetwork'

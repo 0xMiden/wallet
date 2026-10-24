@@ -1,4 +1,33 @@
 {
+  "swapBalanceUnavailable": {
+    "message": "Не вдалося перевірити ваш доступний баланс. Спробуйте ще раз.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Дочекайтеся завершення вашої транзакції, що перебуває в стані очікування, перед тим, як здійснювати обмін.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Точна сума виплати",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Орієнтовна сума виплати за ваш об’єкт отримання. Повне виконання може принести більшу суму; часткове виконання може залишити вам менше коштів на момент закінчення терміну дії.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Прослизання коригує розраховану суму виплати, тоді як запитувана вами сума отримання залишається незмінною.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"

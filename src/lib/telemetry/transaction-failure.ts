@@ -691,14 +691,24 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
-/**
- * The gRPC status of the SDK's request failure inside a submit, `other` for a status the table does not list, or
- * undefined when the error carries no such failure.
- */
-export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[number] | undefined {
+export interface SubmitGrpcFailure {
+  endpoint: (typeof SUBMIT_ENDPOINTS)[number];
+  status: (typeof SUBMIT_GRPC_STATUSES)[number];
+}
+
+/** The endpoint and gRPC status for an SDK request failure inside a submit. */
+export function submitGrpcFailure(error: unknown): SubmitGrpcFailure | undefined {
   const refusal = submitRequestFailure(error);
   if (refusal === undefined) return undefined;
-  return grpcStatusOf(refusal.kind)?.[0] ?? 'other';
+  return {
+    endpoint: SUBMIT_ENDPOINT_BY_NAME.get(refusal.endpoint) ?? 'other',
+    status: grpcStatusOf(refusal.kind)?.[0] ?? 'other'
+  };
+}
+
+/** The gRPC status of an SDK request failure inside a submit, or undefined when absent. */
+export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[number] | undefined {
+  return submitGrpcFailure(error)?.status;
 }
 
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {

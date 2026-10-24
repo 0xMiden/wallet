@@ -2,6 +2,9 @@
 
 ## 1.17.7 (TBD)
 
+### Fixes
+
+- [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
 ### Changes
 
 - [CHANGE][ci] Android Auth Tab acceptance runs against a pinned Chromium 158 (SHA-256 checked) as the Auth Tab provider on the Android 36 Play image, refuses a provider older than 137, installs every APK through a retried adb install, runs the instrumentation through am instrument, and has Firefox 158 trust the run's fixture CA and open the wallet callback without a prompt (#1814).
@@ -9,6 +12,7 @@
 - [CHANGE][all] Earn withdrawal polish: the review shows You Receive at the deposit review's sizes, its card is outlined and lists where and when the payout arrives and that gas is sponsored, and the Withdrawal Started receipt is outlined with Nunito semibold labels (#1765).
 ### Fixes
 
+- [FIX][all] Encryption-key lookup timeouts before submission no longer show ambiguous submission-unanswered feedback.
 - [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
 - [FIX][all] Crash reports keep the trace id they share with the swap diagnostic records sent before them, so a failure can be read beside those records in Sentry; the privacy policy now states that the records are kept for 30 days (#1660).
 - [FIX][all] The Home panes are a native scroll-snap pager: a swipe on mobile is smooth and always lands on the pane in the direction you swiped, a trackpad swipe pages them in the extension and desktop, and a mouse drag no longer does (#1811).

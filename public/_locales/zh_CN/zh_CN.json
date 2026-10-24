@@ -1,4 +1,10 @@
 {
+  "swapBalanceUnavailable": "无法验证您的可用余额。请重试。",
+  "swapPendingSpend": "请等待待处理交易完成后再进行兑换。",
+  "swapApproxAmount": "≈ $amount$",
+  "swapExactPayAmount": "确切支付金额",
+  "swapReceiveTargetNote": "您收款目标的预计收益。完全成交可能带来更高收益；部分成交则可能导致到期时您的收益减少。",
+  "swapReceiveSlippageNote": "滑点会调整计算出的支付金额，而您请求的收款金额则保持不变。",
   "bridgeRouteEpoch": "Fast · Epoch",
   "bridgeRouteAgglayer": "Slow · Agglayer",
   "bridgeRouteUnavailableBody": "此转账不支持此路径。您可以选择其他可用路径继续操作。此界面尚未提交任何交易。",

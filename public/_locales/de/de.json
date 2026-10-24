@@ -1,4 +1,10 @@
 {
+  "swapBalanceUnavailable": "Ihr verfügbares Guthaben konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
+  "swapPendingSpend": "Warten Sie, bis Ihre ausstehende Transaktion abgeschlossen ist, bevor Sie den Swap durchführen.",
+  "swapApproxAmount": "≈ $amount$",
+  "swapExactPayAmount": "Genauer Zahlungsbetrag",
+  "swapReceiveTargetNote": "Geschätzte Auszahlung für Ihr Empfangsziel. Bei einer vollständigen Ausführung kann die Auszahlung höher ausfallen; bei teilweisen Ausführungen erhalten Sie bei Fälligkeit möglicherweise weniger.",
+  "swapReceiveSlippageNote": "Durch Slippage wird der berechnete Auszahlungsbetrag angepasst, während Ihr angeforderter Empfangsbetrag unverändert bleibt.",
   "bridgeRouteEpoch": "Fast · Epoch",
   "bridgeRouteAgglayer": "Slow · Agglayer",
   "bridgeRouteUnavailableBody": "Dieser Weg ist für diese Überweisung nicht verfügbar. Sie können mit einem anderen verfügbaren Weg fortfahren. Von diesem Bildschirm aus wurde keine Transaktion übermittelt.",

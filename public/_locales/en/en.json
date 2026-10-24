@@ -1,4 +1,10 @@
 {
+  "swapBalanceUnavailable": "Could not verify your spendable balance. Please try again.",
+  "swapPendingSpend": "Wait for your pending transaction to finish before swapping.",
+  "swapApproxAmount": "≈ $amount$",
+  "swapExactPayAmount": "Exact pay amount",
+  "swapReceiveTargetNote": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry.",
+  "swapReceiveSlippageNote": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed.",
   "bridgeRouteEpoch": "Fast · Epoch",
   "bridgeRouteAgglayer": "Slow · Agglayer",
   "bridgeRouteUnavailableBody": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen.",

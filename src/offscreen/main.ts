@@ -118,6 +118,7 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
 import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -895,22 +896,29 @@ const DISPATCH: Record<string, DispatchFn> = {
       faucetId: string;
       amount: string;
       delegateTransaction?: boolean;
-      extraInputs: { requestedFaucetId: string; requestedAmount: string };
-    }
+      extraInputs: { requestedFaucetId: string; requestedAmount: string; balanceScope?: string };
+      swapFeeContext: { scope: string; nativeAssetId: string; feeFaucetId: string | null; baseFee: string };
+    },
+    feeContext: SwapFeeContext
   ) => {
     const tx = decodeBeforeSubmit(
       () =>
         ({
-          ...dto,
+          accountId: dto.accountId,
+          faucetId: dto.faucetId,
           amount: BigInt(dto.amount),
+          delegateTransaction: dto.delegateTransaction,
           extraInputs: {
             requestedFaucetId: dto.extraInputs.requestedFaucetId,
-            requestedAmount: BigInt(dto.extraInputs.requestedAmount)
+            requestedAmount: BigInt(dto.extraInputs.requestedAmount),
+            balanceScope: dto.extraInputs.balanceScope
           }
         }) as unknown as SwapTransaction
     );
-    const result = await client.swapTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
+    const result = await client.swapTransaction(
+      tx,
+      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
+      feeContext
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
@@ -1470,8 +1478,24 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     }
     // NOTE: the client is deliberately NOT resolved here — it is resolved inside
     // the lock below, at execution start (issue #775).
-    recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
     const args = decodeBeforeSubmit(() => msg.argsB64.map(decodeArg));
+    let executionFeeContext: SwapFeeContext | undefined;
+    if (msg.method === 'swapTransaction') {
+      executionFeeContext = await stepBeforeSubmit(async () => {
+        const dto = args[0] as {
+          extraInputs?: { balanceScope?: string };
+          swapFeeContext: { scope: string; nativeAssetId: string; feeFaucetId: string | null; baseFee: string };
+        };
+        const queuedFeeContext = decodeBeforeSubmit(() => ({
+          ...dto.swapFeeContext,
+          baseFee: BigInt(dto.swapFeeContext.baseFee)
+        }));
+        const scope = dto.extraInputs?.balanceScope ?? queuedFeeContext.scope;
+        const currentFeeContext = await readSwapFeeContext(scope);
+        return assertSwapFeeContextMatches(queuedFeeContext, currentFeeContext, scope);
+      });
+    }
+    recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
     // W1: serialize actual WASM entry inside THIS doc's own mutex (design §5,
     // §8-risk-5). The offscreen realm has its own module-level `wasmClientMutex`
     // (imported here in the offscreen bundle — distinct from the SW's instance),
@@ -1538,7 +1562,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // parking awaits without opting in.
       const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
       try {
-        return await dispatch(context, client, ...args);
+        const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
+        return await dispatch(context, client, ...dispatchArgs);
       } finally {
         // Closes the window for late stage stamps: whatever the dispatch does
         // after this point, its stamps are about a step the SW has already been

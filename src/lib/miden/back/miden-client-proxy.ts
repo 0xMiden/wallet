@@ -47,6 +47,7 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -894,16 +895,16 @@ type OffscreenConsumeDto = {
   delegateTransaction?: boolean;
 };
 
-/** `swapTransaction` reads exactly these fields off the `SwapTransaction` row
- * (verified against `MidenClientInterface.swapTransaction`). Both the offered
- * `amount` and the requested `extraInputs.requestedAmount` are the row's BigInts
- * as decimal strings. */
+type OffscreenSwapFeeContextDto = Omit<SwapFeeContext, 'baseFee'> & { baseFee: string };
+
+/** The fee context is resolved before dispatch because each realm has separate native-asset caches. */
 type OffscreenSwapDto = {
   accountId: string;
   faucetId: string;
   amount: string;
   delegateTransaction?: boolean;
-  extraInputs: { requestedFaucetId: string; requestedAmount: string };
+  extraInputs: { requestedFaucetId: string; requestedAmount: string; balanceScope?: string };
+  swapFeeContext: OffscreenSwapFeeContextDto;
 };
 
 /**
@@ -1763,8 +1764,9 @@ export const midenClientProxy = {
    * Same flag-OFF inline (realm signer) + flag-ON whole-op contract as {@link sendTransaction}.
    * The DTO carries EXACTLY what `MidenClientInterface.swapTransaction` reads —
    * `accountId`, `faucetId`, the offered `amount` (BigInt → string),
-   * `delegateTransaction`, and `extraInputs.{requestedFaucetId, requestedAmount}`
-   * (BigInt → string). `completeSwapTransaction` consumes the round-tripped
+   * `delegateTransaction`, `extraInputs.{requestedFaucetId, requestedAmount}`
+   * (BigInt → string), the queued `balanceScope`, and the caller-resolved fee
+   * context. `completeSwapTransaction` consumes the round-tripped
    * `TransactionResult` identically (no further client call).
    */
   async swapTransaction(
@@ -1772,8 +1774,9 @@ export const midenClientProxy = {
     signCallback: RawSignCallback,
     onStage?: StageCallback
   ): Promise<TransactionResult> {
+    const feeContext = await readSwapFeeContext(transaction.extraInputs.balanceScope);
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage));
+      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage, feeContext));
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1782,8 +1785,10 @@ export const midenClientProxy = {
       delegateTransaction: transaction.delegateTransaction,
       extraInputs: {
         requestedFaucetId: transaction.extraInputs.requestedFaucetId,
-        requestedAmount: transaction.extraInputs.requestedAmount.toString()
-      }
+        requestedAmount: transaction.extraInputs.requestedAmount.toString(),
+        balanceScope: transaction.extraInputs.balanceScope
+      },
+      swapFeeContext: { ...feeContext, baseFee: feeContext.baseFee.toString() }
     };
     return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage);
   },
