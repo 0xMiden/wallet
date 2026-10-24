@@ -2,7 +2,7 @@ import { expect } from '@playwright/test';
 import { createPublicClient, http, type Hex } from 'viem';
 
 import { vaultBalanceByFaucetId, walletDiscoveredBaseFee, walletDiscoveredNativeFaucetId } from './balance-truth';
-import { landedVaultSample, UNLANDED_VAULT_SAMPLE } from './mainnet-bridge-plan';
+import { feePrecheckProblem, landedVaultSample, UNLANDED_VAULT_SAMPLE } from './mainnet-bridge-plan';
 import { mainnetChain, mainnetRpc, type MainnetUsdcxDocument } from './mainnet-bridge-sources';
 import { accountHex } from './usdcx-miden';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
@@ -70,7 +70,7 @@ export async function midenFeeProblem(
   // Same in-flight balance read as the round trip: one refresh can still see the pre-claim vault.
   // A non-land resolves the sentinel so this poll continues.
   const need = reserve(BigInt(baseFee));
-  let held = 0n;
+  let held: bigint | undefined;
   try {
     await expect
       .poll(
@@ -88,7 +88,9 @@ export async function midenFeeProblem(
     return undefined;
   } catch (error) {
     const text = error instanceof Error ? error.message : String(error);
-    if (held >= need || (!text.includes('Timeout') && !text.includes('toBeGreaterThanOrEqual'))) throw error;
+    if ((held !== undefined && held >= need) || (!text.includes('Timeout') && !text.includes('toBeGreaterThanOrEqual'))) {
+      throw error;
+    }
+    return feePrecheckProblem(address, need, held);
   }
-  return `${address} holds ${held} native base units, short of ${need} for two nights of bridge fees`;
 }
