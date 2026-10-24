@@ -42,8 +42,6 @@ export function guardianHistoryActionKey(type: ITransactionType, reclaimed = fal
 
 /** Render-time labels: recovery stores evidence, not a fabricated transaction narrative. */
 export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) => string): string {
-  if (entry.isUnconfirmed) return t('notConfirmed');
-  if (entry.isCancelled) return t('cancelled');
   if (entry.message === 'Transaction failed') {
     return t('transactionFailedNotificationTitle');
   }
