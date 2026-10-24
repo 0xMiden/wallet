@@ -2773,7 +2773,6 @@ final class BreadMorphPresentationTests: XCTestCase {
         defer { live.dispose() }
         let container = try XCTUnwrap(live.instance.morphContainer)
         XCTAssertTrue(collapse(live, "c1"))
-        try await Task.sleep(nanoseconds: 30_000_000)
         let animator = try XCTUnwrap(live.presentation.animator)
         live.presentation.handleGrab(.began, translation: .zero, velocity: .zero)
         let start = animator.progress()
