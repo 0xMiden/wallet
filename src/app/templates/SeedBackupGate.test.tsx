@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
@@ -23,6 +23,12 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: jest.fn()
 }));
+// The verified list prices the fixture faucet under ETH, as it does a priced mainnet token.
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -51,7 +57,7 @@ jest.mock('./VerifySeedPhraseFlow', () => ({
 }));
 
 const token = (balance: number) => ({
-  tokenId: TOKEN_IETH.faucetId,
+  tokenId: TEST_TOKEN_IETH.faucetId,
   tokenSlug: 'ETH',
   metadata: { symbol: 'ETH', name: 'Ether', decimals: 18 },
   balance,
@@ -68,7 +74,9 @@ beforeEach(() => {
     status: WalletStatus.Ready,
     seedPhraseStatus: 'stored',
     ownMnemonic: false,
-    accounts: [{ publicKey: 'a', name: 'Account', isPublic: false, type: WalletType.Guardian, hdIndex: 0 }],
+    accounts: [
+      { publicKey: 'a', name: 'Account', isPublic: false, type: WalletType.Guardian, hdIndex: 0, authScheme: 'falcon' }
+    ],
     balances: { a: [token(1)] },
     tokenPrices: { ETH: { price: 150, change24h: 0, percentageChange24h: 0 } }
   };
@@ -97,7 +105,14 @@ it.each([150, 150.01])('blocks actions at %s USD and saves the requirement', val
 });
 
 it('adds balances across accounts and does not count removed accounts', () => {
-  mockState.accounts.push({ publicKey: 'b', name: 'Second', isPublic: false, type: WalletType.Guardian, hdIndex: 1 });
+  mockState.accounts.push({
+    publicKey: 'b',
+    name: 'Second',
+    isPublic: false,
+    type: WalletType.Guardian,
+    hdIndex: 1,
+    authScheme: 'falcon'
+  });
   mockState.balances = { a: [token(0.5)], b: [token(0.5)], removed: [token(100)] };
   expect(reachesSeedBackupThreshold(mockState)).toBe(true);
   mockState.accounts.pop();

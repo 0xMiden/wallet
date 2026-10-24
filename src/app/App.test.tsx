@@ -302,7 +302,7 @@ describe('app/App', () => {
       mockIsExtension.mockReturnValue(surface === 'extension' || surface === 'confirmation');
       mockIsMobile.mockReturnValue(surface === 'mobile');
       mockIsDesktop.mockReturnValue(surface === 'desktop');
-      const view = renderApp({ windowType: 'FullPage', confirmWindow: surface === 'confirmation' });
+      const view = await renderApp({ windowType: WindowType.FullPage, confirmWindow: surface === 'confirmation' });
       expect(view.getByTestId('required-backup')).toBeInTheDocument();
       if (surface === 'desktop') await view.findByTestId('desktop-dapp-handler');
       for (const id of [
@@ -310,7 +310,10 @@ describe('app/App', () => {
         'confirm-page',
         'desktop-confirm-modal',
         'dapp-browser-provider',
-        'pin-extension-prompt'
+        'pin-extension-prompt',
+        'dialogs',
+        'open-link-prompt',
+        'bread-connect-prompt'
       ]) {
         expect(view.queryByTestId(id)).not.toBeInTheDocument();
       }
