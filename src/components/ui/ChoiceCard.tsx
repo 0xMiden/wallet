@@ -39,6 +39,8 @@ export interface ChoiceCardGroupProps<T extends string = string> {
   items: readonly ChoiceCardItem<T>[];
   /** Optional flow color for selection; omitted keeps the standard brand treatment. */
   accent?: FlowAccent;
+  /** `fill` (default): every card on `fill`. `outline`: unchosen cards on `page` with a hairline edge. */
+  surface?: 'fill' | 'outline';
   /** The chosen option, or `null` when none is (every option offline, a choice made elsewhere). */
   value: T | null;
   /** Called once per real change: never for a tap on the option that is already chosen. */
@@ -60,7 +62,7 @@ export interface ChoiceCardGroupProps<T extends string = string> {
 
 const card = cva(
   [
-    'group flex h-full w-full min-h-18 items-center gap-3 rounded-2xl bg-fill px-4 py-3 text-left',
+    'group flex h-full w-full min-h-18 items-center gap-3 rounded-2xl px-4 py-3 text-left',
     'select-none transition-[background-color,box-shadow] duration-150 ease-hover motion-reduce:transition-none',
     // The selection is the inset ring, so focus draws outside the card instead of fighting it.
     'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary/30',
@@ -69,12 +71,28 @@ const card = cva(
   {
     variants: {
       layout: { row: '', detail: 'flex-col items-stretch' },
+      // `outline`: an unchosen card is `page` inside a hairline edge, so only the chosen one is a filled block.
+      surface: { fill: 'bg-fill', outline: 'border' },
       selected: {
         true: 'ring-2 ring-inset ring-accent-primary',
-        false: 'hover:bg-fill-pressed active:bg-fill-pressed disabled:hover:bg-fill disabled:active:bg-fill'
+        false: ''
       }
     },
-    defaultVariants: { selected: false, layout: 'row' }
+    compoundVariants: [
+      {
+        surface: 'fill',
+        selected: false,
+        class: 'hover:bg-fill-pressed active:bg-fill-pressed disabled:hover:bg-fill disabled:active:bg-fill'
+      },
+      {
+        surface: 'outline',
+        selected: false,
+        class: 'border-hairline bg-page hover:bg-fill active:bg-fill disabled:hover:bg-page disabled:active:bg-page'
+      },
+      // The edge stays as a transparent border so choosing a card does not move its content by 1px.
+      { surface: 'outline', selected: true, class: 'border-transparent bg-fill' }
+    ],
+    defaultVariants: { selected: false, layout: 'row', surface: 'fill' }
   }
 );
 
@@ -90,11 +108,12 @@ interface OptionProps<T extends string> {
   item: ChoiceCardItem<T>;
   selected: boolean;
   accent?: FlowAccent;
+  surface: 'fill' | 'outline';
   focusable: boolean;
   onSelect: (id: T) => void;
 }
 
-function ChoiceCardOption<T extends string>({ item, selected, accent, focusable, onSelect }: OptionProps<T>) {
+function ChoiceCardOption<T extends string>({ item, selected, accent, surface, focusable, onSelect }: OptionProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(selected);
   const id = useId();
@@ -165,7 +184,7 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, focusable,
       onClick={() => onSelect(item.id)}
       {...(item.disabled ? {} : motionTokens.press)}
       className={cn(
-        card({ selected, layout: item.details ? 'detail' : 'row' }),
+        card({ selected, surface, layout: item.details ? 'detail' : 'row' }),
         selected && accent && FLOW_RING[accent]
       )}
     >
@@ -204,6 +223,7 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, focusable,
 export function ChoiceCardGroup<T extends string>({
   items,
   accent,
+  surface = 'fill',
   value,
   onChange,
   onReselect,
@@ -277,6 +297,7 @@ export function ChoiceCardGroup<T extends string>({
           key={item.id}
           item={item}
           accent={accent}
+          surface={surface}
           selected={index === selectedIndex}
           focusable={index === focusIndex}
           onSelect={select}

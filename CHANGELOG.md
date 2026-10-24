@@ -5,6 +5,7 @@
 ### Changes
 
 - [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
+- [CHANGE][all] Guardian polish: Guardian copy says "acknowledges" instead of "co-signs". The What is a Guardian? sheet fits without scrolling, with heavier type and new solid check, alert and cross badges. Choose your Guardian lists the current operator under "Current" and the rest under "Other Guardians available" on outline cards, with a Learn more pill and Nunito throughout; a tapped card keeps its selection ring. Review rotation opens with a short explainer, shows the two operators side by side on round logo tiles, says "Approve with" and states that the old Guardian cannot block the switch as a fact instead of a warning. Guardian settings and the transaction details tighten their spacing.
 
 ## 1.17.6 (2026-10-23)
 

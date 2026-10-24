@@ -196,6 +196,10 @@ const allOptions = () => [{ ...OZ }, { ...GATEWAY }, { ...LAMBDA }];
 const optionButtons = (container: HTMLElement): HTMLButtonElement[] =>
   Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="radio"][data-guardian-endpoint]'));
 
+// By endpoint, not position: with a current operator the picker lists it first, in its own section.
+const optionButton = (container: HTMLElement, endpoint: string): HTMLButtonElement =>
+  container.querySelector<HTMLButtonElement>(`button[role="radio"][data-guardian-endpoint="${endpoint}"]`)!;
+
 const isHighlighted = (btn: HTMLElement) => btn.getAttribute('aria-checked') === 'true';
 
 beforeEach(() => {
@@ -269,12 +273,14 @@ describe('ChooseGuardianScreen', () => {
     // Name, then one meta line (operator · location) inside each card: nothing floats below it.
     expect(screen.getByText('OpenZeppelin')).toBeInTheDocument();
     expect(screen.getByText('Gateway Operator')).toBeInTheDocument();
-    expect(screen.getByText('guardianCardMeta: Gateway · EU-NORTH')).toBeInTheDocument();
+    expect(screen.getByText('guardianCardMetaShort: Gateway · EU-NORTH')).toBeInTheDocument();
     const [ozCard] = optionButtons(container);
-    expect(ozCard).toContainElement(screen.getByText('guardianCardMeta: OpenZeppelin · US-EAST'));
+    expect(ozCard).toContainElement(screen.getByText('guardianCardMetaShort: OpenZeppelin · US-EAST'));
 
-    // The picker is the design system's radio cards on the pushed page layout.
-    expect(screen.getByRole('radiogroup', { name: 'chooseYourGuardian' })).toBeInTheDocument();
+    // The picker is the design system's radio cards on the pushed page layout: the operator the account
+    // is on in its own "Current" group, the rest under "Other Guardians available".
+    expect(screen.getByRole('radiogroup', { name: 'currentLabel' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'otherGuardiansAvailable' })).toBeInTheDocument();
     const footer = screen.getByTestId('continue-button').closest<HTMLElement>('[data-slot="footer"]');
     expect(footer).not.toBeNull();
     expect(screen.getByTestId('onboarding-choose-guardian')).toContainElement(footer);
@@ -308,12 +314,15 @@ describe('ChooseGuardianScreen', () => {
     expect(gatewayBtn).not.toHaveClass('ring-accent-primary');
   });
 
-  it('draws Learn more and Use a custom URL as text actions, never underlined', () => {
+  it('draws Learn more as the Guardian info pill and Use a custom URL as a text action, never underlined', () => {
     render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
-    [screen.getByText('learnMoreAboutGuardian'), screen.getByText('useCustomGuardianUrl')].forEach(action => {
-      expect(action).toHaveClass('text-accent-tint-ink');
-      expect(action.className).not.toMatch(/underline|text-primary-500/);
-    });
+    // The same pill Guardian settings opens its explainer from, sized to its label.
+    const learnMore = screen.getByRole('button', { name: 'learnMoreAboutGuardian' });
+    expect(learnMore).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(learnMore.className).not.toMatch(/underline|text-primary-500|(^|\s)w-full/);
+    const custom = screen.getByText('useCustomGuardianUrl');
+    expect(custom).toHaveClass('text-accent-tint-ink');
+    expect(custom.className).not.toMatch(/underline|text-primary-500/);
   });
 
   it('renders as a pushed page with the shared header when given onBack (Rotate Guardian)', () => {
@@ -439,7 +448,7 @@ describe('ChooseGuardianScreen', () => {
 
     expect(optionButtons(container)).toHaveLength(2);
     expect(screen.getByText('Mystery Operator')).toBeInTheDocument();
-    expect(screen.getByText('guardianCardMeta: Mystery Co · US-WEST')).toBeInTheDocument();
+    expect(screen.getByText('guardianCardMetaShort: Mystery Co · US-WEST')).toBeInTheDocument();
     expect(screen.getByTestId('guardian-avatar')).toBeInTheDocument();
   });
 
@@ -447,12 +456,14 @@ describe('ChooseGuardianScreen', () => {
 
   it('pre-selects and badges the current provider in the switch flow', () => {
     const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
-    const [ozBtn, gwBtn] = optionButtons(container);
+    const ozBtn = optionButton(container, OZ.endpoint);
+    const gwBtn = optionButton(container, GATEWAY.endpoint);
 
     // Current provider is pre-selected...
     expect(isHighlighted(gwBtn!)).toBe(true);
     expect(isHighlighted(ozBtn!)).toBe(false);
-    // ...and badged as "currentLabel".
+    // ...and listed under the "currentLabel" section, ahead of the others.
+    expect(gwBtn.closest('[role="radiogroup"]')).toHaveAttribute('aria-label', 'currentLabel');
     expect(screen.getByText('currentLabel')).toBeInTheDocument();
   });
 
@@ -460,7 +471,8 @@ describe('ChooseGuardianScreen', () => {
   // RotateGuardian compares the two sanitized for the same reason.
   it('recognizes the current provider when the stored endpoint has a trailing slash', () => {
     const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={`${GATEWAY.endpoint}/`} />);
-    const [ozBtn, gwBtn] = optionButtons(container);
+    const ozBtn = optionButton(container, OZ.endpoint);
+    const gwBtn = optionButton(container, GATEWAY.endpoint);
 
     expect(isHighlighted(gwBtn!)).toBe(true);
     expect(isHighlighted(ozBtn!)).toBe(false);
@@ -471,7 +483,8 @@ describe('ChooseGuardianScreen', () => {
     const { container } = render(
       <ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint.toUpperCase()} />
     );
-    const [ozBtn, gwBtn] = optionButtons(container);
+    const ozBtn = optionButton(container, OZ.endpoint);
+    const gwBtn = optionButton(container, GATEWAY.endpoint);
 
     expect(isHighlighted(gwBtn!)).toBe(true);
     expect(isHighlighted(ozBtn!)).toBe(false);
@@ -491,17 +504,17 @@ describe('ChooseGuardianScreen', () => {
   // store resolves; until the user picks, the highlight follows it.
   it('follows a currentEndpoint that changes from the network default to the account endpoint until the user picks', () => {
     const { container, rerender } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-    expect(isHighlighted(ozBtn!)).toBe(true);
+    expect(isHighlighted(optionButton(container, OZ.endpoint))).toBe(true);
 
+    // The sections regroup around the new current operator, so the buttons are looked up again.
     rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
-    expect(isHighlighted(gwBtn!)).toBe(true);
-    expect(isHighlighted(ozBtn!)).toBe(false);
+    expect(isHighlighted(optionButton(container, GATEWAY.endpoint))).toBe(true);
+    expect(isHighlighted(optionButton(container, OZ.endpoint))).toBe(false);
   });
 
   it('keeps the user selection when currentEndpoint changes after an explicit pick', () => {
     const { container, rerender } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
-    const [ozBtn] = optionButtons(container);
+    const ozBtn = optionButton(container, OZ.endpoint);
 
     // User explicitly picks OpenZeppelin.
     fireEvent.click(ozBtn!);
@@ -509,9 +522,8 @@ describe('ChooseGuardianScreen', () => {
 
     // A late-hydrating currentEndpoint change must NOT override the user's pick.
     rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={LAMBDA.endpoint} />);
-    const [ozAfter, , lambdaAfter] = optionButtons(container);
-    expect(isHighlighted(ozAfter!)).toBe(true);
-    expect(isHighlighted(lambdaAfter!)).toBe(false);
+    expect(isHighlighted(optionButton(container, OZ.endpoint))).toBe(true);
+    expect(isHighlighted(optionButton(container, LAMBDA.endpoint))).toBe(false);
   });
 
   // --- custom endpoint -----------------------------------------------------
@@ -864,9 +876,11 @@ describe('ChooseGuardianScreen — offline banner', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     render(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
 
+    // "Current" is the section the card sits in: its visible label and its radio group's name.
     const card = screen.getByTestId('guardian-offline-banner').closest('button');
-    expect(card).toHaveAccessibleDescription(/^currentLabel guardianOfflineLabel/);
+    expect(card).toHaveAccessibleDescription(/^guardianOfflineLabel/);
     expect(card).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
+    expect(card?.closest('[role="radiogroup"]')).toHaveAttribute('aria-label', 'currentLabel');
   });
 
   it('names each card by its operator, so a down one is not just "Offline"', () => {
@@ -880,8 +894,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
     });
     render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
 
-    const ozCard = screen.getByRole('radio', { name: OZ.name, description: /^currentLabel guardianOfflineLabel/ });
+    const ozCard = screen.getByRole('radio', { name: OZ.name, description: /^guardianOfflineLabel/ });
     expect(ozCard).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
+    expect(ozCard.closest('[role="radiogroup"]')).toHaveAttribute('aria-label', 'currentLabel');
     const gwCard = screen.getByRole('radio', { name: GATEWAY.name, description: /^guardianOfflineLabel/ });
     expect(gwCard).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
   });
@@ -967,14 +982,14 @@ describe('ChooseGuardianScreen — offline banner', () => {
   it('re-selects the current operator when it comes back online', () => {
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
     const { container, rerender } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
-    const [ozBtn] = optionButtons(container);
+    const ozBtn = optionButton(container, OZ.endpoint);
     optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
     expect(screen.getByTestId('continue-button')).toBeDisabled();
 
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'online' });
     rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(ozBtn).toHaveAttribute('aria-checked', 'true');
-    expect(ozBtn).toHaveAccessibleDescription(/^currentLabel/);
+    expect(ozBtn.closest('[role="radiogroup"]')).toHaveAttribute('aria-label', 'currentLabel');
     expect(screen.getByTestId('continue-button')).not.toBeDisabled();
   });
 
@@ -1007,9 +1022,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
     const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={`${GATEWAY.endpoint}/`} />);
 
     optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
-    expect(screen.getByTestId('guardian-offline-banner').closest('button')).toHaveAccessibleDescription(
-      /^currentLabel guardianOfflineLabel/
-    );
+    const offlineCard = screen.getByTestId('guardian-offline-banner').closest('button');
+    expect(offlineCard).toHaveAccessibleDescription(/^guardianOfflineLabel/);
+    expect(offlineCard?.closest('[role="radiogroup"]')).toHaveAttribute('aria-label', 'currentLabel');
     expect(screen.getByTestId('continue-button')).toBeDisabled();
   });
 
@@ -1020,7 +1035,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
     const { container, rerender } = render(
       <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
     );
-    const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
+    const ozBtn = optionButton(container, OZ.endpoint);
+    const gwBtn = optionButton(container, GATEWAY.endpoint);
+    const lcBtn = optionButton(container, LAMBDA.endpoint);
 
     fireEvent.click(gwBtn!);
     expect(gwBtn).toHaveAttribute('aria-checked', 'true');
@@ -1039,14 +1056,16 @@ describe('ChooseGuardianScreen — offline banner', () => {
     const { container } = render(
       <ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} onSubmit={onSubmit} />
     );
-    const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
+    const ozBtn = optionButton(container, OZ.endpoint);
+    const gwBtn = optionButton(container, GATEWAY.endpoint);
+    const lcBtn = optionButton(container, LAMBDA.endpoint);
 
     expect(gwBtn).toBeDisabled();
     [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
     // "Current" survives on the strip so the user still sees what they are leaving.
-    expect(screen.getByTestId('guardian-offline-banner').closest('button')).toHaveAccessibleDescription(
-      /^currentLabel guardianOfflineLabel/
-    );
+    const offlineCard = screen.getByTestId('guardian-offline-banner').closest('button');
+    expect(offlineCard).toHaveAccessibleDescription(/^guardianOfflineLabel/);
+    expect(offlineCard?.closest('[role="radiogroup"]')).toHaveAttribute('aria-label', 'currentLabel');
 
     expect(screen.getByTestId('continue-button')).toBeDisabled();
     fireEvent.click(screen.getByTestId('continue-button'));
