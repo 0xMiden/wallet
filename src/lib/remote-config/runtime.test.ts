@@ -1339,6 +1339,28 @@ describe('startup eligibility', () => {
     expect(mockLookup).toHaveBeenCalledTimes(1);
   });
 
+  it('retries startup eligibility when refresh replaces the document after a version mismatch', async () => {
+    seed(13);
+    serve(14);
+    mockLookup.mockResolvedValueOnce(null).mockImplementationOnce(async (network, version) => ({
+      network,
+      version,
+      allowed: { wallet: true, earn: true, swap: true }
+    }));
+
+    const result = await initFeatureEligibility();
+
+    expect(result).toEqual({
+      state: 'ready',
+      network: 'testnet',
+      version: 14,
+      allowed: { wallet: true, earn: true, swap: true }
+    });
+    expect(mockLookup).toHaveBeenNthCalledWith(1, 'testnet', 13);
+    expect(mockLookup).toHaveBeenNthCalledWith(2, 'testnet', 14);
+    expect(getBridgeConfigSnapshot().config?.version).toBe(14);
+  });
+
   it('never rechecks after time, foreground, document changes, storage clearing or recovery initialization', async () => {
     seed(13);
     serve(14);
