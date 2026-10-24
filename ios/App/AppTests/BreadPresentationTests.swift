@@ -2011,25 +2011,30 @@ final class BreadMorphAnimatorTests: XCTestCase {
         assertModelAtRest(container)
     }
 
-    func testSettleFiresOnceAndNotForASupersededRun() async throws {
+    func testSettleFiresOnceAndNotForASupersededRun() throws {
         let fixture = try morphContainerFixture()
         defer { fixture.dispose() }
         let container = fixture.container
         let animator = BreadMorphAnimator(container: container, reduceMotion: { false })
         var first = 0
         var second = 0
+        let firstStart = CACurrentMediaTime()
         animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: { first += 1 })
-        try await Task.sleep(nanoseconds: 100_000_000)
-        let started = CACurrentMediaTime()
-        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: { second += 1 })
-        let settling = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale")).duration
-        let settled = try await eventually { second > 0 }
-        let elapsed = CACurrentMediaTime() - started
-        XCTAssertTrue(settled)
-        XCTAssertGreaterThanOrEqual(elapsed, settling - 0.01)
-        XCTAssertLessThanOrEqual(elapsed, settling + 0.2)
-        try await Task.sleep(nanoseconds: 400_000_000)
+        let firstDuration = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale")).duration
+        animator.displayFrame(firstStart + firstDuration - 0.02)
         XCTAssertEqual(first, 0)
+        XCTAssertNotNil(animator.spring)
+        let secondStart = CACurrentMediaTime()
+        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: { second += 1 })
+        let secondDuration = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale")).duration
+        animator.displayFrame(secondStart + secondDuration - 0.02)
+        XCTAssertEqual(second, 0)
+        animator.displayFrame(CACurrentMediaTime() + secondDuration + 0.001)
+        XCTAssertEqual(first, 0)
+        XCTAssertEqual(second, 1)
+        animator.displayFrame(CACurrentMediaTime() + firstDuration + secondDuration + 1)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: max(firstDuration, secondDuration) + 0.1))
+        XCTAssertEqual(first, 0, "the superseded run does not settle on a later frame")
         XCTAssertEqual(second, 1)
     }
 
@@ -2431,12 +2436,16 @@ final class BreadMorphPresentationTests: XCTestCase {
         let (live, plugin) = try await parkedWithProxy()
         defer { live.dispose() }
         XCTAssertTrue(expand(live, "m1"))
-        try await Task.sleep(nanoseconds: 100_000_000)
+        let started = try await eventually { plugin.phases("m1") == ["started"] }
+        XCTAssertTrue(started)
+        let animator = try XCTUnwrap(live.presentation.animator)
+        XCTAssertEqual(live.presentation.state.motion, .expanding)
+        XCTAssertLessThan(animator.progress(), 1)
         XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "m2",
                                               policyRevision: nil, sequence: nil))
-        let settled = try await eventually { plugin.phases("m2").last == "settled" }
-        XCTAssertTrue(settled)
-        try await Task.sleep(nanoseconds: 300_000_000)
+        let duration = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.transform.scale")).duration
+        animator.displayFrame(CACurrentMediaTime() + duration + 0.001)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(plugin.phases("m1"), ["started"])
         XCTAssertEqual(plugin.phases("m2"), ["retargeted", "settled"])
         XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed")
@@ -2553,20 +2562,23 @@ final class BreadMorphPresentationTests: XCTestCase {
     }
 
     func testCollapseCrossfadesToTheProxyBelowThirtyFivePercent() async throws {
-        let (live, _) = try await revealedMorph()
+        let (live, plugin) = try await revealedMorph()
         defer { live.dispose() }
         XCTAssertTrue(collapse(live, "c1"))
-        let spring = try XCTUnwrap(live.presentation.animator?.spring)
-        let crossing = try XCTUnwrap(spring.time(reaching: 0.35))
-        XCTAssertEqual(live.presentation.proxy.alpha, 0)
-        while CACurrentMediaTime() < crossing - 0.01 {
-            XCTAssertEqual(live.presentation.proxy.alpha, 0, "the live page shows above p 0.35")
+        let animator = try XCTUnwrap(live.presentation.animator)
+        let proxy = live.presentation.proxy
+        XCTAssertEqual(proxy.alpha, 0)
+        var sawCrossfade = false
+        let deadline = CACurrentMediaTime() + 3
+        while !sawCrossfade, !plugin.phases("c1").contains("settled"), CACurrentMediaTime() < deadline {
+            let inFlight = live.presentation.state.motion == .collapsing
+            let progress = animator.progress()
+            if inFlight, progress > 0.35 { XCTAssertEqual(proxy.alpha, 0, "the live page shows above p 0.35") }
+            if inFlight, progress <= 0.35, proxy.alpha == 1, !proxy.isHidden { sawCrossfade = true }
             try await Task.sleep(nanoseconds: 5_000_000)
         }
-        let faded = try await eventually { live.presentation.proxy.alpha == 1 && !live.presentation.proxy.isHidden }
-        XCTAssertTrue(faded)
-        XCTAssertLessThanOrEqual(CACurrentMediaTime(), crossing + 0.1 + 0.3)
-        XCTAssertNotNil(live.presentation.proxy.image)
+        XCTAssertTrue(sawCrossfade, "proxy becomes opaque while the collapse is still in flight")
+        XCTAssertNotNil(proxy.image)
     }
 
     func testHiddenRequestMidFlightCancelsAndHidesAtOnce() async throws {
