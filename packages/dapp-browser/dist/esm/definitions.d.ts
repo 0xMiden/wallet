@@ -651,7 +651,7 @@ export interface MorphTargetOptions {
 export interface PrepareMorphOptions {
     /** How long the request lasts when no morph takes it over; native clamps it to 0-2000 ms. */
     durationMs: number;
-    /** A parked instance whose window is shown unseen until its morph starts, so the morph's first frame is not the unhide; it hides again if no morph follows. */
+    /** A parked instance whose window is shown unseen until its morph starts, so the morph's first frame is not the unhide; it hides again if no morph follows. iOS only for now: Android ignores id (#1840). */
     id?: string;
 }
 export interface PresentationMorphEvent {
