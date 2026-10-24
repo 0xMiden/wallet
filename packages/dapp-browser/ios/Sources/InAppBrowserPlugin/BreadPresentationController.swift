@@ -319,6 +319,7 @@ final class BreadPresentationController: NSObject {
         crossfade = nil
         proxyFade?.stopAnimation(true)
         proxyFade = nil
+        webView?.endEditing(true)
         webView?.isUserInteractionEnabled = false
         guard !proxyCovering else { return }
         proxy.alpha = 0
