@@ -217,6 +217,62 @@ it('takes the hidden close and show-all buttons out of the tab order and the acc
   }
 });
 
+it('takes the covered card out of the accessibility tree and ignores input until exitInstantly clears', async () => {
+  jest.mocked(hapticLight).mockClear();
+  jest.mocked(hapticMedium).mockClear();
+  mockPrepareMorph.mockClear();
+  const onNavigate = jest.fn();
+  const { rerender, onCommitRestore, onClose, onShowAll } = renderCard({
+    exitInstantly: true,
+    chromeVisible: false,
+    onNavigate
+  });
+  const card = screen.getByTestId('dapp-peek-card');
+  expect(card.parentElement).toHaveAttribute('inert');
+  expect(card.parentElement).toHaveAttribute('aria-hidden', 'true');
+
+  fireEvent.pointerDown(card);
+  fireEvent.pointerUp(card);
+  fireEvent.click(card);
+  release({ x: 0, y: -61 }, { x: 0, y: 0 });
+  release({ x: 0, y: 61 }, { x: 0, y: 0 });
+  release({ x: -61, y: 0 }, { x: 0, y: 0 });
+  release({ x: 61, y: 0 }, { x: 0, y: 0 });
+  fireEvent.click(screen.getByTestId('dapp-peek-card-close'));
+  fireEvent.click(screen.getByTestId('dapp-peek-show-all'));
+  await act(async () => new Promise(resolve => setTimeout(resolve, 150)));
+
+  expect(onCommitRestore).not.toHaveBeenCalled();
+  expect(onClose).not.toHaveBeenCalled();
+  expect(onShowAll).not.toHaveBeenCalled();
+  expect(onNavigate).not.toHaveBeenCalled();
+  expect(mockPrepareMorph).not.toHaveBeenCalled();
+  expect(hapticLight).not.toHaveBeenCalled();
+  expect(hapticMedium).not.toHaveBeenCalled();
+
+  rerender(
+    <DappPeekCard
+      session={SESSION}
+      stackIndex={0}
+      overflowCount={2}
+      isShrinking
+      chromeVisible={false}
+      onCommitRestore={onCommitRestore}
+      onClose={onClose}
+      onShowAll={onShowAll}
+      onNavigate={onNavigate}
+    />
+  );
+
+  expect(card.parentElement).not.toHaveAttribute('inert');
+  expect(card.parentElement).not.toHaveAttribute('aria-hidden');
+  expect(card).not.toHaveAttribute('inert');
+  fireEvent.pointerDown(card);
+  expect(mockPrepareMorph).toHaveBeenCalledWith(SESSION.id);
+  fireEvent.click(card);
+  expect(onCommitRestore).toHaveBeenCalledTimes(1);
+});
+
 it('leaves instantly when exitInstantly is set', () => {
   renderCard();
   expect(mockMotion.exit).toEqual(expect.objectContaining({ y: 40 }));
