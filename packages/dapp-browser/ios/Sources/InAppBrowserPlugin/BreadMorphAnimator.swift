@@ -249,7 +249,7 @@ final class BreadMorphAnimator {
     private static let log = OSLog(subsystem: "com.miden.bread", category: .pointsOfInterest)
     private weak var container: BreadMorphContainerViewController?
     let now: () -> CFTimeInterval
-    private let reduceMotion: () -> Bool
+    var reduceMotion: () -> Bool
     private(set) var target: Double?
     private(set) var spring: BreadMorphSpring?
     private(set) var card: BreadMorphCard?
