@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { DappSwitcher } from './DappSwitcher';
 
@@ -12,8 +12,10 @@ const mockSessionStates = [
   }
 ];
 
+const mockRestore = jest.fn();
+
 jest.mock('app/providers/DappBrowserProvider', () => ({
-  useDappBrowser: () => ({ sessionStates: mockSessionStates, restore: jest.fn(), close: jest.fn() })
+  useDappBrowser: () => ({ sessionStates: mockSessionStates, restore: mockRestore, close: jest.fn() })
 }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/dapp-browser/snapshot-store', () => ({ getSnapshot: () => undefined }));
@@ -56,6 +58,22 @@ describe('DappSwitcher', () => {
 
     // Exact value: bare `layout` stringifies to 'true', so a not-'position' check alone proves nothing.
     expect(screen.getByRole('listitem')).toHaveAttribute('data-layout', 'position');
+  });
+
+  // A restore while the switcher still blocks the host could never morph (#1817).
+  it('closes first and restores on the next frame', () => {
+    const frames: FrameRequestCallback[] = [];
+    const frame = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => frames.push(callback));
+    const onClose = jest.fn();
+    render(<DappSwitcher open onClose={onClose} />);
+
+    fireEvent.click(screen.getByTestId('dapp-switcher-card'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockRestore).not.toHaveBeenCalled();
+    frames.forEach(callback => callback(0));
+
+    expect(mockRestore).toHaveBeenCalledWith('session-1');
+    frame.mockRestore();
   });
 
   // `black` is ink, white in dark theme, so a control dimmed with it would glow white on the snapshot.

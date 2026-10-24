@@ -54,8 +54,9 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
   const handleCardTap = useCallback(
     (session: DappSession) => {
       hapticLight();
-      void restore(session.id);
+      // Closed first: a restore while the switcher still blocks the host cannot morph natively.
       onClose();
+      window.requestAnimationFrame(() => void restore(session.id));
     },
     [restore, onClose]
   );

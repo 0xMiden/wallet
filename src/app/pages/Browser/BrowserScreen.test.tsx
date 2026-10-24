@@ -11,6 +11,21 @@ import { BrowserScreen } from './BrowserScreen';
 let mockMode: 'active' | 'launcher' = 'active';
 let mockExtension = false;
 let mockPolicyPending = false;
+type Motion = {
+  id: string;
+  target: 'collapsed' | 'expanded';
+  morphId?: string;
+  started?: boolean;
+  acknowledging?: boolean;
+  tracking?: boolean;
+  progress?: number;
+  velocity?: number;
+  eventSeq?: number;
+};
+let mockMotion: Motion | null = null;
+const mockStopCompanions = jest.fn();
+const mockStartCompanions = jest.fn((..._args: unknown[]) => mockStopCompanions);
+let mockSession: { id: string } | null = { id: 's1' };
 const mockLauncherCommit = jest.fn();
 
 jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
@@ -22,7 +37,9 @@ jest.mock('app/providers/DappBrowserProvider', () => ({
       mode: mockMode,
       open: jest.fn(),
       policyPending: mockPolicyPending,
-      reportLauncherCommit: mockLauncherCommit
+      reportLauncherCommit: mockLauncherCommit,
+      motion: mockMotion,
+      session: mockSession
     };
   }
 }));
@@ -33,6 +50,7 @@ jest.mock('lib/dapp-browser', () => ({
   recordRecentDapp: jest.fn()
 }));
 jest.mock('lib/platform', () => ({ isDesktop: () => false, isExtension: () => mockExtension }));
+jest.mock('./morph-companions', () => ({ startMorphCompanions: (...args: unknown[]) => mockStartCompanions(...args) }));
 jest.mock('./DappActive', () => {
   const ReactActual = jest.requireActual<typeof React>('react');
   return { DappActive: () => ReactActual.createElement('div', { 'data-testid': 'dapp-active' }) };
@@ -69,6 +87,10 @@ const view = (onScreen: boolean) => (
 beforeEach(() => {
   mockMode = 'active';
   mockPolicyPending = false;
+  mockMotion = null;
+  mockSession = { id: 's1' };
+  mockStartCompanions.mockClear();
+  mockStopCompanions.mockClear();
   mockLauncherCommit.mockClear();
   mockExtension = false;
   (recordRecentDapp as jest.Mock).mockReset();
@@ -181,4 +203,95 @@ it('retains the launcher during policy discovery without reporting a close desti
   expect(screen.getByTestId('dapp-active')).toBe(active);
   expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
   expect(launcher).not.toBeVisible();
+});
+
+describe('while the foreground page morphs', () => {
+  const launcherBox = () => screen.getByTestId('dapp-launcher').parentElement!;
+
+  it('renders the launcher inert behind the page while a motion runs', () => {
+    mockMotion = { id: 's1', target: 'collapsed', started: true };
+    render(view(true));
+
+    expect(launcherBox()).toBeVisible();
+    expect(launcherBox()).toHaveClass('absolute', 'inset-0');
+    expect(launcherBox()).toHaveAttribute('aria-hidden', 'true');
+    expect(launcherBox().inert).toBe(true);
+    expect(screen.getByTestId('dapp-active')).toBeInTheDocument();
+  });
+
+  it('hides the launcher once an expand settles', () => {
+    mockMotion = { id: 's1', target: 'expanded' };
+    const { rerender } = render(view(true));
+    expect(launcherBox()).toBeVisible();
+
+    mockMotion = null;
+    rerender(view(true));
+
+    expect(launcherBox()).not.toBeVisible();
+  });
+
+  it('makes the launcher focusable again only after the collapse commits', () => {
+    mockMotion = { id: 's1', target: 'collapsed' };
+    const { rerender } = render(view(true));
+    expect(launcherBox().inert).toBe(true);
+
+    mockMode = 'launcher';
+    mockSession = null;
+    rerender(view(true));
+
+    expect(launcherBox().inert).toBe(false);
+    expect(launcherBox()).not.toHaveClass('absolute');
+    expect(screen.queryByTestId('dapp-active')).toBeNull();
+  });
+
+  it('keeps the launcher hidden behind a page that is not the one moving', () => {
+    mockMotion = { id: 'other', target: 'expanded' };
+    render(view(true));
+
+    expect(launcherBox()).not.toBeVisible();
+  });
+});
+
+describe('morph companions', () => {
+  const event = (extra: Partial<Motion>): Motion => ({
+    id: 's1',
+    target: 'collapsed',
+    morphId: 'm1',
+    started: true,
+    acknowledging: false,
+    tracking: false,
+    progress: 0.9,
+    velocity: -2,
+    eventSeq: 1,
+    ...extra
+  });
+
+  it('runs on every started and retargeted event and stops when the motion ends', () => {
+    mockMotion = event({ started: false, eventSeq: 0 });
+    const { rerender } = render(view(true));
+    expect(mockStartCompanions).not.toHaveBeenCalled();
+    expect(screen.getByTestId('dapp-launcher').parentElement).toHaveStyle({ opacity: '0' });
+
+    mockMotion = event({});
+    rerender(view(true));
+    expect(mockStartCompanions).toHaveBeenLastCalledWith(
+      { capsule: null, launcher: screen.getByTestId('dapp-launcher').parentElement },
+      mockMotion,
+      false
+    );
+    mockMotion = event({ target: 'expanded', eventSeq: 2 });
+    rerender(view(true));
+    expect(mockStartCompanions).toHaveBeenCalledTimes(2);
+
+    mockMotion = null;
+    rerender(view(true));
+    expect(mockStopCompanions).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the release while a finger holds the page', () => {
+    mockMotion = event({ tracking: true });
+    render(view(true));
+
+    expect(mockStartCompanions).not.toHaveBeenCalled();
+  });
 });

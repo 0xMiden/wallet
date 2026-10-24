@@ -57,6 +57,9 @@ import {
   DappWebViewInstance,
   type HostCloseRequest,
   InAppBrowser,
+  type MorphCard,
+  type MorphVelocity,
+  type PresentationMorphEvent,
   ToolBarType,
   dappWebViewManager
 } from '@miden/dapp-browser';
@@ -65,6 +68,7 @@ import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
 import { MidenDAppErrorType } from 'lib/adapter/types';
+import { MORPH_TIMING } from 'lib/animation/morph';
 import {
   INJECTION_SCRIPT,
   type DappSession,
@@ -87,9 +91,10 @@ import {
 // through the native plugin.
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
+import { type DappMotion, applyMorphEvent, classifyMorphEvent, isMorphCard } from 'lib/dapp-browser/morph-motion';
 import { PRESENTATION_SCRIPT } from 'lib/dapp-browser/presentation-script';
 import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
-import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
+import { type WebViewRect, rectsEqual } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
 import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
@@ -214,8 +219,15 @@ interface DappBrowserContextValue {
   close: (sessionId?: string) => Promise<void>;
   /** Park a session — snapshot, hide native window, show bubble. */
   park: (sessionId?: string) => Promise<void>;
-  /** Restore a parked session to the foreground. */
-  restore: (sessionId: string) => Promise<void>;
+  /**
+   * Restore a parked session to the foreground, from the card the gesture started on. Resolves true when the native
+   * morph carries the page to the slot, false when it is shown without one.
+   */
+  restore: (sessionId: string, gesture?: RestoreGesture) => Promise<boolean>;
+  /** The native morph in flight (#1817), null at rest. */
+  motion: DappMotion | null;
+  /** Publish the peek card a collapse lands on, null while no card is on screen. */
+  reportLandingCard: (card: MorphCard | null) => void;
   /**
    * PR-5: card switcher state. The switcher is a fullscreen modal that
    * lets the user browse and manage every open dApp at once. It's
@@ -236,6 +248,49 @@ interface DappBrowserContextValue {
 }
 
 type ParkGuard = (afterHide: boolean) => boolean;
+
+/** Where a restore gesture started: the peek card's rect and the release velocity, in host CSS px. */
+export interface RestoreGesture {
+  card: MorphCard;
+  velocity?: MorphVelocity;
+}
+
+/** The native morph the provider follows, with what it needs to commit or abandon it. */
+interface MorphFlight {
+  motion: DappMotion;
+  instance: DappWebViewInstance;
+  /** Settles the park() waiting on this motion: true once a collapse committed its park. */
+  finish: (parked: boolean) => void;
+  /** A collapse's snapshot, requested once native accepted the morph. */
+  snapshot: Promise<string | null> | null;
+  guard?: ParkGuard;
+}
+
+type MorphRequest = Parameters<DappWebViewInstance['morph']>[0];
+
+/** Returns a page native started collapsing to the slot; nothing follows it, the page is already foreground. */
+function springBack(instance: DappWebViewInstance): void {
+  void sendMorph(instance, { to: 'expanded', card: null, morphId: crypto.randomUUID() });
+}
+
+/** Whether native accepted a morph; a plugin without the method (an older build) never does. */
+async function sendMorph(instance: DappWebViewInstance, request: MorphRequest): Promise<boolean> {
+  try {
+    return (await instance.morph(request)).accepted === true;
+  } catch (error) {
+    console.warn('[DappBrowserProvider] morph failed:', error);
+    return false;
+  }
+}
+
+// Asked for only once native accepted the collapse, so the plugin can encode it from the proxy it took as the motion
+// started instead of rendering the page again.
+function requestParkSnapshot(id: string): Promise<string | null> {
+  return captureSnapshot(id, 0.5, 0.7).catch(error => {
+    console.warn('[DappBrowserProvider] snapshot capture failed:', error);
+    return null;
+  });
+}
 
 const DappBrowserContext = createContext<DappBrowserContextValue | null>(null);
 
@@ -326,10 +381,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // ref mirror for stable closure access inside plugin listeners.
   const [sessionStates, setSessionStates] = useState<DappSessionState[]>([]);
   const [foregroundId, setForegroundId] = useState<string | null>(null);
-  const [slotRect, setSlotRect] = useState<WebViewRect | null>(null);
+  const [slotRect, setSlotRectState] = useState<WebViewRect | null>(null);
+  // An equal rect keeps the previous object, so every effect keyed on it stays quiet.
+  const setSlotRect = useCallback((rect: WebViewRect | null) => {
+    setSlotRectState(previous => (rectsEqual(previous ?? undefined, rect ?? undefined) ? previous : rect));
+  }, []);
   // PR-5: card switcher visibility lives in the provider so it survives
   // tab navigation alongside the bubble host.
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // Read through the ref by listeners and effects of the commit that set it; `motion` is its rendered copy.
+  const [motion, setMotion] = useState<DappMotion | null>(null);
+  const flightRef = useRef<MorphFlight | null>(null);
+  const landingCardRef = useRef<MorphCard | null>(null);
+  const morphEventRef = useRef<(event: PresentationMorphEvent) => void>(() => undefined);
+  const adoptCollapseRef = useRef<
+    (id: string, instance: DappWebViewInstance, lifetime: string, morphId: string, guard: ParkGuard) => Promise<boolean>
+  >(async () => false);
+  const dropFlightRef = useRef<(id: string) => void>(() => undefined);
 
   // The confirmation modal is rendered here so it survives tab navigation.
   // PR-4 chunk 8: scope to the foreground session id so a parked dApp's
@@ -396,7 +464,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // `open`, the confirmation auto-restore effect) can invoke it without
   // a circular useCallback dependency. Populated after `restore` is
   // defined below.
-  const restoreRef = useRef<((sessionId: string) => Promise<void>) | null>(null);
+  const restoreRef = useRef<((sessionId: string) => Promise<boolean>) | null>(null);
   const parkRef = useRef<((sessionId: string, guard?: ParkGuard) => Promise<void>) | null>(null);
   const nativeMinimizations = useRef(new Set<string>());
 
@@ -452,6 +520,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     revision: number;
     rect: WebViewRect;
   } | null>(null);
+  const presentationLayoutRef = useRef(presentationLayout);
+  presentationLayoutRef.current = presentationLayout;
   const reportPresentationLayout = useCallback((id: string, lifetime: string, revision: number, rect: WebViewRect) => {
     if (managedTokens.current.get(id) !== lifetime || rect.width <= 0 || rect.height <= 0) return;
     setPresentationLayout(previous =>
@@ -478,6 +548,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       sessionLifetimes.current.delete(id);
       const token = managedTokens.current.get(id);
       if (token) dappWebViewManager.reserveClose(id, token);
+      dropFlightRef.current(id);
       removeSession(id);
       if (foregroundIdRef.current === id) {
         foregroundIdRef.current = null;
@@ -611,23 +682,44 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         const lifetime = event.managedHostCloseToken;
         const instance = state?.instance;
         const park = parkRef.current;
+        // With a morph id native has already started this collapse (#1817).
+        const morphId = typeof event.morphId === 'string' && event.morphId ? event.morphId : null;
+        const flight = flightRef.current;
+        if (
+          morphId &&
+          flight?.motion.id === event.id &&
+          flight.instance === instance &&
+          flight.motion.target === 'collapsed' &&
+          !flight.motion.acknowledging
+        ) {
+          // A second tap retargets native's own spring; the collapse already followed carries on under the new id.
+          updateFlight(flight, { ...flight.motion, morphId });
+          return;
+        }
+        // Not this provider's page, or one going away: there is nothing to adopt or spring back.
         if (
           !mounted ||
           !lifetime ||
           !instance ||
+          managedTokens.current.get(event.id) !== lifetime ||
+          managedClosings.current.has(lifetime)
+        )
+          return;
+        if (
           !park ||
           foregroundBlockedRef.current ||
           foregroundIdRef.current !== event.id ||
-          managedTokens.current.get(event.id) !== lifetime ||
-          managedClosings.current.has(lifetime) ||
           state.status !== 'active' ||
           !state.policyResolved ||
           state.policyRevision !== event.policyRevision ||
           nativeMinimizations.current.has(lifetime) ||
           !Number.isSafeInteger(event.visibilitySequence) ||
           event.visibilitySequence !== instance.currentVisibilitySequence
-        )
+        ) {
+          // A collapse the host does not own springs back, unless a host hold is hiding the page anyway.
+          if (morphId && foregroundIdRef.current === event.id && !foregroundBlockedRef.current) springBack(instance);
           return;
+        }
         const ownership = foregroundOwnershipRevision.current;
         const owns: ParkGuard = afterHide => {
           const current = getSessionStateById(event.id);
@@ -647,13 +739,17 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           );
         };
         nativeMinimizations.current.add(lifetime);
-        void park(event.id, owns)
+        void (morphId ? adoptCollapseRef.current(event.id, instance, lifetime, morphId, owns) : park(event.id, owns))
           .catch(error => {
             console.warn('[DappBrowserProvider] native minimize failed:', error);
           })
           .finally(() => nativeMinimizations.current.delete(lifetime));
       });
       listenerRemovers.push(() => minimizeL.remove());
+      const morphL = await InAppBrowser.addListener('presentationMorph', event => {
+        if (mounted) morphEventRef.current(event);
+      });
+      listenerRemovers.push(() => morphL.remove());
 
       const messageL = await InAppBrowser.addListener('messageFromWebview', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
@@ -1034,7 +1130,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     [t, updateSession]
   );
 
-  const parkInternal = useCallback(
+  const parkLegacy = useCallback(
     async (id: string, guard?: ParkGuard) => {
       const state = getSessionStateById(id);
       if (!state?.instance || (guard && !guard(false))) return;
@@ -1121,7 +1217,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // alongside the new session while the new one loads.
       const currentForeground = foregroundIdRef.current;
       if (currentForeground) {
-        void parkInternal(currentForeground);
+        void parkLegacy(currentForeground);
       }
 
       finalizations.current.delete(next.id);
@@ -1148,7 +1244,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       setForegroundId(next.id);
       setActiveDappSession(next.id);
     },
-    [getSessionStateById, parkInternal, setActiveDappSession]
+    [getSessionStateById, parkLegacy, setActiveDappSession]
   );
 
   const close = useCallback(
@@ -1180,12 +1276,395 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     [finalizeSession, getSessionStateById]
   );
 
+  // ─── Native morph (#1817) ───────────────────────────────────────────────
+  //
+  // The plugin moves the live page between the slot and its peek card on one native spring and reports it through
+  // `presentationMorph` events. One flight is followed at a time: a newer morph replaces it, and the events of the
+  // replaced morph id stop matching. A collapse commits its park only once native reports it settled, so a reversed
+  // or cancelled collapse leaves the session as it was.
+  const updateFlight = useCallback((flight: MorphFlight, next: DappMotion) => {
+    flight.motion = next;
+    if (flightRef.current === flight) setMotion(next);
+  }, []);
+
+  // The foreground an expand replaced stayed shown under it; once that motion ends it parks, unless the motion that
+  // replaced this one carries it on.
+  const parkOutgoing = useCallback(
+    (flight: MorphFlight, next?: MorphFlight) => {
+      const outgoing = flight.motion.outgoingId;
+      if (outgoing && outgoing !== next?.motion.id && outgoing !== next?.motion.outgoingId) void parkLegacy(outgoing);
+    },
+    [parkLegacy]
+  );
+
+  // Reversed, cancelled or replaced: the session stays as it was, so nothing is committed here.
+  const endFlight = useCallback(
+    (flight: MorphFlight, parked: boolean) => {
+      if (flightRef.current === flight) {
+        flightRef.current = null;
+        setMotion(null);
+      }
+      flight.finish(parked);
+      parkOutgoing(flight);
+    },
+    [parkOutgoing]
+  );
+
+  const supersede = useCallback(
+    (previous: MorphFlight, next: MorphFlight) => {
+      // Native retargeted the replaced spring, so that motion ends without parking.
+      previous.finish(false);
+      parkOutgoing(previous, next);
+    },
+    [parkOutgoing]
+  );
+
+  // A close, or a reopen under the same id, leaves a flight without its page.
+  const flightLive = useCallback(
+    (flight: MorphFlight) =>
+      !finalizations.current.has(flight.motion.id) &&
+      getSessionStateById(flight.motion.id)?.instance === flight.instance,
+    [getSessionStateById]
+  );
+
+  // Native leaves a morph it rejects untouched, so whatever was flying still is; a settled collapse is dropped instead,
+  // since its acknowledgement may have passed while the rejected morph was followed.
+  const restoreFlight = useCallback(
+    (rejected: MorphFlight, previous: MorphFlight | null) => {
+      if (flightRef.current !== rejected) return;
+      flightRef.current = previous && flightLive(previous) && !previous.motion.acknowledging ? previous : null;
+      setMotion(flightRef.current?.motion ?? null);
+    },
+    [flightLive]
+  );
+
+  // The settled page holds the card pose until its card has painted under it (two frames, at most the timeout); the
+  // hide the visibility effect then sends is the acknowledgement that hands the pixels over.
+  const acknowledgeCollapse = useCallback((flight: MorphFlight) => {
+    let frame = 0;
+    let timer: number | undefined;
+    const hide = () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      if (flightRef.current !== flight) return;
+      flightRef.current = null;
+      setMotion(null);
+    };
+    frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(hide);
+    });
+    timer = window.setTimeout(hide, MORPH_TIMING.ackTimeoutMs);
+  }, []);
+
+  const commitCollapse = useCallback(
+    (flight: MorphFlight) => {
+      const { id } = flight.motion;
+      const state = getSessionStateById(id);
+      // A native minimize whose ownership lapsed in flight is not the host's to commit.
+      if (!state || !flightLive(flight) || (flight.guard && !flight.guard(true))) {
+        endFlight(flight, false);
+        if (state && flightLive(flight) && foregroundIdRef.current === id && !foregroundBlockedRef.current)
+          springBack(flight.instance);
+        return;
+      }
+      if (slotRectShownForRef.current === id) slotRectShownForRef.current = null;
+      updateSession(id, s => ({ ...s, status: 'parked' }));
+      if (foregroundIdRef.current === id) {
+        foregroundIdRef.current = null;
+        setForegroundId(null);
+      }
+      void upsertPersistedSession({ ...toPersisted(state.session), origin: state.origin });
+      parkOutgoing(flight);
+      // The snapshot may still be encoding; it is persisted when it lands, unless the session went away meanwhile.
+      void (flight.snapshot ?? requestParkSnapshot(id)).then(dataUrl => {
+        if (dataUrl && flightLive(flight)) void writeSnapshotToDisk(id, dataUrl);
+      });
+      // Still followed: the page stays shown at the card pose until the acknowledgement hides it.
+      updateFlight(flight, { ...flight.motion, acknowledging: true });
+      flight.finish(true);
+      acknowledgeCollapse(flight);
+    },
+    [acknowledgeCollapse, endFlight, flightLive, getSessionStateById, parkOutgoing, updateFlight, updateSession]
+  );
+
+  const handleMorphEvent = useCallback(
+    (event: PresentationMorphEvent) => {
+      const flight = flightRef.current;
+      // A settled collapse waiting for its acknowledgement has had its terminal event.
+      if (!flight || flight.motion.acknowledging) return;
+      const action = classifyMorphEvent(flight.motion, event);
+      if (action.kind === 'ignore') return;
+      updateFlight(flight, applyMorphEvent(flight.motion, event));
+      // A retarget only changes where the page is headed; `settled` says where it ended.
+      if (action.kind === 'settle' && action.target === 'collapsed') commitCollapse(flight);
+      else if (action.kind === 'settle' || action.kind === 'cancel') endFlight(flight, false);
+    },
+    [commitCollapse, endFlight, updateFlight]
+  );
+
+  /**
+   * Starts the native collapse of the foreground `id` toward the published landing card. Resolves 'unaccepted' when
+   * native will not carry it (the caller parks the legacy way), else once the motion ends: true if it parked.
+   */
+  const parkByMorph = useCallback(
+    async (id: string): Promise<boolean | 'unaccepted'> => {
+      const state = getSessionStateById(id);
+      const instance = state?.instance;
+      const lifetime = managedTokens.current.get(id);
+      // Only a shown foreground can move: a host hold has already hidden it, and a closing window is going away.
+      if (
+        !instance ||
+        !lifetime ||
+        state.status !== 'active' ||
+        foregroundIdRef.current !== id ||
+        foregroundBlockedRef.current ||
+        managedClosings.current.has(lifetime)
+      )
+        return 'unaccepted';
+      const previous = flightRef.current;
+      let resolveParked: (parked: boolean) => void = () => undefined;
+      const parked = new Promise<boolean>(resolve => {
+        resolveParked = resolve;
+      });
+      const flight: MorphFlight = {
+        motion: {
+          id,
+          lifetime,
+          morphId: crypto.randomUUID(),
+          target: 'collapsed',
+          outgoingId: null,
+          started: false,
+          acknowledging: false,
+          progress: 1,
+          velocity: 0,
+          tracking: false,
+          eventSeq: 0
+        },
+        instance,
+        finish: value => resolveParked(value),
+        snapshot: null
+      };
+      // Followed before the command resolves, so an event that overtakes the answer still matches.
+      flightRef.current = flight;
+      setMotion(flight.motion);
+      const accepted = await sendMorph(instance, {
+        to: 'collapsed',
+        card: landingCardRef.current,
+        morphId: flight.motion.morphId
+      });
+      if (!accepted) {
+        restoreFlight(flight, previous);
+        return 'unaccepted';
+      }
+      if (previous && previous !== flight) supersede(previous, flight);
+      // A collapse that already ended (cancelled before the answer arrived) needs no snapshot.
+      if (flightRef.current === flight) flight.snapshot = requestParkSnapshot(id);
+      return parked;
+    },
+    [getSessionStateById, restoreFlight, supersede]
+  );
+
+  // Follows a collapse native started from its own button, guarded like the native minimize it answers.
+  const adoptNativeCollapse = useCallback(
+    (id: string, instance: DappWebViewInstance, lifetime: string, morphId: string, guard: ParkGuard) => {
+      const previous = flightRef.current;
+      return new Promise<boolean>(resolve => {
+        const flight: MorphFlight = {
+          motion: {
+            id,
+            lifetime,
+            morphId,
+            target: 'collapsed',
+            outgoingId: null,
+            started: false,
+            acknowledging: false,
+            progress: 1,
+            velocity: 0,
+            tracking: false,
+            eventSeq: 0
+          },
+          instance,
+          finish: resolve,
+          // Native took its proxy as the collapse started, so the snapshot can be asked for at once.
+          snapshot: requestParkSnapshot(id),
+          guard
+        };
+        flightRef.current = flight;
+        setMotion(flight.motion);
+        // Native's own collapse replaced whatever motion this page had.
+        if (previous && previous !== flight) supersede(previous, flight);
+      });
+    },
+    [supersede]
+  );
+
+  // A closing session stops its motion natively and emits nothing more, so its flight is dropped here.
+  const dropFlight = useCallback(
+    (id: string) => {
+      const flight = flightRef.current;
+      if (flight?.motion.id === id) endFlight(flight, false);
+      // An outgoing foreground that closes leaves nothing to park when the expand ends.
+      else if (flight?.motion.outgoingId === id) updateFlight(flight, { ...flight.motion, outgoingId: null });
+    },
+    [endFlight, updateFlight]
+  );
+
+  // A motion whose terminal event never arrives (a lost bridge message) is resolved the way native would have
+  // ended it: a collapse parks the legacy way, an expand is left at rest.
+  const expireFlight = useCallback(
+    (flight: MorphFlight) => {
+      if (flightRef.current !== flight) return;
+      if (flight.motion.target === 'expanded') {
+        endFlight(flight, false);
+        return;
+      }
+      flightRef.current = null;
+      setMotion(null);
+      parkOutgoing(flight);
+      const { id } = flight.motion;
+      const { guard } = flight;
+      // The morph spent the visibility sequence the guard was taken at, so it is checked as after a hide.
+      void parkLegacy(id, guard && (() => guard(true))).then(committed => {
+        if (committed && foregroundIdRef.current === id) setForegroundId(null);
+        flight.finish(committed === true);
+      });
+    },
+    [endFlight, parkLegacy, parkOutgoing]
+  );
+
+  // Re-armed by every accepted event, since each one is a new `motion`; a held page or a settled collapse has none.
+  useEffect(() => {
+    const flight = flightRef.current;
+    if (!motion || flight?.motion !== motion || motion.tracking || motion.acknowledging) return;
+    const timer = window.setTimeout(() => expireFlight(flight), MORPH_TIMING.eventTimeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [motion, expireFlight]);
+
+  // Sent with an expand only once the host acknowledged the session's current policy, as the position effect does.
+  const acknowledgedRevision = useCallback(
+    (id: string): number | undefined => {
+      const state = getSessionStateById(id);
+      const layout = presentationLayoutRef.current;
+      return state?.policyResolved &&
+        layout?.id === id &&
+        layout.lifetime === state.policyLifetime &&
+        layout.revision === state.policyRevision
+        ? state.policyRevision
+        : undefined;
+    },
+    [getSessionStateById]
+  );
+
+  // A parked page, or one collapsing toward its card, expands natively. A cold one has no page yet, a pending approval
+  // keeps its page hidden behind the modal, and a host hold would cancel the motion on its first frame.
+  const canExpandByMorph = useCallback((id: string, state: DappSessionState): boolean => {
+    const token = managedTokens.current.get(id);
+    const flight = flightRef.current;
+    const collapsing = flight?.motion.id === id && flight.motion.target === 'collapsed' && !flight.motion.acknowledging;
+    return (
+      !!state.instance &&
+      !state.isCold &&
+      !!token &&
+      !managedClosings.current.has(token) &&
+      !foregroundBlockedRef.current &&
+      !dappConfirmationStore.getPendingRequest(id) &&
+      (state.status === 'parked' || collapsing)
+    );
+  }, []);
+
+  /**
+   * Commits `id` as the foreground at once and expands its page natively from the gesture's card. A foreground it
+   * replaces stays shown under it until the motion ends. Resolves whether native accepted the expand.
+   */
+  const restoreByMorph = useCallback(
+    async (id: string, instance: DappWebViewInstance, gesture?: RestoreGesture): Promise<boolean> => {
+      const lifetime = managedTokens.current.get(id);
+      if (!lifetime) return false;
+      const current = foregroundIdRef.current;
+      const outgoingId = current && current !== id ? current : null;
+      // Committed before native answers, so DappActive mounts while the page is still small and its capsule can
+      // return alongside it.
+      updateSession(id, s => ({ ...s, status: 'active' }));
+      // Eager, so an event or a minimize handled before the next render already sees the new foreground.
+      foregroundIdRef.current = id;
+      setForegroundId(id);
+      setActiveDappSession(id);
+      const previous = flightRef.current;
+      const flight: MorphFlight = {
+        motion: {
+          id,
+          lifetime,
+          morphId: crypto.randomUUID(),
+          target: 'expanded',
+          outgoingId,
+          started: false,
+          acknowledging: false,
+          progress: 0,
+          velocity: 0,
+          tracking: false,
+          eventSeq: 0
+        },
+        instance,
+        finish: () => undefined,
+        snapshot: null
+      };
+      flightRef.current = flight;
+      setMotion(flight.motion);
+      // From another tab the capsule and slot exist only once DappActive mounts on /browser.
+      if (typeof window !== 'undefined' && !window.location.hash.startsWith('#/browser')) navigate('/browser');
+      const policyRevision = acknowledgedRevision(id);
+      const accepted = await sendMorph(instance, {
+        to: 'expanded',
+        card: gesture?.card ?? null,
+        morphId: flight.motion.morphId,
+        ...(gesture?.velocity ? { velocity: gesture.velocity } : {}),
+        ...(policyRevision === undefined ? {} : { policyRevision })
+      });
+      if (!accepted) {
+        // The position effect shows the page the way it always has; the replaced foreground parks now, so a collapse
+        // of it that was flying is not resumed.
+        restoreFlight(flight, previous?.motion.id === outgoingId ? null : previous);
+        if (outgoingId) void parkLegacy(outgoingId);
+        return false;
+      }
+      // Accepted: native retargeted whatever motion this page or the replaced one had.
+      if (previous && previous !== flight) supersede(previous, flight);
+      return true;
+    },
+    [acknowledgedRevision, parkLegacy, restoreFlight, setActiveDappSession, supersede, updateSession]
+  );
+
+  // Deduped by value: the tray republishes on every layout change and resize, and each one is a bridge call.
+  const reportLandingCard = useCallback((card: MorphCard | null) => {
+    // A card with no size is published as none: native would collapse with the fade-scale for it anyway.
+    const next = isMorphCard(card) ? card : null;
+    const previous = landingCardRef.current;
+    if (
+      previous === next ||
+      (previous &&
+        next &&
+        previous.x === next.x &&
+        previous.y === next.y &&
+        previous.width === next.width &&
+        previous.height === next.height &&
+        previous.cornerRadius === next.cornerRadius)
+    )
+      return;
+    landingCardRef.current = next;
+    void dappWebViewManager
+      .setMorphTarget(next)
+      .catch(error => console.warn('[DappBrowserProvider] setMorphTarget failed:', error));
+  }, []);
+
   const park = useCallback(
     async (sessionId?: string, guard?: ParkGuard) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
       if (!guard && foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
-      const committed = await parkInternal(id, guard);
+      // A collapse native carries commits the park itself, once it settles. A guarded park answers a native minimize
+      // that started no collapse, and keeps its sequence check: a morph attempt would spend the sequence.
+      if (!guard && (await parkByMorph(id)) !== 'unaccepted') return;
+      const committed = await parkLegacy(id, guard);
       if (!committed || (guard && !guard(true))) return;
       // If parking the foreground, clear the foregroundId so the launcher
       // shows again (with the bubble overlay).
@@ -1193,22 +1672,25 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         setForegroundId(null);
       }
     },
-    [parkInternal]
+    [parkByMorph, parkLegacy]
   );
 
   const restore = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, gesture?: RestoreGesture): Promise<boolean> => {
       const state = getSessionStateById(sessionId);
       const lifetime = sessionLifetimes.current.get(sessionId);
-      if (!state || !lifetime) return;
+      if (!state || !lifetime) return false;
       foregroundOwnershipRevision.current++;
+      // A warm page expands natively; every other restore takes the path below.
+      if (state.instance && canExpandByMorph(sessionId, state))
+        return restoreByMorph(sessionId, state.instance, gesture);
       // Park the current foreground (if any and different from the restore
       // target) so its bubble appears while the restored session takes the
       // active slot.
       const currentForeground = foregroundIdRef.current;
       let parkedForeground = false;
       if (currentForeground && currentForeground !== sessionId) {
-        parkedForeground = (await parkInternal(currentForeground)) === true;
+        parkedForeground = (await parkLegacy(currentForeground)) === true;
       }
       const target = getSessionStateById(sessionId);
       if (!target || finalizations.current.has(sessionId) || sessionLifetimes.current.get(sessionId) !== lifetime) {
@@ -1217,7 +1699,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           setForegroundId(null);
           setActiveDappSession(null);
         }
-        return;
+        return false;
       }
       // PR-6 cold-bubble lifecycle: if this session has no live native
       // instance yet (rehydrated from persistence at app launch), mark
@@ -1249,8 +1731,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (typeof window !== 'undefined' && !window.location.hash.startsWith('#/browser')) {
         navigate('/browser');
       }
+      return false;
     },
-    [getSessionStateById, parkInternal, setActiveDappSession, updateSession]
+    [canExpandByMorph, getSessionStateById, parkLegacy, restoreByMorph, setActiveDappSession, updateSession]
   );
 
   // Populate the forward ref so earlier-declared callbacks (`open`, the
@@ -1259,32 +1742,18 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     restoreRef.current = restore;
     parkRef.current = park;
-  }, [park, restore]);
+    morphEventRef.current = handleMorphEvent;
+    adoptCollapseRef.current = adoptNativeCollapse;
+    dropFlightRef.current = dropFlight;
+  }, [adoptNativeCollapse, dropFlight, handleMorphEvent, park, restore]);
 
   // ─── Effects that drive the native side ─────────────────────────────────
 
-  // Opening needs a reported slot; warm foreground changes refresh the injection without reloading.
+  // Opening needs a reported slot.
   useEffect(() => {
     if (!foregroundId || !slotRect) return;
     const state = getSessionStateById(foregroundId);
-    if (!state) return;
-
-    if (state.status === 'loading' && !state.instance) {
-      void openInternal(state.session, slotRect);
-      return;
-    }
-    if (state.instance) {
-      // Re-run the injection script on restore so any CSS the wallet
-      // wants to layer onto the dApp (currently the navbar bottom
-      // padding) reaches sessions that were parked before the most
-      // recent app update. browserPageLoaded only fires on actual
-      // page loads, not when setVisible(true) un-parks an instance,
-      // so without this the CSS would never refresh on a hot-restored
-      // session.
-      void state.instance
-        .executeScript(INJECTION_SCRIPT)
-        .catch(e => console.warn('[DappBrowserProvider] executeScript failed:', e));
-    }
+    if (state?.status === 'loading' && !state.instance) void openInternal(state.session, slotRect);
     // openInternal is stable-ish; intentionally not in deps to avoid
     // re-running on every state change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1317,10 +1786,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     if (!foregroundId || slotRect) return;
     if (slotRectShownForRef.current !== foregroundId) return;
-    void parkInternal(foregroundId);
-    setForegroundId(null);
     slotRectShownForRef.current = null;
-  }, [foregroundId, slotRect, parkInternal]);
+    const id = foregroundId;
+    // The page collapses into its card over whichever tab is now showing; without the native morph it hides at once.
+    void parkByMorph(id).then(outcome => {
+      if (outcome !== 'unaccepted') return;
+      void parkLegacy(id);
+      if (foregroundIdRef.current === id) setForegroundId(null);
+    });
+  }, [foregroundId, slotRect, parkByMorph, parkLegacy]);
 
   // Mirror the foreground session id into the legacy Zustand field for
   // backwards compat with callers (e.g. native-notifications) that check
@@ -1435,6 +1909,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       closeSwitcher,
       setSlotRect,
       slotRect,
+      motion,
+      reportLandingCard,
       holdHostOverlay,
       reportLauncherCommit,
       policyPending,
@@ -1454,7 +1930,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       switcherOpen,
       openSwitcher,
       closeSwitcher,
+      setSlotRect,
       slotRect,
+      motion,
+      reportLandingCard,
       holdHostOverlay,
       reportLauncherCommit,
       policyPending,
@@ -1499,19 +1978,47 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const foregroundPolicyResolved = foregroundVisibilityTarget?.policyResolved;
   const foregroundPolicyLifetime = foregroundVisibilityTarget?.policyLifetime;
   const foregroundOwnership = foregroundOwnershipRevision.current;
+  const hasSlot = slotRect !== null;
+  const motionId = motion?.id;
+  const motionOutgoingId = motion?.outgoingId;
+  const motionAcknowledging = motion?.acknowledging;
+
+  // Re-run the injection script once per warm foreground change, so wallet CSS (the navbar bottom padding) reaches
+  // a session parked before the latest app update: setVisible(true) fires no browserPageLoaded. A loading page is
+  // injected by browserPageLoaded itself.
+  useEffect(() => {
+    if (!foregroundId || !foregroundInstance || getSessionStateById(foregroundId)?.isLoading !== false) return;
+    void foregroundInstance
+      .executeScript(INJECTION_SCRIPT)
+      .catch(e => console.warn('[DappBrowserProvider] executeScript failed:', e));
+  }, [foregroundId, foregroundInstance, getSessionStateById]);
 
   // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
+  // A moving page stays shown until its motion ends, unless the host takes visibility: then the hide cancels it. The
+  // flight is read from the ref, which an effect earlier in this commit may have just set; clearing it re-runs this
+  // effect, and that hide is what acknowledges a settled collapse.
   useEffect(() => {
     if (!isMobile()) return;
+    const flight = foregroundBlocked ? null : flightRef.current;
     const reveal = !foregroundBlocked && !!slotRectRef.current && foregroundActive;
     for (const target of stableVisibilityTargets) {
+      if (flight && (target.id === flight.motion.id || target.id === flight.motion.outgoingId)) continue;
       if (target.instance && (target.id !== foregroundId || !reveal)) {
         void target.instance
           .setVisible(false)
           .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
       }
     }
-  }, [foregroundId, foregroundBlocked, foregroundActive, stableVisibilityTargets, slotRect]);
+  }, [
+    foregroundId,
+    foregroundBlocked,
+    foregroundActive,
+    stableVisibilityTargets,
+    hasSlot,
+    motionId,
+    motionOutgoingId,
+    motionAcknowledging
+  ]);
 
   // Only foreground identity, eligibility or geometry can restart positioning and the native paint fence.
   useEffect(() => {
@@ -1520,6 +2027,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     const instance = foregroundInstance;
     const id = foregroundId;
     if (!instance || !id || !rect) return;
+    // Nothing crosses the bridge for a page in flight; this runs again once its motion ends.
+    if (flightRef.current?.motion.id === id && !flightRef.current.motion.acknowledging) return;
     const reveal = !foregroundBlocked && foregroundActive;
     let cancelled = false;
     const position = async () => {
@@ -1576,6 +2085,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     slotRect?.y,
     slotRect?.width,
     slotRect?.height,
+    motionId,
     getSessionStateById
   ]);
 
@@ -1613,6 +2123,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       mode: foregroundId ? 'active' : 'launcher',
       switcherOpen,
       slotRect,
+      // The native morph in flight, so a step can wait for the page to come to rest.
+      motion: motion && {
+        id: motion.id,
+        target: motion.target,
+        started: motion.started,
+        acknowledging: motion.acknowledging,
+        progress: motion.progress,
+        tracking: motion.tracking
+      },
       sessions: sessionStates.map(s => ({
         id: s.session.id,
         url: s.session.url,
@@ -1623,7 +2142,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         error: s.error
       }))
     };
-  }, [foregroundId, switcherOpen, slotRect, sessionStates]);
+  }, [foregroundId, switcherOpen, slotRect, sessionStates, motion]);
 
   return (
     <DappBrowserContext.Provider value={contextValue}>
