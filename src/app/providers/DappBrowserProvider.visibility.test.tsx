@@ -1859,6 +1859,53 @@ describe('native morph adoption', () => {
     expect(parked()).toEqual(['origin']);
   });
 
+  it('keeps a JS collapse on its morph id when a native minimize crossed it', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    const staleSequence = control().sessionStates[0]?.instance?.currentVisibilitySequence;
+    let parking: Promise<void> = Promise.resolve();
+    act(() => {
+      parking = control().park('origin');
+    });
+    await settle();
+    const jsId = lastMorphId();
+
+    act(() =>
+      nativeListeners.get('presentationMinimizeRequested')?.({
+        ...minimizeEvent({ morphId: 'native-stale' }),
+        visibilitySequence: staleSequence
+      })
+    );
+    expect(control().motion?.morphId).toBe(jsId);
+    act(() =>
+      nativeListeners.get('presentationMinimizeRequested')?.({
+        ...minimizeEvent({ morphId: 'native-foreign' }),
+        managedHostCloseToken: 'another-lifetime'
+      })
+    );
+    expect(control().motion?.morphId).toBe(jsId);
+    expect(morphRequests()).toHaveLength(1);
+
+    emitMorph('settled', 'collapsed', jsId);
+    await act(async () => parking);
+    expect(parked()).toEqual(['origin']);
+  });
+
+  it('retargets a JS collapse to a current native minimize', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    act(() => void control().park('origin'));
+    await settle();
+
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: 'native-2' })));
+    expect(control().motion).toMatchObject({ morphId: 'native-2', target: 'collapsed' });
+    expect(morphRequests()).toHaveLength(1);
+
+    emitMorph('settled', 'collapsed', 'native-2');
+    await settle();
+    expect(parked()).toEqual(['origin']);
+  });
+
   it('springs a rejected native minimize back', async () => {
     await openForeground();
 
