@@ -1,16 +1,16 @@
-import { encodeAbiParameters, encodeEventTopics, type Hex } from 'viem';
+import { encodeAbiParameters, toEventSelector, type Hex } from 'viem';
 
-import { AGGLAYER_BRIDGE_ABI } from '../../../src/lib/agglayer/constant';
 import type { AgglayerDeposit } from '../../../src/lib/agglayer/status';
 import {
   agglayerNightMarkdown,
   claimPaysExit,
   exitCursor,
   exitStep,
-  returnAmount,
+  fetchIndexedDeposits,
   SELF_CLAIM_GRACE_MS,
   tonightsExit,
-  type ClaimReceipt
+  type ClaimReceipt,
+  type IndexerResponse
 } from './mainnet-agglayer-exit';
 
 const ME = '0xc3B89CeCb0c5C3442A7DBCbBE379351C6bDfF836';
@@ -120,36 +120,13 @@ describe('when an AggLayer exit is settled', () => {
   });
 });
 
-describe('how much ETH goes back', () => {
-  it('sends the whole balance, formatted without float rounding', () => {
-    expect(returnAmount(123_456_789_012_345_678n, 18)).toEqual({
-      baseUnits: 123_456_789_012_345_678n,
-      text: '0.123456789012345678',
-      wei: 123_456_789_012_345_678n
-    });
-    expect(returnAmount(200n, 8)).toEqual({ baseUnits: 200n, text: '0.000002', wei: 2_000_000_000_000n });
-    expect(returnAmount(100_000_000n, 8)).toEqual({ baseUnits: 100_000_000n, text: '1', wei: 1_000_000_000_000_000_000n });
-  });
-
-  it('keeps a balance of tonight plus a stranded deposit exact', () => {
-    // Two nights of AGGLAYER_LOOP_WEI at 8 decimals.
-    expect(returnAmount(200n, 8).wei).toBe(2n * 1_000_000_000_000n);
-  });
-
-  it('refuses an empty balance and decimals the L1 cannot express', () => {
-    expect(() => returnAmount(0n, 8)).toThrow('no ETH');
-    expect(() => returnAmount(1n, 19)).toThrow('decimals');
-    expect(() => returnAmount(1n, 1.5)).toThrow('decimals');
-  });
-});
-
 describe('whether a claim paid the exit', () => {
   const settled = exit({ ready_for_claim: true, claim_tx_hash: CLAIM });
 
   function claimLog(fields: { globalIndex?: bigint; destination?: Hex; amount?: bigint; address?: Hex } = {}) {
     return {
       address: fields.address ?? BRIDGE,
-      topics: encodeEventTopics({ abi: AGGLAYER_BRIDGE_ABI, eventName: 'ClaimEvent' }),
+      topics: [toEventSelector('ClaimEvent(uint256,uint32,address,address,uint256)')],
       data: encodeAbiParameters(
         [{ type: 'uint256' }, { type: 'uint32' }, { type: 'address' }, { type: 'address' }, { type: 'uint256' }],
         [
@@ -181,24 +158,17 @@ describe('whether a claim paid the exit', () => {
     const other = { bridge: BRIDGE, destination: ME };
     expect(claimPaysExit(receipt([claimLog({ globalIndex: 1n })]), settled, other)).toContain('no ClaimEvent');
     expect(
-      claimPaysExit(
-        receipt([claimLog({ destination: '0x9010069375e92c39d2a10a0EdC6C6d365358BE57' })]),
-        settled,
-        other
-      )
+      claimPaysExit(receipt([claimLog({ destination: '0x9010069375e92c39d2a10a0EdC6C6d365358BE57' })]), settled, other)
     ).toContain('no ClaimEvent');
     expect(claimPaysExit(receipt([claimLog({ amount: 1n })]), settled, other)).toContain('no ClaimEvent');
     expect(
-      claimPaysExit(
-        receipt([claimLog({ address: '0x0000000000000000000000000000000000000001' })]),
-        settled,
-        other
-      )
+      claimPaysExit(receipt([claimLog({ address: '0x0000000000000000000000000000000000000001' })]), settled, other)
     ).toContain('no ClaimEvent');
   });
 
   it('skips logs that are not ClaimEvents', () => {
-    const transfer = { address: BRIDGE, topics: [`0x${'11'.repeat(32)}`] as [Hex], data: '0x' as Hex };
+    const other: Hex = `0x${'11'.repeat(32)}`;
+    const transfer = { address: BRIDGE, topics: [other], data: '0x' as const };
     expect(
       claimPaysExit(receipt([transfer, claimLog()]), settled, { bridge: BRIDGE, destination: ME })
     ).toBeUndefined();
@@ -223,5 +193,49 @@ describe('the AggLayer job summary', () => {
     expect(text).toContain('| Claimed by | 0xe7ee000000000000000000000000000000000000 (another party) |');
     expect(text).not.toContain('Ready to claim');
     expect(text.indexOf('Bridge-out at')).toBeLessThan(text.indexOf('Claim at'));
+  });
+});
+
+describe('reading the indexer', () => {
+  function page(deposits: unknown[], total: number): IndexerResponse {
+    return { ok: true, status: 200, json: async () => ({ deposits, total_cnt: String(total) }) };
+  }
+
+  it('reads every page, since the listing is not ordered by exit number', async () => {
+    const first = Array.from({ length: 10 }, (_, index) => exit({ deposit_cnt: index }));
+    const urls: string[] = [];
+    const read = jest.fn(async (url: string) => {
+      urls.push(url);
+      return url.endsWith('offset=0')
+        ? page(first, 12)
+        : page([exit({ deposit_cnt: 10 }), exit({ deposit_cnt: 11 })], 12);
+    });
+    const found = await fetchIndexedDeposits('https://indexer/api', ME, read);
+    expect(found.map(deposit => deposit.deposit_cnt)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(urls).toEqual([
+      `https://indexer/api/bridges/${ME}?limit=10&offset=0`,
+      `https://indexer/api/bridges/${ME}?limit=10&offset=10`
+    ]);
+  });
+
+  it('refuses an error status and a body it cannot read, rather than reading no exits', async () => {
+    await expect(
+      fetchIndexedDeposits('https://indexer/api', ME, async () => ({
+        ok: false,
+        status: 503,
+        json: async () => 'busy'
+      }))
+    ).rejects.toThrow('503');
+    await expect(
+      fetchIndexedDeposits('https://indexer/api', ME, async () => page([{ deposit_cnt: 'six' }], 1))
+    ).rejects.toThrow('unreadable');
+  });
+
+  it('refuses a listing that ends before its own total', async () => {
+    await expect(
+      fetchIndexedDeposits('https://indexer/api', ME, async url =>
+        url.endsWith('offset=0') ? page([exit()], 3) : page([], 3)
+      )
+    ).rejects.toThrow('more than 1 read');
   });
 });

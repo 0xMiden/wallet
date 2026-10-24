@@ -2,6 +2,7 @@ import { createPublicClient, createWalletClient, http, isHex, type Address, type
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { ERC20_ABI } from './arc-usdcx';
+import type { ClaimReceipt } from './mainnet-agglayer-exit';
 import { AGGLAYER_BRIDGE_ABI } from '../../../src/lib/agglayer/constant';
 import { midenAddrToEvmAddr } from '../../../src/lib/agglayer/contract';
 import type { AgglayerDeposit, AgglayerMerkleProof } from '../../../src/lib/agglayer/status';
@@ -182,4 +183,37 @@ export async function claimAgglayerOnEthereum(args: {
   });
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
+}
+
+/** Whether the L1 bridge has recorded a claim of `deposit`, whoever sent it and whatever the indexer says. */
+export async function isExitClaimedOnEthereum(args: {
+  chain: Chain;
+  rpcUrl: string;
+  bridge: Address;
+  deposit: AgglayerDeposit;
+}): Promise<boolean> {
+  const client = createPublicClient({ chain: args.chain, transport: http(args.rpcUrl) });
+  return client.readContract({
+    address: args.bridge,
+    abi: AGGLAYER_BRIDGE_ABI,
+    functionName: 'isClaimed',
+    args: [args.deposit.deposit_cnt, args.deposit.network_id]
+  });
+}
+
+/** A claim transaction on Ethereum: its receipt, who sent it, and the block it landed in. */
+export async function readEthereumClaim(args: {
+  chain: Chain;
+  rpcUrl: string;
+  hash: Hex;
+}): Promise<{ receipt: ClaimReceipt; from: Address; blockNumber: bigint; at: Date }> {
+  const client = createPublicClient({ chain: args.chain, transport: http(args.rpcUrl) });
+  const receipt = await client.getTransactionReceipt({ hash: args.hash });
+  const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+  return {
+    receipt: { status: receipt.status, logs: receipt.logs },
+    from: receipt.from,
+    blockNumber: receipt.blockNumber,
+    at: new Date(Number(block.timestamp) * 1000)
+  };
 }
