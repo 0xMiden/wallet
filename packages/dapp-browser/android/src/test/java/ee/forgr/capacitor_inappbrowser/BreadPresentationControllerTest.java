@@ -1561,6 +1561,7 @@ public class BreadPresentationControllerTest {
     private FakeSnapshotter snapshots;
     private View root;
     private final int[] rootOrigin = new int[2];
+    private final List<ValueCallback<String>> metricsReplies = new ArrayList<>();
     private int gestures;
 
     private void openMorph(boolean fullscreen) throws Exception {
@@ -1587,6 +1588,11 @@ public class BreadPresentationControllerTest {
         webView = spy(webView);
         doReturn(root.getWidth()).when(webView).getWidth();
         doReturn(root.getHeight()).when(webView).getHeight();
+        metricsReplies.clear();
+        doAnswer(call -> {
+            if (String.valueOf((Object) call.getArgument(0)).contains("__breadNativeMetrics")) metricsReplies.add(call.getArgument(1));
+            return call.callRealMethod();
+        }).when(webView).evaluateJavascript(anyString(), any());
         ReflectionHelpers.setField(controller, "webView", webView);
         ReflectionHelpers.setField(dialog, "_webView", webView);
         root.getLocationInWindow(rootOrigin);
@@ -1595,9 +1601,8 @@ public class BreadPresentationControllerTest {
     private void paintFence() {
         controller.render();
         shadowOf(Looper.getMainLooper()).idle();
-        String script = shadowOf(webView).getLastEvaluatedJavascript();
-        assertTrue("metrics before the fence: " + script, script != null && script.contains("__breadNativeMetrics"));
-        shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("true");
+        assertFalse("metrics before the fence", metricsReplies.isEmpty());
+        metricsReplies.get(metricsReplies.size() - 1).onReceiveValue("true");
         PaintWebView renderer = Shadow.extract(webView);
         assertNotNull("visual state fence", renderer.fence);
         renderer.fence.onComplete(renderer.request);
