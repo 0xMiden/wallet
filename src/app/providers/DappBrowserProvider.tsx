@@ -268,6 +268,11 @@ interface MorphFlight {
 
 type MorphRequest = Parameters<DappWebViewInstance['morph']>[0];
 
+/** Returns a page native started collapsing to the slot; nothing follows it, the page is already foreground. */
+function springBack(instance: DappWebViewInstance): void {
+  void sendMorph(instance, { to: 'expanded', card: null, morphId: crypto.randomUUID() });
+}
+
 /** Whether native accepted a morph; a plugin without the method (an older build) never does. */
 async function sendMorph(instance: DappWebViewInstance, request: MorphRequest): Promise<boolean> {
   try {
@@ -389,6 +394,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const flightRef = useRef<MorphFlight | null>(null);
   const landingCardRef = useRef<MorphCard | null>(null);
   const morphEventRef = useRef<(event: PresentationMorphEvent) => void>(() => undefined);
+  const adoptCollapseRef = useRef<
+    (id: string, instance: DappWebViewInstance, lifetime: string, morphId: string, guard: ParkGuard) => Promise<boolean>
+  >(async () => false);
+  const dropFlightRef = useRef<(id: string) => void>(() => undefined);
 
   // The confirmation modal is rendered here so it survives tab navigation.
   // PR-4 chunk 8: scope to the foreground session id so a parked dApp's
@@ -539,6 +548,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       sessionLifetimes.current.delete(id);
       const token = managedTokens.current.get(id);
       if (token) dappWebViewManager.reserveClose(id, token);
+      dropFlightRef.current(id);
       removeSession(id);
       if (foregroundIdRef.current === id) {
         foregroundIdRef.current = null;
@@ -672,23 +682,44 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         const lifetime = event.managedHostCloseToken;
         const instance = state?.instance;
         const park = parkRef.current;
+        // With a morph id native has already started this collapse (#1817).
+        const morphId = typeof event.morphId === 'string' && event.morphId ? event.morphId : null;
+        const flight = flightRef.current;
+        if (
+          morphId &&
+          flight?.motion.id === event.id &&
+          flight.instance === instance &&
+          flight.motion.target === 'collapsed' &&
+          !flight.motion.acknowledging
+        ) {
+          // A second tap retargets native's own spring; the collapse already followed carries on under the new id.
+          updateFlight(flight, { ...flight.motion, morphId });
+          return;
+        }
+        // Not this provider's page, or one going away: there is nothing to adopt or spring back.
         if (
           !mounted ||
           !lifetime ||
           !instance ||
+          managedTokens.current.get(event.id) !== lifetime ||
+          managedClosings.current.has(lifetime)
+        )
+          return;
+        if (
           !park ||
           foregroundBlockedRef.current ||
           foregroundIdRef.current !== event.id ||
-          managedTokens.current.get(event.id) !== lifetime ||
-          managedClosings.current.has(lifetime) ||
           state.status !== 'active' ||
           !state.policyResolved ||
           state.policyRevision !== event.policyRevision ||
           nativeMinimizations.current.has(lifetime) ||
           !Number.isSafeInteger(event.visibilitySequence) ||
           event.visibilitySequence !== instance.currentVisibilitySequence
-        )
+        ) {
+          // A collapse the host does not own springs back, unless a host hold is hiding the page anyway.
+          if (morphId && foregroundIdRef.current === event.id && !foregroundBlockedRef.current) springBack(instance);
           return;
+        }
         const ownership = foregroundOwnershipRevision.current;
         const owns: ParkGuard = afterHide => {
           const current = getSessionStateById(event.id);
@@ -708,7 +739,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           );
         };
         nativeMinimizations.current.add(lifetime);
-        void park(event.id, owns)
+        void (morphId ? adoptCollapseRef.current(event.id, instance, lifetime, morphId, owns) : park(event.id, owns))
           .catch(error => {
             console.warn('[DappBrowserProvider] native minimize failed:', error);
           })
@@ -1332,6 +1363,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // A native minimize whose ownership lapsed in flight is not the host's to commit.
       if (!state || !flightLive(flight) || (flight.guard && !flight.guard(true))) {
         endFlight(flight, false);
+        if (state && flightLive(flight) && foregroundIdRef.current === id && !foregroundBlockedRef.current)
+          springBack(flight.instance);
         return;
       }
       if (slotRectShownForRef.current === id) slotRectShownForRef.current = null;
@@ -1427,6 +1460,80 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     },
     [getSessionStateById, restoreFlight, supersede]
   );
+
+  // Follows a collapse native started from its own button, guarded like the native minimize it answers.
+  const adoptNativeCollapse = useCallback(
+    (id: string, instance: DappWebViewInstance, lifetime: string, morphId: string, guard: ParkGuard) => {
+      const previous = flightRef.current;
+      return new Promise<boolean>(resolve => {
+        const flight: MorphFlight = {
+          motion: {
+            id,
+            lifetime,
+            morphId,
+            target: 'collapsed',
+            outgoingId: null,
+            started: false,
+            acknowledging: false,
+            progress: 1,
+            velocity: 0,
+            tracking: false,
+            eventSeq: 0
+          },
+          instance,
+          finish: resolve,
+          // Native took its proxy as the collapse started, so the snapshot can be asked for at once.
+          snapshot: requestParkSnapshot(id),
+          guard
+        };
+        flightRef.current = flight;
+        setMotion(flight.motion);
+        if (previous && previous !== flight) supersede(previous, flight);
+      });
+    },
+    [supersede]
+  );
+
+  // A closing session stops its motion natively and emits nothing more, so its flight is dropped here.
+  const dropFlight = useCallback(
+    (id: string) => {
+      const flight = flightRef.current;
+      if (flight?.motion.id === id) endFlight(flight, false);
+      // An outgoing foreground that closes leaves nothing to park when the expand ends.
+      else if (flight?.motion.outgoingId === id) updateFlight(flight, { ...flight.motion, outgoingId: null });
+    },
+    [endFlight, updateFlight]
+  );
+
+  // A motion whose terminal event never arrives (a lost bridge message) is resolved the way native would have
+  // ended it: a collapse parks the legacy way, an expand is left at rest.
+  const expireFlight = useCallback(
+    (flight: MorphFlight) => {
+      if (flightRef.current !== flight) return;
+      if (flight.motion.target === 'expanded') {
+        endFlight(flight, false);
+        return;
+      }
+      flightRef.current = null;
+      setMotion(null);
+      const { id } = flight.motion;
+      const { guard } = flight;
+      // The morph spent the visibility sequence the guard was taken at, so it is checked as after a hide.
+      void parkLegacy(id, guard && (() => guard(true))).then(committed => {
+        if (committed && foregroundIdRef.current === id) setForegroundId(null);
+        flight.finish(committed === true);
+      });
+    },
+    [endFlight, parkLegacy]
+  );
+
+  // Re-armed by every accepted event, since each one is a new `motion`; a held page or a settled collapse has none.
+  useEffect(() => {
+    const flight = flightRef.current;
+    if (!motion || flight?.motion !== motion || motion.tracking || motion.acknowledging) return;
+    const timer = window.setTimeout(() => expireFlight(flight), MORPH_TIMING.eventTimeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [motion, expireFlight]);
 
   // Sent with an expand only once the host acknowledged the session's current policy, as the position effect does.
   const acknowledgedRevision = useCallback(
@@ -1627,7 +1734,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     restoreRef.current = restore;
     parkRef.current = park;
     morphEventRef.current = handleMorphEvent;
-  }, [handleMorphEvent, park, restore]);
+    adoptCollapseRef.current = adoptNativeCollapse;
+    dropFlightRef.current = dropFlight;
+  }, [adoptNativeCollapse, dropFlight, handleMorphEvent, park, restore]);
 
   // ─── Effects that drive the native side ─────────────────────────────────
 

@@ -1737,3 +1737,122 @@ describe('native morph expand', () => {
     expect(control().sessionStates[0]?.status).toBe('loading');
   });
 });
+
+describe('native morph adoption', () => {
+  afterEach(() => jest.useRealTimers());
+
+  function minimizeEvent(extra: { morphId?: string; policyRevision?: number } = {}) {
+    return {
+      id: 'origin',
+      managedHostCloseToken: lifetime(),
+      policyRevision: 2,
+      visibilitySequence: control().sessionStates[0]?.instance?.currentVisibilitySequence,
+      ...extra
+    };
+  }
+
+  it('adopts a native minimize carrying a morphId and parks on settled', async () => {
+    await openForeground();
+
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: 'native-1' })));
+    expect(mockMorph).not.toHaveBeenCalled();
+    expect(control().motion).toMatchObject({ id: 'origin', morphId: 'native-1', target: 'collapsed' });
+    expect(mockCaptureSnapshot).toHaveBeenCalledWith('origin', 0.5, 0.7);
+    emitMorph('started', 'collapsed', 'native-1');
+    emitMorph('settled', 'collapsed', 'native-1');
+    await settle();
+
+    expect(parked()).toEqual(['origin']);
+    expect(control().mode).toBe('launcher');
+  });
+
+  it('springs a rejected native minimize back', async () => {
+    await openForeground();
+
+    act(() =>
+      nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: 'native-1', policyRevision: 1 }))
+    );
+    await settle();
+
+    expect(morphRequests()).toEqual([{ to: 'expanded', card: null, morphId: expect.stringMatching(UUID) }]);
+    expect(control().motion).toBeNull();
+    expect(control().mode).toBe('active');
+  });
+
+  it('ignores late events from a superseded morph after rapid alternation', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    act(() => void control().park('origin'));
+    await settle();
+    const first = lastMorphId();
+    await act(async () => void control().restore('origin', { card: CARD }));
+    act(() => void control().park('origin'));
+    await settle();
+    const third = lastMorphId();
+
+    emitMorph('retargeted', 'collapsed', third);
+    emitMorph('settled', 'collapsed', first);
+    await settle();
+    expect(control().motion).toMatchObject({ morphId: third, target: 'collapsed', started: true });
+    expect(parked()).toEqual([]);
+    expect(
+      morphRequests().map(request => (typeof request === 'object' && request && 'to' in request ? request.to : null))
+    ).toEqual(['collapsed', 'expanded', 'collapsed']);
+
+    emitMorph('settled', 'collapsed', third);
+    await settle();
+    expect(parked()).toEqual(['origin']);
+  });
+
+  it('closing the session mid-flight clears the motion without parking', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    let parking: Promise<void> = Promise.resolve();
+    act(() => {
+      parking = control().park('origin');
+    });
+    await settle();
+
+    await act(async () => control().close('origin'));
+    await act(async () => parking);
+
+    expect(control().motion).toBeNull();
+    expect(control().sessionStates).toEqual([]);
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+
+  it('resolves a lost terminal event through the watchdog', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    act(() => void control().park('origin'));
+    await settle();
+    jest.useFakeTimers();
+
+    emitMorph('started', 'collapsed');
+    act(() => jest.advanceTimersByTime(1999));
+    expect(parked()).toEqual([]);
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    jest.useRealTimers();
+
+    await waitFor(() => expect(parked()).toEqual(['origin']));
+    expect(lastVisibility()).toBe(false);
+    expect(control().motion).toBeNull();
+  });
+
+  it('does not fire the watchdog while a finger holds the page', async () => {
+    await openForeground();
+    mockMorph.mockResolvedValue({ accepted: true });
+    act(() => void control().park('origin'));
+    await settle();
+    jest.useFakeTimers();
+
+    emitMorph('retargeted', 'collapsed', lastMorphId(), { tracking: true });
+    act(() => jest.advanceTimersByTime(10000));
+
+    expect(control().motion).toMatchObject({ tracking: true });
+    expect(parked()).toEqual([]);
+    expect(lastVisibility()).toBeUndefined();
+  });
+});
