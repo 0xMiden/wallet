@@ -2,7 +2,7 @@ import { createPublicClient, createWalletClient, http, isHex, type Address, type
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { ERC20_ABI } from './arc-usdcx';
-import type { ClaimReceipt } from './mainnet-agglayer-exit';
+import type { ClaimReceipt, ExitStep } from './mainnet-agglayer-exit';
 import { AGGLAYER_BRIDGE_ABI } from '../../../src/lib/agglayer/constant';
 import { midenAddrToEvmAddr } from '../../../src/lib/agglayer/contract';
 import type { AgglayerDeposit, AgglayerMerkleProof } from '../../../src/lib/agglayer/status';
@@ -146,6 +146,34 @@ function isFetchTimeout(error: unknown): error is Error {
   return error instanceof Error && error.name === 'TimeoutError';
 }
 
+/** A `claimAsset` was broadcast and the receipt wait rejected. `hash` is the transaction that was paid for. */
+export class AgglayerClaimPendingError extends Error {
+  readonly hash: Hex;
+
+  constructor(hash: Hex, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'AgglayerClaimPendingError';
+    this.hash = hash;
+  }
+}
+
+/** How many `claimAsset` broadcasts one night may send. */
+export const SELF_CLAIM_ATTEMPTS = 2;
+
+/**
+ * Whether this lap may send `claimAsset`. False while a broadcast hash is still pending. Otherwise true only when
+ * the step is `claim`, fewer than `SELF_CLAIM_ATTEMPTS` have been tried, and the on-chain `isClaimed` read is false.
+ */
+export function shouldBroadcastClaim(args: {
+  pendingClaim: Hex | undefined;
+  step: ExitStep['kind'];
+  attempts: number;
+  claimed: boolean | undefined;
+}): boolean {
+  if (args.pendingClaim !== undefined) return false;
+  return args.step === 'claim' && args.attempts < SELF_CLAIM_ATTEMPTS && args.claimed === false;
+}
+
 export async function claimAgglayerOnEthereum(args: {
   key: Hex;
   chain: Chain;
@@ -173,26 +201,36 @@ export async function claimAgglayerOnEthereum(args: {
   const metadata =
     args.deposit.metadata && args.deposit.metadata !== '0x' ? hexValue(args.deposit.metadata, 'metadata') : '0x';
   const { publicClient, wallet } = clientFor(args.chain, args.rpcUrl, args.key);
-  const hash = await wallet.writeContract({
-    address: args.bridge,
-    abi: AGGLAYER_BRIDGE_ABI,
-    functionName: 'claimAsset',
-    args: [
-      padSmtProof(proof.merkle_proof),
-      padSmtProof(proof.rollup_merkle_proof),
-      BigInt(args.deposit.global_index),
-      hexValue(proof.main_exit_root, 'main exit root'),
-      hexValue(proof.rollup_exit_root, 'rollup exit root'),
-      args.deposit.orig_net,
-      hexValue(args.deposit.orig_addr, 'origin address'),
-      args.deposit.dest_net,
-      hexValue(args.deposit.dest_addr, 'destination address'),
-      BigInt(args.deposit.amount),
-      metadata
-    ]
-  });
-  await publicClient.waitForTransactionReceipt({ hash });
-  return hash;
+  let broadcast: Hex | undefined;
+  try {
+    const hash = await wallet.writeContract({
+      address: args.bridge,
+      abi: AGGLAYER_BRIDGE_ABI,
+      functionName: 'claimAsset',
+      args: [
+        padSmtProof(proof.merkle_proof),
+        padSmtProof(proof.rollup_merkle_proof),
+        BigInt(args.deposit.global_index),
+        hexValue(proof.main_exit_root, 'main exit root'),
+        hexValue(proof.rollup_exit_root, 'rollup exit root'),
+        args.deposit.orig_net,
+        hexValue(args.deposit.orig_addr, 'origin address'),
+        args.deposit.dest_net,
+        hexValue(args.deposit.dest_addr, 'destination address'),
+        BigInt(args.deposit.amount),
+        metadata
+      ]
+    });
+    broadcast = hash;
+    await publicClient.waitForTransactionReceipt({ hash });
+    return hash;
+  } catch (error) {
+    // The claim was already broadcast. A rejected receipt wait keeps that hash; a write that never
+    // returned one stays the original error.
+    if (broadcast === undefined) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new AgglayerClaimPendingError(broadcast, message, { cause: error });
+  }
 }
 
 /** Whether the L1 bridge has recorded a claim of `deposit`, whoever sent it and whatever the indexer says. */

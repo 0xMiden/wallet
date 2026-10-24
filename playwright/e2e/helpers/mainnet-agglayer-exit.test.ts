@@ -1,4 +1,7 @@
-import { encodeAbiParameters, toEventSelector, type Hex } from 'viem';
+/**
+ * @jest-environment node
+ */
+import { defineChain, encodeAbiParameters, getAddress, isHex, toEventSelector, type Hex } from 'viem';
 
 import type { AgglayerDeposit } from '../../../src/lib/agglayer/status';
 import {
@@ -12,6 +15,28 @@ import {
   type ClaimReceipt,
   type IndexerResponse
 } from './mainnet-agglayer-exit';
+import {
+  AgglayerClaimPendingError,
+  claimAgglayerOnEthereum,
+  SELF_CLAIM_ATTEMPTS,
+  shouldBroadcastClaim
+} from './mainnet-bridge-evm';
+
+const mockWriteContract = jest.fn();
+const mockWaitForReceipt = jest.fn();
+
+jest.mock('viem', () => {
+  const actual = jest.requireActual<typeof import('viem')>('viem');
+  return {
+    ...actual,
+    createPublicClient: () => ({ waitForTransactionReceipt: mockWaitForReceipt }),
+    createWalletClient: () => ({ writeContract: mockWriteContract })
+  };
+});
+
+jest.mock('../../../src/lib/agglayer/contract', () => ({
+  midenAddrToEvmAddr: () => '0x0000000000000000000000000000000000000000'
+}));
 
 const ME = '0xc3B89CeCb0c5C3442A7DBCbBE379351C6bDfF836';
 const BRIDGE = '0x2a3dd3eb832af982ec71669e178424b10dca2ede';
@@ -305,5 +330,112 @@ describe('reading the indexer', () => {
         json: async () => ({ deposits: [], total_cnt: 0 })
       }))
     ).resolves.toEqual([]);
+  });
+});
+
+describe('whether a broadcast claim is sent', () => {
+  function txHash(body: string): Hex {
+    const value = `0x${body}`;
+    if (!isHex(value)) throw new Error('fixture hash is not hex');
+    return value;
+  }
+
+  const pending = txHash('ab'.repeat(32));
+
+  it('a pending claim is not broadcast again', () => {
+    expect(shouldBroadcastClaim({ pendingClaim: pending, step: 'claim', attempts: 0, claimed: false })).toBe(false);
+    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: 0, claimed: false })).toBe(true);
+    expect(
+      shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: SELF_CLAIM_ATTEMPTS, claimed: false })
+    ).toBe(false);
+    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: 0, claimed: true })).toBe(false);
+    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'wait', attempts: 0, claimed: false })).toBe(false);
+    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: 0, claimed: undefined })).toBe(
+      false
+    );
+  });
+});
+
+describe('a broadcast claim whose receipt wait rejects', () => {
+  function txHash(body: string): Hex {
+    const value = `0x${body}`;
+    if (!isHex(value)) throw new Error('fixture hash is not hex');
+    return value;
+  }
+
+  const chain = defineChain({
+    id: 1,
+    name: 'Ethereum',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: ['http://127.0.0.1:8545'] } }
+  });
+
+  function merkleProof(): {
+    main_exit_root: string;
+    rollup_exit_root: string;
+    merkle_proof: string[];
+    rollup_merkle_proof: string[];
+  } {
+    const word = `0x${'22'.repeat(32)}`;
+    return { main_exit_root: word, rollup_exit_root: word, merkle_proof: [], rollup_merkle_proof: [] };
+  }
+
+  function claim(): Promise<Hex> {
+    return claimAgglayerOnEthereum({
+      key: txHash('11'.repeat(32)),
+      chain,
+      rpcUrl: 'http://127.0.0.1:8545',
+      bridge: getAddress(BRIDGE),
+      indexerUrl: 'https://indexer.example',
+      deposit: exit()
+    });
+  }
+
+  beforeEach(() => {
+    mockWriteContract.mockReset();
+    mockWaitForReceipt.mockReset();
+    jest.spyOn(globalThis, 'fetch').mockImplementation(
+      async () => new Response(JSON.stringify({ proof: merkleProof() }), { status: 200 })
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns the hash once the receipt lands', async () => {
+    const broadcast = txHash('cd'.repeat(32));
+    mockWriteContract.mockResolvedValue(broadcast);
+    mockWaitForReceipt.mockResolvedValue({ status: 'success' });
+    await expect(claim()).resolves.toBe(broadcast);
+  });
+
+  it('a write that never broadcast stays a plain error', async () => {
+    mockWriteContract.mockRejectedValue(new Error('replacement underpriced'));
+    const error = await claim().then(
+      () => undefined,
+      (caught: unknown) => caught
+    );
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error('expected an error');
+    expect(error).not.toBeInstanceOf(AgglayerClaimPendingError);
+    expect(error.message).toBe('replacement underpriced');
+    expect(mockWaitForReceipt).not.toHaveBeenCalled();
+  });
+
+  it('a receipt wait keeps the broadcast hash', async () => {
+    const broadcast = txHash('ab'.repeat(32));
+    const waited = new Error('receipt wait rejected');
+    mockWriteContract.mockResolvedValue(broadcast);
+    mockWaitForReceipt.mockRejectedValue(waited);
+    const error = await claim().then(
+      () => undefined,
+      (caught: unknown) => caught
+    );
+    expect(error).toBeInstanceOf(AgglayerClaimPendingError);
+    if (!(error instanceof AgglayerClaimPendingError)) throw new Error('expected AgglayerClaimPendingError');
+    expect(error.hash).toBe(broadcast);
+    expect(error.message).toBe(waited.message);
+    expect(mockWaitForReceipt).toHaveBeenCalledWith({ hash: broadcast });
   });
 });

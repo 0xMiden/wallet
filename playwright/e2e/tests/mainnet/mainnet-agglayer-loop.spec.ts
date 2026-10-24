@@ -19,10 +19,13 @@ import {
   type AgglayerNight
 } from '../../helpers/mainnet-agglayer-exit';
 import {
+  AgglayerClaimPendingError,
   bridgeEthToMiden,
   claimAgglayerOnEthereum,
   isExitClaimedOnEthereum,
-  readEthereumClaim
+  readEthereumClaim,
+  SELF_CLAIM_ATTEMPTS,
+  shouldBroadcastClaim
 } from '../../helpers/mainnet-bridge-evm';
 import { agglayerShortfall, bridgeLoops, midenFeeReserve } from '../../helpers/mainnet-bridge-plan';
 import {
@@ -47,7 +50,6 @@ const LANDING_MS = 1_500_000;
 const POLL_MS = 30_000;
 /** The claim on Miden and the bridge-out. */
 const MIDEN_TXS = 2n;
-const SELF_CLAIM_ATTEMPTS = 2;
 /** AGGLAYER_LOOP_WEI as the Send flow takes it: the same amount goes out as came in. */
 const BRIDGE_OUT_ETH = '0.000001';
 /**
@@ -183,6 +185,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   const waitStarted = Date.now();
   let readySince: number | undefined;
   let attempts = 0;
+  let pendingClaim: Hex | undefined;
   let lastError = '';
   while (Date.now() < deadline) {
     let exit: AgglayerDeposit | undefined;
@@ -205,7 +208,23 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
     }
     if (step.kind !== 'settled') readySince = step.readySince;
     if (exit && step.kind === 'settled') return settle(step.claimTxHash, exit);
-    if (exit && step.kind === 'claim' && attempts < SELF_CLAIM_ATTEMPTS) {
+    if (pendingClaim !== undefined) {
+      // The broadcast is already on chain. Read that receipt and do not send another claimAsset.
+      const hash = pendingClaim;
+      try {
+        const own = await readClaim(hash);
+        if (own.receipt.status === 'success') {
+          if (exit) return settle(hash, exit, own);
+        } else {
+          // A reverted claim frees the remaining attempt. The bridge did not record it.
+          lastError = `this job's claim ${hash} reverted`;
+          pendingClaim = undefined;
+        }
+      } catch (error) {
+        // Not mined yet, or the receipt could not be read. The hash stays, so the next lap does not send again.
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    } else if (exit && step.kind === 'claim' && attempts < SELF_CLAIM_ATTEMPTS) {
       // The indexer can trail the chain: a claim it has not filed yet is still a claim, and is never sent twice.
       const claimed = await isExitClaimedOnEthereum({
         chain,
@@ -216,7 +235,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
         lastError = error instanceof Error ? error.message : String(error);
         return undefined;
       });
-      if (claimed === false) {
+      if (shouldBroadcastClaim({ pendingClaim, step: step.kind, attempts, claimed })) {
         attempts += 1;
         let hash: Hex | undefined;
         try {
@@ -229,8 +248,14 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
             deposit: exit
           });
         } catch (error) {
-          // Most likely the auto-claimer got there first; the next poll reads its claim.
-          lastError = error instanceof Error ? error.message : String(error);
+          if (error instanceof AgglayerClaimPendingError) {
+            pendingClaim = error.hash;
+            record({ claimTx: error.hash });
+            lastError = error.message;
+          } else {
+            // Most likely the auto-claimer got there first; the next poll reads its claim.
+            lastError = error instanceof Error ? error.message : String(error);
+          }
         }
         if (hash !== undefined) {
           const own = await readClaim(hash);
