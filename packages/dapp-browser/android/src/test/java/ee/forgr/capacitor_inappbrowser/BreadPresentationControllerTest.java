@@ -2501,14 +2501,14 @@ public class BreadPresentationControllerTest {
         acknowledgePolicy();
         WebView page = webView;
         morphFixture();
-        page.layout(0, 0, root.getWidth(), root.getHeight());
         reveal();
+        assertTrue("the hierarchy laid the page out", page.getWidth() > 0 && page.getHeight() > 0);
         HeldSnapshotter held = new HeldSnapshotter();
         ReflectionHelpers.setField(dialog, "snapshotter", held);
         dialog.takeSnapshotData(0.5f, 0.7f, ignored -> {});
         assertEquals(1, held.pending.size());
-        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
-        page.layout(0, 0, root.getWidth(), root.getHeight());
+        page.layout(page.getLeft(), page.getTop(), page.getRight() + 40, page.getBottom());
+        page.layout(page.getLeft(), page.getTop(), page.getRight() - 40, page.getBottom());
         held.release();
         assertFalse("a capture from before a resize is not the proxy", controller.state.proxyUsable());
     }
@@ -2529,11 +2529,11 @@ public class BreadPresentationControllerTest {
         acknowledgePolicy();
         WebView page = webView;
         morphFixture();
-        page.layout(0, 0, root.getWidth(), root.getHeight());
         reveal();
+        assertTrue("the hierarchy laid the page out", page.getWidth() > 0 && page.getHeight() > 0);
         park(card());
         assertTrue(controller.state.proxyUsable());
-        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
+        page.layout(page.getLeft(), page.getTop(), page.getRight() + 40, page.getBottom());
         assertFalse("proxy holds a frame of the old size", controller.state.proxyUsable());
     }
 
@@ -2544,14 +2544,14 @@ public class BreadPresentationControllerTest {
         acknowledgePolicy();
         WebView page = webView;
         morphFixture();
-        page.layout(0, 0, root.getWidth(), root.getHeight());
         reveal();
+        assertTrue("the hierarchy laid the page out", page.getWidth() > 0 && page.getHeight() > 0);
         HeldSnapshotter held = new HeldSnapshotter();
         ReflectionHelpers.setField(dialog, "snapshotter", held);
         List<String> results = new ArrayList<>();
         dialog.takeSnapshotData(0.5f, 0.7f, results::add);
         assertEquals(1, held.pending.size());
-        page.layout(0, 0, root.getWidth() + 40, root.getHeight());
+        page.layout(page.getLeft(), page.getTop(), page.getRight() + 40, page.getBottom());
         doReturn(root.getWidth() + 40).when(webView).getWidth();
         held.release();
         assertFalse("proxy holds a frame of the old size", controller.state.proxyUsable());
