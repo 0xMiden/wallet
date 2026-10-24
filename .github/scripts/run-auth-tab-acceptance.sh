@@ -82,6 +82,8 @@ install_apk android/app/build/outputs/apk/debug/app-debug.apk
 install_apk android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell dumpsys package org.mozilla.firefox > "$results_dir/firefox-package.txt"
 grep -m1 'versionName=158.0.2' "$results_dir/firefox-package.txt"
+# Shared storage mounts after boot completes; until then /sdcard fails "Transport endpoint is not connected".
+for _ in $(seq 1 60); do adb shell ls /sdcard/ >/dev/null 2>&1 && break; sleep 2; done
 adb shell mkdir -p /sdcard/Download
 adb push "$RUNNER_TEMP/auth-tab-cert/auth-tab-root-ca.crt" /sdcard/Download/auth-tab-root-ca.crt
 
