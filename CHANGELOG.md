@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] Guardian polish: Guardian copy says "acknowledges" instead of "co-signs". The What is a Guardian? sheet fits without scrolling, with heavier type and new solid check, alert and cross badges. Choose your Guardian lists the current operator under "Current" and the rest under "Other Guardians available" on outline cards, with a Learn more pill and Nunito throughout; a tapped card keeps its selection ring. Review rotation opens with a short explainer, shows the two operators side by side on round logo tiles, says "Approve with" and states that the old Guardian cannot block the switch as a fact instead of a warning. Guardian settings and the transaction details tighten their spacing.
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
 - [CHANGE][all] dApp developers get a published guide at https://0xmiden.github.io/wallet/developers/: connecting with the wallet adapter, permissions, networks, transactions, signing, Sign in with Bread, the mobile browser, fullscreen, the sign-in sheet, open links, Explore listing and testing. The fullscreen and sign-in sheet references are published beside it and linked from the README and the Support page (#1829).
 ### Features
