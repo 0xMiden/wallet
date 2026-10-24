@@ -297,6 +297,8 @@ final class BreadPresentationController: NSObject {
         owner.setNeedsUpdateOfHomeIndicatorAutoHidden()
         owner.navigationController?.setNeedsStatusBarAppearanceUpdate()
         owner.navigationController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        instance?.morphContainer?.setNeedsStatusBarAppearanceUpdate()
+        instance?.morphContainer?.setNeedsUpdateOfHomeIndicatorAutoHidden()
         hostWindow?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
         if state.phase == .visible { reveal() } else { cancelReveal() }
         let failed = state.phase == .error

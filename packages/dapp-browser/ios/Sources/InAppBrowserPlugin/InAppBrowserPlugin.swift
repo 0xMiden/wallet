@@ -1508,7 +1508,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         window.frame = rect
         window.windowLevel = UIWindow.Level.normal + 100
         window.backgroundColor = .clear
-        window.rootViewController = instance.navigationController
+        let container = BreadMorphContainerViewController(child: instance.navigationController)
+        instance.morphContainer = container
+        window.rootViewController = container
         return window
     }
 
