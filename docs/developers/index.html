@@ -141,7 +141,7 @@ code, kbd, pre, .install, .float-card, .builder input, .out, .probe .flag, .stag
   padding: 0.12em 0.4em;
   border-radius: 6px;
   color: var(--ink);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 h1, h2, h3, h4 { font-family: var(--font-display); color: var(--ink); margin: 0; letter-spacing: -0.022em; }
 p { margin: 0 0 1em; }
@@ -350,8 +350,8 @@ p { margin: 0 0 1em; }
 .card h3 { font-size: 21px; font-weight: 800; margin-bottom: 4px; }
 .card .meta { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
 .card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; font-size: 14.5px; }
-.card li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 9px; align-items: start; }
-.card li::before { content: ''; width: 7px; height: 7px; margin: 8px 0 0 5px; border-radius: 50%; background: var(--accent); }
+.card li { position: relative; padding-left: 27px; }
+.card li::before { content: ''; position: absolute; left: 5px; top: 0.6em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .card li.no::before { background: transparent; border: 1.5px solid var(--muted); width: 8px; height: 8px; }
 
 .docs { max-width: 1240px; margin: 0 auto; padding: 48px 24px 80px; display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 64px; }
