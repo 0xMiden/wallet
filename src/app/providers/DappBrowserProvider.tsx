@@ -1358,6 +1358,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         allowResume &&
         previous &&
         flightLive(previous) &&
+        // A settled flight already had its rejection or terminal event; native emits nothing more for it.
+        !previous.settled &&
         !previous.motion.acknowledging
           ? previous
           : null;
