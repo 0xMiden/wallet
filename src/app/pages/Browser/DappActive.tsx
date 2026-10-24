@@ -264,7 +264,8 @@ export const DappActive: FC = () => {
   return (
     <div
       ref={surfaceRef}
-      className="flex h-full flex-col"
+      // Above the launcher BrowserScreen draws behind a moving page.
+      className="relative z-[1] flex h-full flex-col"
       data-testid="dapp-active"
       aria-hidden={hiddenHost || undefined}
       style={hiddenHost ? { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' } : undefined}

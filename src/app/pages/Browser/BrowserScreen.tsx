@@ -41,7 +41,7 @@ export interface BrowserScreenProps {
 }
 
 const EmbeddedBrowserScreen: FC<BrowserScreenProps> = props => {
-  const { mode, open, reportLauncherCommit, policyPending, presentation } = useDappBrowser();
+  const { mode, open, reportLauncherCommit, policyPending, presentation, motion, session } = useDappBrowser();
   // A tab pane or page layer stays mounted off screen, but the dApp surface must not: its unmount clears the slot
   // rect, which is what parks the foreground dApp and hides its native window.
   const onScreen = usePageActive();
@@ -67,6 +67,9 @@ const EmbeddedBrowserScreen: FC<BrowserScreenProps> = props => {
   );
 
   const launcherVisible = mode !== 'active' || policyPending || presentation === 'fullscreen';
+  // While the foreground page moves between the slot and its card (#1817), the launcher it uncovers is drawn behind
+  // it, inert until a collapse commits; an expand hides it again once it settles.
+  const launcherBehind = !launcherVisible && motion !== null && motion.id === session?.id;
   const launcher = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = launcher.current;
@@ -85,9 +88,15 @@ const EmbeddedBrowserScreen: FC<BrowserScreenProps> = props => {
     <>
       <div
         ref={launcher}
-        hidden={!launcherVisible}
+        hidden={!launcherVisible && !launcherBehind}
         aria-hidden={!launcherVisible || !onScreen}
-        className={launcherVisible ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+        className={
+          launcherVisible
+            ? 'flex min-h-0 flex-1 flex-col'
+            : launcherBehind
+              ? 'absolute inset-0 flex flex-col'
+              : 'hidden'
+        }
       >
         <PageActiveContext.Provider value={launcherVisible && onScreen}>
           <DappLauncher {...props} onOpen={handleOpen} />

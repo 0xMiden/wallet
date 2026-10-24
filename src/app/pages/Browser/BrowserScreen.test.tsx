@@ -11,6 +11,8 @@ import { BrowserScreen } from './BrowserScreen';
 let mockMode: 'active' | 'launcher' = 'active';
 let mockExtension = false;
 let mockPolicyPending = false;
+let mockMotion: { id: string; target: 'collapsed' | 'expanded' } | null = null;
+let mockSession: { id: string } | null = { id: 's1' };
 const mockLauncherCommit = jest.fn();
 
 jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
@@ -22,7 +24,9 @@ jest.mock('app/providers/DappBrowserProvider', () => ({
       mode: mockMode,
       open: jest.fn(),
       policyPending: mockPolicyPending,
-      reportLauncherCommit: mockLauncherCommit
+      reportLauncherCommit: mockLauncherCommit,
+      motion: mockMotion,
+      session: mockSession
     };
   }
 }));
@@ -69,6 +73,8 @@ const view = (onScreen: boolean) => (
 beforeEach(() => {
   mockMode = 'active';
   mockPolicyPending = false;
+  mockMotion = null;
+  mockSession = { id: 's1' };
   mockLauncherCommit.mockClear();
   mockExtension = false;
   (recordRecentDapp as jest.Mock).mockReset();
@@ -181,4 +187,51 @@ it('retains the launcher during policy discovery without reporting a close desti
   expect(screen.getByTestId('dapp-active')).toBe(active);
   expect(screen.getByTestId('dapp-launcher')).toBe(launcher);
   expect(launcher).not.toBeVisible();
+});
+
+describe('while the foreground page morphs', () => {
+  const launcherBox = () => screen.getByTestId('dapp-launcher').parentElement!;
+
+  it('renders the launcher inert behind the page while a motion runs', () => {
+    mockMotion = { id: 's1', target: 'collapsed' };
+    render(view(true));
+
+    expect(launcherBox()).toBeVisible();
+    expect(launcherBox()).toHaveClass('absolute', 'inset-0');
+    expect(launcherBox()).toHaveAttribute('aria-hidden', 'true');
+    expect(launcherBox().inert).toBe(true);
+    expect(screen.getByTestId('dapp-active')).toBeInTheDocument();
+  });
+
+  it('hides the launcher once an expand settles', () => {
+    mockMotion = { id: 's1', target: 'expanded' };
+    const { rerender } = render(view(true));
+    expect(launcherBox()).toBeVisible();
+
+    mockMotion = null;
+    rerender(view(true));
+
+    expect(launcherBox()).not.toBeVisible();
+  });
+
+  it('makes the launcher focusable again only after the collapse commits', () => {
+    mockMotion = { id: 's1', target: 'collapsed' };
+    const { rerender } = render(view(true));
+    expect(launcherBox().inert).toBe(true);
+
+    mockMode = 'launcher';
+    mockSession = null;
+    rerender(view(true));
+
+    expect(launcherBox().inert).toBe(false);
+    expect(launcherBox()).not.toHaveClass('absolute');
+    expect(screen.queryByTestId('dapp-active')).toBeNull();
+  });
+
+  it('keeps the launcher hidden behind a page that is not the one moving', () => {
+    mockMotion = { id: 'other', target: 'expanded' };
+    render(view(true));
+
+    expect(launcherBox()).not.toBeVisible();
+  });
 });
