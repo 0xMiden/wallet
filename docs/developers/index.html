@@ -739,7 +739,7 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
         <h3>Browser extension</h3>
         <p class="meta">Chrome and Firefox</p>
         <ul>
-          <li>Injected at document start into <code>https://</code> pages, <code>http://localhost</code> and <code>http://127.0.0.1</code></li>
+          <li>Injected at document start into <code>https://</code> pages, <code>http://localhost</code> and <code>http://127.0.0.1</code>; Firefox also injects it into every <code>http://</code> page</li>
           <li>Approvals open in the extension's own window</li>
           <li class="no">No <code>window.bread</code></li>
         </ul>
@@ -750,7 +750,7 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
         <p class="meta">iOS and Android, inside the Bread app</p>
         <ul>
           <li>Bread's in-app browser injects the provider after each page load</li>
-          <li>Approvals slide up as a sheet over your page</li>
+          <li>Approvals open in a dialog over your page</li>
           <li><code>window.bread.presentation</code> for fullscreen and <code>window.bread.auth</code> for Google and Apple sign-in</li>
         </ul>
       </article>
@@ -1145,8 +1145,8 @@ function loginMessage(word: Word) {
         <ul class="list">
           <li><b>Injected after load.</b> <code>window.midenWallet</code> appears after each page load, not at document start. The adapter polls for it every second, so wait for <code>readyState</code> to be <code>Installed</code> instead of checking the global once at startup.</li>
           <li><b>Origin first.</b> Bread refuses requests with <code>NOT_GRANTED</code> until it has confirmed your page's origin, which takes a moment after navigation.</li>
-          <li><b>Sheets, not windows.</b> Approvals slide up over your page. Requests time out in the page after five minutes.</li>
-          <li><b>Toolbar space.</b> In ordinary browser mode Bread adds <code>padding-bottom: calc(96px + env(safe-area-inset-bottom))</code> to your <code>body</code> so content clears its bottom toolbar.</li>
+          <li><b>Dialogs, not windows.</b> Approvals open in a dialog over your page. Requests time out in the page after five minutes.</li>
+          <li><b>Toolbar space.</b> In ordinary browser mode Bread adds <code>padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important</code> to your <code>body</code> so content clears its bottom toolbar.</li>
           <li><b>Kept alive.</b> A dApp the user leaves is parked, and picking it again restores the same page and JavaScript state without a reload. A repeat <code>connect()</code> repopulates the account.</li>
         </ul>
         <div class="callout gotcha"><span class="ci"><svg aria-hidden="true"><use href="#i-warn"/></svg></span><div><strong class="t">Don't name a global <code>bread</code></strong><p>Inside Bread on mobile, <code>window.bread</code> is a non-configurable, frozen property. A classic script must not declare a top-level <code>bread</code> with <code>let</code>, <code>const</code>, <code>class</code>, <code>function</code> or <code>var</code>, and a bundle must not expose a library global named <code>bread</code>. Module scripts and bundler-wrapped code are unaffected.</p></div></div>
@@ -1364,7 +1364,7 @@ if (window.bread?.auth) {
           <li><b>Extension:</b> the provider is injected on <code>http://localhost</code> and <code>http://127.0.0.1</code>, so a local dev server works as is.</li>
           <li><b>Phones:</b> type your address into Explore's search box. Input without a scheme gets <code>https://</code> prepended, so write <code>http://</code> yourself for a plain-http server.</li>
           <li><b>iOS</b> loads plain-http pages. <b>Android</b> store builds allow no cleartext to your server, so expose your dev server over https, for example through a tunnel.</li>
-          <li><b>Desktop:</b> Explore opens http and https addresses in a new window.</li>
+          <li><b>Desktop:</b> Explore accepts http and https addresses and opens them in Bread's dApp window, which the next address reuses.</li>
           <li><code>window.bread.auth</code> and the login key need https pages on phones.</li>
         </ul>
         <div class="callout"><span class="ci"><svg aria-hidden="true"><use href="#i-info"/></svg></span><div><strong class="t">A complete reference dApp</strong><p>The wallet's own end-to-end suite drives every request through a small test dApp, including the login key check. Read it in <a href="https://github.com/0xMiden/wallet/tree/main/playwright/e2e/test-dapp">playwright/e2e/test-dapp</a>.</p></div></div>
