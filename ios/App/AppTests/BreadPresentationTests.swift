@@ -1357,3 +1357,114 @@ final class BreadPresentationTimeoutTests: XCTestCase {
         }
     }
 }
+
+final class BreadMorphMathTests: XCTestCase {
+    private let card = BreadMorphCard(rect: CGRect(x: 282, y: 650, width: 104, height: 132), cornerRadius: 16)
+    private let slot = CGSize(width: 402, height: 753)
+
+    func testMorphPhysicsMatchResponseAndDampingRatio() {
+        let cases: [(BreadMorphPhysics, Double, Double)] = [(.expand, 223.8, 26.3), (.collapse, 273.4, 29.8), (.release, 246.7, 25.8)]
+        for (physics, stiffness, damping) in cases {
+            XCTAssertEqual(physics.stiffness, stiffness, accuracy: 0.1)
+            XCTAssertEqual(physics.damping, damping, accuracy: 0.1)
+        }
+    }
+
+    func testMorphSpringSettlesWithinDesignTimes() throws {
+        let cases: [(BreadMorphPhysics, Double)] = [(.expand, 0.580), (.collapse, 0.506), (.release, 0.548)]
+        for (physics, seconds) in cases {
+            XCTAssertEqual(BreadMorphSpring(from: 0, to: 1, velocity: 0, physics: physics, start: 0).settleTime, seconds, accuracy: 0.005)
+        }
+        let crossing = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0).time(reaching: 0.35)
+        XCTAssertEqual(try XCTUnwrap(crossing), 0.125, accuracy: 0.002)
+    }
+
+    func testMorphSpringRetargetKeepsPositionAndVelocityContinuous() {
+        let collapse = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0)
+        let (p, v) = collapse.sample(at: 0.15)
+        let expand = BreadMorphSpring(from: p, to: 1, velocity: v, physics: .expand, start: 0.15)
+        let start = expand.sample(at: 0.15)
+        XCTAssertEqual(start.value, p, accuracy: 1e-9)
+        XCTAssertEqual(start.velocity, v, accuracy: 1e-9)
+        XCTAssertLessThan(v, -1)
+        let frame = 1.0 / 120
+        let before = abs(p - collapse.sample(at: 0.15 - frame).value)
+        let after = abs(expand.sample(at: 0.15 + frame).value - p)
+        XCTAssertGreaterThan(before, 0)
+        XCTAssertLessThanOrEqual(after, 1.2 * before)
+    }
+
+    func testMorphPoseEndpoints() {
+        let start = BreadMorphPose.at(0, card: card, slot: slot)
+        XCTAssertEqual(start.origin.x, 282, accuracy: 1e-6)
+        XCTAssertEqual(start.origin.y, 650, accuracy: 1e-6)
+        XCTAssertEqual(start.scale * 402, 104, accuracy: 1e-6)
+        XCTAssertEqual(start.scale * start.cropHeight, 132, accuracy: 1e-6)
+        XCTAssertEqual(start.cornerRadius * start.scale, 16, accuracy: 1e-6)
+        XCTAssertEqual(start.shadowOpacity, 0.2, accuracy: 1e-6)
+        XCTAssertEqual(start.alpha, 1, accuracy: 1e-9)
+        let end = BreadMorphPose.at(1, card: card, slot: slot)
+        XCTAssertEqual(end.scale, 1, accuracy: 1e-9)
+        XCTAssertEqual(end.origin.x, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.origin.y, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.cropHeight, 753, accuracy: 1e-9)
+        XCTAssertEqual(end.cornerRadius, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.shadowOpacity, 0, accuracy: 1e-9)
+    }
+
+    func testMorphPoseRadiusPeaksNearAThirdOnA402Slot() {
+        var peak: (radius: CGFloat, p: Double) = (0, 0)
+        for step in 0...1000 {
+            let p = Double(step) / 1000
+            let pose = BreadMorphPose.at(p, card: card, slot: slot)
+            if pose.cornerRadius * pose.scale > peak.radius { peak = (pose.cornerRadius * pose.scale, p) }
+        }
+        XCTAssertEqual(peak.radius, 20.9, accuracy: 0.3)
+        XCTAssertEqual(peak.p, 0.33, accuracy: 0.03)
+    }
+
+    func testMissingCardPoseScalesToNinetyPercentWithFade() {
+        let start = BreadMorphPose.at(0, card: nil, slot: slot)
+        XCTAssertEqual(start.scale, 0.9, accuracy: 1e-9)
+        XCTAssertEqual(start.origin.x, 402 * 0.05, accuracy: 1e-6)
+        XCTAssertEqual(start.origin.y, 753 * 0.05, accuracy: 1e-6)
+        XCTAssertEqual(start.alpha, 0, accuracy: 1e-9)
+        XCTAssertEqual(start.cropHeight, 753, accuracy: 1e-9)
+        XCTAssertEqual(start.shadowOpacity, 0, accuracy: 1e-9)
+        XCTAssertEqual(BreadMorphPose.at(1, card: nil, slot: slot).alpha, 1, accuracy: 1e-9)
+        XCTAssertEqual(BreadMorphPose.at(1, card: nil, slot: slot).scale, 1, accuracy: 1e-9)
+    }
+
+    func testProgressVelocityProjectsAndClamps() {
+        let slotRect = CGRect(origin: .zero, size: slot)
+        let path = CGPoint(x: slotRect.midX - card.rect.midX, y: slotRect.midY - card.rect.midY)
+        let length = hypot(path.x, path.y)
+        let along = CGPoint(x: path.x / length * 300, y: path.y / length * 300)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(along, card: card.rect, slot: slotRect), Double(300 / length), accuracy: 1e-9)
+        let across = CGPoint(x: -path.y / length * 300, y: path.x / length * 300)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(across, card: card.rect, slot: slotRect), 0, accuracy: 1e-9)
+        let flick = CGPoint(x: path.x / length * 1e6, y: path.y / length * 1e6)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(flick, card: card.rect, slot: slotRect), 8)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(CGPoint(x: -flick.x, y: -flick.y), card: card.rect, slot: slotRect), -8)
+    }
+
+    func testInitialVelocityIsZeroNearTarget() {
+        XCTAssertEqual(BreadMorphGeometry.initialVelocity(3, from: 0.995, to: 1), 0)
+        XCTAssertEqual(BreadMorphGeometry.initialVelocity(2, from: 0.25, to: 1), 2 / 0.75, accuracy: 1e-9)
+        XCTAssertEqual(BreadMorphGeometry.initialVelocity(-2, from: 0.75, to: 0), 2 / 0.75, accuracy: 1e-9)
+    }
+
+    func testRubberBandIsMonotonicAndBounded() {
+        let length = 300.0
+        XCTAssertEqual(BreadMorphGeometry.rubberBand(0, length: length), 0)
+        XCTAssertEqual(BreadMorphGeometry.rubberBand(0.001, length: length) / 0.001, 0.55, accuracy: 1e-3)
+        var previous = 0.0
+        for step in 1...1000 {
+            let stretched = BreadMorphGeometry.rubberBand(Double(step) * length / 100, length: length)
+            XCTAssertGreaterThan(stretched, previous)
+            XCTAssertLessThan(stretched, length)
+            previous = stretched
+        }
+        XCTAssertEqual(BreadMorphGeometry.rubberBand(-30, length: length), -BreadMorphGeometry.rubberBand(30, length: length), accuracy: 1e-9)
+    }
+}
