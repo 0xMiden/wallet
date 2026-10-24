@@ -1,15 +1,67 @@
 # Changelog
 
-## 1.17.6 (TBD)
+## 1.17.7 (TBD)
+
+### Changes
+
+- [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
+### Features
+
+- [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
 
 ### Fixes
 
+- [FIX][all] Activity Groups handles recovered and legacy history without stored messages, shares action titles with List, and offers a scoped retry or Return to List if the group renderer fails.
+
+- [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
+### Changes
+
+- [CHANGE][ci] Android Auth Tab acceptance runs against a pinned Chromium 158 (SHA-256 checked) as the Auth Tab provider on the Android 36 Play image, refuses a provider older than 137, installs every APK through a retried adb install, runs the instrumentation through am instrument, and has Firefox 158 trust the run's fixture CA and open the wallet callback without a prompt (#1814).
+- [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
+- [CHANGE][all] Earn withdrawal polish: the review shows You Receive at the deposit review's sizes, its card is outlined and lists where and when the payout arrives and that gas is sponsored, and the Withdrawal Started receipt is outlined with Nunito semibold labels (#1765).
+### Fixes
+
+- [FIX][all] Encryption-key lookup timeouts before submission no longer show ambiguous submission-unanswered feedback.
+- [FIX][all] Swap Activity keeps the percentage filled after cancellation and reclaim, using the receipt’s execution evidence. Tiny fills read <0.1% instead of an overstated 0.1%.
+- [FIX][all] Crash reports keep the trace id they share with the swap diagnostic records sent before them, so a failure can be read beside those records in Sentry; the privacy policy now states that the records are kept for 30 days (#1660).
+- [FIX][all] The Home panes are a native scroll-snap pager: a swipe on mobile is smooth and always lands on the pane in the direction you swiped, a trackpad swipe pages them in the extension and desktop, and a mouse drag no longer does (#1811).
+- [FIX][all] A network chosen in Developer Settings before setup is kept after the Mainnet launch, so a new install can still create, import or recover a Testnet wallet; a plain install still gets the invite-only Mainnet onboarding, and resetting the wallet returns to it (#1813).
+- [FIX][all] Recognize verified Mainnet badge activity after invitation onboarding: the stored network choice now preserves transaction provenance and permits badge checks while custom developer endpoints remain excluded. Available badges appear first, unavailable badges read Coming soon, and unread dots lead to new awards until My badges is opened. The unread badge key is loaded with the other startup storage keys, so the first tab can show the badge dot with that read already cached. Resetting the wallet includes an in-flight badge seen write in the snapshot it removes. Balance snapshots taken after the endpoint-free Mainnet onboarding choice count as Mainnet for deposit and swap badges.
+- [CHANGE][all] Add native Arcade discovery, catalog-scoped Activity and authoritative GC balance with a disabled fixed 1-USDCx/1,000-GC purchase entry; games own posting, stakes and payouts (#1452).
+- [FIX][android] Sign-in uses Auth Tab where the browser supports it, returning the callback privately to Bread; other browsers keep the Custom Tab flow and its in-memory-secret requirement (#1586).
+- [FIX][all] A sign-in request whose 32 bytes are not four field elements is refused with `INVALID_PARAMS` before the approval prompt, and oversized base64 input is rejected before decoding (#1578).
+
+## 1.17.6 (2026-10-23)
+
+### Fixes
+
+- [FIX][test] The mainnet nightly's AggLayer loop waits for its ETH balance to rise above what the account held before the night's deposit, instead of for any non-zero ETH balance.
+- [FIX][test] The mainnet nightly's bridge and 1Click specs load again: Playwright resolves the wallet sources' `@miden-sdk/miden-sdk/lazy` import to the SDK's Node entry instead of failing on a package export that only the `import` condition defines, and the executor-route bridge-in checks the registration at the config's Arc xReserve instead of the testnet one. The write-endpoint probe also recognizes publicnode's "reading transaction object failed" answer to a garbage transaction as a decode failure. The AggLayer loop waits for its ETH to reach the Miden account before bridging it out. The nightly checks out the ref it was dispatched on instead of always `main`.
+- [FIX][test] The dApp refusals suite expects a dApp consume of a note addressed to another account to be refused before any approval sheet, matching the wallet (#1764).
+- [FIX][all] Earn withdrawals work on mainnet: they are accepted on every chain the wallet-config document names an Epoch route on, not only Sepolia or the default market's chain; a 1delta withdraw leg that needs no allocation (the batch holds the delivery alone) is no longer refused as a changed quote; and the withdrawal receipt names the market's own chain in its route.
+- [FIX][all] The mainnet countdown and a new wallet's invite-only onboarding share one clock. Setup already underway stays on its step, with the seed, password, key and access code already entered, while mainnet is prepared when that moment arrives.
+- [FIX][all] The mainnet countdown's moment is now the one switch for mainnet: when it passes, a test-network wallet's banner offers the switch to mainnet instead of disappearing, and a new wallet onboards invite-only on mainnet, as a mainnet build does; the `onboarding.inviteOnly` flag of the network's config document is no longer read. While launch is pending, the wallet checks the clock each second so a system clock change cannot leave the launch state out of date.
+- [FIX][test] The USDCx burn suites read the faucet's burn fee from an account proof for that one entry instead of downloading the whole faucet account, which the node refuses to build now that the nonce registry has grown past its inline limit.
+- [FIX][test] The USDCx burn suites read the Circle fee and minimum payout rows' token amount apart from the USD equivalent now shown under them, so the fee allowance assertion keeps matching exactly "Up to 0.1 USDC".
+- [FIX][all] USD entry and available-balance estimates follow quote expiry, spend checks compare exact base units, and token precision is preserved before selection then refused when the selected token cannot represent it.
+- [FIX][all] Backup guidance distinguishes an unavailable Guardian state copy from a lost one and explains when an Encrypted Wallet File contains a Recovery Phrase or imported signing secret (#1790).
+- [FIX][extension,desktop] An install that once connected an EVM wallet no longer stays on "Preparing connection…" with Connect disabled when a stored WalletConnect session is still reconnecting at startup. After ten seconds Connect is freed and the stored session is left in place, so a restore that connects after those ten seconds is kept. Closing the connect modal starts those ten seconds again and does not forget or disconnect a pairing that is still connecting. A session that never connects stays stored, and the next open waits ten seconds again before Connect is freed.
+- [FIX][all] A crash report for a proof the node refused as expired now says whether the transaction waited under half, over half or past the blocks its expiration allowed before it was submitted, so slow proving can be told from a short window (#1768).
+- [FIX][all] A send that the token's issuer has blocked now says so in plain words, in every language, instead of showing the generic failure message (#1767).
+- [FIX][all] Importing a recovery phrase that has no Guardian backup says so and offers a new account with that phrase after a reused-phrase warning, instead of failing or silently creating one; a lookup that could not reach every Guardian offers a retry and is never treated as not found; a pasted phrase longer than 12 words is rejected instead of cut to 12 (#882, #1298).
+- [FIX][all] Approval screens list each NFT that leaves or enters the account by its faucet and a short asset id, warn when a transaction changes assets the wallet cannot list instead of saying no assets move, and no longer describe a note that carries only an NFT as carrying no assets (#1600).
+- [FEATURE][all] A wallet of Guardian accounts offers the Encrypted Wallet File in Settings, and restoring it rebuilds each Guardian account from the file and its recovery phrase without asking the Guardian operator; the account then replaces its everyday key, or takes a saved everyday key pair from the failed-rotation screen. The export names the accounts whose state the file holds, and the support and privacy pages describe it (#1617).
+- [FIX][all] A swap whose payout claim keeps failing now says so on its Activity row and receipt, with the reason and a Retry, instead of showing nothing while the daily retry runs (#1644).
+- [FIX][all] A dApp request to consume a P2ID note addressed to another account is refused before the approval sheet, instead of failing after approval (BREAD-WALLET-5D).
+- [FIX][all] Guardian transaction history recovered from the guardian names the recipient of a P2ID payment again, reading the note's current four-item storage layout.
 - [FIX][all] Crash reports for a failed inbound bridge now name which wallet or network error it was (a chain, provider or RPC class, or a receipt wait that ran out of time), whether its balance was too low or could not be read, and, for a deposit the App closed before recording, how the App knew no screen still owned it and which USDCx route it recorded (BREAD-WALLET-2V, -2W, -2Y, -3S)
+- [FIX][e2e] The Android native Reown bridge smoke reaches the startup eligibility fixture from its emulator, so the wallet leaves its access check and onboarding renders instead of the test timing out.
 - [FIX][e2e] The mainnet nightly consumes outstanding notes on the plain account and the Guardian account before it reads either vault, subtracts that consume from the two-night reserve only when the drain submitted one so a skip cannot pass one transaction budget below that figure, waits out an in-flight balance read before judging the vault, and opens Guardian recovery from the invite-only Welcome so that claim can run.
 - [FIX][all] Crash reports for a Guardian authentication refusal now say whether the key the wallet signed with is one of the account's signers on chain, which key signed, and whether the account was waiting to replace its everyday key
 - [FIX][all] The Earn tab shows the "Not available where you are" notice at the top, above Total earned, when Earn is not offered in your location, instead of only inside a vault (#1753).
 - [FIX][all] The token page's 24h change pill shows the percentage change, not the dollar change with a percent sign.
 - [FIX][all] The eligibility service enables Swap for Near Intents with an explicit switch and valid 1Click mapping, and supports manual deployment from the wallet main branch independently of wallet releases.
+
 - [FIX][extension] A Guardian claim or send cut off before its submit releases its pending Guardian proposal at once instead of holding the account's other transactions, and the wallet waits the Guardian's real hold of about 18 minutes, not 10, before it treats a kept proposal as released.
 - [FIX][all] Crash reports for an expired send, swap or other queued transaction now name why the wallet last put it back in its queue, as claims already did
 - [FIX][all] The wallet shows an unsupported browser or device page, instead of its error screen, on a runtime without WebAssembly SIMD (BREAD-WALLET-4H).
@@ -18,7 +70,23 @@
 
 ### Changes
 
+- [CHANGE][test] The mainnet nightly workflow test expects the job to check out the dispatched ref, matching the workflow, so a dispatch on a branch tests that branch.
+- [CHANGE][ci] The mainnet nightly skips its 1Click preflight and funded swap stages unless the `MAINNET_ONE_CLICK_ENABLED` repository variable is `true`, since the route is not enabled on NEAR yet.
+- [CHANGE][all] Earn shows each vault's logo from the wallet-config document (`earn.vaults[].logo`, served from the config repo), falling back to the bundled mark or the protocol's initial when it does not load; the vault, deposit and review pages wait for the vault catalogue instead of showing "not found" when positions load first.
+- [CHANGE][all] Earn opens at once: the positions read keys on the wallet-config document only, no longer waiting on the derived market, and the last read is stored so a cold open (every extension popup) shows it, marked stale, while the live read runs.
+- [CHANGE][all] Earn reads the vault catalogue once per bridge-config document version and shares it between realms (`derived.epoch.vaults`); the positions poll no longer reads `/pools` every 30 s.
+- [FIX][all] Earn history links the position owner and the EVM transaction to the explorer of the market's own chain (Base, Arbitrum, Ethereum), no longer Sepolia; a chain the wallet does not know shows the value with no link.
+- [FIX][all] Earn positions are read on every Epoch route the document names at once (Base, Arbitrum, Ethereum on mainnet), not only the default market's chain, and a position in a market the document does not list stays shown and withdrawable; the list gates deposits only. The default market follows the document's vault order across every route, no longer the chain order of `supportedEvmChains`.
+- [CHANGE][all] The wallet-config document's `earn.vaults` list decides which Earn vaults the wallet offers, in which order, under which name, with which protocol hash, and whether each takes deposits (a stopped vault shows a disabled Deposit and a notice); the compiled lender allowlist and protocol strings are gone, a document with Earn on must list at least one vault on an Epoch route, and a deposit's market label uses the listed name.
+- [CHANGE][all] Earn spends the native USDCx on every network, no longer the document's Epoch output faucet off testnet, and a deposit's market reads as its lender family with a shortened Morpho market id ("Morpho d752…6e41d") in the progress pill, the receipt and the history details, clipped rather than overflowing.
+- [CHANGE][all] Earn lists its vaults from the Epoch positions service's `/pools` catalogue, one entry per market, limited for now to USDC markets of Aave V3, Compound V3 and Morpho Blue, with each vault's total rate, deposits and risk; a deposit opens the chosen vault's market, two Morpho markets on one chain are told apart by name, and a vault whose pool refuses deposits says so. A host without `/pools` (testnet) keeps the former lender catalogue.
+- [CHANGE][all] The wallet uses the Epoch intents SDK's mainnet release (1.0.40-mainnet.0), which reports an intent leg's transaction hash as null until the chain records it, and one viem (2.57.10) shared with that SDK; wagmi moves to 3.7.9, the release that builds against that viem.
+- [CHANGE][all] The Terms of Service describe the Encrypted Wallet File as a backup of Guardian account state and say which losses it covers: a lost device while the Guardian Operator is unavailable is recoverable from a current file together with a saved everyday key pair, and from the file alone once the operator answers (#1617).
+- [CHANGE][all] Show a warning above the review Swap button when no fill or only a partial fill is expected. Users can still continue.
+- [CHANGE][ci] The Guardian lifecycle E2E runs on every push to main instead of on every pull request; a pull request still runs it when its body names a linked Client, Guardian, Protocol or Web SDK PR, and the required gate reports green otherwise.
 - [CHANGE][all] A failed Guardian swap's crash report names which preparation step failed: building or saving the new swap order, rebuilding its request at the current network height, or saving the rebuilt request once the guardian prepared it, in fixed values only; the privacy policy lists them.
+- [CHANGE][all] Add shared token/USD amount entry and action-review conversions for Send, Swap, bridge-in/out and Earn, with exact token precision and verified fresh pricing.
+
 - [CHANGE][all] A transaction stopped at startup is reported with which startup rule picked it, how long it had been in its step and whether it recorded a submit, as fixed values only.
 - [CHANGE][ci] No E2E suite runs on a push to main or next any more (#1714). Release E2E (`release-e2e.yml`) dispatches the fourteen testnet suites against main nightly, against a release's tag when it is published and against any ref by hand; Next E2E (devnet) dispatches next's `e2e-blockchain.yml` on devnet nightly.
 - [CHANGE][all] A bridge-in is refused on the deposit screen when the receiving account's valued holdings plus the deposit would pass the balance ceiling the network's wallet-config document sets (`limits.bridgeInMaxBalanceUsd`, 1232.462 USD on mainnet); a document with no ceiling holds nothing.
@@ -39,6 +107,8 @@
 - [CHANGE][ci] The dApp E2E harness also runs the test dApp in the wallet's iOS and Android in-app browsers, on two simulators and two emulators against the branch's network, on single-sig and Guardian accounts: the page takes its commands over a long poll, its requests are answered on the approval sheet by test id, and a slim set of connect, read, sign, write, refusal and 120 s auto-decline cells is judged by the same records and gate as the Chrome legs, each mobile leg labelled with the presentation path its in-app browser ran.
 
 ### Features
+
+- [FEATURE][all] Add cross-chain swaps through a configured 1Click quote service, with signed quotes, ordinary Guardian send approval, persistent delivery tracking and a cost-bounded mainnet round trip. The wallet-config `features.nearIntents` switch defaults to false, and swaps remain unavailable unless it is true and verified Miden asset mappings are configured.
 
 - [FEATURE][tests] A mainnet Chrome nightly restores one public account and one Guardian account, sends one base unit of the native asset each way, then loops 5 USDC through USDCx on Arc, Base, Arbitrum and Ethereum and 0.000001 ETH through AggLayer. It sends nothing unless every chain can cover tonight and tomorrow. It runs nightly at 05:30 UTC (#1629).
 - [FEATURE][all] Verified tokens can show USD prices from Binance, using a USDT market first and a USDC market second, with the quote currency converted to USD. If neither market exists, the wallet uses a direct USD market on Kraken, including PYUSD. Totals and token order use the current verified price assets. The wallet checks the saved token list once when it opens and keeps the saved list if the check fails.

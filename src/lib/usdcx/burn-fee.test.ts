@@ -78,7 +78,17 @@ jest.mock('./burn', () => ({ buildUsdcxBurnRequest: (...args: unknown[]) => mock
 jest.mock('./constant', () => ({ getUsdcxDestination: (chainId: number) => mockDestination(chainId) }));
 
 function view(fee: TxAssetView['fee'], outgoing: TxAssetView['outgoing']): TxAssetView {
-  return { outgoing, incoming: [], inputNotesConsumed: 0, outputNotesCreated: 1, fee, storageChanged: true };
+  return {
+    outgoing,
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    fee,
+    storageChanged: true
+  };
 }
 
 const measuredView = () => view({ faucetId: NATIVE, amount: 252n }, [{ faucetId: NATIVE, amount: 1n }]);

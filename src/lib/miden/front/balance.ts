@@ -7,6 +7,7 @@ import type { TokenPrices } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
+import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { AssetMetadata } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
@@ -16,6 +17,7 @@ export interface TokenBalanceData {
   tokenSlug: string;
   metadata: AssetMetadata;
   balance: number;
+  balanceBaseUnits?: string;
   fiatPrice: number;
   change24h: number;
 }
@@ -42,7 +44,8 @@ function buildDefaultZeroBalance(
       tokenSlug: nativeMetadata.symbol,
       metadata: nativeMetadata,
       ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-      balance: 0
+      balance: 0,
+      balanceBaseUnits: '0'
     }
   ];
 }
@@ -76,9 +79,6 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   const balancesLastFetched = balancesLastFetchedMap[address] ?? 0;
   // Consider loading if: explicitly loading OR never fetched yet
   const balancesLoading = balancesLoadingMap[address] ?? balancesLastFetched === 0;
-
-  // Track if component is mounted
-  const mountedRef = useRef(true);
 
   // Use refs for values that shouldn't trigger callback recreation
   const tokenMetadatasRef = useRef(tokenMetadatas);
@@ -125,7 +125,9 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
 
   // Initial fetch and polling
   useEffect(() => {
-    mountedRef.current = true;
+    // Per run, not per component: an address change re-runs this effect, and a tick the old run
+    // deferred must not wake up into the new run's liveness and fetch the old address.
+    let live = true;
 
     // Initial fetch
     fetchBalancesWithDeduping();
@@ -135,13 +137,16 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // single-threaded-WASM read - otherwise the read is livelocked on mobile.
     // No-op in production (tree-shaken).
     const intervalId = setInterval(() => {
-      if (mountedRef.current && !isTestSyncPaused()) {
-        fetchBalancesWithDeduping();
+      if (live && !isTestSyncPaused()) {
+        // The poll's store write re-renders Home; wait out a moving pager (capped).
+        void whenInteractionIdle().then(() => {
+          if (live && !isTestSyncPaused()) void fetchBalancesWithDeduping();
+        });
       }
     }, REFRESH_INTERVAL);
 
     return () => {
-      mountedRef.current = false;
+      live = false;
       clearInterval(intervalId);
     };
   }, [fetchBalancesWithDeduping]);

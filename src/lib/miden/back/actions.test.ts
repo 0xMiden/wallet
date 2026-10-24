@@ -66,7 +66,8 @@ import {
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
-  swapHotKey
+  swapHotKey,
+  importHotKeyPair
 } from './actions';
 import packageJson from '../../../../package.json';
 
@@ -124,6 +125,7 @@ const mockVault = {
   setGuardianSyncStatus: jest.fn(),
   updateGuardianBinding: jest.fn(),
   swapHotKey: jest.fn(),
+  importHotKeyPair: jest.fn(),
   retire: jest.fn(),
   insertKeySink: jest.fn()
 };
@@ -276,12 +278,15 @@ jest.mock('webextension-polyfill', () => {
 // `unlock`'s seed-removal resume and the explicit `removeSeedPhrase` both take
 // the generate-transactions-loop lock. jsdom's `navigator` is non-configurable,
 // so attach `.locks` to whatever object it already is. `lockResult` null models
-// the loop already holding it.
+// the loop already holding it. A request without options (the reset's badge
+// storage turn) waits for its lock, so it is always granted one.
 const installNavigatorLocksMock = (lockResult: unknown = {}) => {
   const nav = (globalThis as unknown as { navigator?: object }).navigator || {};
   Object.defineProperty(nav, 'locks', {
     value: {
-      request: jest.fn(async (_name: string, _opts: unknown, cb: (l: unknown) => unknown) => cb(lockResult))
+      request: jest.fn(async (_name: string, optsOrCb: unknown, cb?: (l: unknown) => unknown) =>
+        typeof optsOrCb === 'function' ? optsOrCb({}) : cb?.(lockResult)
+      )
     },
     writable: true,
     configurable: true
@@ -1575,6 +1580,18 @@ describe('actions', () => {
       await setGuardianOperatorCommitment('pk1', 'commitment-hex');
 
       expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'commitment-hex');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  describe('importHotKeyPair', () => {
+    it('hands the pair to the vault and fires accountsUpdated', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.importHotKeyPair.mockResolvedValueOnce(updated);
+
+      await importHotKeyPair('pk1', 'hot:evm');
+
+      expect(mockVault.importHotKeyPair).toHaveBeenCalledWith('pk1', 'hot:evm');
       expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
     });
   });

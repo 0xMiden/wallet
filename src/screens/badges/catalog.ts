@@ -24,22 +24,6 @@ export interface BadgeDefinition {
  */
 export const BADGE_CATALOG: readonly BadgeDefinition[] = [
   {
-    id: 'first-deposit',
-    available: true,
-    titleI18nKey: 'badgeFirstDeposit',
-    descriptionI18nKey: 'badgeFirstDepositDescription',
-    icon: IconName.BadgeDeposit,
-    art: firstDepositArt
-  },
-  {
-    id: 'first-receive',
-    available: false,
-    titleI18nKey: 'badgeFirstReceive',
-    descriptionI18nKey: 'badgeFirstReceiveDescription',
-    icon: IconName.BadgeReceive,
-    art: firstReceiveArt
-  },
-  {
     id: 'first-send',
     available: true,
     titleI18nKey: 'badgeFirstSend',
@@ -48,12 +32,28 @@ export const BADGE_CATALOG: readonly BadgeDefinition[] = [
     art: firstSendArt
   },
   {
+    id: 'first-deposit',
+    available: true,
+    titleI18nKey: 'badgeFirstDeposit',
+    descriptionI18nKey: 'badgeFirstDepositDescription',
+    icon: IconName.BadgeDeposit,
+    art: firstDepositArt
+  },
+  {
     id: 'first-swap',
     available: true,
     titleI18nKey: 'badgeFirstSwap',
     descriptionI18nKey: 'badgeFirstSwapDescription',
     icon: IconName.BadgeSwap,
     art: firstSwapArt
+  },
+  {
+    id: 'first-receive',
+    available: false,
+    titleI18nKey: 'badgeFirstReceive',
+    descriptionI18nKey: 'badgeFirstReceiveDescription',
+    icon: IconName.BadgeReceive,
+    art: firstReceiveArt
   },
   {
     id: 'recovery-checked',

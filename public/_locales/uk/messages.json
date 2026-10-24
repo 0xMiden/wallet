@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Створіть резервну копію вашої фрази-насіння",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Створіть резервну копію зараз",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Сума на вашому гаманці досягла 150 доларів США. Щоб продовжити, вам необхідно створити резервну копію вашої фрази-насіння. Запишіть її, зберігайте в безпечному місці та пройдіть перевірку, щоб користуватися гаманцем.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Не вдалося зберегти резервну копію чека. Спробуйте ще раз.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "Не вдалося перевірити ваш доступний баланс. Спробуйте ще раз.",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "Дочекайтеся завершення вашої транзакції, що перебуває в стані очікування, перед тим, як здійснювати обмін.",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "Точна сума виплати",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "Орієнтовна сума виплати за ваш об’єкт отримання. Повне виконання може принести більшу суму; часткове виконання може залишити вам менше коштів на момент закінчення терміну дії.",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "Прослизання коригує розраховану суму виплати, тоді як запитувана вами сума отримання залишається незмінною.",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -446,6 +491,18 @@
     "message": "Виведення коштів",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "У Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "З Мідену",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "Поповнити рахунок",
     "englishSource": "Deposit more"
@@ -497,6 +554,30 @@
   "earnRiskLabel": {
     "message": "Ризик",
     "englishSource": "Risk"
+  },
+  "earnRiskLow": {
+    "message": "Низький",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "Високий",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "Депозити закриті",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "Цей сховище наразі не приймає депозити. Спробуйте пізніше або виберіть інше сховище.",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet призупинив поповнення цього сховища. Це не впливає на ваші існуючі депозити. Оберіть інше сховище.",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
   },
   "earnAuditedLabel": {
     "message": "Пройшов аудит",
@@ -670,6 +751,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ на $network$",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },
@@ -901,6 +997,10 @@
     "message": "Назад",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "Назад до свопу",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "Пропустити",
     "englishSource": "Skip"
@@ -964,6 +1064,10 @@
   "submissionRejectedByGuardian": {
     "message": "Ваш «Guardian» відхилив цю заявку. Спробуйте ще раз.",
     "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionBlockedByIssuer": {
+    "message": "Емітент цього токена заблокував ваш обліковий запис, тому його неможливо надіслати.",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
   },
   "submissionRejectedByNetwork": {
     "message": "Мережа відхилила цю заявку. Спробуйте ще раз.",
@@ -1995,6 +2099,10 @@
     "message": "Обмін",
     "englishSource": "Swap"
   },
+  "confirmSwap": {
+    "message": "Підтвердити своп",
+    "englishSource": "Confirm swap"
+  },
   "viaInProtocolDex": {
     "message": "Через In Protocol Dex",
     "englishSource": "Via In Protocol Dex"
@@ -2074,6 +2182,14 @@
   "swapVerdictFull": {
     "message": "Виконання за поточною ціною.",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "Цей своп навряд чи буде виконаний з урахуванням наявної на даний момент ліквідності. Ви можете продовжувати, але ваше замовлення може залишитися невиконаним до закінчення терміну його дії.",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "Лише частина цього свопу може бути виконана за рахунок ліквідності, доступної на даний момент. Ви можете продовжувати, але решта може залишитися невиконаною до закінчення терміну дії замовлення.",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "Ви отримуєте приблизно $amount$ $symbol$.",
@@ -2542,8 +2658,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "Використовуйте існуючу фразу відновлення з 12 слів. Ви також можете імпортувати гаманці від інших постачальників гаманців.",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "Ви можете використовувати сумісну 12-слівну фразу відновлення з іншого гаманця для створення облікового запису Miden. Це не передбачає перенесення активів з інших мереж.",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "Імпорт із зашифрованим файлом гаманця",
@@ -2949,10 +3065,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "Введіть 12-слівну фразу відновлення вашого гаманця.",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Підтримуються лише фрази відновлення у форматі Miden.",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Ваш гаманець готовий!",
@@ -3559,6 +3671,27 @@
     "message": "Я нікому не буду надавати доступ до свого зашифрованого файлу гаманця, у тому числі й компанії Bread.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "Стан рахунку $accountNames$ міститься в цьому файлі",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "Файл містить вашу фразу відновлення та стан облікового запису, які в іншому випадку зберігає для вас оператор Guardian, тому будь-хто, хто має цей файл та його пароль, може переглянути обидва. Він не містить повсякденного ключа: після відновлення гаманець замінює його через вашого оператора Guardian, або ви можете використати збережену пару повсякденних ключів (Налаштування → Ключі → Показати приватний ключ). Цей файл є знімком стану: після відправлення або отримання коштів збережіть новий файл, оскільки старий файл не зможе відновити те, що відбулося після його створення.",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "Зараз триває ротація. Дочекайтеся її завершення, а потім спробуйте ще раз.",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "Використовувати мою збережену повсякденну пару ключів",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "Не відновлено з цього файлу: $accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -3931,22 +4064,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ Не вдалося встановити зв’язок із guardian(s), тому виявлення може бути неповним.",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "Введіть дійсну 12-слівну фразу відновлення, щоб відновити свій обліковий запис Miden або створити новий.",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "Підтримуються лише 12-слівні фрази відновлення. Фраза, яку ви вставили, довша, тому нічого не було введено.",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "На перевірених нами серверах Guardians резервних копій виявлено не було",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "Нічого не вдалося відновити. Якщо Guardian, який ми не перевіряли, зберігає резервну копію цієї фрази, виберіть її нижче. В іншому випадку ви можете створити новий обліковий запис за допомогою цієї фрази.",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "Ми не змогли перевірити кожного Guardian, тому не можемо сказати, чи існує резервна копія. Спробуйте ще раз або виберіть Guardian, яким ви користувалися.",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "Створіть новий обліковий запис за допомогою цієї фрази",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "Створити новий обліковий запис із цією фразою?",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "Це створює новий рахунок. Це не відновлює існуючий.",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "Ми не можемо гарантувати, як саме ця фраза була створена або наскільки вона надійна. Якщо її коли-небудь розкриють, це може вплинути на кожен гаманець, який її використовує.",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "Ваша фраза відновлення залишається на цьому пристрої.",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "Я розумію ризик і хочу використовувати цей вираз для нового рахунку",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "Якщо публічного запису для цього виразу ще не існує, під час імпортування на його основі створюється новий.",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "Спробуйте виконати виявлення ще раз",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "Ми не змогли знайти ваш обліковий запис за цим посиланням: guardian. Перевірте URL-адресу або спробуйте імпортувати його як публічний обліковий запис.",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "Ми не змогли знайти резервну копію на цьому Guardian. Перевірте URL-адресу або виберіть інший Guardian.",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "Цей «guardian» працює в іншій мережі Miden, тому він не може відновити обліковий запис тут.",
@@ -4003,6 +4175,18 @@
   "assetChanges": {
     "message": "Зміни в активах",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "Ця транзакція також передбачає переміщення активу, який гаманець не може відобразити, наприклад, NFT. Продовжуйте лише в тому випадку, якщо ви довіряєте цій операції.",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "Невідомо",
@@ -4786,6 +4970,18 @@
     "message": "Faucet Запит",
     "englishSource": "Faucet Request"
   },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
+  },
   "activity": {
     "message": "Діяльність",
     "englishSource": "Activity"
@@ -4981,6 +5177,30 @@
   "swapReclaiming": {
     "message": "Повернення коштів",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "Затримка виплати",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "Виплата за цим свопом постійно завершується невдачею, оскільки цей рахунок не може сплатити мережеву комісію для її отримання. Гаманець намагається ще раз раз на день, або ви можете спробувати ще раз зараз.",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "Виплата за цим свопом постійно завершується невдачею у вашому «Guardian». Гаманець робить повторну спробу раз на день, або ви можете спробувати ще раз зараз.",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "Виплата за цим свопом постійно завершується невдачею, оскільки не вдалося встановити з’єднання з мережею. Гаманець спробує ще раз раз на день, або ви можете спробувати ще раз зараз.",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "Виплата за цим свопом постійно завершується невдачею. Гаманець намагається ще раз раз на день, або ви можете спробувати ще раз зараз.",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "Повторна спроба виплати",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "Повернено · $time$",
@@ -5988,8 +6208,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "Підключайте лише тестовий гаманець",
-    "englishSource": "Connect a test wallet only"
+    "message": "Використовуйте лише тестовий гаманець",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "Тільки тестові кошти",
@@ -6969,24 +7189,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "Підключіть гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "Гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "Підключити гаманець",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "Зовнішній гаманець",
-    "englishSource": "External wallet"
+    "message": "Ваш гаманець",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "Ще не підключено",
-    "englishSource": "Not connected yet"
+    "message": "Не підключено",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "Після підключення",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask, Rainbow або будь-який гаманець WalletConnect.",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "Оберіть спосіб переказу",
@@ -7001,12 +7225,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "Перевірте маршрут і комісії, а потім підтвердьте переказ у своєму гаманці.",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "Перевірте маршрут і комісії, а потім підтвердьте операцію у своєму гаманці.",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "Використовуйте окремий гаманець виключно для тестових токенів. Ніколи не підключайте гаманець, на якому зберігаються реальні кошти.",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "Ніколи не підключайте гаманець, на якому зберігаються реальні кошти.",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "Оберіть маршрут",
@@ -7154,6 +7378,27 @@
     "message": "Stays invested",
     "englishSource": "Stays invested"
   },
+  "earnWithdrawArrivesOn": {
+    "message": "З’являється на",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · ~1 хв",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Газ",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "Спонсорований",
+    "englishSource": "Sponsored"
+  },
   "earnWithdrawAll": {
     "message": "Full balance",
     "englishSource": "Full balance"
@@ -7229,5 +7474,634 @@
   "runtimeUnsupportedBody": {
     "message": "Гаманцю потрібна підтримка WebAssembly SIMD, якої цей браузер або пристрій не надає. Відкрийте гаманець на іншому пристрої або в оновленому браузері.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "oneClickSelectAsset": {
+    "message": "Виберіть токен у мережі $network$",
+    "englishSource": "Select a token on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickNoAssets": {
+    "message": "У цій мережі немає перевірених токенів.",
+    "englishSource": "No verified tokens are available on this network."
+  },
+  "oneClickRecipientSection": {
+    "message": "Одержувач",
+    "englishSource": "Recipient"
+  },
+  "oneClickRefundSection": {
+    "message": "Рахунок для повернення коштів",
+    "englishSource": "Refund account"
+  },
+  "oneClickRecipientAddress": {
+    "message": "Адреса одержувача",
+    "englishSource": "Recipient address"
+  },
+  "oneClickRefundAddress": {
+    "message": "Адреса для повернення коштів у вихідній мережі",
+    "englishSource": "Refund address on the origin network"
+  },
+  "oneClickRefundAccount": {
+    "message": "Рахунок для повернення коштів",
+    "englishSource": "Refund account"
+  },
+  "oneClickConnectOriginWallet": {
+    "message": "Підключити гаманець $network$",
+    "englishSource": "Connect $network$ wallet",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickChooseForeignNetwork": {
+    "message": "Оберіть мережу відправлення або призначення поза межами Miden.",
+    "englishSource": "Choose an origin or destination network outside Miden."
+  },
+  "oneClickDifferentNetworksRequired": {
+    "message": "Оберіть дві різні мережі.",
+    "englishSource": "Choose two different networks."
+  },
+  "oneClickMidenAssetRequired": {
+    "message": "Оберіть перевірений токен Miden для однієї зі сторін цього маршруту.",
+    "englishSource": "Choose a verified Miden token for one side of this route."
+  },
+  "oneClickSameUnderlyingBridge": {
+    "message": "Це переказ через міст. Використовуйте існуючий потік переказу через міст для цього активу.",
+    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
+  },
+  "oneClickQuoteUnavailable": {
+    "message": "Ціна для цього маршруту недоступна. Перевірте адреси та спробуйте ще раз.",
+    "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
+  },
+  "oneClickQuoteExpiresAt": {
+    "message": "Термін дії котирування закінчується",
+    "englishSource": "Quote expires"
+  },
+  "oneClickQuoteExpired": {
+    "message": "Термін дії закінчився. Оновіть сторінку, перш ніж продовжувати.",
+    "englishSource": "Expired. Refresh before continuing."
+  },
+  "oneClickConfirmMidenDeposit": {
+    "message": "Підтвердіть цей депозит у Miden",
+    "englishSource": "Confirm this Miden deposit"
+  },
+  "oneClickSubmitFailed": {
+    "message": "Не вдалося подати депозит. Перевірте маршрут і спробуйте ще раз.",
+    "englishSource": "The deposit could not be submitted. Review the route and try again."
+  },
+  "oneClickRouteChanged": {
+    "message": "Маршрут змінився. Запитайте нову пропозицію, перш ніж продовжувати.",
+    "englishSource": "The route changed. Request a new quote before continuing."
+  },
+  "oneClickArrivalEstimate": {
+    "message": "Приблизно $minutes$ хвилин",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefreshQuote": {
+    "message": "Оновити котирування",
+    "englishSource": "Refresh quote"
+  },
+  "oneClickMinimumReceived": {
+    "message": "Мінімальна отримана сума",
+    "englishSource": "Minimum received"
+  },
+  "oneClickMinimumOutput": {
+    "message": "Мінімальний обсяг виводу",
+    "englishSource": "Minimum output"
+  },
+  "oneClickRefundAmount": {
+    "message": "Сума повернення коштів",
+    "englishSource": "Refund amount"
+  },
+  "oneClickNativeFee": {
+    "message": "Орієнтовна комісія мережі Miden",
+    "englishSource": "Estimated Miden network fee"
+  },
+  "oneClickAvailableBalance": {
+    "message": "Доступний зовнішній баланс",
+    "englishSource": "Available external balance"
+  },
+  "oneClickBalanceChecking": {
+    "message": "Перевірка зовнішнього балансу",
+    "englishSource": "Checking external balance"
+  },
+  "oneClickBalanceCheckingBody": {
+    "message": "Перевірка підключеного рахунку та резервування достатньої суми для оплати комісії мережі.",
+    "englishSource": "Checking the connected account and reserving enough for the network fee."
+  },
+  "oneClickBalanceUnavailable": {
+    "message": "Зовнішній баланс недоступний",
+    "englishSource": "External balance unavailable"
+  },
+  "oneClickBalanceUnavailableBody": {
+    "message": "Гаманець не зміг перевірити баланс підключеного рахунку та комісію мережі. Перед продовженням підключіться знову або спробуйте ще раз.",
+    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
+  },
+  "oneClickGasReserve": {
+    "message": "Зарезервовано для мережевих комісій: $amount$ $symbol$",
+    "englishSource": "Reserved for network fees: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "oneClickInsufficientTokenBalance": {
+    "message": "Недостатній баланс токенів",
+    "englishSource": "Insufficient token balance"
+  },
+  "oneClickInsufficientTokenBalanceBody": {
+    "message": "На пов’язаному рахунку недостатньо цього токена для зазначеного депозиту.",
+    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
+  },
+  "oneClickInsufficientGasBalance": {
+    "message": "Недостатній баланс комісії за мережу",
+    "englishSource": "Insufficient network fee balance"
+  },
+  "oneClickInsufficientGasBalanceBody": {
+    "message": "Для покриття передбачуваної комісії мережі на пов’язаному рахунку потрібно більше $symbol$.",
+    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickArrival": {
+    "message": "Орієнтовний час прибуття",
+    "englishSource": "Estimated arrival"
+  },
+  "oneClickRecipient": {
+    "message": "Одержувач",
+    "englishSource": "Recipient"
+  },
+  "oneClickRoute": {
+    "message": "Маршрут",
+    "englishSource": "Route"
+  },
+  "oneClickYouPayFrom": {
+    "message": "Ви платите в $network$",
+    "englishSource": "You pay on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickYouReceiveOn": {
+    "message": "Ви отримуєте на $network$",
+    "englishSource": "You receive on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefundFee": {
+    "message": "Комісія за повернення коштів",
+    "englishSource": "Refund fee"
+  },
+  "oneClickWithdrawFee": {
+    "message": "Комісія за зняття коштів",
+    "englishSource": "Withdrawal fee"
+  },
+  "oneClickDepositInstructions": {
+    "message": "Інструкції щодо депозиту",
+    "englishSource": "Deposit instructions"
+  },
+  "oneClickManualDepositNotice": {
+    "message": "Надішліть точну суму, вказану нижче, через обрану мережу. Обмін розпочнеться лише після того, як переказ надійде на адресу депозиту.",
+    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
+  },
+  "oneClickNetwork": {
+    "message": "Мережа",
+    "englishSource": "Network"
+  },
+  "oneClickOriginNetwork": {
+    "message": "Мережа Origin",
+    "englishSource": "Origin network"
+  },
+  "oneClickDestinationNetwork": {
+    "message": "Мережа призначення",
+    "englishSource": "Destination network"
+  },
+  "oneClickAmount": {
+    "message": "Сума",
+    "englishSource": "Amount"
+  },
+  "oneClickDepositAddress": {
+    "message": "Адреса депозиту",
+    "englishSource": "Deposit address"
+  },
+  "oneClickDepositMemo": {
+    "message": "Примітка",
+    "englishSource": "Memo"
+  },
+  "oneClickOriginTransaction": {
+    "message": "Транзакція-джерело",
+    "englishSource": "Origin transaction"
+  },
+  "oneClickTrackingSaved": {
+    "message": "Цей маршрут зберігається в розділі «Активність», щоб ви могли відстежити його пізніше.",
+    "englishSource": "This route is saved in Activity so you can track it later."
+  },
+  "oneClickBroadcastTrackingPending": {
+    "message": "Гаманець надіслав цей депозит, але поки що не зміг зберегти транзакцію. Не надсилайте її знову. Хеш транзакції наведено нижче.",
+    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
+  },
+  "oneClickRefreshingExpiredQuote": {
+    "message": "Оновлення котирування, термін дії якого закінчився",
+    "englishSource": "Refreshing expired quote"
+  },
+  "oneClickRecoveryUnavailable": {
+    "message": "Цей маршрут не можна оновити",
+    "englishSource": "This route cannot be refreshed"
+  },
+  "oneClickRecoveryUnavailableBody": {
+    "message": "Змінився рахунок, мережа або перевірений маршрут. Поверніться до транзакції та, за потреби, розпочніть новий маршрут.",
+    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
+  },
+  "oneClickExpiredRefreshFailed": {
+    "message": "Котирування, термін дії якого закінчився, не вдалося оновити. Спробуйте отримати нове котирування перед відправленням.",
+    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
+  },
+  "oneClickQuoteRefreshed": {
+    "message": "Цитата оновлена",
+    "englishSource": "Quote refreshed"
+  },
+  "oneClickExpiredRefreshNotice": {
+    "message": "Попередня пропозиція втратила чинність до того, як ваш депозит був відправлений. Ознайомтеся з цим оновленим маршрутом та підтвердьте, щоб продовжити.",
+    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
+  },
+  "oneClickDepositSubmitted": {
+    "message": "Депозит подано",
+    "englishSource": "Deposit submitted"
+  },
+  "oneClickStatusKnownDepositTx": {
+    "message": "Знайдено транзакцію депозиту",
+    "englishSource": "Deposit transaction found"
+  },
+  "oneClickStatusPendingDeposit": {
+    "message": "Очікування на депозит",
+    "englishSource": "Waiting for deposit"
+  },
+  "oneClickStatusIncompleteDeposit": {
+    "message": "Сума депозиту вказана не повністю",
+    "englishSource": "Deposit amount is incomplete"
+  },
+  "oneClickStatusProcessing": {
+    "message": "Обробка свопів",
+    "englishSource": "Swap processing"
+  },
+  "oneClickStatusSuccess": {
+    "message": "Обмін виконано провайдером",
+    "englishSource": "Swap completed by provider"
+  },
+  "oneClickStatusRefunded": {
+    "message": "Повернення коштів",
+    "englishSource": "Funds refunded"
+  },
+  "oneClickStatusFailed": {
+    "message": "Обмін не відбувся",
+    "englishSource": "Swap failed"
+  },
+  "oneClickProviderStatus": {
+    "message": "Статус провайдера",
+    "englishSource": "Provider status"
+  },
+  "oneClickDeliveryStatus": {
+    "message": "Доставка гаманця",
+    "englishSource": "Wallet delivery"
+  },
+  "oneClickStatusDelivered": {
+    "message": "Отримано в гаманці",
+    "englishSource": "Received in wallet"
+  },
+  "oneClickDeliveryArriving": {
+    "message": "Надходження в гаманець Miden",
+    "englishSource": "Arriving in Miden wallet"
+  },
+  "oneClickDepositAmount": {
+    "message": "Сума депозиту",
+    "englishSource": "Deposit amount"
+  },
+  "oneClickOutputAmount": {
+    "message": "Вихідні дані, що наводяться",
+    "englishSource": "Quoted output"
+  },
+  "oneClickFailureReason": {
+    "message": "Причина повернення коштів або відмови",
+    "englishSource": "Refund or failure reason"
+  },
+  "oneClickNetworkMiden": {
+    "message": "Miden",
+    "englishSource": "Miden"
+  },
+  "oneClickNetworkEthereum": {
+    "message": "Ethereum",
+    "englishSource": "Ethereum"
+  },
+  "oneClickNetworkBase": {
+    "message": "Base",
+    "englishSource": "Base"
+  },
+  "oneClickNetworkArbitrum": {
+    "message": "Arbitrum",
+    "englishSource": "Arbitrum"
+  },
+  "oneClickNetworkOptimism": {
+    "message": "Optimism",
+    "englishSource": "Optimism"
+  },
+  "oneClickNetworkArc": {
+    "message": "Arc",
+    "englishSource": "Arc"
+  },
+  "availableAmount": {
+    "message": "Доступно: $amount$ $symbol$",
+    "englishSource": "Available: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "amountExceedsTokenDecimals": {
+    "message": "Ця сума має більше знаків після коми, ніж дозволяє цей токен.",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
+  "amountUsdUnavailable": {
+    "message": "Оцінка в доларах США недоступна",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "Термін дії котирування в USD закінчився. Оновлення ціни…",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "Сума в $unit$",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "Введіть $unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "Завантаження ціни в доларах США…",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "Ціна в доларах США не може бути оновлена",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "Оцінка в доларах США",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "Попередній перегляд",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "Вихід",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "Зразки даних призначені лише для попереднього перегляду дизайну. Це не кошти з вашого гаманця та не реальні рейтинги гравців. Ніщо не публікується.",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "Приклад гравця",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "Тільки для попереднього перегляду",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "Застосувати оновлений зразок",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "Ваш рейтинг",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "Поданий баланс",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "Рейтинг GC",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "Зразок знімка оновлено локально. Нічого не було надіслано.",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "Відкрийте для себе ігри в Bread.",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "Ознайомтеся з Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "Рекомендовані ігри",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "Ігри, які варто спробувати",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Скорочення в Arcade",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "Рейтинги",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "Ігрові монети",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "Моя активність",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "Відкрита гра",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "Ігор немає",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "Ігри з’являтимуться тут, коли стануть доступними в цій мережі.",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "Запуск гри не призведе до підключення вашого гаманця. Bread спершу запитає у вас дозволу.",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "Рейтинги GC",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "Переглянути баланс GC",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "Баланс GC",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "Не прочитано",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "Надіслати баланс",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "Оновити баланс",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "Надсилання знімка балансу передбачає передачу до рейтингової таблиці ідентифікатора вашого рахунку, балансу GC, мережі та часу створення знімка. Баланси ваших інших активів не включаються.",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "Зчитування балансу GC та надсилання даних до рейтингової таблиці поки що не пов’язані між собою. Жодного балансу не було зчитано чи надіслано.",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "Рейтинги з’являться тут",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "Рейтинги у цій мережі ще не працюють.",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "Ваш баланс з’явиться тут",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "Ігрові монети ще не доступні в цій мережі.",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "До переліку входять лише ігри, зазначені в розділі «Arcade».",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "Фінанси",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "Інше",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "Монети",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "Активність",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "Переглянути ігри",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "Ваш баланс залишається конфіденційним.",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "У рейтингу відображаються лише ті залишки, які ви вирішили оприлюднити.",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "Ігрової активності поки що немає",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "Тут відображаються транзакції, які ви здійснюєте в іграх Arcade.",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1 000 GC за 1 USDCx плюс мережеві комісії.",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Купівля GC поки недоступна в Bread.",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "Купити більше GC",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "Баланс недоступний",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "Ігрові монети",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "Кожна гра встановлює власні ставки, виплати та повернення коштів. Ознайомтеся з її правилами перед підтвердженням транзакції.",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }

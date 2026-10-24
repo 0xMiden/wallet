@@ -23,13 +23,13 @@ jest.mock('screens/earn-flow/components', () => ({
   EarnAssetMark: ({ asset, network }: { asset: string; network: string }) => (
     <span data-testid="earn-asset-mark" data-asset={asset} data-network={network} />
   ),
-  earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+  earnSubjectTitle: ({ name, protocol }: { name?: string; protocol: string }) => name ?? protocol,
   EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
     `${subject.asset} on ${subject.network}`
 }));
 jest.mock('screens/earn-flow/ProviderLogo', () => ({
-  ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
-    <span data-testid="provider-logo" data-protocol={protocol} className={className} />
+  ProviderLogo: ({ protocol, logoUrl, className }: { protocol: string; logoUrl?: string; className?: string }) => (
+    <span data-testid="provider-logo" data-protocol={protocol} data-logo-url={logoUrl} className={className} />
   )
 }));
 
@@ -349,7 +349,7 @@ describe('Earn page', () => {
     expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-ink');
 
     const vaultRow = within(vaultsSection()).getAllByRole('button')[0]!;
-    expect(within(vaultRow).getByText(vaults[0]!.protocol)).toHaveClass('text-ink');
+    expect(within(vaultRow).getByText(vaults[0]!.name ?? '')).toHaveClass('text-ink');
   });
 
   it('navigates to a position detail when its card is tapped', () => {
@@ -364,16 +364,10 @@ describe('Earn page', () => {
     expect(mockNavigate).toHaveBeenCalledWith(`/earn/positions/${positions[0]!.id}`);
   });
 
-  it('stops pointer-down propagation on the horizontal scroll row', () => {
+  it('keeps the end of the positions row from chaining into the pager', () => {
     const { container } = render(<Earn />);
 
-    const scroller = container.querySelector('.touch-pan-x') as HTMLElement;
-    expect(scroller).not.toBeNull();
-
-    const event = new Event('pointerdown', { bubbles: true });
-    const stopSpy = jest.spyOn(event, 'stopPropagation');
-    scroller.dispatchEvent(event);
-    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.touch-pan-x')).toHaveClass('overscroll-x-contain');
   });
 
   it('renders one VaultRow per vault with its details and no TVL line', () => {
@@ -388,10 +382,11 @@ describe('Earn page', () => {
       expect(within(row).queryByTestId('chevron-icon')).toBeNull();
     });
 
-    const first = vaults[0]!;
-    const firstRow = rows[0]!;
+    // The Aave V3 vault: a market that its protocol and network identify.
+    const first = vaults[2]!;
+    const firstRow = rows[2]!;
     expect(firstRow).toHaveTextContent(first.protocol);
-    expect(firstRow).toHaveTextContent('earnVaultAssetOnNetwork');
+    expect(firstRow).toHaveTextContent(`earnVaultAssetOnNetwork:${first.asset},${first.network}`);
     expect(firstRow).toHaveTextContent(first.apy);
     // The earn API has no TVL, so the row promises none.
     expect(within(firstRow).queryByText('earnVaultTvl')).toBeNull();
@@ -399,6 +394,66 @@ describe('Earn page', () => {
 
     // Each row also renders a ProviderLogo probe with the vault's protocol.
     expect(within(firstRow).getByTestId('provider-logo')).toHaveAttribute('data-protocol', first.protocol);
+  });
+
+  it('hands each vault row its document logo, and none to a vault whose listing names none', () => {
+    const logoUrl = 'https://config.test/icons/aave.svg';
+    const withLogo = vaults.map((vault, index) => (index === 0 ? { ...vault, logoUrl } : vault));
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: withLogo });
+    render(<Earn />);
+
+    const logos = within(vaultsSection()).getAllByTestId('provider-logo');
+    expect(logos[0]).toHaveAttribute('data-logo-url', logoUrl);
+    expect(logos[1]).not.toHaveAttribute('data-logo-url');
+  });
+
+  it("titles each row with the document's name, so two Morpho USDC vaults on one chain read differently", () => {
+    render(<Earn />);
+
+    const [first, second] = vaults;
+    expect(first!.protocol).toBe(second!.protocol);
+    const firstRow = screen.getByTestId(`earn-vault-row-${first!.id}`);
+    const secondRow = screen.getByTestId(`earn-vault-row-${second!.id}`);
+    expect(within(firstRow).getByText(first!.name ?? '')).toHaveClass('text-row-title');
+    expect(within(secondRow).getByText(second!.name ?? '')).toHaveClass('text-row-title');
+    expect(within(firstRow).getByText(`earnVaultAssetOnNetwork:${first!.asset},${first!.network}`)).toHaveClass(
+      'text-caption',
+      'text-muted',
+      'truncate'
+    );
+    expect(firstRow.textContent).not.toBe(secondRow.textContent);
+  });
+
+  it("puts the document's about sentence under the name, and nothing for a vault with none", () => {
+    render(<Earn />);
+
+    const compound = vaults.find(vault => vault.listedAbout);
+    expect(compound).toBeDefined();
+    expect(screen.getByTestId(`earn-vault-row-about-${compound!.id}`)).toHaveTextContent(compound!.listedAbout ?? '');
+    expect(screen.queryByTestId(`earn-vault-row-about-${vaults[0]!.id}`)).toBeNull();
+  });
+
+  it('names a market with no document name by its protocol, and its market name beside the asset', () => {
+    const { name: _name, ...unnamed } = vaults[0]!;
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions,
+      vaults: [{ ...unnamed, marketName: 'Morpho uniBTC-USDC 77' }],
+      refetch: jest.fn(),
+      isLoading: false
+    });
+    render(<Earn />);
+
+    const row = screen.getByTestId(`earn-vault-row-${unnamed.id}`);
+    expect(within(row).getByText('Morpho')).toHaveClass('text-row-title');
+    expect(row).toHaveTextContent('earnMarketAssetOnNetwork:Morpho uniBTC-USDC 77,USDC,Base');
+  });
+
+  it('lists the vaults in the order the hook gives them', () => {
+    render(<Earn />);
+
+    const rows = within(vaultsSection()).getAllByRole('button');
+    expect(rows.map(row => row.getAttribute('data-testid'))).toEqual(vaults.map(vault => `earn-vault-row-${vault.id}`));
   });
 
   it('navigates to a vault detail when its row is tapped', () => {
@@ -438,12 +493,14 @@ describe('Earn page', () => {
 });
 
 it('lists the Testnet native funding asset while keeping the vault underlying separate', () => {
-  const vault = { ...vaults[0]!, fundingAsset: 'USDCx' };
-  mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: [vault] });
+  const vault = { ...vaults[2]!, fundingAsset: 'USDCx' };
+  const morpho = { ...vaults[0]!, fundingAsset: 'USDCx' };
+  mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, vaults: [vault, morpho] });
   render(<Earn />);
   const row = screen.getByTestId(`earn-vault-row-${vault.id}`);
   expect(row).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
   expect(row).not.toHaveTextContent(`earnVaultAssetOnNetwork:${vault.asset},${vault.network}`);
+  expect(screen.getByTestId(`earn-vault-row-${morpho.id}`)).toHaveTextContent('earnVaultAssetOnNetwork:USDCx,Miden');
 });
 
 describe('Earn page availability notice', () => {

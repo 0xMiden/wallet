@@ -3,11 +3,11 @@
  *
  * Two of the three things this pins are regressions, not preferences:
  *
- * - **The horizontal gesture belongs to the carousel.** `HomeSwipeContainer` drags the track with
- *   framer, under `touch-action: pan-y`. A pane that becomes a horizontal scroll container is the
- *   handler for a sideways pan and takes that gesture before the carousel sees it — which is how
- *   the Send pane stopped switching tabs. The body's `touch-action: pan-y` and `overflow-x-hidden`
- *   are what make that impossible, so they are asserted rather than left to a reviewer's eye.
+ * - **The horizontal gesture belongs to the carousel.** `HomeSwipeContainer` is a native
+ *   scroll-snap scroller, and `touch-action` intersects up to it. A pane that becomes a horizontal
+ *   scroll container is the handler for a sideways pan and takes that gesture before the carousel sees it, which is how
+ *   the Send pane stopped switching tabs. The body's `touch-action: pan-x pan-y` and
+ *   `overflow-x-hidden` are what make that impossible, so they are asserted rather than left to a reviewer's eye.
  * - **One page margin, and one top offset per kind of pane**, so a titled pane's first line does
  *   not move as you swipe between them, and no pane sits inset from its neighbours.
  *
@@ -36,7 +36,7 @@ jest.mock('app/icons/v2', () => ({
 const body = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-home-pane-body="true"]')!;
 
 describe('HomeGroupPaneBody', () => {
-  it('keeps the horizontal gesture for the carousel: pan-y, and never a horizontal scroller', () => {
+  it('lets horizontal pans reach the pager: pan-x pan-y, and never a horizontal scroller', () => {
     const { container } = render(
       <HomeGroupPaneBody>
         <p>content</p>
@@ -45,10 +45,12 @@ describe('HomeGroupPaneBody', () => {
 
     const el = body(container);
     // Declared inline, so it survives any `className` a caller might add.
-    expect(el.style.touchAction).toBe('pan-y');
+    expect(el.style.touchAction).toBe('pan-x pan-y');
     // `overflow-y-auto` alone computes `overflow-x` to `auto`, which makes the body itself a
     // horizontal scroll container the moment anything inside it bleeds past the page margin.
-    expect(el).toHaveClass('overflow-y-auto', 'overflow-x-hidden', 'overscroll-contain');
+    expect(el).toHaveClass('overflow-y-auto', 'overflow-x-hidden', 'overscroll-y-contain');
+    // Both-axis containment would stop a sideways pan or wheel here instead of chaining it to the pager.
+    expect(el).not.toHaveClass('overscroll-contain');
   });
 
   it('puts every pane on the one page margin, and a titled pane at the root top offset', () => {

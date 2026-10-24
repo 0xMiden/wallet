@@ -91,6 +91,19 @@ jest.mock('components/Button', () => ({
 //     swapTokenToUIToken transformation, and two buttons surface the
 //     onAmountChange / onSelectToken callbacks.
 let mockRealAmountDisplay = false;
+let mockCapturePrecision = false;
+jest.mock('components/AmountInput', () => ({
+  ...jest.requireActual('components/AmountInput'),
+  AmountInput: (props: any) => {
+    if (mockCapturePrecision) {
+      return (
+        <div data-testid="captured-amount-input" data-label={props.label} data-decimals-limit={props.decimalsLimit} />
+      );
+    }
+    const { AmountInput } = jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput');
+    return <AmountInput {...props} />;
+  }
+}));
 jest.mock('../send-flow/SelectAmount', () => ({
   SelectAmount: (props: any) => {
     if (mockRealAmountDisplay) {
@@ -176,6 +189,27 @@ describe('SwapAmounts', () => {
   });
 
   describe('layout & token mapping', () => {
+    it('passes each selected token precision to its amount input', () => {
+      mockRealAmountDisplay = true;
+      mockCapturePrecision = true;
+      try {
+        renderComponent({
+          offerToken: { ...offerToken, decimals: 9 },
+          requestToken: { ...requestToken, decimals: 2 }
+        });
+
+        const inputs = screen.getAllByTestId('captured-amount-input');
+        expect(inputs).toHaveLength(2);
+        expect(inputs[0]).toHaveAttribute('data-label', 'youPay');
+        expect(inputs[0]).toHaveAttribute('data-decimals-limit', '9');
+        expect(inputs[1]).toHaveAttribute('data-label', 'youReceive');
+        expect(inputs[1]).toHaveAttribute('data-decimals-limit', '2');
+      } finally {
+        mockCapturePrecision = false;
+        mockRealAmountDisplay = false;
+      }
+    });
+
     it('renders both stacked SelectAmount fields (You Pay / You Receive), embedded', () => {
       renderComponent();
 
@@ -282,6 +316,28 @@ describe('SwapAmounts', () => {
       expect(pay).toHaveAttribute('data-error', 'amountMustBeLessThanBalance');
     });
 
+    it('rejects a typed base unit above an 18-decimal offer balance', () => {
+      renderComponent({
+        offerToken: { ...offerToken, decimals: 18 },
+        offerAmount: '1.000000000000000001',
+        offerBalance: 1
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      expect(pay).toHaveAttribute('data-valid', 'false');
+      expect(pay).toHaveAttribute('data-error', 'amountMustBeLessThanBalance');
+    });
+
+    it('shows the precision error before the offer balance error', () => {
+      renderComponent({
+        offerToken: { ...offerToken, decimals: 2 },
+        offerAmount: '1.001',
+        offerBalance: 1
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      expect(pay).toHaveAttribute('data-valid', 'false');
+      expect(pay).toHaveAttribute('data-error', 'amountExceedsTokenDecimals');
+    });
+
     it('is invalid with no error when the amount is zero (fails the > 0 check first)', () => {
       renderComponent({ offerAmount: '0', offerBalance: 100 });
       const pay = screen.getByTestId('select-amount-youPay');
@@ -338,6 +394,13 @@ describe('SwapAmounts', () => {
     it('is invalid when the request amount is zero/empty', () => {
       renderComponent({ requestAmount: '0' });
       expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-valid', 'false');
+    });
+
+    it('shows a precision error for a request amount the token cannot represent', () => {
+      renderComponent({ requestToken: { ...requestToken, decimals: 2 }, requestAmount: '1.001' });
+      const receive = screen.getByTestId('select-amount-youReceive');
+      expect(receive).toHaveAttribute('data-valid', 'false');
+      expect(receive).toHaveAttribute('data-error', 'amountExceedsTokenDecimals');
     });
   });
 

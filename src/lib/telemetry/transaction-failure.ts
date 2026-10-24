@@ -151,6 +151,18 @@ export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', '
   'unavailable'
 ];
 
+/**
+ * How long a transaction waited between its execution and its submit, against the blocks its expiration allows. The
+ * wait is converted at an estimated block time, so a bucket only separates a wait that was a fraction of the window
+ * from one that used it up.
+ */
+export const PROOF_WAIT_BUCKETS: readonly ['under_half_window', 'over_half_window', 'past_window', 'unavailable'] = [
+  'under_half_window',
+  'over_half_window',
+  'past_window',
+  'unavailable'
+];
+
 export const THROWN_CLASSES: readonly [
   'wasm_runtime_error',
   'type_error',
@@ -374,6 +386,10 @@ export interface TransactionFailure {
   hiddenDuringSubmit?: boolean;
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
   submitLegMs?: number;
+  /** Blocks the transaction waited from its execution to its submit, at the estimated block time. */
+  proofWaitBlocks?: number;
+  /** Blocks from the transaction's reference block to its expiration. */
+  expiryWindowBlocks?: number;
   /** This transaction's failure was reported before, so this report is evidence for that one, not a second error. */
   alreadyReported?: boolean;
   point?: (typeof FAILURE_POINTS)[number];
@@ -675,14 +691,24 @@ function submitRequestFailure(error: unknown): { endpoint: string; kind: string 
 const grpcStatusOf = (kind: string | undefined) =>
   kind === undefined ? undefined : SUBMIT_GRPC_TEXT.find(([, text]) => kind.startsWith(text));
 
-/**
- * The gRPC status of the SDK's request failure inside a submit, `other` for a status the table does not list, or
- * undefined when the error carries no such failure.
- */
-export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[number] | undefined {
+export interface SubmitGrpcFailure {
+  endpoint: (typeof SUBMIT_ENDPOINTS)[number];
+  status: (typeof SUBMIT_GRPC_STATUSES)[number];
+}
+
+/** The endpoint and gRPC status for an SDK request failure inside a submit. */
+export function submitGrpcFailure(error: unknown): SubmitGrpcFailure | undefined {
   const refusal = submitRequestFailure(error);
   if (refusal === undefined) return undefined;
-  return grpcStatusOf(refusal.kind)?.[0] ?? 'other';
+  return {
+    endpoint: SUBMIT_ENDPOINT_BY_NAME.get(refusal.endpoint) ?? 'other',
+    status: grpcStatusOf(refusal.kind)?.[0] ?? 'other'
+  };
+}
+
+/** The gRPC status of an SDK request failure inside a submit, or undefined when absent. */
+export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[number] | undefined {
+  return submitGrpcFailure(error)?.status;
 }
 
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
@@ -705,7 +731,19 @@ function submitOutcomeIdentity(
   return `${coined('submit_outcome_unknown')}; grpc ${status}; ${submitContextIdentity(hiddenDuringSubmit, submitLegMs)}`;
 }
 
-function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): string {
+function proofWaitBucket(
+  waitBlocks: number | undefined,
+  windowBlocks: number | undefined
+): (typeof PROOF_WAIT_BUCKETS)[number] {
+  if (waitBlocks === undefined || windowBlocks === undefined) return 'unavailable';
+  if (!Number.isFinite(waitBlocks) || waitBlocks < 0 || !Number.isFinite(windowBlocks) || windowBlocks <= 0) {
+    return 'unavailable';
+  }
+  const used = waitBlocks / windowBlocks;
+  return used < 0.5 ? 'under_half_window' : used <= 1 ? 'over_half_window' : 'past_window';
+}
+
+function submitRefusalIdentity(refusal: { endpoint: string; kind: string }, failure: TransactionFailure): string {
   const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal.endpoint) ?? 'other';
   const status = grpcStatusOf(refusal.kind);
   let node: (typeof SUBMIT_NODE_ERRORS)[number] = 'none';
@@ -714,7 +752,11 @@ function submitRefusalIdentity(refusal: { endpoint: string; kind: string }): str
     const after = refusal.kind.slice(status[1].length);
     if (after.startsWith(' (')) node = SUBMIT_NODE_TEXT.find(([, text]) => after.startsWith(text, 2))?.[0] ?? 'other';
   }
-  return `${coined('submit_rejected')}; endpoint ${endpoint}; grpc ${status?.[0] ?? 'other'}; node ${node}`;
+  const identity = `${coined('submit_rejected')}; endpoint ${endpoint}; grpc ${status?.[0] ?? 'other'}; node ${node}`;
+  // Only an expiry has a window to measure the wait against.
+  return node === 'expired'
+    ? `${identity}; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
+    : identity;
 }
 
 function failureIdentity(failure: TransactionFailure): string {
@@ -733,7 +775,7 @@ function failureIdentity(failure: TransactionFailure): string {
     return submitOutcomeIdentity(error, failure.hiddenDuringSubmit, failure.submitLegMs);
   }
   const refusal = submitRequestFailure(error);
-  if (refusal !== undefined) return submitRefusalIdentity(refusal);
+  if (refusal !== undefined) return submitRefusalIdentity(refusal, failure);
   if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return coined('advice_stack_read_failed');
   if ([...reportedCauseChain(error)].some(isClientTerminatedError) || /WebClient terminated/.test(message)) {
@@ -763,6 +805,7 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...SUBMIT_NODE_ERRORS,
   ...SUBMIT_HIDDEN_ANSWERS,
   ...SUBMIT_LEG_BUCKETS,
+  ...PROOF_WAIT_BUCKETS,
   ...THROWN_CLASSES,
   ...PIPELINE_KILLS,
   ...OFFSCREEN_DEADLINE_OWNERS,

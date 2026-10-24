@@ -3,7 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 
 import type { IHistoryEntry } from './IHistoryEntry';
@@ -93,8 +93,12 @@ jest.mock('./TransactionStatus', () => ({
       {displayValue}
     </a>
   ),
-  StatusPill: ({ swapSettlement }: { swapSettlement?: string }) => (
-    <div data-testid="status-pill" data-swap-settlement={String(swapSettlement)} />
+  StatusPill: ({ swapSettlement, paybackClaimStuck }: { swapSettlement?: string; paybackClaimStuck?: boolean }) => (
+    <div
+      data-testid="status-pill"
+      data-swap-settlement={String(swapSettlement)}
+      data-payback-stuck={String(Boolean(paybackClaimStuck))}
+    />
   )
 }));
 
@@ -319,8 +323,8 @@ describe('SwapDetail progress', () => {
     // funds arrived. A floor keeps the two from contradicting each other.
     renderDetail({ requestedAmount: 10_000_000n, filledAmount: 1n });
 
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0.1');
-    expect(screen.getByText('swapProgressPercent_0.1')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.getByText('swapProgressPercent_<0.1')).toBeInTheDocument();
   });
 });
 
@@ -758,5 +762,164 @@ describe('user-visible live swap cancel errors', () => {
       jest.advanceTimersByTime(2000);
     });
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+const mockRequeueFailedTransaction = jest.fn();
+const mockRequestSWTransactionProcessing = jest.fn();
+const mockNavigate = jest.fn();
+jest.mock('lib/miden/activity', () => ({
+  ...jest.requireActual('lib/miden/activity'),
+  requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailedTransaction(...args),
+  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
+}));
+jest.mock('lib/woozie', () => ({ ...jest.requireActual('lib/woozie'), navigate: (to: string) => mockNavigate(to) }));
+const mockGetPaybackClaimState = jest.fn();
+jest.mock('lib/miden/swap/payback-claim', () => ({
+  ...jest.requireActual('lib/miden/swap/payback-claim'),
+  getPaybackClaimState: (...args: unknown[]) => mockGetPaybackClaimState(...args)
+}));
+const swapRow = { id: 'synthetic-swap', type: 'swap', status: 2 } as unknown as ITransaction;
+
+const stuckEntry = {
+  ...entry,
+  paybackClaimStuck: { failedClaimId: 'payback-claim-1', reason: 'network' }
+} as unknown as IHistoryEntry;
+
+const LiveStuckPayback = ({
+  swapEntry = stuckEntry,
+  noRow = false
+}: {
+  swapEntry?: IHistoryEntry;
+  noRow?: boolean;
+}) => {
+  const actions = useTransactionActions('synthetic-swap', swapEntry, noRow ? undefined : swapRow);
+  return (
+    <SwapDetail
+      entry={swapEntry}
+      requestedAmount={1000n}
+      requestedDecimals={8}
+      requestedScaleIsKnown
+      requestedSymbol="ETH"
+      requestedFaucetId={REQUESTED_FAUCET}
+      filledAmount={1000n}
+      orderState="filled"
+      trackingLoading={false}
+      settledTransactions={[]}
+      reclaimedTransactions={[]}
+      fromAccount={<span>me</span>}
+      showActions
+      offerCancelOrder={false}
+      isCancellingOrder={false}
+      cancelOrderError={null}
+      onCancelOrder={mockCancelOrder}
+      isRetryingPayback={actions.isRetryingPayback}
+      paybackRetryError={actions.paybackRetryError}
+      paybackRetryErrorId={actions.paybackRetryErrorId}
+      onRetryPayback={actions.onRetryPayback}
+    />
+  );
+};
+
+describe('SwapDetail stuck payout claim (#1644)', () => {
+  const settle = () =>
+    act(async () => {
+      for (let tick = 0; tick < 25; tick++) {
+        await Promise.resolve();
+      }
+    });
+  beforeEach(() => {
+    mockRequeueFailedTransaction.mockReset().mockResolvedValue(undefined);
+    mockGetPaybackClaimState
+      .mockReset()
+      .mockResolvedValue({ stuck: true, failedClaimId: 'payback-claim-1', reason: 'network' });
+  });
+
+  it('says the payout claim is stuck, with its reason, and offers Retry', () => {
+    render(<LiveStuckPayback />);
+
+    expect(screen.getByTestId('swap-payback-stuck')).toHaveTextContent('swapPaybackStuckNetwork');
+    expect(screen.getByTestId('swap-retry-payback-button')).toHaveTextContent('swapRetryPayback');
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-payback-stuck', 'true');
+  });
+
+  it.each(['fee', 'guardian', 'other'])('names the %s reason', reason => {
+    render(
+      <LiveStuckPayback
+        swapEntry={{ ...stuckEntry, paybackClaimStuck: { failedClaimId: 'payback-claim-1', reason } } as IHistoryEntry}
+      />
+    );
+    const key = `swapPaybackStuck${reason.charAt(0).toUpperCase()}${reason.slice(1)}`;
+    expect(screen.getByTestId('swap-payback-stuck')).toHaveTextContent(key);
+  });
+
+  it('retries the failed payout claim itself and opens its progress', async () => {
+    render(<LiveStuckPayback />);
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await settle();
+
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-1', {});
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/payback-claim-1');
+  });
+
+  it('does not requeue a claim that stopped being stuck (F-006)', async () => {
+    mockGetPaybackClaimState.mockResolvedValueOnce({ stuck: false });
+    render(<LiveStuckPayback />);
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await settle();
+
+    expect(mockGetPaybackClaimState).toHaveBeenCalledWith(swapRow);
+    expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('retries the fresh stuck claim when it is a different row (F-010)', async () => {
+    mockGetPaybackClaimState.mockResolvedValueOnce({
+      stuck: true,
+      failedClaimId: 'payback-claim-2',
+      reason: 'network'
+    });
+    render(<LiveStuckPayback />);
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await settle();
+
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-2', {});
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledTimes(1);
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/payback-claim-2');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('retries the rendered claim when the receipt has no row (F-010)', async () => {
+    render(<LiveStuckPayback noRow />);
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await settle();
+
+    expect(mockGetPaybackClaimState).not.toHaveBeenCalled();
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledTimes(1);
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-1', {});
+    expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/payback-claim-1');
+  });
+
+  it('shows a fee refusal of the retry', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    mockRequeueFailedTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    render(<LiveStuckPayback />);
+    fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+    await settle();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('insufficientFeeAsset');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('shows nothing for a payout that is not stuck', () => {
+    render(<LiveStuckPayback swapEntry={entry} />);
+
+    expect(screen.queryByTestId('swap-payback-stuck')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('swap-retry-payback-button')).not.toBeInTheDocument();
   });
 });

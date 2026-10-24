@@ -556,3 +556,82 @@ describe('the queue expiry', () => {
     ]);
   });
 });
+
+describe('a submit the node refused as expired', () => {
+  const EXECUTED_AT_MS = 1_800_000_000_000;
+  let clock: jest.SpyInstance;
+
+  const expired = () =>
+    new Error(
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: ' +
+        `invalid request parameters (transaction expired): status: 'invalid request parameters (transaction expired)', ` +
+        `self: "tx ${TRANSACTION} for ${ACCOUNT}"`
+    );
+
+  // A 60 block window; the wait is converted at 3 s a block.
+  const submitting = (waitMs: number | undefined, evidence: Partial<ISubmitEvidence> | null = {}): ITransaction => ({
+    id: 'tx-1',
+    type: 'execute',
+    accountId: ACCOUNT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: EXECUTED_AT_MS / 1000 - 30,
+    stage: 'submitting',
+    stageTimestamps:
+      waitMs === undefined
+        ? { submitting: EXECUTED_AT_MS }
+        : { executing: EXECUTED_AT_MS, submitting: EXECUTED_AT_MS + waitMs },
+    attemptId: 'a1',
+    submitEvidence:
+      evidence === null
+        ? undefined
+        : [
+            {
+              attemptId: 'a1',
+              capturedAt: NOW,
+              source: 'stage',
+              refBlock: 1000,
+              expirationBlock: 1060,
+              ...evidence
+            }
+          ],
+    delegateTransaction: true,
+    displayIcon: 'DEFAULT'
+  });
+
+  beforeEach(() => {
+    clock = jest.spyOn(Date, 'now').mockReturnValue(EXECUTED_AT_MS + 400_000);
+  });
+
+  afterEach(() => {
+    clock.mockRestore();
+  });
+
+  it.each([
+    [89_999, 'under_half_window'],
+    [90_000, 'over_half_window'],
+    [180_000, 'over_half_window'],
+    [180_001, 'past_window']
+  ])('reports a wait of %s ms before submit against the evidence window as %s', async (waitMs, bucket) => {
+    await Repo.transactions.put(submitting(waitMs));
+    expect(await cancelTransaction(submitting(waitMs), expired())).toBe(true);
+    const [report, ...rest] = captured();
+    expect(rest).toEqual([]);
+    expect(report?.message).toContain(
+      `; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node expired; proof wait ${bucket}. authentication`
+    );
+    expect(report?.message).not.toMatch(/\b(?:89999|90000|180000|180001|1000|1060|60)\b/);
+    expectNoTransactionData(report?.message ?? '');
+  });
+
+  it.each([
+    ['has no execution stamp', submitting(undefined)],
+    ['has no evidence', submitting(100_000, null)],
+    ['has evidence without an expiration', submitting(100_000, { expirationBlock: undefined })],
+    ['has evidence without a reference block', submitting(100_000, { refBlock: undefined })],
+    ['has evidence of another attempt only', submitting(100_000, { attemptId: 'a0' })]
+  ])('reports the wait as unavailable when the row %s', async (_name, row) => {
+    await Repo.transactions.put(row);
+    expect(await cancelTransaction(row, expired())).toBe(true);
+    expect(captured()[0]?.message).toContain('node expired; proof wait unavailable. authentication');
+  });
+});

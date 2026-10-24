@@ -7,6 +7,7 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import type { BridgeFeature, FeatureAvailability } from './availability';
 import type { E2eOverrides } from './e2e-overrides';
 import type { BridgeConfigSnapshot } from './runtime';
+import type { FeatureAvailabilityOptions } from './use-feature-availability';
 import { useAnyFeatureAvailability, useBridgeConfigSnapshot, useFeatureAvailability } from './use-feature-availability';
 
 const snapshotOn = (network: string): BridgeConfigSnapshot => ({
@@ -187,6 +188,25 @@ describe('useFeatureAvailability', () => {
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves a hold function against the feature availability', () => {
+    answer({ earnDeposit: DOWN });
+    let shouldHold = false;
+    const hold = jest.fn((_availability: FeatureAvailability) => shouldHold);
+    const options: FeatureAvailabilityOptions = { hold };
+    const { rerender } = renderHook(() => useFeatureAvailability('earnDeposit', options), { wrapper: Wrapper });
+    expect(hold).toHaveBeenLastCalledWith(DOWN);
+    expect(mockHold).not.toHaveBeenCalled();
+
+    shouldHold = true;
+    rerender();
+    expect(hold).toHaveBeenLastCalledWith(DOWN);
+    expect(mockHold).toHaveBeenCalledTimes(1);
+
+    shouldHold = false;
+    rerender();
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
   it('holds by default', () => {
     answer({ earnDeposit: DOWN });
     renderHook(() => useFeatureAvailability('earnDeposit', {}), { wrapper: Wrapper });
@@ -231,5 +251,24 @@ describe('useAnyFeatureAvailability', () => {
     const { result } = renderHook(() => useAnyFeatureAvailability(both, { hold: false }), { wrapper: Wrapper });
     expect(result.current).toEqual(OFF);
     expect(mockHold).not.toHaveBeenCalled();
+  });
+
+  it('resolves a hold function against the combined availability', () => {
+    answer({ fastBridgeIn: DOWN, bridgeIn: UNCONFIGURED });
+    let shouldHold = false;
+    const hold = jest.fn((_availability: FeatureAvailability) => shouldHold);
+    const options: FeatureAvailabilityOptions = { hold };
+    const { result, rerender } = renderHook(() => useAnyFeatureAvailability(both, options), { wrapper: Wrapper });
+    expect(result.current).toEqual(DOWN);
+    expect(hold).toHaveBeenLastCalledWith(DOWN);
+    expect(mockHold).not.toHaveBeenCalled();
+
+    shouldHold = true;
+    rerender();
+    expect(mockHold).toHaveBeenCalledTimes(1);
+
+    shouldHold = false;
+    rerender();
+    expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 });

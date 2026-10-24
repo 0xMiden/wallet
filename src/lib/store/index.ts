@@ -275,6 +275,7 @@ export const useWalletStore = create<WalletStore>()(
     fiatRates: null,
     fiatRatesLoading: false,
     tokenPrices: {},
+    tokenPricesStatus: 'loading',
 
     // Initial sync state
     isInitialized: false,
@@ -661,6 +662,15 @@ export const useWalletStore = create<WalletStore>()(
         expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
+    },
+
+    importHotKeyPair: async (accountPublicKey, keyPairPayload) => {
+      const res = await request({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey,
+        keyPairPayload
+      });
+      assertResponse(res.type === WalletMessageType.ImportHotKeyPairResponse);
     },
 
     setGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {

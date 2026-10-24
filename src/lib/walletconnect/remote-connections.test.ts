@@ -45,7 +45,7 @@ function setChains(ids: number[]) {
     config: {
       network: 'mainnet',
       version: 1,
-      features: { earn: false },
+      features: { earn: false, nearIntents: false },
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
       supportedEvmChains: Object.fromEntries(ids.map(chainId => [`chain-${chainId}`, { chainId, bridges: {} }]))
     }

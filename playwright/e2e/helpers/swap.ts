@@ -39,7 +39,7 @@ const isStubQuoteHost = (url: URL): boolean => url.origin === STUB_QUOTE_URL || 
 const STUB_LOCALNET_DOCUMENT = {
   network: 'localnet',
   version: 1,
-  features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+  features: { earn: false, nearIntents: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
   swap: { etaUrl: STUB_QUOTE_URL }
 };
 

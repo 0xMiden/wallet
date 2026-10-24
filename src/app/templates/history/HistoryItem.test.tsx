@@ -126,6 +126,11 @@ beforeEach(() => {
 });
 
 describe('HistoryItem', () => {
+  it('titles a legacy row with no stored message by its action', () => {
+    render(<HistoryItem entry={makeEntry({ message: undefined, txType: 'send' })} />);
+    expect(screen.getByText('t:sent')).toBeInTheDocument();
+  });
+
   it('shows a bridge row output under its label', () => {
     jest.mocked(bridgeRowDisplay).mockReturnValue({
       inSymbol: 'USDC',
@@ -290,6 +295,11 @@ describe('HistoryItem', () => {
     const root = contentRoot(container);
     expect(root).toHaveClass('border-b');
     expect(root).not.toHaveClass('border-b-border-card');
+  });
+
+  it('localizes a failed summary row whose stored message is the English sentinel', () => {
+    render(<HistoryItem entry={makeEntry({ message: 'Transaction failed' })} />);
+    expect(screen.getByText('t:transactionFailedNotificationTitle')).toBeInTheDocument();
   });
 
   it('shows the faucet-request title when isFaucetRequest is true', () => {

@@ -47,6 +47,7 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -63,6 +64,7 @@ import {
   type OffscreenDeadlineTimer,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
+  type OffscreenSendDto,
   type OffscreenReloadEndpointsRequest,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignRequest,
@@ -94,7 +96,6 @@ import {
 } from '../guardian/history-errors';
 import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
-import type { NoteType } from '../types';
 
 /**
  * Feature flag: route proxied methods through the offscreen document.
@@ -894,31 +895,16 @@ type OffscreenConsumeDto = {
   delegateTransaction?: boolean;
 };
 
-/** `sendTransaction` reads exactly these fields off the `SendTransaction` row
- * (verified against `MidenClientInterface.sendTransaction`). `amount` is the
- * row's BigInt as a decimal string; `noteType` is the plain 'public'/'private'
- * string enum; `extraInputs.recallBlocks` (when present) turns the send into a
- * recallable P2IDE — all JSON-safe. */
-type OffscreenSendDto = {
-  accountId: string;
-  secondaryAccountId: string;
-  faucetId: string;
-  noteType: NoteType;
-  amount: string;
-  delegateTransaction?: boolean;
-  extraInputs: { recallBlocks?: number };
-};
+type OffscreenSwapFeeContextDto = Omit<SwapFeeContext, 'baseFee'> & { baseFee: string };
 
-/** `swapTransaction` reads exactly these fields off the `SwapTransaction` row
- * (verified against `MidenClientInterface.swapTransaction`). Both the offered
- * `amount` and the requested `extraInputs.requestedAmount` are the row's BigInts
- * as decimal strings. */
+/** The fee context is resolved before dispatch because each realm has separate native-asset caches. */
 type OffscreenSwapDto = {
   accountId: string;
   faucetId: string;
   amount: string;
   delegateTransaction?: boolean;
-  extraInputs: { requestedFaucetId: string; requestedAmount: string };
+  extraInputs: { requestedFaucetId: string; requestedAmount: string; balanceScope?: string };
+  swapFeeContext: OffscreenSwapFeeContextDto;
 };
 
 /**
@@ -1031,11 +1017,20 @@ export function dispatchGuardianPipeline(
   // at the tip against the block the request's auth args bind.
   chainAnchorB64?: string,
   // The leaf's submit gate (#1644): the offscreen leaf submits only once it opened.
-  submitGate?: SubmitGate
+  submitGate?: SubmitGate,
+  oneClickDeadline?: string,
+  oneClickRequired = false
 ): Promise<TransactionResult> {
   // Typed against the shared wire contract so a dropped or reordered slot is a
   // compile error here rather than an argument the offscreen leaf silently misreads.
-  const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
+  const args: GuardianPipelineArgs = [
+    accountId,
+    trBytes,
+    delegateTransaction ?? null,
+    chainAnchorB64 ?? null,
+    oneClickDeadline ?? null,
+    oneClickRequired
+  ];
   return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage, submitGate);
 }
 
@@ -1746,7 +1741,20 @@ export const midenClientProxy = {
       noteType: transaction.noteType,
       amount: transaction.amount.toString(),
       delegateTransaction: transaction.delegateTransaction,
-      extraInputs: { recallBlocks: transaction.extraInputs?.recallBlocks }
+      extraInputs: {
+        recallBlocks: transaction.extraInputs?.recallBlocks,
+        ...(transaction.extraInputs?.oneClick
+          ? {
+              oneClick: {
+                ...(transaction.extraInputs.oneClick.fundingDeadline === undefined
+                  ? {}
+                  : { fundingDeadline: transaction.extraInputs.oneClick.fundingDeadline }),
+                request: { deadline: transaction.extraInputs.oneClick.request.deadline },
+                quote: { quote: { deadline: transaction.extraInputs.oneClick.quote.quote.deadline } }
+              }
+            }
+          : {})
+      }
     };
     return dispatchOffscreenWrite('sendTransaction', [dto], signCallback, onStage);
   },
@@ -1756,8 +1764,9 @@ export const midenClientProxy = {
    * Same flag-OFF inline (realm signer) + flag-ON whole-op contract as {@link sendTransaction}.
    * The DTO carries EXACTLY what `MidenClientInterface.swapTransaction` reads —
    * `accountId`, `faucetId`, the offered `amount` (BigInt → string),
-   * `delegateTransaction`, and `extraInputs.{requestedFaucetId, requestedAmount}`
-   * (BigInt → string). `completeSwapTransaction` consumes the round-tripped
+   * `delegateTransaction`, `extraInputs.{requestedFaucetId, requestedAmount}`
+   * (BigInt → string), the queued `balanceScope`, and the caller-resolved fee
+   * context. `completeSwapTransaction` consumes the round-tripped
    * `TransactionResult` identically (no further client call).
    */
   async swapTransaction(
@@ -1765,8 +1774,9 @@ export const midenClientProxy = {
     signCallback: RawSignCallback,
     onStage?: StageCallback
   ): Promise<TransactionResult> {
+    const feeContext = await readSwapFeeContext(transaction.extraInputs.balanceScope);
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage));
+      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage, feeContext));
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1775,8 +1785,10 @@ export const midenClientProxy = {
       delegateTransaction: transaction.delegateTransaction,
       extraInputs: {
         requestedFaucetId: transaction.extraInputs.requestedFaucetId,
-        requestedAmount: transaction.extraInputs.requestedAmount.toString()
-      }
+        requestedAmount: transaction.extraInputs.requestedAmount.toString(),
+        balanceScope: transaction.extraInputs.balanceScope
+      },
+      swapFeeContext: { ...feeContext, baseFee: feeContext.baseFee.toString() }
     };
     return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage);
   },

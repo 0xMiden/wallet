@@ -41,16 +41,23 @@ const CARD_COLOR_SURFACE: Record<CardColor, string> = {
 const LEADING_SIGN = /^[+\-\u2212]\s*/;
 
 /**
- * Which way the change pill points. A change that rounds to zero is neutral whatever the caller
- * says, so the card never shows an arrow (or a "-0.00") for no movement. Without a direction the
- * sign of the percentage decides.
+ * Which way the change pill points. A percentage that rounds to zero is neutral when the absolute
+ * is absent or also rounds to zero, whatever direction the caller supplies, so the card never
+ * shows an arrow for no movement. A nonzero absolute uses its leading minus as negative and any
+ * other mark as positive. A nonzero percentage follows the supplied direction, then its own sign.
  */
 export function resolveDeltaDirection(delta: {
   percentage: string;
+  absolute?: string;
   direction?: BalanceDeltaDirection;
 }): BalanceDeltaDirection {
   const magnitude = Number.parseFloat(delta.percentage.replace(/[^\d.]/g, ''));
-  if (!Number.isFinite(magnitude) || magnitude === 0) return 'neutral';
+  if (!Number.isFinite(magnitude) || magnitude === 0) {
+    if (delta.absolute === undefined) return 'neutral';
+    const absoluteMagnitude = Number.parseFloat(delta.absolute.replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(absoluteMagnitude) || absoluteMagnitude === 0) return 'neutral';
+    return /^\s*[-\u2212]/.test(delta.absolute) ? 'negative' : 'positive';
+  }
   if (delta.direction) return delta.direction;
   return /^\s*[-\u2212]/.test(delta.percentage) ? 'negative' : 'positive';
 }
@@ -145,9 +152,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
   const deltaDirection = delta ? resolveDeltaDirection(delta) : 'neutral';
   // A neutral change carries no sign: the arrow and the sign are how the pill shows direction.
-  // TRAP for whoever wires a real price source: `deltaDirection` is neutral when the PERCENTAGE
-  // rounds to zero, and this strips the sign from BOTH values, so a real -$12.34 at 0.00% renders
-  // identically to a gain. Home passes no delta today, which is why nothing shows it.
+  // When the percentage rounds to zero, a nonzero absolute keeps its sign on both pill strings.
   const deltaText = (value: string) => (deltaDirection === 'neutral' ? value.replace(LEADING_SIGN, '') : value);
 
   const handleMoreClick = () => {
@@ -211,17 +216,19 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           )}
         </div>
 
+        {/* 2px plus the ~10px the 56px amount's line box keeps under its digits: a 12px visible gap. */}
         {delta && !isLoading && !isHidden && (
-          <div className="mt-3 flex">
+          <div className="mt-0.5 flex">
             <Pill
               tone="inverse"
+              size="sm"
               data-testid="balance-card-delta"
               icon={
                 deltaDirection === 'neutral' ? undefined : (
                   // The `!` beats the default md size <Icon> injects; under Tailwind v4 it otherwise wins.
                   <Icon
                     name={deltaDirection === 'negative' ? IconName.ArrowDown : IconName.ArrowUp}
-                    className="w-4! h-4!"
+                    className="w-3.5! h-3.5!"
                   />
                 )
               }
@@ -244,7 +251,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         )}
       >
         {accountName && (
-          <span data-testid="balance-card-account-name" className="min-w-0 truncate text-label">
+          <span data-testid="balance-card-account-name" className="min-w-0 truncate text-caption-heading font-bold">
             {accountName}
           </span>
         )}
@@ -260,7 +267,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
             copiedLabel={null}
             icon="trailing"
             className="-mr-2 flex min-h-11 min-w-0 items-center px-2 text-surface-balance-fg active:opacity-80 transition-opacity"
-            contentClassName="text-label leading-none"
+            contentClassName="text-caption-heading font-bold leading-none"
           />
         </span>
       </div>

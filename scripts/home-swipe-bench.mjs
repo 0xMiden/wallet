@@ -3,7 +3,7 @@
  * Headless Chrome benchmark for the home-carousel swipe.
  *
  * This is a proxy for a thumb, not a phone. It opens the mobile bundle, creates
- * a mock wallet once, and drives the real carousel with pointer events on a
+ * a mock wallet once, and drives the real carousel with CDP touches on a
  * steady clock. One pass swipes from Overview through to Swap. The default run
  * is six passes. The main thread is slowed (`--throttle`, default 4) so a
  * fast laptop shows the stalls a phone would. The score lives in
@@ -111,19 +111,26 @@ const RECORDER = `
     }).observe({ type: 'event', durationThreshold: 16 });
   } catch { /* event timing missing */ }
 
-  P.findTrack = () => {
+  // The workflow runs this harness on base too, so it reads both pagers: the
+  // native scroll-snap pager, and the older framer drag pager whose track
+  // transform is the whole position.
+  P.findPager = () => {
+    const scroller = document.querySelector('[data-home-pager]');
+    if (scroller) return { container: scroller, track: scroller.querySelector('[data-home-track]'), native: true };
     const container = document.querySelector('div.touch-pan-y');
-    return container ? container.firstElementChild : null;
+    return container ? { container, track: container.firstElementChild, native: false } : null;
   };
-  P.readX = el => {
-    if (!el) return null;
-    const transform = getComputedStyle(el).transform;
-    if (!transform || transform === 'none') return 0;
-    const matrix = new DOMMatrixReadOnly(transform);
-    return matrix.m41;
+  P.findTrack = () => P.findPager()?.track ?? null;
+  P.readX = pager => {
+    if (!pager || !pager.track) return null;
+    const transform = getComputedStyle(pager.track).transform;
+    const x = !transform || transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41;
+    // The native pager moves by scrolling. Its track only carries the short
+    // transform of a programmatic flip, so the two add up to what is painted.
+    return pager.native ? x - pager.container.scrollLeft : x;
   };
   P.box = () => {
-    const container = document.querySelector('div.touch-pan-y');
+    const container = P.findPager()?.container;
     if (!container) return null;
     const rect = container.getBoundingClientRect();
     return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
@@ -149,8 +156,8 @@ const RECORDER = `
     P.recording = true;
     P.generation = (P.generation || 0) + 1;
     const gen = P.generation;
-    const track = P.findTrack();
-    P.trackFound = !!track;
+    const pager = P.findPager();
+    P.trackFound = !!pager?.track;
     // Read the position from a task posted during the frame, so it runs after
     // that frame's microtasks and paint. Reading inside the animation frame
     // itself sees the transform framer clears for a layout measurement and
@@ -162,7 +169,7 @@ const RECORDER = `
       const t = pending;
       pending = null;
       P.frames.push(t);
-      P.xs.push(P.readX(track));
+      P.xs.push(P.readX(pager));
     };
     const step = t => {
       if (!P.recording || gen !== P.generation) return;
@@ -183,7 +190,7 @@ const RECORDER = `
   };
   P.stop = () => {
     P.recording = false;
-    const container = document.querySelector('div.touch-pan-y');
+    const container = P.findPager()?.container;
     return {
       frames: P.frames,
       xs: P.xs,
@@ -382,7 +389,7 @@ async function snapshot(page) {
       welcome: !!document.querySelector('[data-testid="onboarding-welcome"]'),
       confirm: !!document.querySelector('[data-testid="onboarding-confirmation"]'),
       unlock: !!document.querySelector('[data-testid="unlock-passcode"]'),
-      track: !!document.querySelector('div.touch-pan-y'),
+      track: !!document.querySelector('[data-home-pager], div.touch-pan-y'),
       hash: location.hash,
       text: (document.body?.innerText || '').slice(0, 180)
     };
@@ -483,7 +490,26 @@ async function dispatchPointer(page, type, x, y) {
   );
 }
 
-async function driveSwipe(page, box) {
+/** Maps the runner's clock onto the page's. The midpoint splits the round trip. */
+async function pageClockOffset(page) {
+  const sent = performance.now();
+  const pageNow = await page.evaluate(() => performance.now());
+  return pageNow - (sent + performance.now()) / 2;
+}
+
+async function dispatchTouch(cdp, offset, type, x, y) {
+  await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] });
+  // CDP answers once the renderer has acked the event, so this is the same
+  // after-the-handler stamp the pointer path takes, on the page's clock.
+  return performance.now() + offset;
+}
+
+/**
+ * A native scroller ignores synthetic pointer events, so the scroll-snap pager
+ * gets real touches. The framer pager keeps the pointer events above: Chrome
+ * hands its trusted touches to the overview scroller.
+ */
+async function driveSwipe(page, cdp, box, native) {
   const y = Math.round(box.top + box.height * 0.78);
   const x0 = Math.round(box.left + box.width * 0.8);
   const x1 = Math.round(box.left + box.width * 0.22);
@@ -491,19 +517,24 @@ async function driveSwipe(page, box) {
   const stepMs = 8;
   const steps = Math.round(durationMs / stepMs);
   const events = [];
+  const offset = native ? await pageClockOffset(page) : 0;
+  const send = (phase, x) =>
+    native
+      ? dispatchTouch(cdp, offset, { down: 'touchStart', move: 'touchMove', up: 'touchEnd' }[phase], x, y)
+      : dispatchPointer(page, { down: 'pointerdown', move: 'pointermove', up: 'pointerup' }[phase], x, y);
 
-  events.push({ t: await dispatchPointer(page, 'pointerdown', x0, y), x: x0, type: 'down' });
+  events.push({ t: await send('down', x0), x: x0, type: 'down' });
 
   let next = performance.now() + stepMs;
   for (let i = 1; i <= steps; i++) {
     const wait = next - performance.now();
     if (wait > 0) await sleep(wait);
     const x = Math.round(x0 + ((x1 - x0) * i) / steps);
-    events.push({ t: await dispatchPointer(page, 'pointermove', x, y), x, type: 'move' });
+    events.push({ t: await send('move', x), x, type: 'move' });
     next += stepMs;
   }
 
-  events.push({ t: await dispatchPointer(page, 'pointerup', x1, y), x: x1, type: 'up' });
+  events.push({ t: await send('up', x1), x: x1, type: 'up' });
   return { events, point: { x: x0, y } };
 }
 
@@ -518,10 +549,11 @@ async function settlePage(page, index) {
   let last = null;
   while (Date.now() < deadline) {
     last = await page.evaluate(step => {
-      const width = document.querySelector('div.touch-pan-y')?.clientWidth ?? 0;
+      const pager = window.__PERF__.findPager();
+      const width = pager?.container.clientWidth ?? 0;
       return {
         hash: location.hash,
-        x: window.__PERF__.readX(window.__PERF__.findTrack()),
+        x: window.__PERF__.readX(pager),
         width,
         expected: -step * width
       };
@@ -750,6 +782,8 @@ async function measure(args) {
     }
 
     const box = await page.evaluate(() => window.__PERF__.box());
+    const native = await page.evaluate(() => !!window.__PERF__.findPager()?.native);
+    console.log(`pager ${native ? 'native scroll-snap, CDP touches' : 'framer drag, pointer events'}`);
     if (!box || box.width < 50) throw new Error(`swipe container has no size: ${JSON.stringify(box)}`);
     const hit = await page.evaluate(({ x, y }) => window.__PERF__.hit(x, y), {
       x: Math.round(box.left + box.width * 0.8),
@@ -760,7 +794,7 @@ async function measure(args) {
       const routeBefore = await page.evaluate(() => location.hash);
       await page.evaluate(() => window.__PERF__.start());
       await sleep(50);
-      const finger = await driveSwipe(page, box);
+      const finger = await driveSwipe(page, cdp, box, native);
       await sleep(900);
       const raw = await page.evaluate(() => window.__PERF__.stop());
       if (!raw.trackFound) throw new Error('carousel track was not on the page');

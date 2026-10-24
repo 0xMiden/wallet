@@ -444,13 +444,15 @@ const makeResult = (bytes: number[] = [9, 9, 9]) => ({
 
 // The inline (flag-off) SW client leaf: execute→prove→submit→apply, returning the
 // TransactionExecution whose `.result` runGuardianPipeline hands back.
-const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
+const makeInlineClient = (result: ReturnType<typeof makeResult>, onProof?: () => void) => {
+  const submit = jest.fn(async () => ({ result, apply: jest.fn(async () => {}) }));
   const executeRequest = jest.fn(async () => ({
     id: result.executedTransaction().id(),
     result,
-    prove: async () => ({
-      submit: async () => ({ result, apply: jest.fn(async () => {}) })
-    })
+    prove: async () => {
+      onProof?.();
+      return { submit };
+    }
   }));
   const client = {
     syncChain: jest.fn(async () => {}),
@@ -464,7 +466,8 @@ const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
     client,
-    __executeRequest: executeRequest
+    __executeRequest: executeRequest,
+    __submit: submit
   };
 };
 
@@ -591,12 +594,12 @@ const buildTx = (id: string, extra: Record<string, unknown>) => ({
 const signCallback = jest.fn(async () => new Uint8Array([2]));
 
 /** Arrange a full value-moving guardian run: seed the row, service, inline client. */
-function arrange(id: string, extra: Record<string, unknown>, result = makeResult()) {
+function arrange(id: string, extra: Record<string, unknown>, result = makeResult(), onProof?: () => void) {
   const row = buildTx(id, extra);
   txStore.push({ ...row });
   const service = makeService();
   mockGetOrCreateMultisigService.mockResolvedValue(service);
-  const inline = makeInlineClient(result);
+  const inline = makeInlineClient(result, onProof);
   mockGetMidenClient.mockResolvedValue(inline);
   mockIsGuardianAccount.mockResolvedValue(true);
   return { row, service, inline };
@@ -2514,6 +2517,52 @@ describe('guardian leaf per-step stage stamps (PR #524 × #260)', () => {
 // rebuilding the serial that is the only reason the chain would reject the
 // duplicate. Both leaves must therefore stamp `mayHaveSubmitted` themselves.
 describe('guardian leaf records the submit crossing', () => {
+  it('refuses an expired 1Click send after proving and before submit', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const providerDeadline = new Date(now + 60_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const row = {
+      type: 'send' as const,
+      secondaryAccountId: 'deposit-address',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: {
+        oneClick: {
+          fundingDeadline,
+          request: { deadline: fundingDeadline },
+          quote: {
+            quoteRequest: { deadline: fundingDeadline },
+            quote: { deadline: providerDeadline }
+          }
+        }
+      }
+    };
+    const { inline, service } = arrange('one-click-expired-inline', row, makeResult(), () => {
+      now = Date.parse(fundingDeadline);
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('one-click-expired-inline', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(inline.__submit).not.toHaveBeenCalled();
+    expect(mockComplete.send).not.toHaveBeenCalled();
+    const finalRow = txStore.find(item => item.id === 'one-click-expired-inline')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+  });
+
   it('flag OFF: the inline leaf stamps mayHaveSubmitted', async () => {
     arrange('cross-inline', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
 
@@ -4231,3 +4280,10 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
     }
   );
 });
+
+// Routing fixtures deliberately isolate vault admission, covered by swap/balance and admission suites.
+jest.mock('lib/miden/swap/balance', () => ({
+  assertSwapVaultBalance: jest.fn(async () => {}),
+  readSwapFeeContext: jest.fn(async () => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

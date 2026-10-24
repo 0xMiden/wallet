@@ -31,7 +31,7 @@ const LOCALE_TO_DEEPL: Record<string, string> = {
   tr: 'tr',
   uk: 'uk',
   zh_CN: 'zh-HANS',
-  zh_TW: 'zh-HANT',
+  zh_TW: 'zh-HANT'
 };
 
 // DeepL allows up to 50 texts per translate request; batching cuts a full rebuild
@@ -92,7 +92,7 @@ const TECHNICAL_TERM_VARIANTS = [
   // blocks", e.g. pl "łańcuch bloków", es "cadena de bloques").
   'Blockchain',
   'blockchain',
-  'BLOCKCHAIN',
+  'BLOCKCHAIN'
 ];
 
 // A single regex that matches anything DeepL must NOT translate: "Miden $network$" as one
@@ -105,7 +105,7 @@ const PROTECT_REGEX = new RegExp(
     TECHNICAL_TERM_VARIANTS.map(t => `\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).join('|') +
     '|\\$[a-zA-Z_][a-zA-Z0-9_]*\\$' +
     ')',
-  'g',
+  'g'
 );
 
 // DeepL has put an <x> tag against a neighbouring word or also translated the word beside it, and
@@ -210,10 +210,13 @@ function xmlUnescape(s: string): string {
 // outside <x>, leaving terms and placeholders verbatim. Replaces the old placeholder /
 // known-mistranslation dictionary workaround, which existed only because the free Google
 // endpoint mangled these — DeepL's native tag handling makes it reliable.
-function toDeepLXml(source: string): string {
+function toDeepLXml(source: string, key?: string): string {
+  const networkName =
+    key === 'oneClickNetworkBase' ? 'Base' : key === 'oneClickNetworkOptimism' ? 'Optimism' : undefined;
+  const protectRegex = networkName ? new RegExp(`${PROTECT_REGEX.source}|\\b${networkName}\\b`, 'g') : PROTECT_REGEX;
   let out = '';
   let last = 0;
-  for (const m of source.matchAll(PROTECT_REGEX)) {
+  for (const m of source.matchAll(protectRegex)) {
     const idx = m.index as number;
     out += xmlEscape(source.slice(last, idx));
     out += `<x>${xmlEscape(m[0])}</x>`;
@@ -230,16 +233,16 @@ function fromDeepLXml(translated: string): string {
 
 // Translate English strings into `targetCode`, keeping DeepL's <x> tags for translatedEntry to check
 // before unwrapping technical terms and $placeholder$ variables. The returned order matches the input.
-async function translateBatch(sources: string[], targetCode: string): Promise<string[]> {
+async function translateBatch(sources: string[], targetCode: string, keys: string[] = []): Promise<string[]> {
   if (sources.length === 0) return [];
   const out: string[] = [];
   for (let i = 0; i < sources.length; i += DEEPL_BATCH_SIZE) {
-    const chunk = sources.slice(i, i + DEEPL_BATCH_SIZE).map(toDeepLXml);
+    const chunk = sources.slice(i, i + DEEPL_BATCH_SIZE).map((source, index) => toDeepLXml(source, keys[i + index]));
     const results = await translator.translateText(chunk, 'en', targetCode, {
       tagHandling: 'xml',
       ignoreTags: ['x'],
       outlineDetection: false,
-      context: DEEPL_CONTEXT,
+      context: DEEPL_CONTEXT
     });
     for (const r of results) out.push(r.text);
   }
@@ -306,6 +309,7 @@ async function translateFile(code: string) {
   const translations = await translateBatch(
     keys.map(k => englishFile[k]),
     code,
+    keys
   );
 
   const newFile: any = {};
@@ -375,6 +379,7 @@ async function translateWithDiff(fileName: string, code: string, replaceFile: bo
     const translations = await translateBatch(
       toTranslate.map(t => t.english),
       code,
+      toTranslate.map(t => t.key)
     );
     toTranslate.forEach((t, i) => {
       newFile[t.key] = translatedEntry(t.key, translations[i], t.english, code);

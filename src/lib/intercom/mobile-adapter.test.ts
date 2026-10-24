@@ -54,6 +54,7 @@ jest.mock('lib/miden/back/actions', () => ({
   revealHotKey: jest.fn().mockResolvedValue('hotkey-hex'),
   persistNewHotKey: jest.fn().mockResolvedValue(undefined),
   swapHotKey: jest.fn().mockResolvedValue(undefined),
+  importHotKeyPair: jest.fn().mockResolvedValue(undefined),
   setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
   setGuardianOperatorCommitment: jest.fn().mockResolvedValue(undefined),
   setGuardianSyncStatus: jest.fn().mockResolvedValue(undefined),
@@ -451,6 +452,17 @@ describe('MobileIntercomAdapter', () => {
 
       expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', undefined);
       expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
+    });
+
+    it('handles ImportHotKeyPairRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey: 'pub-key-123',
+        keyPairPayload: 'hot:evm'
+      } as any);
+
+      expect(Actions.importHotKeyPair).toHaveBeenCalledWith('pub-key-123', 'hot:evm');
+      expect(response).toEqual({ type: WalletMessageType.ImportHotKeyPairResponse });
     });
 
     it('handles SwapHotKeyRequest with its expectation (#1233)', async () => {

@@ -11,6 +11,7 @@ import { hasExtensionRuntime, isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { faucetMetadataOf, getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
@@ -647,6 +648,9 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   const liveLandedForRef = useRef<string | null>(null);
 
   const fetchClaimableNotes = useCallback(async () => {
+    // Every read, the 5s SWR poll's included, takes the WASM lock and re-renders the list; let a
+    // moving pager finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
+    await whenInteractionIdle();
     const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(
       note => !note.swapOrder || note.swapOrder.autoConsume === false
     );
@@ -774,9 +778,21 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   const { mutate } = swrResult;
   useEffect(() => {
     if (!enabled) return;
-    return onNotesRefresh(() => {
-      void mutate();
+    let subscribed = true;
+    let pending = false;
+    const unsubscribe = onNotesRefresh(() => {
+      // The revalidation re-renders the list; let a moving pager finish first. Events during one wait share it.
+      if (pending) return;
+      pending = true;
+      void whenInteractionIdle().then(() => {
+        pending = false;
+        if (subscribed) void mutate();
+      });
     });
+    return () => {
+      subscribed = false;
+      unsubscribe();
+    };
   }, [enabled, mutate]);
 
   return {

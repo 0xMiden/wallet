@@ -228,6 +228,34 @@ describe('VerifySeedPhraseFlow', () => {
     mockClipboardWrite.mockResolvedValue(undefined);
   });
 
+  it('keeps the required backup flow open on hardware back and has no close action', async () => {
+    mockIsMobile = true;
+    render(<VerifySeedPhraseFlow required />);
+    await flush();
+    expect(within(screen.getByTestId('verify-seed-warning')).getByRole('status')).toHaveClass('mb-3');
+    expect(screen.getByText('seedBackupRequiredBody')).toBeInTheDocument();
+    expect(screen.queryByText('close')).not.toBeInTheDocument();
+    hardwareBack();
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(screen.getByTestId('verify-seed-warning')).toBeInTheDocument();
+  });
+
+  it('keeps the quiz open and shows an error if saving fails', async () => {
+    mockCompleteWalletPrompt.mockRejectedValueOnce(new Error('storage failed'));
+    await reachReview();
+    clickText('continue');
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await screen.findByText('seedBackupSaveFailed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('seedBackupSaveFailed', 'inline');
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('quiz-screen')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+  });
+
   const presentCopyLabel = () =>
     screen.getByTestId('verify-seed-copy').querySelector('[data-copy-label] [data-present="true"]')!.textContent;
 

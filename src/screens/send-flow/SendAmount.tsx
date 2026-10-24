@@ -1,19 +1,21 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
+import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { AnimatedNumber, Pill } from 'components/ui';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
+import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -21,7 +23,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
-import { approxFiatAmount, balanceFormatterFor, formatBalance } from './amount-format';
+import { balanceFormatterFor, formatBalance } from './amount-format';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
@@ -74,6 +76,13 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
+  const [maxSelection, setMaxSelection] = useState(0);
+  // The field shows the keystroke at once. A later `amount` from the form replaces it,
+  // including Max and a restored draft.
+  const [draft, setDraft] = useState(amount);
+  useEffect(() => {
+    setDraft(amount);
+  }, [amount]);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const transition = useMotion({ duration: durations.normal, ease: easings.easeOutCubic });
 
@@ -94,11 +103,6 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   useUserVisibleError(feeShortfall ? 'insufficientFeeAsset' : null, 'notice');
   useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline');
 
-  const fiatValue =
-    token && scaleIsKnown && token.fiatPrice > 0 && amount
-      ? t('approxFiatValue', { value: approxFiatAmount(parseFloat(amount) * token.fiatPrice) })
-      : undefined;
-
   const bridgeNetwork = network && network !== 'miden' ? getBridgeNetwork(network) : undefined;
 
   return (
@@ -117,15 +121,24 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         />
       }
     >
-      <AmountInput
-        value={amount}
+      <TokenAmountInput
+        assetId={token?.id ?? ''}
+        symbol={token?.name ?? ''}
+        decimals={token?.decimals ?? 0}
+        decimalsLimit={token ? token.decimals : 6}
+        scaleIsKnown={!!token?.scaleIsKnown}
+        value={draft}
+        tokenIntentKey={maxSelection}
         invalid={!!amountError}
         error={amountError}
         errorId={isUserErrorId(error) ? error : null}
-        helper={fiatValue && <span className="font-heading text-base font-bold text-gray">{fiatValue}</span>}
         showDivider={false}
         data-testid="send-amount-input"
-        onValueChange={value => onAmountChange(value || '')}
+        onValueChange={value => {
+          const next = value || '';
+          setDraft(next);
+          onAmountChange(next);
+        }}
       />
 
       <Card surface="outline" padding="none" className="mt-8">
@@ -161,6 +174,14 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                   ) : (
                     t('unknownTokenScale')
                   )}
+                  {scaleIsKnown && (
+                    <TokenUsdValue
+                      amount={token.balance}
+                      faucetId={token.id}
+                      symbol={token.name}
+                      className="block text-caption text-muted"
+                    />
+                  )}
                 </span>
               )}
             </span>
@@ -176,7 +197,10 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 transition={transition}
               >
                 <Pill
-                  onClick={() => onAmountChange(formatBalance(token.balance))}
+                  onClick={() => {
+                    setMaxSelection(selection => selection + 1);
+                    onAmountChange(formatBalance(balanceLowerBound(token.balance, token.decimals)));
+                  }}
                   disabled={maxDisabled}
                   className="text-accent-send-ink"
                   data-testid="send-amount-max"

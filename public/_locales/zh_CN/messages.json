@@ -1,4 +1,49 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "备份您的助记词",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "立即备份",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "您的钱包余额已达到 150 美元。您必须先备份助记词，才能继续操作。请将其记录下来，保存在安全的地方，并完成验证以使用您的钱包。",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "无法保存备份检查。请重试。",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
+  "swapBalanceUnavailable": {
+    "message": "无法验证您的可用余额。请重试。",
+    "englishSource": "Could not verify your spendable balance. Please try again."
+  },
+  "swapPendingSpend": {
+    "message": "请等待待处理交易完成后再进行兑换。",
+    "englishSource": "Wait for your pending transaction to finish before swapping."
+  },
+  "swapApproxAmount": {
+    "message": "≈ $amount$",
+    "englishSource": "≈ $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExactPayAmount": {
+    "message": "确切支付金额",
+    "englishSource": "Exact pay amount"
+  },
+  "swapReceiveTargetNote": {
+    "message": "您收款目标的预计收益。完全成交可能带来更高收益；部分成交则可能导致到期时您的收益减少。",
+    "englishSource": "Estimated pay for your receive target. A full fill may pay more; partial fills may leave you with less at expiry."
+  },
+  "swapReceiveSlippageNote": {
+    "message": "滑点会调整计算出的支付金额，而您请求的收款金额则保持不变。",
+    "englishSource": "Slippage adjusts the calculated pay amount while your requested receive amount stays fixed."
+  },
   "bridgeRouteEpoch": {
     "message": "Fast · Epoch",
     "englishSource": "Fast · Epoch"
@@ -446,6 +491,18 @@
     "message": "提现",
     "englishSource": "Withdraw"
   },
+  "homeDeposit": {
+    "message": "存款",
+    "englishSource": "Deposit"
+  },
+  "homeDepositHint": {
+    "message": "转入 Miden",
+    "englishSource": "Into Miden"
+  },
+  "homeWithdrawHint": {
+    "message": "出自 Miden",
+    "englishSource": "Out of Miden"
+  },
   "earnDepositMore": {
     "message": "存入更多",
     "englishSource": "Deposit more"
@@ -497,6 +554,30 @@
   "earnRiskLabel": {
     "message": "风险",
     "englishSource": "Risk"
+  },
+  "earnRiskLow": {
+    "message": "低",
+    "englishSource": "Low"
+  },
+  "earnRiskMedium": {
+    "message": "Medium",
+    "englishSource": "Medium"
+  },
+  "earnRiskHigh": {
+    "message": "High",
+    "englishSource": "High"
+  },
+  "earnVaultClosedTitle": {
+    "message": "存款已关闭",
+    "englishSource": "Deposits are closed"
+  },
+  "earnVaultClosedBody": {
+    "message": "该金库目前不接受存款。请稍后再试，或选择其他金库。",
+    "englishSource": "This vault isn't accepting deposits right now. Try again later or choose another vault."
+  },
+  "earnVaultDepositsPausedBody": {
+    "message": "Miden Wallet 已暂停向该金库充值。您现有的存款不受影响。请选择另一个金库。",
+    "englishSource": "Miden Wallet has paused deposits into this vault. Your existing deposits are not affected. Choose another vault."
   },
   "earnAuditedLabel": {
     "message": "经审计的",
@@ -670,6 +751,21 @@
       },
       "network": {
         "content": "$2"
+      }
+    }
+  },
+  "earnMarketAssetOnNetwork": {
+    "message": "$market$ · $asset$ 在 $network$ 上",
+    "englishSource": "$market$ · $asset$ on $network$",
+    "placeholders": {
+      "market": {
+        "content": "$1"
+      },
+      "asset": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
       }
     }
   },
@@ -901,6 +997,10 @@
     "message": "返回",
     "englishSource": "Back"
   },
+  "backToSwap": {
+    "message": "返回掉期",
+    "englishSource": "Back to swap"
+  },
   "skip": {
     "message": "跳过",
     "englishSource": "Skip"
@@ -964,6 +1064,10 @@
   "submissionRejectedByGuardian": {
     "message": "您的Guardian拒绝了此提交。请重试。",
     "englishSource": "Your Guardian refused this submission. Try again."
+  },
+  "submissionBlockedByIssuer": {
+    "message": "该代币的发行方已冻结您的账户，因此无法发送该代币。",
+    "englishSource": "The issuer of this token has blocked your account, so it cannot be sent."
   },
   "submissionRejectedByNetwork": {
     "message": "该网络拒绝了此提交。请重试。",
@@ -1995,6 +2099,10 @@
     "message": "交换",
     "englishSource": "Swap"
   },
+  "confirmSwap": {
+    "message": "确认互换",
+    "englishSource": "Confirm swap"
+  },
   "viaInProtocolDex": {
     "message": "通过 In Protocol Dex",
     "englishSource": "Via In Protocol Dex"
@@ -2074,6 +2182,14 @@
   "swapVerdictFull": {
     "message": "按当前价格成交。",
     "englishSource": "Fills at the current price."
+  },
+  "swapNoFillWarning": {
+    "message": "以当前的流动性来看，该掉期订单不太可能成交。您可以继续操作，但您的订单可能在到期前始终处于未成交状态。",
+    "englishSource": "This swap is unlikely to fill with the liquidity available now. You can continue, but your order may remain unfilled until it expires."
+  },
+  "swapPartialFillWarning": {
+    "message": "当前可用的流动性仅能满足该掉期订单的一部分。您可以继续操作，但剩余部分可能在订单到期前仍无法成交。",
+    "englishSource": "Only part of this swap can fill with the liquidity available now. You can continue, but the rest may remain unfilled until the order expires."
   },
   "swapVerdictExpected": {
     "message": "您将收到约 $amount$ 的 $symbol$。",
@@ -2542,8 +2658,8 @@
     "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
-    "message": "使用现有的 12 字恢复短语。您还可以从其他钱包提供商导入钱包。",
-    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+    "message": "您可以使用来自其他钱包的兼容 12 词恢复短语来创建 Miden 账户。这不会将资产从其他网络转移过来。",
+    "englishSource": "You can use a compatible 12-word recovery phrase from another wallet to create a Miden account. This does not transfer assets from other networks."
   },
   "importWithEncryptedWalletFile": {
     "message": "使用加密钱包文件导入",
@@ -2949,10 +3065,6 @@
   "enterYourWalletSeedPhrase": {
     "message": "请输入您钱包的 12 个单词的恢复短语。",
     "englishSource": "Enter your wallet's 12-word recovery phrase."
-  },
-  "onlyMidenSeedPhrasesAreSupported": {
-    "message": "仅支持 Miden 恢复短语。",
-    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "您的 钱包 已准备就绪！",
@@ -3559,6 +3671,27 @@
     "message": "我不会将我的加密钱包文件分享给任何人，包括Bread。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
+  "encryptedWalletFileGuardianTitle": {
+    "message": "$accountNames$的账户状态在此文件中",
+    "englishSource": "Account state of $accountNames$ is in this file",
+    "placeholders": {
+      "accountnames": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedWalletFileGuardianDesc": {
+    "message": "该文件包含您的助记词以及您的Guardian运营商通常为您保存的账户状态，因此任何拥有该文件及其密码的人都可以读取这两者。该文件不包含日常密钥：恢复后，钱包会通过您的Guardian运营商替换该密钥，或者您可以使用已保存的日常密钥对（设置 → 密钥 → 显示私钥）。 该文件是一个快照：在进行收发操作后，请保存一个新文件，因为旧文件无法恢复其保存之后发生的情况。",
+    "englishSource": "The file holds your recovery phrase and the account state your Guardian operator otherwise keeps for you, so anyone with the file and its password can read both. It holds no everyday key: after restoring, the wallet replaces it through your Guardian operator, or you can use a saved everyday key pair (Settings → Keys → Reveal Private Key). The file is a snapshot: after you send or receive, save a new one, because an older file cannot restore what happened after it."
+  },
+  "hotKeyRotationImportBusy": {
+    "message": "轮转仍在进行中。请等待其完成，然后重试。",
+    "englishSource": "A rotation is still running. Wait for it to finish, then try again."
+  },
+  "hotKeyRotationUseKeyPair": {
+    "message": "使用我保存的日常密钥对",
+    "englishSource": "Use my saved everyday key pair"
+  },
   "encryptedWalletFileExcludedTitle": {
     "message": "未从该文件恢复：$accountNames$",
     "englishSource": "Not restored from this file: $accountNames$",
@@ -3931,22 +4064,61 @@
       }
     }
   },
-  "guardianProbePartialFailure": {
-    "message": "$count$ 无法访问 guardian(s)，因此检测结果可能不完整。",
-    "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "importSeedPhraseHint": {
+    "message": "请输入有效的 12 词恢复短语，以恢复您的 Miden 账户或创建新账户。",
+    "englishSource": "Enter a valid 12-word recovery phrase to recover your Miden account or create a new one."
+  },
+  "importSeedPhraseTooLong": {
+    "message": "仅支持12个单词的恢复短语。您粘贴的短语长度超出限制，因此未被录入。",
+    "englishSource": "Only 12-word recovery phrases are supported. The phrase you pasted is longer, so nothing was entered."
+  },
+  "guardianNoBackupFoundTitle": {
+    "message": "我们在检查的Guardians上未发现任何备份",
+    "englishSource": "No backup found on the Guardians we checked"
+  },
+  "guardianNoBackupFoundBody": {
+    "message": "未恢复任何内容。如果某个我们未核查的Guardian持有该助记词的备份，请在下方选择它。否则，您可以使用该助记词创建一个新账户。",
+    "englishSource": "Nothing was recovered. If a Guardian we did not check holds this phrase's backup, choose it below. Otherwise you can create a new account with this phrase."
+  },
+  "guardianLookupUncertain": {
+    "message": "我们无法核查每个Guardian，因此无法确定是否存在备份。请重试，或选择您之前使用过的Guardian。",
+    "englishSource": "We couldn't check every Guardian, so we can't tell whether a backup exists. Try again, or pick the Guardian you used."
+  },
+  "createAccountWithPhrase": {
+    "message": "使用此短语创建新账户",
+    "englishSource": "Create a new account with this phrase"
+  },
+  "reusedPhraseTitle": {
+    "message": "要使用此短语创建新账户吗？",
+    "englishSource": "Create a new account with this phrase?"
+  },
+  "reusedPhraseNotRecovery": {
+    "message": "此操作将创建一个新账户，而非恢复现有账户。",
+    "englishSource": "This creates a new account. It does not recover an existing one."
+  },
+  "reusedPhraseWarning": {
+    "message": "我们无法保证该短语的来源或其安全性。一旦该短语被曝光，所有使用它的钱包都可能受到影响。",
+    "englishSource": "We can't vouch for how this phrase was created or how strong it is. If it is ever exposed, every wallet that uses it can be affected."
+  },
+  "reusedPhraseStaysOnDevice": {
+    "message": "您的恢复短语将保存在此设备上。",
+    "englishSource": "Your recovery phrase stays on this device."
+  },
+  "reusedPhraseAcknowledge": {
+    "message": "我已了解相关风险，并希望在新账户中使用该短语",
+    "englishSource": "I understand the risk and want to use this phrase for a new account"
+  },
+  "publicImportMayCreate": {
+    "message": "如果该短语尚无公开账户，导入操作将据此创建一个新账户。",
+    "englishSource": "If no public account exists for this phrase yet, importing creates a new one from it."
   },
   "retryGuardianDetection": {
     "message": "请尝试再次检测",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "我们在 guardian 上找不到您的账户。请检查网址，或改用公共账户进行导入。",
-    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+    "message": "我们无法在此Guardian上找到备份。请检查URL或选择另一个Guardian。",
+    "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
   "guardianOtherNetwork": {
     "message": "该“guardian”运行在另一个 Miden 网络上，因此无法在此处恢复账户。",
@@ -4003,6 +4175,18 @@
   "assetChanges": {
     "message": "资产变动",
     "englishSource": "Asset changes"
+  },
+  "nft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "nftFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "unlistedAssetsWarning": {
+    "message": "此交易还涉及转移钱包无法列出的资产，例如 NFT。仅在您确信其真实性时才继续操作。",
+    "englishSource": "This transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it."
   },
   "unknown": {
     "message": "未知",
@@ -4786,6 +4970,18 @@
     "message": "Faucet 请求",
     "englishSource": "Faucet Request"
   },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
+  },
   "activity": {
     "message": "活动",
     "englishSource": "Activity"
@@ -4981,6 +5177,30 @@
   "swapReclaiming": {
     "message": "退还资金",
     "englishSource": "Returning funds"
+  },
+  "swapPaybackStuck": {
+    "message": "提现受阻",
+    "englishSource": "Payout stuck"
+  },
+  "swapPaybackStuckFee": {
+    "message": "此次掉期交易的结算屡屡失败，是因为该账户无法支付网络手续费来提取资金。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing because this account can't pay the network fee to claim it. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckGuardian": {
+    "message": "此次掉期交易的结算在您的Guardian处屡次失败。钱包每天会尝试一次，您也可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing at your Guardian. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckNetwork": {
+    "message": "此次掉期交易的结算屡次失败，原因是无法连接到网络。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing because the network couldn't be reached. The wallet tries again once a day, or you can retry now."
+  },
+  "swapPaybackStuckOther": {
+    "message": "此次掉期交易的款项发放一直失败。钱包每天会尝试一次，或者您可以立即重试。",
+    "englishSource": "The payout from this swap keeps failing. The wallet tries again once a day, or you can retry now."
+  },
+  "swapRetryPayback": {
+    "message": "重试支付",
+    "englishSource": "Retry payout"
   },
   "swapReturnedAt": {
     "message": "已退回 · $time$",
@@ -5988,8 +6208,8 @@
     "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
-    "message": "仅连接测试钱包",
-    "englishSource": "Connect a test wallet only"
+    "message": "仅使用测试钱包",
+    "englishSource": "Use a test wallet only"
   },
   "bridgeTestFundsTitle": {
     "message": "仅限测试资金",
@@ -6969,24 +7189,28 @@
     "englishSource": "Connect your wallet"
   },
   "bridgeConnectWalletBody": {
-    "message": "连接存放您想要转入 Miden 的代币的钱包。",
-    "englishSource": "Connect the wallet holding the tokens you want to bring to Miden."
+    "message": "存放您打算带到 Miden 的代币的钱包。",
+    "englishSource": "The wallet holding the tokens you want to bring to Miden."
   },
   "bridgeConnectWalletAction": {
     "message": "连接钱包",
     "englishSource": "Connect wallet"
   },
   "bridgeConnectSource": {
-    "message": "外部钱包",
-    "englishSource": "External wallet"
+    "message": "您的钱包",
+    "englishSource": "Your wallet"
   },
   "bridgeConnectSourceHint": {
-    "message": "尚未连接",
-    "englishSource": "Not connected yet"
+    "message": "未连接",
+    "englishSource": "Not connected"
   },
   "bridgeConnectNextTitle": {
     "message": "连接后",
     "englishSource": "After connecting"
+  },
+  "bridgeConnectStepBody": {
+    "message": "MetaMask、Rainbow 或任何 WalletConnect 钱包。",
+    "englishSource": "MetaMask, Rainbow or any WalletConnect wallet."
   },
   "bridgeConnectChooseTitle": {
     "message": "选择您的转账方式",
@@ -7001,12 +7225,12 @@
     "englishSource": "Review and approve"
   },
   "bridgeConnectApproveBody": {
-    "message": "请核对转账路径和手续费，然后在您的钱包中批准转账。",
-    "englishSource": "Check the route and fees, then approve the transfer in your wallet."
+    "message": "请核对转账路径和手续费，然后在您的钱包中确认交易。",
+    "englishSource": "Check the route and fees, then approve in your wallet."
   },
   "bridgeConnectTestWalletBody": {
-    "message": "请使用仅存放测试代币的独立钱包。切勿连接存有真实资金的钱包。",
-    "englishSource": "Use a separate wallet with test tokens only. Never connect a wallet holding real funds."
+    "message": "切勿连接存有真实资金的钱包。",
+    "englishSource": "Never connect a wallet holding real funds."
   },
   "bridgeChooseRoute": {
     "message": "选择路径",
@@ -7154,6 +7378,27 @@
     "message": "Stays invested",
     "englishSource": "Stays invested"
   },
+  "earnWithdrawArrivesOn": {
+    "message": "发布于",
+    "englishSource": "Arrives on"
+  },
+  "earnWithdrawArrivesOnValue": {
+    "message": "$network$ · 约1分钟",
+    "englishSource": "$network$ · ~1 min",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "earnWithdrawGas": {
+    "message": "Gas",
+    "englishSource": "Gas"
+  },
+  "earnWithdrawGasSponsored": {
+    "message": "赞助内容",
+    "englishSource": "Sponsored"
+  },
   "earnWithdrawAll": {
     "message": "Full balance",
     "englishSource": "Full balance"
@@ -7229,5 +7474,634 @@
   "runtimeUnsupportedBody": {
     "message": "该钱包需要 WebAssembly SIMD 支持，而此浏览器或设备不提供该功能。请在另一台设备上或在最新版本的浏览器中打开钱包。",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
+  },
+  "oneClickSelectAsset": {
+    "message": "在$network$上选择一种代币",
+    "englishSource": "Select a token on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickNoAssets": {
+    "message": "该网络上不存在经过验证的代币。",
+    "englishSource": "No verified tokens are available on this network."
+  },
+  "oneClickRecipientSection": {
+    "message": "收件人",
+    "englishSource": "Recipient"
+  },
+  "oneClickRefundSection": {
+    "message": "退款账户",
+    "englishSource": "Refund account"
+  },
+  "oneClickRecipientAddress": {
+    "message": "收款地址",
+    "englishSource": "Recipient address"
+  },
+  "oneClickRefundAddress": {
+    "message": "源网络上的退款地址",
+    "englishSource": "Refund address on the origin network"
+  },
+  "oneClickRefundAccount": {
+    "message": "退款账户",
+    "englishSource": "Refund account"
+  },
+  "oneClickConnectOriginWallet": {
+    "message": "连接 $network$ 钱包",
+    "englishSource": "Connect $network$ wallet",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickChooseForeignNetwork": {
+    "message": "请选择 Miden 以外的起始或目标网络。",
+    "englishSource": "Choose an origin or destination network outside Miden."
+  },
+  "oneClickDifferentNetworksRequired": {
+    "message": "请选择两个不同的网络。",
+    "englishSource": "Choose two different networks."
+  },
+  "oneClickMidenAssetRequired": {
+    "message": "请为本路径的一端选择一个经过验证的 Miden 代币。",
+    "englishSource": "Choose a verified Miden token for one side of this route."
+  },
+  "oneClickSameUnderlyingBridge": {
+    "message": "这是一次跨链转账。请使用该资产现有的跨链流程。",
+    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
+  },
+  "oneClickQuoteUnavailable": {
+    "message": "此路径无法获取报价。请检查地址并重试。",
+    "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
+  },
+  "oneClickQuoteExpiresAt": {
+    "message": "报价过期",
+    "englishSource": "Quote expires"
+  },
+  "oneClickQuoteExpired": {
+    "message": "已过期。请刷新后继续。",
+    "englishSource": "Expired. Refresh before continuing."
+  },
+  "oneClickConfirmMidenDeposit": {
+    "message": "确认此笔 Miden 存款",
+    "englishSource": "Confirm this Miden deposit"
+  },
+  "oneClickSubmitFailed": {
+    "message": "无法提交存款。请检查操作路径并重试。",
+    "englishSource": "The deposit could not be submitted. Review the route and try again."
+  },
+  "oneClickRouteChanged": {
+    "message": "路线已变更。请在继续操作前申请新的报价。",
+    "englishSource": "The route changed. Request a new quote before continuing."
+  },
+  "oneClickArrivalEstimate": {
+    "message": "约 $minutes$ 分钟",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefreshQuote": {
+    "message": "刷新报价",
+    "englishSource": "Refresh quote"
+  },
+  "oneClickMinimumReceived": {
+    "message": "最低接收量",
+    "englishSource": "Minimum received"
+  },
+  "oneClickMinimumOutput": {
+    "message": "最小输出",
+    "englishSource": "Minimum output"
+  },
+  "oneClickRefundAmount": {
+    "message": "退款金额",
+    "englishSource": "Refund amount"
+  },
+  "oneClickNativeFee": {
+    "message": "预计的 Miden 网络手续费",
+    "englishSource": "Estimated Miden network fee"
+  },
+  "oneClickAvailableBalance": {
+    "message": "可用外部余额",
+    "englishSource": "Available external balance"
+  },
+  "oneClickBalanceChecking": {
+    "message": "查询外部余额",
+    "englishSource": "Checking external balance"
+  },
+  "oneClickBalanceCheckingBody": {
+    "message": "检查关联账户并预留足够的网络手续费。",
+    "englishSource": "Checking the connected account and reserving enough for the network fee."
+  },
+  "oneClickBalanceUnavailable": {
+    "message": "外部余额不可用",
+    "englishSource": "External balance unavailable"
+  },
+  "oneClickBalanceUnavailableBody": {
+    "message": "钱包无法验证已连接账户的余额和网络手续费。请重新连接或重试后再继续。",
+    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
+  },
+  "oneClickGasReserve": {
+    "message": "预留用于网络手续费：$amount$ $symbol$",
+    "englishSource": "Reserved for network fees: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "oneClickInsufficientTokenBalance": {
+    "message": "代币余额不足",
+    "englishSource": "Insufficient token balance"
+  },
+  "oneClickInsufficientTokenBalanceBody": {
+    "message": "关联账户中该代币的数量不足以满足报价中的存入要求。",
+    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
+  },
+  "oneClickInsufficientGasBalance": {
+    "message": "网络手续费余额不足",
+    "englishSource": "Insufficient network fee balance"
+  },
+  "oneClickInsufficientGasBalanceBody": {
+    "message": "关联账户需要更多$symbol$来支付预估的网络手续费。",
+    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickArrival": {
+    "message": "预计到达时间",
+    "englishSource": "Estimated arrival"
+  },
+  "oneClickRecipient": {
+    "message": "收件人",
+    "englishSource": "Recipient"
+  },
+  "oneClickRoute": {
+    "message": "路由",
+    "englishSource": "Route"
+  },
+  "oneClickYouPayFrom": {
+    "message": "您在$network$上支付",
+    "englishSource": "You pay on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickYouReceiveOn": {
+    "message": "您在$network$上收到",
+    "englishSource": "You receive on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefundFee": {
+    "message": "退款手续费",
+    "englishSource": "Refund fee"
+  },
+  "oneClickWithdrawFee": {
+    "message": "提现手续费",
+    "englishSource": "Withdrawal fee"
+  },
+  "oneClickDepositInstructions": {
+    "message": "存款说明",
+    "englishSource": "Deposit instructions"
+  },
+  "oneClickManualDepositNotice": {
+    "message": "请通过所选网络发送下方所示的确切金额。只有当转账到达存入地址后，兑换才会开始。",
+    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
+  },
+  "oneClickNetwork": {
+    "message": "网络",
+    "englishSource": "Network"
+  },
+  "oneClickOriginNetwork": {
+    "message": "Origin 网络",
+    "englishSource": "Origin network"
+  },
+  "oneClickDestinationNetwork": {
+    "message": "目标网络",
+    "englishSource": "Destination network"
+  },
+  "oneClickAmount": {
+    "message": "金额",
+    "englishSource": "Amount"
+  },
+  "oneClickDepositAddress": {
+    "message": "充值地址",
+    "englishSource": "Deposit address"
+  },
+  "oneClickDepositMemo": {
+    "message": "备注",
+    "englishSource": "Memo"
+  },
+  "oneClickOriginTransaction": {
+    "message": "原始交易",
+    "englishSource": "Origin transaction"
+  },
+  "oneClickTrackingSaved": {
+    "message": "该操作路径已保存在“活动”中，以便您日后追踪。",
+    "englishSource": "This route is saved in Activity so you can track it later."
+  },
+  "oneClickBroadcastTrackingPending": {
+    "message": "该钱包已提交此笔存款，但尚未成功保存交易。请勿再次发送。交易哈希如下所示。",
+    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
+  },
+  "oneClickRefreshingExpiredQuote": {
+    "message": "刷新已过期的报价",
+    "englishSource": "Refreshing expired quote"
+  },
+  "oneClickRecoveryUnavailable": {
+    "message": "此路径无法刷新",
+    "englishSource": "This route cannot be refreshed"
+  },
+  "oneClickRecoveryUnavailableBody": {
+    "message": "账户、网络或已验证路由已发生变更。请返回交易页面，如有必要请重新选择路由。",
+    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
+  },
+  "oneClickExpiredRefreshFailed": {
+    "message": "该报价已过期，无法刷新。请在发送前重试以获取新报价。",
+    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
+  },
+  "oneClickQuoteRefreshed": {
+    "message": "报价已更新",
+    "englishSource": "Quote refreshed"
+  },
+  "oneClickExpiredRefreshNotice": {
+    "message": "之前的报价在您的存款发送前已过期。请查看此更新后的操作流程并确认继续。",
+    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
+  },
+  "oneClickDepositSubmitted": {
+    "message": "提交的存款",
+    "englishSource": "Deposit submitted"
+  },
+  "oneClickStatusKnownDepositTx": {
+    "message": "发现存款交易",
+    "englishSource": "Deposit transaction found"
+  },
+  "oneClickStatusPendingDeposit": {
+    "message": "等待存款",
+    "englishSource": "Waiting for deposit"
+  },
+  "oneClickStatusIncompleteDeposit": {
+    "message": "存款金额不完整",
+    "englishSource": "Deposit amount is incomplete"
+  },
+  "oneClickStatusProcessing": {
+    "message": "掉期处理",
+    "englishSource": "Swap processing"
+  },
+  "oneClickStatusSuccess": {
+    "message": "由提供商完成的互换",
+    "englishSource": "Swap completed by provider"
+  },
+  "oneClickStatusRefunded": {
+    "message": "退款",
+    "englishSource": "Funds refunded"
+  },
+  "oneClickStatusFailed": {
+    "message": "掉期失败",
+    "englishSource": "Swap failed"
+  },
+  "oneClickProviderStatus": {
+    "message": "提供商状态",
+    "englishSource": "Provider status"
+  },
+  "oneClickDeliveryStatus": {
+    "message": "钱包交付",
+    "englishSource": "Wallet delivery"
+  },
+  "oneClickStatusDelivered": {
+    "message": "已存入钱包",
+    "englishSource": "Received in wallet"
+  },
+  "oneClickDeliveryArriving": {
+    "message": "到达 Miden 钱包",
+    "englishSource": "Arriving in Miden wallet"
+  },
+  "oneClickDepositAmount": {
+    "message": "存入金额",
+    "englishSource": "Deposit amount"
+  },
+  "oneClickOutputAmount": {
+    "message": "引用内容",
+    "englishSource": "Quoted output"
+  },
+  "oneClickFailureReason": {
+    "message": "退款或失败原因",
+    "englishSource": "Refund or failure reason"
+  },
+  "oneClickNetworkMiden": {
+    "message": "Miden",
+    "englishSource": "Miden"
+  },
+  "oneClickNetworkEthereum": {
+    "message": "以太坊",
+    "englishSource": "Ethereum"
+  },
+  "oneClickNetworkBase": {
+    "message": "Base",
+    "englishSource": "Base"
+  },
+  "oneClickNetworkArbitrum": {
+    "message": "Arbitrum",
+    "englishSource": "Arbitrum"
+  },
+  "oneClickNetworkOptimism": {
+    "message": "Optimism",
+    "englishSource": "Optimism"
+  },
+  "oneClickNetworkArc": {
+    "message": "Arc",
+    "englishSource": "Arc"
+  },
+  "availableAmount": {
+    "message": "可用：$amount$ $symbol$",
+    "englishSource": "Available: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "amountExceedsTokenDecimals": {
+    "message": "该金额的小数位数超过了该代币允许的范围。",
+    "englishSource": "This amount has more decimal places than this token allows."
+  },
+  "amountUsdUnavailable": {
+    "message": "无法提供美元估算值",
+    "englishSource": "USD estimate unavailable"
+  },
+  "amountUsdStale": {
+    "message": "美元报价已过期。正在刷新价格……",
+    "englishSource": "USD quote expired. Refreshing price…"
+  },
+  "amountInputUnit": {
+    "message": "金额以$unit$为单位",
+    "englishSource": "Amount in $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountSwitchUnit": {
+    "message": "输入$unit$",
+    "englishSource": "Enter $unit$",
+    "placeholders": {
+      "unit": {
+        "content": "$1"
+      }
+    }
+  },
+  "amountUsdLoading": {
+    "message": "正在加载美元价格……",
+    "englishSource": "Loading USD price…"
+  },
+  "amountUsdError": {
+    "message": "无法刷新美元价格",
+    "englishSource": "USD price could not be refreshed"
+  },
+  "amountUsdEstimate": {
+    "message": "美元估算",
+    "englishSource": "USD estimate"
+  },
+  "arcadePreview": {
+    "message": "预览",
+    "englishSource": "Preview"
+  },
+  "arcadeExitPreview": {
+    "message": "退出",
+    "englishSource": "Exit"
+  },
+  "arcadeSampleNotice": {
+    "message": "示例数据仅用于设计预览。这些并非您的钱包资金或真实玩家排名。任何内容均未发布。",
+    "englishSource": "Sample data for design preview only. These are not your wallet funds or real player rankings. Nothing is published."
+  },
+  "arcadeSamplePlayer": {
+    "message": "示例播放器",
+    "englishSource": "Sample player"
+  },
+  "arcadePreviewOnly": {
+    "message": "仅供预览",
+    "englishSource": "Preview only"
+  },
+  "arcadeApplySample": {
+    "message": "应用示例更新",
+    "englishSource": "Apply sample update"
+  },
+  "arcadeYourRank": {
+    "message": "您的等级",
+    "englishSource": "Your rank"
+  },
+  "arcadeSubmittedBalance": {
+    "message": "提交的余额",
+    "englishSource": "Submitted balance"
+  },
+  "arcadeLeaderboard": {
+    "message": "GC排行榜",
+    "englishSource": "GC leaderboard"
+  },
+  "arcadeSampleUpdated": {
+    "message": "本地更新了示例快照。未提交任何内容。",
+    "englishSource": "Sample snapshot updated locally. Nothing was submitted."
+  },
+  "arcadeTitle": {
+    "message": "Bread Arcade",
+    "englishSource": "Bread Arcade"
+  },
+  "arcadeHomeDescription": {
+    "message": "在 Bread 中探索游戏。",
+    "englishSource": "Discover games in Bread."
+  },
+  "arcadeExplore": {
+    "message": "探索 Arcade",
+    "englishSource": "Explore Arcade"
+  },
+  "arcadeFeatured": {
+    "message": "精选游戏",
+    "englishSource": "Featured games"
+  },
+  "arcadeGamesToTry": {
+    "message": "推荐尝试的游戏",
+    "englishSource": "Games to try"
+  },
+  "arcadeQuickActions": {
+    "message": "Arcade 快捷键",
+    "englishSource": "Arcade shortcuts"
+  },
+  "arcadeRankings": {
+    "message": "排名",
+    "englishSource": "Rankings"
+  },
+  "arcadeCoins": {
+    "message": "游戏币",
+    "englishSource": "Game Coins"
+  },
+  "arcadeMyActivity": {
+    "message": "我的活动",
+    "englishSource": "My activity"
+  },
+  "arcadeOpenGame": {
+    "message": "打开游戏",
+    "englishSource": "Open game"
+  },
+  "arcadeDetails": {
+    "message": "详情",
+    "englishSource": "Details"
+  },
+  "arcadeNoGames": {
+    "message": "暂无游戏可用",
+    "englishSource": "No games available"
+  },
+  "arcadeNoGamesDescription": {
+    "message": "当本网络上推出游戏时，它们将在此处显示。",
+    "englishSource": "Games will appear here when they are available on this network."
+  },
+  "arcadeOpeningNotice": {
+    "message": "打开游戏不会自动连接您的钱包。Bread 会先征得您的同意。",
+    "englishSource": "Opening a game won't connect your wallet. Bread asks first."
+  },
+  "arcadeGCRankings": {
+    "message": "GC 排名",
+    "englishSource": "GC rankings"
+  },
+  "arcadeReviewBalance": {
+    "message": "查看 GC 余额",
+    "englishSource": "Review GC balance"
+  },
+  "arcadeGCBalance": {
+    "message": "GC余额",
+    "englishSource": "GC balance"
+  },
+  "arcadeNotRead": {
+    "message": "未读",
+    "englishSource": "Not read"
+  },
+  "arcadeSubmitBalance": {
+    "message": "提交余额",
+    "englishSource": "Submit balance"
+  },
+  "arcadeUpdateBalance": {
+    "message": "更新余额",
+    "englishSource": "Update balance"
+  },
+  "arcadeBalanceDisclosure": {
+    "message": "提交余额快照会向排行榜分享您的账户标识符、GC 余额、网络及快照时间。您的其他资产余额不包含在内。",
+    "englishSource": "Submitting a balance snapshot shares your account identifier, GC balance, network and snapshot time with the leaderboard. Your other asset balances are not included."
+  },
+  "arcadeConnectionRequired": {
+    "message": "GC 余额读取与排行榜提交目前尚未关联。尚未读取或提交任何余额。",
+    "englishSource": "GC balance reading and leaderboard submission are not connected yet. No balance has been read or submitted."
+  },
+  "arcadeRankingsUnavailable": {
+    "message": "排名将显示在此处",
+    "englishSource": "Rankings will appear here"
+  },
+  "arcadeRankingsDescription": {
+    "message": "该网络目前尚未启用实时排名功能。",
+    "englishSource": "Rankings aren't live on this network yet."
+  },
+  "arcadeCoinsUnavailable": {
+    "message": "您的余额将显示在此处",
+    "englishSource": "Your balance will appear here"
+  },
+  "arcadeCoinsDescription": {
+    "message": "游戏币目前尚未在此网络上上线。",
+    "englishSource": "Game Coins aren't live on this network yet."
+  },
+  "arcadeActivityScope": {
+    "message": "仅包含“Arcade”中列出的游戏。",
+    "englishSource": "Only games listed in Arcade are included."
+  },
+  "categoryFinance": {
+    "message": "金融",
+    "englishSource": "Finance"
+  },
+  "categoryArcade": {
+    "message": "Arcade",
+    "englishSource": "Arcade"
+  },
+  "categoryOthers": {
+    "message": "其他",
+    "englishSource": "Others"
+  },
+  "arcadeCoinsShort": {
+    "message": "代币",
+    "englishSource": "Coins"
+  },
+  "arcadeActivityShort": {
+    "message": "活动",
+    "englishSource": "Activity"
+  },
+  "arcadeBrowseGames": {
+    "message": "浏览游戏",
+    "englishSource": "Browse games"
+  },
+  "arcadeBalancePrivate": {
+    "message": "您的余额将保持私密。",
+    "englishSource": "Your balance stays private."
+  },
+  "arcadeRankingsPrivate": {
+    "message": "只有您选择共享的余额才会被纳入排名。",
+    "englishSource": "Only balances you choose to share are ranked."
+  },
+  "arcadeActivityEmptyTitle": {
+    "message": "目前尚无游戏活动",
+    "englishSource": "No game activity yet"
+  },
+  "arcadeActivityEmptyBody": {
+    "message": "您在 Arcade 游戏中进行的交易会显示在此处。",
+    "englishSource": "Transactions you make in Arcade games show up here."
+  },
+  "arcadeGcPurchasePackage": {
+    "message": "1 USDCx 购买 1,000 GC，另加网络手续费。",
+    "englishSource": "1,000 GC for 1 USDCx, plus network fees."
+  },
+  "arcadeGcPurchaseUnavailable": {
+    "message": "Bread 暂不支持购买 GC。",
+    "englishSource": "Buying GC is not available in Bread yet."
+  },
+  "arcadeBuyMoreGc": {
+    "message": "购买更多 GC",
+    "englishSource": "Buy more GC"
+  },
+  "arcadeBalanceUnknown": {
+    "message": "余额不可用",
+    "englishSource": "Balance unavailable"
+  },
+  "arcadeBalance": {
+    "message": "$balance$ GC",
+    "englishSource": "$balance$ GC",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      }
+    }
+  },
+  "arcadeGameCoins": {
+    "message": "游戏币",
+    "englishSource": "Game Coins"
+  },
+  "arcadePostingPolicy": {
+    "message": "每款游戏自行设定投注、奖励支付和退款规则。批准交易前，请查看该游戏的规则。",
+    "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
   }
 }
