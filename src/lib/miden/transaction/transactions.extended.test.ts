@@ -17,7 +17,12 @@ import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
-import { markStartedInThisRealm, withAttemptInThisRealm } from './cancel';
+import {
+  beginAttemptInThisRealm,
+  endAttemptInThisRealm,
+  markStartedInThisRealm,
+  withAttemptInThisRealm
+} from './cancel';
 import {
   cancelTransaction,
   claimBridgeSubmit,
@@ -455,6 +460,112 @@ describe('verifyStuckTransactionsFromNode', () => {
       expect(txStore[0]!.displayMessage).not.toBe('Received');
     }
   );
+
+  describe('a row that moved on while the reaper read its note', () => {
+    const judged = (state: string) => {
+      const id = `tx-raced-${state}`;
+      txStore.push({
+        id,
+        type: 'consume',
+        noteId: `note-raced-${state}`,
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
+        attemptId: 'attempt-judged',
+        initiatedAt: 100,
+        processingStartedAt: Math.floor(Date.now() / 1000) - 120
+      });
+      markStartedInThisRealm(id);
+      return id;
+    };
+    // The store hands the reaper the same object it keeps, so a racing writer replaces the slot instead of mutating it.
+    const replaceRow = (changes: Record<string, unknown>) => {
+      txStore[0] = { ...txStore[0], ...changes };
+    };
+    // Runs `race` on the first keyed write after the verdict: the reaper's first await past its open-attempt check.
+    const onFirstWriteAfterVerdict = (state: string, race: () => void) => {
+      const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+      const realWhere = mockedRepoWhere.getMockImplementation()!;
+      mockGetInputNoteDetails.mockImplementationOnce(async () => {
+        mockedRepoWhere.mockImplementationOnce((arg: any) => {
+          const real = realWhere(arg) as any;
+          return {
+            ...real,
+            modify: async (fn: (tx: any) => void) => {
+              race();
+              return real.modify(fn);
+            }
+          };
+        });
+        return [{ state: InputNoteState[state] }];
+      });
+    };
+
+    it.each(['Committed', 'Invalid'])('leaves a row the loop requeued during the %s read alone', async state => {
+      const id = judged(state);
+      const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+      mockGetInputNoteDetails.mockImplementationOnce(async () => {
+        replaceRow({ status: ITransactionStatus.Queued, attemptId: undefined, processingStartedAt: undefined });
+        return [{ state: InputNoteState[state] }];
+      });
+
+      const resolved = await verifyStuckTransactionsFromNode();
+
+      const row = txStore.find(t => t.id === id);
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(resolved).toBe(0);
+      expect(row.submitEvidence).toBeUndefined();
+    });
+
+    it.each(['Committed', 'Invalid'])('leaves a retry that began after the %s read alone', async state => {
+      const id = judged(state);
+      onFirstWriteAfterVerdict(state, () => {
+        replaceRow({ attemptId: 'attempt-retry', processingStartedAt: Math.floor(Date.now() / 1000) });
+        beginAttemptInThisRealm(id);
+      });
+      try {
+        const resolved = await verifyStuckTransactionsFromNode();
+
+        const row = txStore.find(t => t.id === id);
+        expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
+        expect(row.submitEvidence).toBeUndefined();
+        expect(resolved).toBe(0);
+      } finally {
+        endAttemptInThisRealm(id);
+      }
+    });
+
+    it('does not fail a judged attempt that reopened before the grace-arm write', async () => {
+      const id = judged('Committed');
+      onFirstWriteAfterVerdict('Committed', () => beginAttemptInThisRealm(id));
+      try {
+        const resolved = await verifyStuckTransactionsFromNode();
+
+        const row = txStore.find(t => t.id === id);
+        expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
+        expect(row.submitEvidence).toBeUndefined();
+        expect(resolved).toBe(0);
+      } finally {
+        endAttemptInThisRealm(id);
+      }
+    });
+
+    it('still fails a judged attempt with an invalid note while it is open', async () => {
+      const { INVALID_NOTE_ERROR } = require('./constants');
+      const id = judged('Invalid');
+      onFirstWriteAfterVerdict('Invalid', () => beginAttemptInThisRealm(id));
+      try {
+        const resolved = await verifyStuckTransactionsFromNode();
+
+        const row = txStore.find(t => t.id === id);
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.error).toBe(INVALID_NOTE_ERROR);
+        expect(row.submitEvidence?.[0]?.endedBy).toBe('out-of-band');
+        expect(resolved).toBe(1);
+      } finally {
+        endAttemptInThisRealm(id);
+      }
+    });
+  });
 
   it('completes a live same-realm consume when the node confirms local consumption', async () => {
     const id = 'tx-live-local-consume';
