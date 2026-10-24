@@ -1588,7 +1588,7 @@ final class BreadMorphStateTests: XCTestCase {
 }
 
 fileprivate let morphClipKeys = ["transform.scale", "position", "bounds.size.height", "cornerRadius", "opacity"]
-fileprivate let morphShadowKeys = ["transform.scale", "position", "bounds.size.height", "shadowPath", "shadowOpacity"]
+fileprivate let morphShadowKeys = ["transform.scale", "position", "bounds.size.height", "opacity"]
 
 fileprivate func morphKeys(_ layer: CALayer) -> [String] {
     (layer.animationKeys() ?? []).filter { $0.hasPrefix("bread.morph.") }
@@ -1600,26 +1600,53 @@ fileprivate func point(_ value: Any?) -> CGPoint? { (value as? NSValue)?.cgPoint
 
 fileprivate func poseNumbers(_ pose: BreadMorphPose) -> [String: Double] {
     ["transform.scale": Double(pose.scale), "bounds.size.height": Double(pose.cropHeight), "cornerRadius": Double(pose.cornerRadius),
-     "opacity": Double(pose.alpha), "shadowOpacity": Double(pose.shadowOpacity)]
+     "opacity": Double(pose.alpha)]
+}
+
+fileprivate func shadowNumbers(_ pose: BreadMorphPose, width: CGFloat) -> [String: Double] {
+    let pad = BreadMorphShadow.pad(forWidth: width)
+    return ["transform.scale": Double(pose.scale), "bounds.size.height": Double(pose.cropHeight + 2 * pad), "opacity": Double(pose.shadowOpacity)]
+}
+
+fileprivate func shadowOrigin(_ pose: BreadMorphPose, width: CGFloat) -> CGPoint {
+    let pad = BreadMorphShadow.pad(forWidth: width)
+    return CGPoint(x: pose.origin.x - pose.scale * pad, y: pose.origin.y - pose.scale * pad)
+}
+
+fileprivate func alphaGrid(_ image: CGImage) -> (width: Int, height: Int, alpha: (Int, Int) -> Double)? {
+    let width = image.width, height = image.height
+    var data = [UInt8](repeating: 0, count: width * height * 4)
+    guard let context = CGContext(data: &data, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    let copy = data
+    return (width, height, { x, y in Double(copy[(y * width + x) * 4 + 3]) / 255 })
 }
 
 @MainActor fileprivate func assertModelAtRest(_ container: BreadMorphContainerViewController, file: StaticString = #filePath, line: UInt = #line) {
     let bounds = container.view.bounds
+    let pad = BreadMorphShadow.pad(forWidth: bounds.width)
     for layer in [container.clipView.layer, container.shadowView.layer] {
         XCTAssertTrue(CATransform3DIsIdentity(layer.transform), file: file, line: line)
         XCTAssertEqual(layer.position, .zero, file: file, line: line)
-        XCTAssertEqual(layer.bounds, bounds, file: file, line: line)
     }
+    XCTAssertEqual(container.clipView.layer.bounds, bounds, file: file, line: line)
+    XCTAssertEqual(container.shadowView.layer.bounds, CGRect(x: 0, y: 0, width: bounds.width + 2 * pad, height: bounds.height + 2 * pad),
+                   file: file, line: line)
     XCTAssertEqual(container.clipView.layer.cornerRadius, 0, file: file, line: line)
     XCTAssertEqual(container.clipView.layer.opacity, 1, file: file, line: line)
-    XCTAssertEqual(container.shadowView.layer.shadowOpacity, 0, file: file, line: line)
+    XCTAssertEqual(container.shadowView.layer.opacity, 0, file: file, line: line)
     XCTAssertEqual(container.view.layer.opacity, 1, file: file, line: line)
 }
 
 @MainActor fileprivate func assertHeld(_ container: BreadMorphContainerViewController, at pose: BreadMorphPose,
                                        file: StaticString = #filePath, line: UInt = #line) {
-    let layers: [(CALayer, [String])] = [(container.clipView.layer, morphClipKeys), (container.shadowView.layer, morphShadowKeys)]
-    for (layer, keys) in layers {
+    let width = container.view.bounds.width
+    let layers: [(CALayer, [String], [String: Double], CGPoint)] = [
+        (container.clipView.layer, morphClipKeys, poseNumbers(pose), pose.origin),
+        (container.shadowView.layer, morphShadowKeys, shadowNumbers(pose, width: width), shadowOrigin(pose, width: width))
+    ]
+    for (layer, keys, numbers, origin) in layers {
         XCTAssertEqual(Set(morphKeys(layer)), Set(keys.map { "bread.morph." + $0 }), file: file, line: line)
         for key in keys {
             guard let hold = layer.animation(forKey: "bread.morph." + key) as? CABasicAnimation else {
@@ -1629,9 +1656,9 @@ fileprivate func poseNumbers(_ pose: BreadMorphPose) -> [String: Double] {
             XCTAssertEqual(hold.fillMode, .forwards, key, file: file, line: line)
             XCTAssertFalse(hold.isRemovedOnCompletion, key, file: file, line: line)
             if key == "position" {
-                XCTAssertEqual(point(hold.fromValue), pose.origin, key, file: file, line: line)
-                XCTAssertEqual(point(hold.toValue), pose.origin, key, file: file, line: line)
-            } else if let expected = poseNumbers(pose)[key] {
+                XCTAssertEqual(point(hold.fromValue), origin, key, file: file, line: line)
+                XCTAssertEqual(point(hold.toValue), origin, key, file: file, line: line)
+            } else if let expected = numbers[key] {
                 XCTAssertEqual(number(hold.fromValue) ?? .nan, expected, accuracy: 1e-6, key, file: file, line: line)
                 XCTAssertEqual(number(hold.toValue) ?? .nan, expected, accuracy: 1e-6, key, file: file, line: line)
             }
@@ -1710,7 +1737,8 @@ final class BreadMorphContainerTests: XCTestCase {
             XCTAssertTrue(morphKeys(layer).isEmpty)
         }
         assertModelAtRest(container)
-        XCTAssertNotNil(container.shadowView.layer.shadowPath)
+        XCTAssertNotNil(container.shadowView.layer.contents)
+        XCTAssertEqual(container.shadowView.layer.shadowOpacity, 0)
         XCTAssertFalse(container.morphing)
         XCTAssertEqual(container.clipView.layer.cornerCurve, .circular)
         XCTAssertTrue(container.clipView.clipsToBounds)
@@ -1779,8 +1807,12 @@ final class BreadMorphAnimatorTests: XCTestCase {
         let to = BreadMorphPose.at(0, card: card, slot: slot)
         animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
         assertModelAtRest(container)
-        let layers: [(CALayer, [String])] = [(container.clipView.layer, morphClipKeys), (container.shadowView.layer, morphShadowKeys)]
-        for (layer, keys) in layers {
+        let width = container.view.bounds.width
+        let layers: [(CALayer, [String], (BreadMorphPose) -> [String: Double], (BreadMorphPose) -> CGPoint)] = [
+            (container.clipView.layer, morphClipKeys, poseNumbers, { $0.origin }),
+            (container.shadowView.layer, morphShadowKeys, { shadowNumbers($0, width: width) }, { shadowOrigin($0, width: width) })
+        ]
+        for (layer, keys, numbers, origin) in layers {
             XCTAssertEqual(Set(morphKeys(layer)), Set(keys.map { "bread.morph." + $0 }))
             for key in keys {
                 let spring = try XCTUnwrap(layer.animation(forKey: "bread.morph." + key) as? CASpringAnimation, key)
@@ -1794,9 +1826,9 @@ final class BreadMorphAnimatorTests: XCTestCase {
                 XCTAssertEqual(spring.preferredFrameRateRange.maximum, 120, key)
                 XCTAssertEqual(spring.preferredFrameRateRange.preferred, 120, key)
                 if key == "position" {
-                    XCTAssertEqual(point(spring.fromValue), from.origin)
-                    XCTAssertEqual(point(spring.toValue), to.origin)
-                } else if let expectedFrom = poseNumbers(from)[key], let expectedTo = poseNumbers(to)[key] {
+                    XCTAssertEqual(point(spring.fromValue), origin(from))
+                    XCTAssertEqual(point(spring.toValue), origin(to))
+                } else if let expectedFrom = numbers(from)[key], let expectedTo = numbers(to)[key] {
                     XCTAssertEqual(number(spring.fromValue) ?? .nan, expectedFrom, accuracy: 1e-6, key)
                     XCTAssertEqual(number(spring.toValue) ?? .nan, expectedTo, accuracy: 1e-6, key)
                 } else {
@@ -1826,22 +1858,78 @@ final class BreadMorphAnimatorTests: XCTestCase {
         XCTAssertEqual(settled, 1)
     }
 
-    func testShadowLandsAtFourteenBlurAndTenOffsetOnScreen() throws {
+    private func shadowImage(_ container: BreadMorphContainerViewController) throws -> CGImage {
+        let contents = try XCTUnwrap(container.shadowView.layer.contents)
+        return contents as! CGImage
+    }
+
+    func testShadowIsAPreBlurredNineSliceImageThatMatchesTheCardLook() throws {
         let fixture = try morphContainerFixture()
         defer { fixture.dispose() }
         let container = fixture.container
         clocked(container).run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
         let shadow = container.shadowView.layer
-        let scale = BreadMorphPose.at(0, card: card, slot: container.view.bounds.size).scale
-        XCTAssertEqual(shadow.shadowRadius * scale, 14, accuracy: 1e-6)
-        XCTAssertEqual(shadow.shadowOffset.height * scale, 10, accuracy: 1e-6)
-        XCTAssertEqual(shadow.shadowOffset.width, 0)
-        let color = try XCTUnwrap(shadow.shadowColor.map { UIColor(cgColor: $0) })
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-        XCTAssertTrue(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
-        XCTAssertEqual(red * 255, 15, accuracy: 0.5)
-        XCTAssertEqual(green * 255, 23, accuracy: 0.5)
-        XCTAssertEqual(blue * 255, 42, accuracy: 0.5)
+        XCTAssertNil(shadow.shadowPath)
+        XCTAssertEqual(shadow.shadowOpacity, 0)
+        XCTAssertEqual(shadow.contentsGravity, .resize)
+        let grid = try XCTUnwrap(alphaGrid(try shadowImage(container)))
+        let pose = BreadMorphPose.at(0, card: card, slot: container.view.bounds.size)
+        let scale = Double(pose.scale)
+        let pad = Double(BreadMorphShadow.pad(forWidth: container.view.bounds.width))
+        let px = Double(shadow.contentsScale)
+        XCTAssertEqual(shadow.contentsCenter.width * Double(grid.width), 1, accuracy: 1e-6)
+        XCTAssertEqual(shadow.contentsCenter.height * Double(grid.height), 1, accuracy: 1e-6)
+        let mid = grid.width / 2
+        XCTAssertEqual(grid.alpha(mid, grid.height / 2), 1, accuracy: 0.02)
+        XCTAssertEqual(grid.alpha(0, 0), 0, accuracy: 0.01)
+        XCTAssertEqual(grid.alpha(mid, 0), 0, accuracy: 0.01)
+        var topHalf = 0, topLow = 0, topHigh = 0, leftHalf = 0
+        for y in 0..<(grid.height / 2) {
+            let a = grid.alpha(mid, y)
+            if topLow == 0, a >= 0.16 { topLow = y }
+            if topHalf == 0, a >= 0.5 { topHalf = y }
+            if topHigh == 0, a >= 0.84 { topHigh = y }
+        }
+        for x in 0..<mid where leftHalf == 0 && grid.alpha(x, grid.height / 2) >= 0.5 { leftHalf = x }
+        XCTAssertEqual((Double(topHalf) / px - pad) * scale, 10, accuracy: 1.5, "offset on screen")
+        XCTAssertEqual(Double(leftHalf) / px * scale, pad * scale, accuracy: 1.5)
+        XCTAssertEqual(Double(topHigh - topLow) / px * scale, 28, accuracy: 3, "two sigma on screen")
+        let color = try XCTUnwrap(shadowColor(try shadowImage(container)))
+        XCTAssertEqual(color.red * 255, 15, accuracy: 0.8)
+        XCTAssertEqual(color.green * 255, 23, accuracy: 0.8)
+        XCTAssertEqual(color.blue * 255, 42, accuracy: 0.8)
+    }
+
+    private func shadowColor(_ image: CGImage) -> (red: Double, green: Double, blue: Double)? {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: -image.width / 2, y: -image.height / 2, width: image.width, height: image.height))
+        guard pixel[3] > 0 else { return nil }
+        let a = Double(pixel[3])
+        return (Double(pixel[0]) / a, Double(pixel[1]) / a, Double(pixel[2]) / a)
+    }
+
+    func testShadowImageIsRenderedOncePerSizeClassAndShared() throws {
+        let width: CGFloat = 402
+        let first = try XCTUnwrap(BreadMorphShadow.render(start: 0.26, cornerRadius: 61, width: width, screenScale: 3))
+        let again = try XCTUnwrap(BreadMorphShadow.render(start: 0.26, cornerRadius: 61, width: width, screenScale: 3))
+        XCTAssertTrue(first.image === again.image)
+        let near = try XCTUnwrap(BreadMorphShadow.render(start: 0.262, cornerRadius: 61.2, width: width, screenScale: 3))
+        XCTAssertTrue(first.image === near.image)
+        let other = try XCTUnwrap(BreadMorphShadow.render(start: 0.2, cornerRadius: 80, width: width, screenScale: 3))
+        XCTAssertFalse(first.image === other.image)
+    }
+
+    func testRunReusesTheCachedShadowImageForTheSameCard() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        let first = try shadowImage(container)
+        animator.run(to: 1, card: card, velocity: 0, physics: .expand, onSettle: {})
+        XCTAssertTrue(try shadowImage(container) === first)
     }
 
     func testRetargetRestartsFromTheAnalyticProgressWithNormalizedVelocity() throws {
