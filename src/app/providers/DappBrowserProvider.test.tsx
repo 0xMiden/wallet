@@ -43,6 +43,7 @@ const mockSetRect: jest.Mock = jest.fn(() => Promise.resolve());
 const mockExecuteScript: jest.Mock = jest.fn(() => Promise.resolve());
 const mockInstanceClose: jest.Mock = jest.fn(() => Promise.resolve());
 const mockNativeClose = jest.fn(async (_options: unknown) => {});
+const mockMorph: jest.Mock = jest.fn(async () => ({ accepted: false }));
 
 function makeInstance(id: string) {
   return {
@@ -50,7 +51,7 @@ function makeInstance(id: string) {
     setVisible: (...args: unknown[]) => mockSetVisible(id, ...args),
     setRect: (...args: unknown[]) => mockSetRect(id, ...args),
     executeScript: (...args: unknown[]) => mockExecuteScript(id, ...args),
-    morph: async () => ({ accepted: false }),
+    morph: (...args: unknown[]) => mockMorph(id, ...args),
     close: () => mockInstanceClose(id)
   };
 }
@@ -1035,6 +1036,26 @@ describe('E2E screen-key publishing', () => {
     await pending;
     expect(probe.pendingConfirmationCount).toBe(0);
     expect(probe.hasPendingConfirmation('probe')).toBe(false);
+  });
+
+  it('publishes the motion while one runs', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+    const probe = () => Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')?.value.motion;
+    expect(probe()).toBeNull();
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+
+    act(() => void hook.result.current.park('dapp-a'));
+    await flush();
+
+    expect(probe()).toEqual({
+      id: 'dapp-a',
+      target: 'collapsed',
+      started: false,
+      acknowledging: false,
+      progress: 1,
+      tracking: false
+    });
   });
 
   it('stays on the bare route while the dApp is still loading', async () => {

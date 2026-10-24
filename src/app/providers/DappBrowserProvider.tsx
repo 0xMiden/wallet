@@ -2114,6 +2114,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       mode: foregroundId ? 'active' : 'launcher',
       switcherOpen,
       slotRect,
+      // The native morph in flight, so a step can wait for the page to come to rest.
+      motion: motion && {
+        id: motion.id,
+        target: motion.target,
+        started: motion.started,
+        acknowledging: motion.acknowledging,
+        progress: motion.progress,
+        tracking: motion.tracking
+      },
       sessions: sessionStates.map(s => ({
         id: s.session.id,
         url: s.session.url,
@@ -2124,7 +2133,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         error: s.error
       }))
     };
-  }, [foregroundId, switcherOpen, slotRect, sessionStates]);
+  }, [foregroundId, switcherOpen, slotRect, sessionStates, motion]);
 
   return (
     <DappBrowserContext.Provider value={contextValue}>
