@@ -31,6 +31,31 @@ it('binds each visibility command to its immutable lifetime and increasing seque
   ]);
 });
 
+it('sends a repeated hide once, until a command that can show the page', async () => {
+  const instance = new DappWebViewInstance('session', 'lifetime');
+  const sent = () => mockVisible.mock.calls.map(([options]) => options);
+  await instance.setVisible(false);
+  await instance.setVisible(false);
+  expect(sent()).toHaveLength(1);
+  await instance.setVisible(true, 3);
+  await instance.setVisible(false);
+  await instance.setVisible(false);
+  expect(sent()).toHaveLength(3);
+  await instance.morph({ to: 'expanded', card: CARD, morphId: 'm1' });
+  await instance.setVisible(false);
+  expect(sent()).toHaveLength(4);
+  await instance.morph({ to: 'collapsed', card: CARD, morphId: 'm2' });
+  await instance.setVisible(false);
+  expect(sent()).toHaveLength(5);
+  expect(instance.currentVisibilitySequence).toBe(7);
+
+  const failing = new DappWebViewInstance('other', 'lifetime');
+  mockVisible.mockRejectedValueOnce(new Error('bridge'));
+  await expect(failing.setVisible(false)).rejects.toThrow('bridge');
+  await failing.setVisible(false);
+  expect(sent().filter(options => (options as { id: string }).id === 'other')).toHaveLength(2);
+});
+
 it('does not let a closed wrapper dispatch into a replacement lifetime', async () => {
   const instance = new DappWebViewInstance('session', 'outgoing');
   await instance.close();

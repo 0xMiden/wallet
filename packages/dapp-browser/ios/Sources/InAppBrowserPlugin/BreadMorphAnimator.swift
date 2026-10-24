@@ -165,12 +165,15 @@ final class BreadFrameRateBoost {
     static let shared = BreadFrameRateBoost()
     static let duration: CFTimeInterval = 0.6
     private let now: () -> CFTimeInterval
+    private let window: () -> UIWindow?
     private(set) var link: CADisplayLink?
+    private(set) var pulse: CALayer?
     private var expiry: CFTimeInterval = 0
     var active: Bool { link != nil }
 
-    init(now: @escaping () -> CFTimeInterval = CACurrentMediaTime) {
+    init(now: @escaping () -> CFTimeInterval = CACurrentMediaTime, window: @escaping () -> UIWindow? = { nil }) {
         self.now = now
+        self.window = window
     }
 
     deinit { link?.invalidate() }

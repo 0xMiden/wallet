@@ -2020,6 +2020,37 @@ final class BreadMorphAnimatorTests: XCTestCase {
         XCTAssertFalse(boost.active)
     }
 
+    func testTouchDownBoostKeepsTheCompositorDrawingUntilItLapses() throws {
+        let fixture = try morphContainerFixture()
+        var now: CFTimeInterval = 10
+        let boost = BreadFrameRateBoost(now: { now }, window: { fixture.window })
+        defer { boost.release(); fixture.dispose() }
+        boost.hold(for: 0.6)
+        let pulse = try XCTUnwrap(boost.pulse)
+        XCTAssertTrue(pulse.superlayer === fixture.window.layer)
+        XCTAssertFalse(pulse.isHidden)
+        XCTAssertGreaterThan(pulse.opacity, 0)
+        XCTAssertLessThan(pulse.opacity, 0.02)
+        XCTAssertLessThanOrEqual(pulse.bounds.width, 1)
+        let animation = try XCTUnwrap(pulse.animation(forKey: "bread.boost") as? CABasicAnimation)
+        XCTAssertEqual(animation.preferredFrameRateRange.minimum, 80)
+        XCTAssertEqual(animation.preferredFrameRateRange.maximum, 120)
+        XCTAssertEqual(animation.preferredFrameRateRange.preferred, 120)
+        XCTAssertEqual(animation.repeatCount, .infinity)
+        XCTAssertNotEqual(number(animation.fromValue), number(animation.toValue))
+        boost.hold(for: 0.6)
+        XCTAssertTrue(boost.pulse === pulse)
+        now = 11
+        boost.tick()
+        XCTAssertNil(boost.pulse)
+        XCTAssertNil(pulse.superlayer)
+        let headless = BreadFrameRateBoost(now: { now }, window: { nil })
+        headless.hold(for: 0.6)
+        XCTAssertTrue(headless.active)
+        XCTAssertNil(headless.pulse)
+        headless.release()
+    }
+
     func testMorphLinkTakesOverATouchDownBoost() throws {
         let fixture = try morphContainerFixture()
         defer { fixture.dispose(); BreadFrameRateBoost.shared.release() }
