@@ -58,7 +58,7 @@ it('collapse fades and lifts the capsule over 160 ms and stops its pointer event
     { opacity: 1, transform: 'translateY(0px)' },
     { opacity: 0, transform: `translateY(-${MORPH_TIMING.capsuleLiftPx}px)` }
   ]);
-  expect(fade?.options).toMatchObject({ duration: MORPH_TIMING.capsuleFadeMs, easing: 'ease-out', fill: 'forwards' });
+  expect(fade?.options).toMatchObject({ duration: MORPH_TIMING.capsuleFadeMs, easing: 'ease-out', fill: 'both' });
   expect(capsule.style.pointerEvents).toBe('none');
 
   stop();
@@ -92,7 +92,7 @@ it('launcher follows the spring from scale 0.97', () => {
     { opacity: 1, transform: 'scale(1)' }
   ]);
   const spring = springToLinearEasing(springs.morphCollapse, { distance: -1000, velocity: 0 })!;
-  expect(follow?.options).toMatchObject({ duration: spring.duration, easing: spring.easing, fill: 'forwards' });
+  expect(follow?.options).toMatchObject({ duration: spring.duration, easing: spring.easing, fill: 'both' });
 });
 
 it('reduced motion animates opacity only', () => {
@@ -124,14 +124,26 @@ it('a retarget restarts from the current value with the event velocity', () => {
   expect(of(launcher)[1]?.cancel).not.toHaveBeenCalled();
 });
 
+it('an expand retarget holds the sampled capsule through its fade-in delay', () => {
+  startMorphCompanions({ capsule, launcher }, { target: 'collapsed', progress: 1, velocity: 0 }, false);
+  capsule.style.opacity = '0.25';
+
+  startMorphCompanions({ capsule, launcher }, { target: 'expanded', progress: 0.4, velocity: 0 }, false);
+
+  const fade = of(capsule)[1];
+  expect(fade?.options.delay).toBeGreaterThan(0);
+  expect(fade?.options).toMatchObject({ fill: 'both' });
+  expect(fade?.keyframes[0]).toMatchObject({ opacity: 0.25 });
+});
+
 it('snaps when linear() is unsupported', () => {
   mockLinear.value = false;
 
   startMorphCompanions({ capsule, launcher }, { target: 'collapsed', progress: 1, velocity: 0 }, false);
 
-  expect(of(launcher)[0]?.options).toMatchObject({ duration: 0, fill: 'forwards' });
+  expect(of(launcher)[0]?.options).toMatchObject({ duration: 0, fill: 'both' });
   expect(of(launcher)[0]?.keyframes.at(-1)).toEqual({ opacity: 1, transform: 'scale(1)' });
-  expect(of(capsule)[0]?.options).toMatchObject({ duration: 0, fill: 'forwards' });
+  expect(of(capsule)[0]?.options).toMatchObject({ duration: 0, fill: 'both' });
 });
 
 it('sends nothing over the bridge while the page moves', () => {
