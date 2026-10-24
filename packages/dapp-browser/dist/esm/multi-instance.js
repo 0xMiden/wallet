@@ -35,7 +35,6 @@ export class DappWebViewInstance {
     this.managedHostCloseToken = managedHostCloseToken;
     this.closed = false;
     this.visibilitySequence = 0;
-    // True from a hide this wrapper sent until a command that could show the page again.
     this.hidden = false;
   }
 
@@ -57,7 +56,7 @@ export class DappWebViewInstance {
   /** Toggle this instance's visibility. The WebView's JS context survives. */
   setVisible(visible, policyRevision) {
     if (this.closed || this.closePromise) return Promise.resolve();
-    // A repeated hide changes nothing native, so it stays off the bridge while another page morphs (#1817).
+    // Until a show or a morph, a repeated hide changes nothing native, so it stays off the bridge (#1817).
     if (!visible && this.hidden) return Promise.resolve();
     this.hidden = !visible;
     return InAppBrowser.setVisible({
