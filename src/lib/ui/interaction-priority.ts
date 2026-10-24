@@ -15,6 +15,7 @@ const FRAME_FALLBACK_MS = 16;
 let active = 0;
 let busySince = 0;
 let frameScheduled = false;
+let idleEpoch = 0;
 let waiters: Waiter[] = [];
 
 const nextFrame = (cb: () => void) => {
@@ -29,7 +30,16 @@ const settle = (waiter: Waiter) => {
 };
 
 // A new gesture landing before the frame keeps waiters waiting, so only resolve if still idle.
-const releaseWaitersIfIdle = () => {
+// A frame from an earlier end is stale: it settles nothing, and while a frame is queued it
+// schedules one successor closed over the epoch read now.
+const releaseWaitersIfIdle = (epoch: number) => {
+  if (epoch !== idleEpoch) {
+    if (frameScheduled) {
+      const successor = idleEpoch;
+      nextFrame(() => releaseWaitersIfIdle(successor));
+    }
+    return;
+  }
   frameScheduled = false;
   if (active === 0) [...waiters].forEach(settle);
 };
@@ -37,7 +47,7 @@ const releaseWaitersIfIdle = () => {
 /** Marks a gesture as started. Returns an idempotent function that marks it finished. */
 export function beginInteraction(): () => void {
   if (active === 0) {
-    busySince = Date.now();
+    if (!frameScheduled) busySince = Date.now();
     active = 1;
   } else {
     active++;
@@ -48,9 +58,11 @@ export function beginInteraction(): () => void {
     ended = true;
     active--;
     if (active > 0) return;
+    idleEpoch++;
     if (!frameScheduled) {
       frameScheduled = true;
-      nextFrame(releaseWaitersIfIdle);
+      const epoch = idleEpoch;
+      nextFrame(() => releaseWaitersIfIdle(epoch));
     }
   };
 }
@@ -81,4 +93,5 @@ export function _resetInteractionPriorityForTest(): void {
   active = 0;
   busySince = 0;
   frameScheduled = false;
+  idleEpoch++;
 }
