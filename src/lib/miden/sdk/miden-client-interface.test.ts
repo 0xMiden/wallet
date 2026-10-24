@@ -1523,6 +1523,39 @@ describe('MidenClientInterface', () => {
     expect(staged.submit).not.toHaveBeenCalled();
   });
 
+  it('refuses a queued swap after its endpoint changes before execution', async () => {
+    const staged = stagedExecuteRequest();
+    mockStagedSdk();
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const getFeeContext = jest.requireMock('lib/miden/swap/balance').getSwapFeeContextSync;
+    getFeeContext.mockImplementationOnce((scope?: string) => {
+      if (scope !== 'testnet|current-endpoint') throw new Error('swapBalanceUnavailable');
+      return {};
+    });
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+      'testnet'
+    );
+
+    await expect(
+      client.swapTransaction({
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: 10n,
+        type: 'swap',
+        extraInputs: {
+          requestedFaucetId: 'wanted-faucet',
+          requestedAmount: 20n,
+          balanceScope: 'testnet|queued-endpoint'
+        }
+      } as any)
+    ).rejects.toThrow('swapBalanceUnavailable');
+
+    expect(getFeeContext).toHaveBeenCalledWith('testnet|queued-endpoint');
+    expect(staged.executeRequest).not.toHaveBeenCalled();
+    expect(staged.submit).not.toHaveBeenCalled();
+  });
+
   it('does not re-run a delegated swap whose submit failed', async () => {
     const refused = new Error('node refused the PSWAP');
     const staged = stagedExecuteRequest();

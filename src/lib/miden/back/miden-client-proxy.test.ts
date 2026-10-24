@@ -3312,6 +3312,10 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
   it('flag ON → dispatches a whole-op OFFSCREEN_CALL with the swap DTO (both BigInt amounts as strings) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
+    const transaction = {
+      ...swapTx(),
+      extraInputs: { ...swapTx().extraInputs, balanceScope: 'testnet|queued-endpoint' }
+    };
     let criticalDuring: boolean | undefined;
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
       criticalDuring = prover.isCriticalOpInFlight();
@@ -3319,7 +3323,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     });
 
     const p = midenClientProxy.swapTransaction(
-      swapTx() as any,
+      transaction as any,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -3339,7 +3343,11 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
       faucetId: 'mtst1qoffered',
       amount: '500',
       delegateTransaction: false,
-      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+      extraInputs: {
+        requestedFaucetId: 'mtst1qrequested',
+        requestedAmount: '250',
+        balanceScope: 'testnet|queued-endpoint'
+      }
     });
     expect(criticalDuring).toBe(true);
     expect(prover.isCriticalOpInFlight()).toBe(false);

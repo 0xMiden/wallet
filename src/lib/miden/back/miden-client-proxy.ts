@@ -903,7 +903,7 @@ type OffscreenSwapDto = {
   faucetId: string;
   amount: string;
   delegateTransaction?: boolean;
-  extraInputs: { requestedFaucetId: string; requestedAmount: string };
+  extraInputs: { requestedFaucetId: string; requestedAmount: string; balanceScope?: string };
 };
 
 /**
@@ -1763,8 +1763,9 @@ export const midenClientProxy = {
    * Same flag-OFF inline (realm signer) + flag-ON whole-op contract as {@link sendTransaction}.
    * The DTO carries EXACTLY what `MidenClientInterface.swapTransaction` reads —
    * `accountId`, `faucetId`, the offered `amount` (BigInt → string),
-   * `delegateTransaction`, and `extraInputs.{requestedFaucetId, requestedAmount}`
-   * (BigInt → string). `completeSwapTransaction` consumes the round-tripped
+   * `delegateTransaction`, `extraInputs.{requestedFaucetId, requestedAmount}`
+   * (BigInt → string), and the queued `balanceScope` used to reject endpoint
+   * changes. `completeSwapTransaction` consumes the round-tripped
    * `TransactionResult` identically (no further client call).
    */
   async swapTransaction(
@@ -1782,7 +1783,8 @@ export const midenClientProxy = {
       delegateTransaction: transaction.delegateTransaction,
       extraInputs: {
         requestedFaucetId: transaction.extraInputs.requestedFaucetId,
-        requestedAmount: transaction.extraInputs.requestedAmount.toString()
+        requestedAmount: transaction.extraInputs.requestedAmount.toString(),
+        balanceScope: transaction.extraInputs.balanceScope
       }
     };
     return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage);

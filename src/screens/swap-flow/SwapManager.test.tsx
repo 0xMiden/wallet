@@ -969,6 +969,30 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
     });
 
+    it('accepts an offer whose excess fractional digits are only trailing zeroes', () => {
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      const lowPrecisionOffer = { ...mockTokenC, decimals: 2 };
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 8 }, mockTokenB, lowPrecisionOffer]);
+      mockBalanceData = [
+        { tokenId: 'bech32-faucet-A', balance: 10 },
+        { tokenId: 'bech32-faucet-C', balance: 10 }
+      ];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      mockFormatBigInt.mockImplementation(formatBigInt);
+      quoteFollowsOffer();
+      renderFlow();
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      act(() => mockDrawerProps.onSelect(lowPrecisionOffer));
+      setOffer('1.2300');
+
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.2300');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ offerAmount: '1.2300' }));
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      expect(mockStringToBigInt).toHaveBeenCalledWith('1.2300', 2);
+    });
+
     it('blocks a receive amount beyond the selected request token precision', async () => {
       const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
@@ -986,6 +1010,24 @@ describe('SwapFlow / SwapManager', () => {
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
       expect(mockInitiateSwap).not.toHaveBeenCalled();
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+
+    it('accepts a receive target whose excess fractional digits are only trailing zeroes', () => {
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
+      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, lowPrecisionRequest]);
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      mockFormatBigInt.mockImplementation(formatBigInt);
+      renderFlow();
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      act(() => mockDrawerProps.onSelect(lowPrecisionRequest));
+      setRequest('1.2300');
+
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('1.2300');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ requestAmount: '1.2300' }));
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      expect(mockStringToBigInt).toHaveBeenCalledWith('1.2300', 2);
     });
 
     it('flags an offer above the holding of a registry token whose stored override carries decimals', () => {

@@ -260,7 +260,6 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   const offerAmountBaseUnits = useMemo(() => {
     if (amountExceedsTokenDecimals(offerAmount, offerToken.decimals)) return undefined;
     try {
-      if ((offerAmount.split('.')[1]?.length ?? 0) > offerToken.decimals) return undefined;
       return stringToBigInt(offerAmount, offerToken.decimals);
     } catch {
       return undefined;
@@ -268,8 +267,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   }, [offerAmount, offerToken.decimals]);
 
   const requestAmountBaseUnits = useMemo(() => {
+    if (amountExceedsTokenDecimals(requestAmount, requestToken.decimals)) return undefined;
     try {
-      if ((requestAmount.split('.')[1]?.length ?? 0) > requestToken.decimals) return undefined;
       return stringToBigInt(requestAmount, requestToken.decimals);
     } catch {
       return undefined;

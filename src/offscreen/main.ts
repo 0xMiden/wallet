@@ -895,7 +895,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       faucetId: string;
       amount: string;
       delegateTransaction?: boolean;
-      extraInputs: { requestedFaucetId: string; requestedAmount: string };
+      extraInputs: { requestedFaucetId: string; requestedAmount: string; balanceScope?: string };
     }
   ) => {
     const tx = decodeBeforeSubmit(
@@ -905,7 +905,8 @@ const DISPATCH: Record<string, DispatchFn> = {
           amount: BigInt(dto.amount),
           extraInputs: {
             requestedFaucetId: dto.extraInputs.requestedFaucetId,
-            requestedAmount: BigInt(dto.extraInputs.requestedAmount)
+            requestedAmount: BigInt(dto.extraInputs.requestedAmount),
+            balanceScope: dto.extraInputs.balanceScope
           }
         }) as unknown as SwapTransaction
     );

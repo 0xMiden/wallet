@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useDebounce } from 'use-debounce';
 
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
 import {
   quoteSwap,
   quoteSwapForReceive,
@@ -74,7 +74,7 @@ interface QuoteKey {
 
 const toBigIntOrZero = (amount: string, decimals: number): bigint => {
   try {
-    if (!/^\d*(?:\.\d*)?$/.test(amount) || (amount.split('.')[1]?.length ?? 0) > decimals) return 0n;
+    if (!/^\d*(?:\.\d*)?$/.test(amount) || amountExceedsTokenDecimals(amount, decimals)) return 0n;
     return stringToBigInt(amount || '0', decimals);
   } catch {
     return 0n;

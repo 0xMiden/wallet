@@ -3479,7 +3479,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       faucetId: 'mtst1qoffered',
       amount: '500',
       delegateTransaction: false,
-      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+      extraInputs: {
+        requestedFaucetId: 'mtst1qrequested',
+        requestedAmount: '250',
+        balanceScope: 'testnet|queued-endpoint'
+      }
     };
     const ret = capturedListener!(callReq({ method: 'swapTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
     expect(ret).toBe(true);
@@ -3493,6 +3497,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(typeof receivedTx.extraInputs.requestedAmount).toBe('bigint');
     expect(receivedTx.extraInputs.requestedAmount).toBe(250n);
     expect(receivedTx.extraInputs.requestedFaucetId).toBe('mtst1qrequested');
+    expect(receivedTx.extraInputs.balanceScope).toBe('testnet|queued-endpoint');
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([44, 55, 66, 77]);

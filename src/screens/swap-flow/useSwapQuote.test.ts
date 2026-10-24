@@ -13,6 +13,8 @@ jest.mock('lib/miden/swap/quote', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  amountExceedsTokenDecimals: (amount: string, decimals: number) =>
+    (amount.split('.')[1]?.replace(/0+$/, '').length ?? 0) > decimals,
   stringToBigInt: (value: string, decimals: number) => {
     if (value === '' || Number.isNaN(Number(value))) throw new RangeError(value);
     return BigInt(Math.round(Number(value) * 10 ** decimals));
@@ -75,6 +77,28 @@ afterEach(() => {
 });
 
 describe('useSwapQuote', () => {
+  it('quotes an offer with trailing zeroes beyond the token precision', () => {
+    const lowPrecisionUSDC = { ...USDC, decimals: 2 };
+    renderHook(() => useSwapQuote(opts({ offerToken: lowPrecisionUSDC, offerAmount: '1.2300' })));
+
+    pastDebounce();
+
+    expect(lastCall()).toEqual([lowPrecisionUSDC, 123n, ETH, { slippageBps: 20 }]);
+  });
+
+  it('quotes a receive target with trailing zeroes beyond the token precision', () => {
+    const lowPrecisionETH = { ...ETH, decimals: 2 };
+    renderHook(() =>
+      useSwapQuote(
+        opts({ offerAmount: '', requestToken: lowPrecisionETH, requestAmount: '1.2300', requestEdited: true })
+      )
+    );
+
+    pastDebounce();
+
+    expect(lastCall()).toEqual([USDC, 123n, lowPrecisionETH, { slippageBps: 20 }]);
+  });
+
   it('quotes the debounced inputs: a wallet-built ask carries no requested amount, only the slippage', async () => {
     const { result } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), { initialProps: opts() });
     pastDebounce();
