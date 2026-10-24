@@ -1990,13 +1990,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // Re-run the injection script once per warm foreground change, so wallet CSS (the navbar bottom padding) reaches
   // a session parked before the latest app update: setVisible(true) fires no browserPageLoaded. A loading page is
-  // injected by browserPageLoaded itself.
+  // injected by browserPageLoaded itself. An expanding page gets it once it settles, off the frames that move it.
+  const foregroundExpanding = motion?.target === 'expanded' && motionId === foregroundId;
   useEffect(() => {
-    if (!foregroundId || !foregroundInstance || getSessionStateById(foregroundId)?.isLoading !== false) return;
+    if (!foregroundId || !foregroundInstance || foregroundExpanding) return;
+    if (getSessionStateById(foregroundId)?.isLoading !== false) return;
     void foregroundInstance
       .executeScript(INJECTION_SCRIPT)
       .catch(e => console.warn('[DappBrowserProvider] executeScript failed:', e));
-  }, [foregroundId, foregroundInstance, getSessionStateById]);
+  }, [foregroundExpanding, foregroundId, foregroundInstance, getSessionStateById]);
 
   // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
   // A moving page stays shown until its motion ends, unless the host takes visibility: then the hide cancels it. The
