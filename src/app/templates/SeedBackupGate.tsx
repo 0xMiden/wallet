@@ -1,13 +1,11 @@
 import React, { FC, ReactNode, useEffect, useState } from 'react';
 
-import BigNumber from 'bignumber.js';
 import { useTranslation } from 'react-i18next';
 
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import { AlertSheet } from 'components/ui/AlertSheet';
+import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { useStorage } from 'lib/miden/front/storage';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { tokenQuote } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
@@ -26,17 +24,12 @@ import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
 export const SEED_BACKUP_REQUIRED_KEY = 'seed_backup_required_v1';
 
 export function reachesSeedBackupThreshold(state: Pick<WalletStore, 'accounts' | 'balances' | 'tokenPrices'>): boolean {
-  let total = new BigNumber(0);
+  let total = 0;
   const addresses = new Set(state.accounts.map(account => account.publicKey));
   for (const address of addresses) {
-    for (const token of state.balances[address] ?? []) {
-      if (!Number.isFinite(token.balance) || token.balance <= 0 || !hasKnownScale(token.metadata)) continue;
-      const quote = tokenQuote(state.tokenPrices, token.tokenId, token.metadata.symbol);
-      if (!quote || !Number.isFinite(quote.price) || quote.price <= 0) continue;
-      total = total.plus(new BigNumber(token.balance).times(quote.price));
-    }
+    total += valuedBalanceTotal(state.balances[address] ?? [], state.tokenPrices).totalFiat;
   }
-  return total.gte(150);
+  return total >= 150;
 }
 
 export const SeedBackupGate: FC<{ children: ReactNode }> = ({ children }) => {
