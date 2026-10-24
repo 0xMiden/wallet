@@ -1,16 +1,4 @@
 {
-  "activityGroupsUnavailable": {
-    "message": "Groups could not be displayed",
-    "englishSource": ""
-  },
-  "activityGroupsUnavailableDescription": {
-    "message": "Try again or return to List to view your activity.",
-    "englishSource": ""
-  },
-  "activityReturnToList": {
-    "message": "Return to List",
-    "englishSource": ""
-  },
   "seedBackupRequiredTitle": {
     "message": "備份您的種子短語",
     "englishSource": "Back up your recovery phrase"
@@ -4981,6 +4969,18 @@
   "faucetRequest": {
     "message": "Faucet 請求",
     "englishSource": "Faucet Request"
+  },
+  "activityGroupsUnavailable": {
+    "message": "Groups could not be displayed",
+    "englishSource": "Groups could not be displayed"
+  },
+  "activityGroupsUnavailableDescription": {
+    "message": "Try again or return to List to view your activity.",
+    "englishSource": "Try again or return to List to view your activity."
+  },
+  "activityReturnToList": {
+    "message": "Return to List",
+    "englishSource": "Return to List"
   },
   "activity": {
     "message": "活動",
