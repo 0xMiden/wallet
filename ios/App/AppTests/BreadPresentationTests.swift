@@ -1733,3 +1733,255 @@ final class BreadMorphContainerTests: XCTestCase {
         XCTAssertGreaterThan(container.statusBarUpdates, before)
     }
 }
+
+private final class MorphTestClock {
+    var now: CFTimeInterval = 0
+}
+
+@MainActor
+final class BreadMorphAnimatorTests: XCTestCase {
+    private let card = BreadMorphCard(rect: CGRect(x: 282, y: 650, width: 104, height: 132), cornerRadius: 16)
+    private let clock = MorphTestClock()
+
+    private func clocked(_ container: BreadMorphContainerViewController, reduceMotion: Bool = false) -> BreadMorphAnimator {
+        let clock = self.clock
+        clock.now = 0
+        return BreadMorphAnimator(container: container, now: { clock.now }, reduceMotion: { reduceMotion })
+    }
+
+    private func controlPoints(_ function: CAMediaTimingFunction?) -> [Float] {
+        guard let function else { return [] }
+        var values = [Float](repeating: 0, count: 2)
+        var result = [Float]()
+        for index in 1...2 {
+            function.getControlPoint(at: index, values: &values)
+            result += values
+        }
+        return result
+    }
+
+    func testRunAddsSixHeldSpringsAndNeverWritesTheModel() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        let slot = container.view.bounds.size
+        let from = BreadMorphPose.at(1, card: card, slot: slot)
+        let to = BreadMorphPose.at(0, card: card, slot: slot)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        assertModelAtRest(container)
+        let layers: [(CALayer, [String])] = [(container.clipView.layer, morphClipKeys), (container.shadowView.layer, morphShadowKeys)]
+        for (layer, keys) in layers {
+            XCTAssertEqual(Set(morphKeys(layer)), Set(keys.map { "bread.morph." + $0 }))
+            for key in keys {
+                let spring = try XCTUnwrap(layer.animation(forKey: "bread.morph." + key) as? CASpringAnimation, key)
+                XCTAssertEqual(Double(spring.stiffness), 273.4, accuracy: 0.1, key)
+                XCTAssertEqual(Double(spring.damping), 29.8, accuracy: 0.1, key)
+                XCTAssertEqual(Double(spring.mass), 1, key)
+                XCTAssertEqual(spring.duration, spring.settlingDuration, accuracy: 1e-9, key)
+                XCTAssertEqual(spring.fillMode, .forwards, key)
+                XCTAssertFalse(spring.isRemovedOnCompletion, key)
+                XCTAssertEqual(spring.preferredFrameRateRange.minimum, 80, key)
+                XCTAssertEqual(spring.preferredFrameRateRange.maximum, 120, key)
+                XCTAssertEqual(spring.preferredFrameRateRange.preferred, 120, key)
+                if key == "position" {
+                    XCTAssertEqual(point(spring.fromValue), from.origin)
+                    XCTAssertEqual(point(spring.toValue), to.origin)
+                } else if let expectedFrom = poseNumbers(from)[key], let expectedTo = poseNumbers(to)[key] {
+                    XCTAssertEqual(number(spring.fromValue) ?? .nan, expectedFrom, accuracy: 1e-6, key)
+                    XCTAssertEqual(number(spring.toValue) ?? .nan, expectedTo, accuracy: 1e-6, key)
+                } else {
+                    XCTAssertNotNil(spring.fromValue, key)
+                    XCTAssertNotNil(spring.toValue, key)
+                }
+            }
+        }
+        XCTAssertTrue(container.morphing)
+    }
+
+    func testShadowLandsAtFourteenBlurAndTenOffsetOnScreen() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        clocked(container).run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        let shadow = container.shadowView.layer
+        let scale = BreadMorphPose.at(0, card: card, slot: container.view.bounds.size).scale
+        XCTAssertEqual(shadow.shadowRadius * scale, 14, accuracy: 1e-6)
+        XCTAssertEqual(shadow.shadowOffset.height * scale, 10, accuracy: 1e-6)
+        XCTAssertEqual(shadow.shadowOffset.width, 0)
+        let color = try XCTUnwrap(shadow.shadowColor.map { UIColor(cgColor: $0) })
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        XCTAssertTrue(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        XCTAssertEqual(red * 255, 15, accuracy: 0.5)
+        XCTAssertEqual(green * 255, 23, accuracy: 0.5)
+        XCTAssertEqual(blue * 255, 42, accuracy: 0.5)
+    }
+
+    func testRetargetRestartsFromTheAnalyticProgressWithNormalizedVelocity() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        clock.now = 0.15
+        let expected = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0).sample(at: 0.15)
+        XCTAssertEqual(animator.progress(), expected.value, accuracy: 1e-9)
+        XCTAssertEqual(animator.velocity(), expected.velocity, accuracy: 1e-9)
+        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: {})
+        let scale = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(Double(scale.stiffness), 223.8, accuracy: 0.1)
+        let pose = BreadMorphPose.at(expected.value, card: card, slot: container.view.bounds.size)
+        XCTAssertEqual(number(scale.fromValue) ?? .nan, Double(pose.scale), accuracy: 1e-6)
+        XCTAssertEqual(number(scale.toValue) ?? .nan, 1, accuracy: 1e-6)
+        XCTAssertEqual(Double(scale.initialVelocity),
+                       BreadMorphGeometry.initialVelocity(expected.velocity, from: expected.value, to: 1), accuracy: 1e-6)
+        XCTAssertEqual(animator.target, 1)
+        XCTAssertEqual(animator.progress(), expected.value, accuracy: 1e-9)
+        assertModelAtRest(container)
+    }
+
+    func testSettleFiresOnceAndNotForASupersededRun() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = BreadMorphAnimator(container: container, reduceMotion: { false })
+        var first = 0
+        var second = 0
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: { first += 1 })
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let started = CACurrentMediaTime()
+        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: { second += 1 })
+        let settling = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale")).duration
+        let settled = try await eventually { second > 0 }
+        let elapsed = CACurrentMediaTime() - started
+        XCTAssertTrue(settled)
+        XCTAssertGreaterThanOrEqual(elapsed, settling - 0.01)
+        XCTAssertLessThanOrEqual(elapsed, settling + 0.2)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(first, 0)
+        XCTAssertEqual(second, 1)
+    }
+
+    func testSettleAtTheExpandedEndRemovesTheAnimationsAndAtTheCollapsedEndHoldsTheCard() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = BreadMorphAnimator(container: container, reduceMotion: { false })
+        var settled = false
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: { settled = true })
+        let collapsed = try await eventually { settled }
+        XCTAssertTrue(collapsed)
+        assertHeld(container, at: BreadMorphPose.at(0, card: card, slot: container.view.bounds.size))
+        assertModelAtRest(container)
+        XCTAssertNil(animator.target)
+        XCTAssertEqual(animator.progress(), 0)
+        settled = false
+        animator.run(to: 1, card: card, velocity: 0, physics: .expand, onSettle: { settled = true })
+        let expanded = try await eventually { settled }
+        XCTAssertTrue(expanded)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+        XCTAssertFalse(container.morphing)
+        assertModelAtRest(container)
+        XCTAssertEqual(animator.progress(), 1)
+    }
+
+    func testReduceMotionFadesWithoutScaleOrTranslation() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        clocked(container, reduceMotion: true).run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        let fade = try XCTUnwrap(container.view.layer.animation(forKey: "bread.morph.opacity") as? CABasicAnimation)
+        XCTAssertFalse(fade is CASpringAnimation)
+        XCTAssertEqual(fade.duration, 0.2, accuracy: 1e-9)
+        XCTAssertEqual(controlPoints(fade.timingFunction), controlPoints(CAMediaTimingFunction(name: .easeOut)))
+        XCTAssertEqual(fade.fillMode, .forwards)
+        XCTAssertFalse(fade.isRemovedOnCompletion)
+        XCTAssertEqual(number(fade.toValue) ?? .nan, 0, accuracy: 1e-9)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+        XCTAssertEqual(container.view.layer.opacity, 1)
+        assertModelAtRest(container)
+    }
+
+    func testFinishSnapsToTheNearestEnd() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        let spring = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0)
+        let cases: [(Double, Double)] = [(0.6, 1), (0.4, 0)]
+        for (value, end) in cases {
+            animator.reset()
+            clock.now = 0
+            animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+            clock.now = try XCTUnwrap(spring.time(reaching: value))
+            XCTAssertEqual(animator.progress(), value, accuracy: 1e-3)
+            XCTAssertEqual(animator.finish(), end)
+            XCTAssertNil(animator.target)
+            XCTAssertFalse(animator.boosting)
+            if end == 1 {
+                XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+                XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+            } else {
+                assertHeld(container, at: BreadMorphPose.at(0, card: card, slot: container.view.bounds.size))
+            }
+            assertModelAtRest(container)
+        }
+    }
+
+    func testFreezeAndTrackHoldThePresentationWithoutTheModel() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        let slot = container.view.bounds.size
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        clock.now = 0.1
+        let expected = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0).sample(at: 0.1).value
+        XCTAssertEqual(animator.freeze(), expected, accuracy: 1e-9)
+        assertHeld(container, at: BreadMorphPose.at(expected, card: card, slot: slot))
+        clock.now = 0.3
+        XCTAssertEqual(animator.progress(), expected, accuracy: 1e-9)
+        animator.track(0.7)
+        assertHeld(container, at: BreadMorphPose.at(0.7, card: card, slot: slot))
+        XCTAssertEqual(animator.progress(), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(animator.velocity(), 0)
+        assertModelAtRest(container)
+    }
+
+    func testFrameRateLinkIsHeldFromBoostToSettle() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = BreadMorphAnimator(container: container, reduceMotion: { false })
+        animator.boost()
+        let link = try XCTUnwrap(animator.link)
+        XCTAssertTrue(animator.boosting)
+        XCTAssertEqual(link.preferredFrameRateRange.minimum, 80)
+        XCTAssertEqual(link.preferredFrameRateRange.maximum, 120)
+        XCTAssertEqual(link.preferredFrameRateRange.preferred, 120)
+        animator.boost()
+        XCTAssertTrue(animator.link === link)
+        var settled = false
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        XCTAssertTrue(animator.link === link)
+        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: { settled = true })
+        XCTAssertTrue(animator.link === link)
+        let ended = try await eventually { settled }
+        XCTAssertTrue(ended)
+        XCTAssertFalse(animator.boosting)
+        XCTAssertNil(animator.link)
+        animator.boost()
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        _ = animator.finish()
+        XCTAssertFalse(animator.boosting)
+        animator.boost()
+        animator.reset()
+        XCTAssertFalse(animator.boosting)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        XCTAssertTrue(animator.boosting)
+        animator.reset()
+        XCTAssertFalse(animator.boosting)
+    }
+}

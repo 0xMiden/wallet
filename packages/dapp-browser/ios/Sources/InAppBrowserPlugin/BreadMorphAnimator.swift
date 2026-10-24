@@ -64,3 +64,42 @@ enum BreadMorphGeometry {
 
     static func rubberBand(_ x: Double, length: Double) -> Double { 0 }
 }
+
+final class BreadMorphAnimator {
+    private weak var container: BreadMorphContainerViewController?
+    let now: () -> CFTimeInterval
+    private let reduceMotion: () -> Bool
+    private(set) var target: Double?
+    private(set) var spring: BreadMorphSpring?
+    private(set) var card: BreadMorphCard?
+    private(set) var link: CADisplayLink?
+    var companions: [CALayer] = []
+    var boosting: Bool { link != nil }
+
+    init(container: BreadMorphContainerViewController, now: @escaping () -> CFTimeInterval = CACurrentMediaTime,
+         reduceMotion: @escaping () -> Bool = { UIAccessibility.isReduceMotionEnabled }) {
+        self.container = container
+        self.now = now
+        self.reduceMotion = reduceMotion
+    }
+
+    func boost() {}
+
+    func releaseBoost() {}
+
+    func progress() -> Double { 1 }
+
+    func velocity() -> Double { 0 }
+
+    func run(to target: Double, card: BreadMorphCard?, velocity: Double, physics: BreadMorphPhysics, onSettle: @escaping () -> Void) {}
+
+    func hold(_ p: Double, card: BreadMorphCard?) {}
+
+    func freeze() -> Double { progress() }
+
+    func track(_ p: Double) {}
+
+    func finish() -> Double { 1 }
+
+    func reset() {}
+}
