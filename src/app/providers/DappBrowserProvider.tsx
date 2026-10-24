@@ -1416,7 +1416,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       void upsertPersistedSession({ ...toPersisted(state.session), origin: state.origin });
       parkOutgoing(flight);
       // The snapshot may still be encoding; it is persisted when it lands, unless the session went away meanwhile.
-      void (flight.snapshot ?? requestParkSnapshot(id)).then(dataUrl => {
+      // Stored on the flight so the acceptance continuation, which can still see this flight, does not ask again.
+      flight.snapshot ??= requestParkSnapshot(id);
+      void flight.snapshot.then(dataUrl => {
         if (dataUrl && flightLive(flight)) void writeSnapshotToDisk(id, dataUrl);
       });
       // Still followed: the page stays shown at the card pose until the acknowledgement hides it.
@@ -1502,8 +1504,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         return 'unaccepted';
       }
       if (previous && previous !== flight) supersede(previous, flight);
-      // A collapse that already ended (cancelled before the answer arrived) needs no snapshot.
-      if (flightRef.current === flight) flight.snapshot = requestParkSnapshot(id);
+      // A collapse that already ended (cancelled before the answer arrived) needs no snapshot. A settle that
+      // already stored this flight's promise is not asked again while the flight is still current.
+      if (flightRef.current === flight) flight.snapshot ??= requestParkSnapshot(id);
       return parked;
     },
     [getSessionStateById, restoreFlight, supersede]
