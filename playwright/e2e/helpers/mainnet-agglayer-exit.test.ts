@@ -273,6 +273,9 @@ describe('reading the indexer', () => {
     await expect(
       fetchIndexedDeposits('https://indexer/api', ME, async () => page([{ deposit_cnt: 'six' }], 1))
     ).rejects.toThrow('unreadable');
+    await expect(
+      fetchIndexedDeposits('https://indexer/api', ME, async () => page([{ ...exit(), ready_for_claim: 'false' }], 1))
+    ).rejects.toThrow('unreadable');
   });
 
   it('refuses a listing that ends before its own total', async () => {
@@ -343,17 +346,21 @@ describe('whether a broadcast claim is sent', () => {
 
   const pending = txHash('ab'.repeat(32));
 
+  it('a key with a transaction pending sends no claim', () => {
+    const args = { pendingClaim: undefined, step: 'claim' as const, attempts: 0, claimed: false };
+    expect(shouldBroadcastClaim({ ...args, keyIdle: true })).toBe(true);
+    expect(shouldBroadcastClaim({ ...args, keyIdle: false })).toBe(false);
+    expect(shouldBroadcastClaim({ ...args, keyIdle: undefined })).toBe(false);
+  });
+
   it('a pending claim is not broadcast again', () => {
-    expect(shouldBroadcastClaim({ pendingClaim: pending, step: 'claim', attempts: 0, claimed: false })).toBe(false);
-    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: 0, claimed: false })).toBe(true);
-    expect(
-      shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: SELF_CLAIM_ATTEMPTS, claimed: false })
-    ).toBe(false);
-    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: 0, claimed: true })).toBe(false);
-    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'wait', attempts: 0, claimed: false })).toBe(false);
-    expect(shouldBroadcastClaim({ pendingClaim: undefined, step: 'claim', attempts: 0, claimed: undefined })).toBe(
-      false
-    );
+    const ready = { pendingClaim: undefined, step: 'claim' as const, attempts: 0, claimed: false, keyIdle: true };
+    expect(shouldBroadcastClaim({ ...ready, pendingClaim: pending })).toBe(false);
+    expect(shouldBroadcastClaim(ready)).toBe(true);
+    expect(shouldBroadcastClaim({ ...ready, attempts: SELF_CLAIM_ATTEMPTS })).toBe(false);
+    expect(shouldBroadcastClaim({ ...ready, claimed: true })).toBe(false);
+    expect(shouldBroadcastClaim({ ...ready, step: 'wait' })).toBe(false);
+    expect(shouldBroadcastClaim({ ...ready, claimed: undefined })).toBe(false);
   });
 });
 

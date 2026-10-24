@@ -85,7 +85,11 @@ function isDeposit(value: unknown): value is AgglayerDeposit {
     typeof value.deposit_cnt === 'number' &&
     typeof value.amount === 'string' &&
     /^\d+$/.test(value.amount) &&
-    typeof value.global_index === 'string'
+    typeof value.global_index === 'string' &&
+    typeof value.ready_for_claim === 'boolean' &&
+    (value.ready_to_claim === undefined || typeof value.ready_to_claim === 'boolean') &&
+    (value.status === undefined || typeof value.status === 'string') &&
+    (value.claim_tx_hash === undefined || typeof value.claim_tx_hash === 'string')
   );
 }
 

@@ -24,6 +24,7 @@ import {
   bridgeEthToMiden,
   claimAgglayerOnEthereum,
   isExitClaimedOnEthereum,
+  isKeyIdleOnEthereum,
   readEthereumClaim,
   SELF_CLAIM_ATTEMPTS,
   shouldBroadcastClaim
@@ -238,7 +239,16 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
         lastError = error instanceof Error ? error.message : String(error);
         return undefined;
       });
-      if (shouldBroadcastClaim({ pendingClaim, step: step.kind, attempts, claimed })) {
+      const readKeyIdle = () => isKeyIdleOnEthereum({ chain, rpcUrl: mainnetRpc(1), address: evm.address });
+      const keyIdle =
+        claimed === false
+          ? await readKeyIdle().catch((error: unknown) => {
+              lastError = error instanceof Error ? error.message : String(error);
+              return undefined;
+            })
+          : undefined;
+      if (keyIdle === false) lastError = `${evm.address} has a transaction pending, so no claim is sent this lap`;
+      if (shouldBroadcastClaim({ pendingClaim, step: step.kind, attempts, claimed, keyIdle })) {
         attempts += 1;
         let hash: Hex | undefined;
         try {
@@ -274,10 +284,15 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
     }
     await sleep(POLL_MS);
   }
+  const exitState = claimedUnhashed
+    ? 'was claimed but the indexer never gave the claim hash'
+    : readySince === undefined
+      ? 'was never ready to claim'
+      : 'was never claimed';
   const where =
     night.exitDepositCnt === undefined
       ? `no exit above ${cursor} carrying ${AGGLAYER_LOOP_WEI} wei was indexed`
-      : `exit ${night.exitDepositCnt} ${claimedUnhashed ? 'was claimed but the indexer never gave the claim hash' : readySince === undefined ? 'was never ready to claim' : 'was never claimed'}`;
+      : `exit ${night.exitDepositCnt} ${exitState}`;
   record({ outcome: `timed out: ${where}` });
   throw new Error(
     `AggLayer exit to ${evm.address} not settled within ${Math.round((Date.now() - waitStarted) / 60_000)} minutes: ${where}` +

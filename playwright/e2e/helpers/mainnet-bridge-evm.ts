@@ -170,16 +170,21 @@ export const SELF_CLAIM_ATTEMPTS = 2;
 
 /**
  * Whether this lap may send `claimAsset`. False while a broadcast hash is still pending. Otherwise true only when
- * the step is `claim`, fewer than `SELF_CLAIM_ATTEMPTS` have been tried, and the on-chain `isClaimed` read is false.
+ * the step is `claim`, fewer than `SELF_CLAIM_ATTEMPTS` have been tried, and the on-chain `isClaimed` read is false
+ * and the key has nothing pending, so a claim whose write response was lost is never sent twice.
  */
 export function shouldBroadcastClaim(args: {
   pendingClaim: Hex | undefined;
   step: ExitStep['kind'];
   attempts: number;
   claimed: boolean | undefined;
+  /** The key has no transaction waiting to be mined; a write whose response was lost may still be one. */
+  keyIdle: boolean | undefined;
 }): boolean {
   if (args.pendingClaim !== undefined) return false;
-  return args.step === 'claim' && args.attempts < SELF_CLAIM_ATTEMPTS && args.claimed === false;
+  return (
+    args.step === 'claim' && args.attempts < SELF_CLAIM_ATTEMPTS && args.claimed === false && args.keyIdle === true
+  );
 }
 
 export async function claimAgglayerOnEthereum(args: {
@@ -240,6 +245,16 @@ export async function claimAgglayerOnEthereum(args: {
     const message = error instanceof Error ? error.message : String(error);
     throw new AgglayerClaimPendingError(broadcast, message, { cause: error });
   }
+}
+
+/** Whether `address` has no transaction waiting to be mined: its pending and latest nonces agree. */
+export async function isKeyIdleOnEthereum(args: { chain: Chain; rpcUrl: string; address: Address }): Promise<boolean> {
+  const client = createPublicClient({ chain: args.chain, transport: http(args.rpcUrl) });
+  const [pending, latest] = await Promise.all([
+    client.getTransactionCount({ address: args.address, blockTag: 'pending' }),
+    client.getTransactionCount({ address: args.address, blockTag: 'latest' })
+  ]);
+  return pending === latest;
 }
 
 /** Whether the L1 bridge has recorded a claim of `deposit`, whoever sent it and whatever the indexer says. */
