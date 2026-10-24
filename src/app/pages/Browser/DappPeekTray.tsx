@@ -181,20 +181,20 @@ export const DappPeekTray: FC = () => {
 
   // Reset the rotation pointer whenever a card arrives, so the newly
   // minimized dApp is always the front card, where its collapse lands.
-  // Also clamp `activeIndex` if the list shrinks below it (e.g. a
-  // session was closed from the switcher).
-  const prevCardCountRef = useRef(orderedAll.length);
+  // An arrival is a new id, not a longer list: one card can leave on the
+  // render another arrives. Also clamp `activeIndex` if the list shrinks
+  // below it (e.g. a session was closed from the switcher).
+  const orderKey = orderedAll.map(s => s.id).join('\n');
+  const prevOrderRef = useRef<string[] | null>(null);
   useEffect(() => {
-    const len = orderedAll.length;
-    if (len > prevCardCountRef.current) {
-      setActiveIndex(0);
-    } else if (activeIndex >= len && len > 0) {
-      setActiveIndex(0);
-    } else if (len === 0 && activeIndex !== 0) {
+    const ids = orderKey ? orderKey.split('\n') : [];
+    const previous = prevOrderRef.current;
+    prevOrderRef.current = ids;
+    const arrived = previous !== null && ids.some(id => !previous.includes(id));
+    if (arrived || (activeIndex >= ids.length && ids.length > 0) || (ids.length === 0 && activeIndex !== 0)) {
       setActiveIndex(0);
     }
-    prevCardCountRef.current = len;
-  }, [orderedAll.length, activeIndex]);
+  }, [orderKey, activeIndex]);
 
   const handleNavigate = useCallback(
     (direction: 'left' | 'right') => {

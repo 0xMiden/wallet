@@ -97,6 +97,11 @@ const flushMutations = () => new Promise(resolve => setTimeout(resolve, 0));
 const trayBottom = () => screen.getByTestId('dapp-peek-tray').style.bottom;
 const cardIds = () => screen.queryAllByTestId('dapp-peek-card').map(card => card.getAttribute('data-dapp-id'));
 const lastCard = () => mockBrowser.reportLandingCard.mock.calls.at(-1)?.[0];
+const swipeFront = (direction: 'left' | 'right') =>
+  mockCardProps
+    .filter(props => props.stackIndex === 0)
+    .at(-1)
+    ?.onNavigate?.(direction);
 const frontCard = (bottom: number) => ({
   x: VIEWPORT_WIDTH - 16 - CARD_WIDTH,
   y: 800 - bottom - CARD_HEIGHT,
@@ -255,7 +260,7 @@ describe('DappPeekTray under a moving page', () => {
     const S4 = session('s4');
     mockBrowser.parkedSessions = [{ session: S1 }, { session: S2 }, { session: S3 }];
     const { rerender } = render(<DappPeekTray />);
-    act(() => mockCardProps.filter(props => props.stackIndex === 0).at(-1)?.onNavigate?.('right'));
+    act(() => swipeFront('right'));
     expect(cardIds()[0]).toBe('s2');
 
     mockBrowser.parkedSessions = [{ session: S2 }, { session: S3 }, { session: S4 }];
@@ -267,7 +272,7 @@ describe('DappPeekTray under a moving page', () => {
     const S3 = session('s3');
     mockBrowser.parkedSessions = [{ session: S1 }, { session: S2 }, { session: S3 }];
     const { rerender } = render(<DappPeekTray />);
-    act(() => mockCardProps.filter(props => props.stackIndex === 0).at(-1)?.onNavigate?.('right'));
+    act(() => swipeFront('right'));
 
     mockBrowser.parkedSessions = [{ session: S2 }, { session: S3 }];
     rerender(<DappPeekTray />);
