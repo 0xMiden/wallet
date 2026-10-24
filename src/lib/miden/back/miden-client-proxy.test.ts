@@ -60,7 +60,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   };
 });
 
-jest.mock('lib/miden/swap/balance', () => {
+jest.mock('lib/miden/swap/fee-context', () => {
   const g = globalThis as any;
   return { readSwapFeeContext: (...a: any[]) => g.__px.readSwapFeeContext(...a) };
 });
