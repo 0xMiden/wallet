@@ -2350,6 +2350,22 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void backgroundFinishRendersTheCollapsedEndPose() throws Exception {
+        openMorph(true);
+        reveal();
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        ImageView proxy = ReflectionHelpers.getField(controller, "proxy");
+        assertTrue(collapse(card(), "background"));
+        BreadMorphController morph = driver();
+        for (int i = 0; i < 60 && morph.progress() > 0.45f; i++) BreadMorphControllerTest.frame();
+        assertTrue(back.getAlpha() > 0);
+        controller.foreground(false);
+        assertFalse(morph.running());
+        assertEquals("finishAtNearestEnd leaves the collapsed end pose", 0f, back.getAlpha(), 0f);
+        assertEquals(View.VISIBLE, proxy.getVisibility());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void captureOfAnUnpaintedPageIsNotTheProxy() throws Exception {
         openMorph(false);
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
