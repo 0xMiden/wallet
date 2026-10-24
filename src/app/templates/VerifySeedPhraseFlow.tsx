@@ -142,6 +142,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
       navigate('/');
     } catch {
       setAuthError(t('seedBackupSaveFailed'));
+      setAuthErrorId('seedBackupSaveFailed');
     }
   }, [remove, t]);
 
@@ -403,7 +404,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
           </>
         }
       />
-      <ErrorLine>{authError}</ErrorLine>
+      <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
       {isGuardReady && (
         <VerifySeedPhraseScreen
           seedPhrase={words}

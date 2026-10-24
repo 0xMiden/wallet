@@ -245,6 +245,10 @@ describe('VerifySeedPhraseFlow', () => {
     clickText('continue');
     fireEvent.click(screen.getByTestId('quiz-submit'));
     await screen.findByText('seedBackupSaveFailed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('seedBackupSaveFailed', 'inline');
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.getByTestId('quiz-screen')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('quiz-submit'));
