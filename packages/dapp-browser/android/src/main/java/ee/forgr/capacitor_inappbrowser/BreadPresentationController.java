@@ -528,12 +528,12 @@ final class BreadPresentationController {
     }
 
     private void morphFrame(float p) {
-        if (fullscreen()) back.setAlpha(Math.max(0, Math.min(1, p)));
+        if (fullscreen()) back.setAlpha(Math.max(0f, Math.min(1f, p)));
         if (state.motion() == BreadPresentationState.Motion.COLLAPSING && !crossfaded && p <= CROSSFADE_PROGRESS
             && proxyBitmap != null && state.proxyUsable()) {
             crossfaded = true;
             proxy.setVisibility(View.VISIBLE);
-            proxy.setAlpha(0);
+            proxy.setAlpha(0f);
             fadeProxy(1, COLLAPSE_CROSSFADE_MS, null);
         }
     }
@@ -558,7 +558,7 @@ final class BreadPresentationController {
         crossfaded = false;
         capture = null;
         morph.reset();
-        back.setAlpha(1);
+        back.setAlpha(1f);
         if (!state.surfaceVisibility()) { insetsDeferred = false; return; }
         if (insetsDeferred) {
             insetsDeferred = false;
@@ -575,7 +575,7 @@ final class BreadPresentationController {
         proxyCovering = false;
         cancelProxyFade();
         proxy.setVisibility(View.GONE);
-        proxy.setAlpha(0);
+        proxy.setAlpha(0f);
     }
 
     private void fadeProxyOut() {
@@ -801,7 +801,7 @@ final class BreadPresentationController {
         cover.setAlpha(1);
         if (proxyRoute()) {
             cancelProxyFade();
-            proxy.setAlpha(1);
+            proxy.setAlpha(1f);
         }
         webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
     }
