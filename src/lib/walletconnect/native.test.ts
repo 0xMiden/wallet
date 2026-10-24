@@ -992,7 +992,7 @@ describe('waiting for the session to approve an added chain', () => {
     expect(rawNativeRequest).toHaveBeenCalledTimes(1);
     const report = bridgeReceiveIdentity({ route: 'usdcx', step: 'precheck_session_chain', cause: watched.error });
     expect(report).toBe(
-      'via usdcx; failed at precheck_session_chain; precheck session_missing; attempt rejected; evm error none'
+      'via usdcx; failed at precheck_session_chain; precheck session_missing; attempt rejected_unread; evm error none'
     );
     expect(jest.getTimerCount()).toBe(0);
   });
@@ -1109,6 +1109,22 @@ describe('native session precheck reasons', () => {
 
     expect(error).toBe(cause);
     expect(cause.message).toBe(leaked);
+    expect(rawNativeRequest).not.toHaveBeenCalled();
+    expectReason(error, 'state_unread', 'not_attempted', 'other');
+  });
+
+  it('keeps an initial state read failure when a session event arrives during that read', async () => {
+    const cause = new Error(`state read failed ${topic}`);
+    rawNativeReown.getState
+      .mockReset()
+      .mockImplementationOnce(async () => {
+        updateSession(sessionState([SEPOLIA]));
+        throw cause;
+      });
+
+    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+
+    expect(error).toBe(cause);
     expect(rawNativeRequest).not.toHaveBeenCalled();
     expectReason(error, 'state_unread', 'not_attempted', 'other');
   });
