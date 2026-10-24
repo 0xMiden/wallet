@@ -32,6 +32,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.PixelCopy;
 import android.view.View;
 import android.view.ViewGroup;
@@ -184,6 +185,18 @@ public class WebViewDialog extends Dialog {
         if (managedClosing()) return;
         if (presentation != null) presentation.visibility(false);
         super.hide();
+    }
+
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        int route = presentation == null ? BreadPresentationController.TOUCH_PASS : presentation.routeTouch(event);
+        if (route == BreadPresentationController.TOUCH_PASS) return super.dispatchTouchEvent(event);
+        if (route == BreadPresentationController.TOUCH_CANCEL) {
+            MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(cancel);
+            cancel.recycle();
+        }
+        return true;
     }
 
     private Toolbar _toolbar;

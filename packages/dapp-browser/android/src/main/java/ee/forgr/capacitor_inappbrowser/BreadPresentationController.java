@@ -13,7 +13,10 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -53,6 +56,10 @@ final class BreadPresentationController {
     private static final long COLLAPSE_CROSSFADE_MS = 100;
     private static final long EXPAND_CROSSFADE_MS = 120;
     private static final Interpolator EASE_OUT = new DecelerateInterpolator();
+    static final int TOUCH_PASS = 0, TOUCH_CONSUME = 1, TOUCH_CANCEL = 2;
+    private static final float COMMIT_TRAVEL = 0.30f;
+    private static final float PROJECTION_SECONDS = 0.30f;
+    private static final float FLICK_DP_PER_SECOND = 450;
     final BreadPresentationState state;
     private final WebViewDialog owner;
     private final WebView webView;
@@ -79,6 +86,20 @@ final class BreadPresentationController {
     private int captureEpoch;
     private Bitmap proxyBitmap;
     private Bitmap capture;
+    private VelocityTracker tracker;
+    private boolean owned;
+    private boolean released;
+    private boolean cancelledForPage;
+    private boolean onPage;
+    private boolean moved;
+    private boolean tracking;
+    private float downX;
+    private float downY;
+    private long downTime;
+    private float grabX;
+    private float grabY;
+    private float grabStart;
+    private float grabTarget;
     private ScriptHandler script;
     private boolean supported;
     private boolean installed;
@@ -397,11 +418,9 @@ final class BreadPresentationController {
         if (!state.requestVisibility(true, null, sequence, SystemClock.uptimeMillis())) return false;
         if (!flying) container.getLocationInWindow(origin);
         BreadMorphCard landing = landing(card);
+        endTracking();
         beginFlight(BreadPresentationState.Motion.COLLAPSING, id, sequence);
-        if (proxyCovering) {
-            proxyCovering = false;
-            crossfaded = true;
-        }
+        headTo(0);
         if (flying) emit("retargeted", 0, false);
         else {
             posed = true;
@@ -426,14 +445,10 @@ final class BreadPresentationController {
         boolean resumed = posed;
         if (!resumed) container.getLocationInWindow(origin);
         BreadMorphCard landing = landing(card);
+        endTracking();
         beginFlight(BreadPresentationState.Motion.EXPANDING, id, sequence);
         if (resumed) {
-            if (crossfaded) {
-                crossfaded = false;
-                // A page that never hid needs no fence; one invalidated in flight keeps the proxy until it paints.
-                if (state.phase() == BreadPresentationState.Phase.VISIBLE) fadeProxyOut();
-                else proxyCovering = true;
-            }
+            headTo(1);
             BreadMorphCard path = flying ? landing : morph.card();
             emit(flying ? "retargeted" : "started", 1, false);
             morph.animateTo(1, path, velocity(path, vx, vy), BreadMorphPhysics.EXPAND);
@@ -450,7 +465,20 @@ final class BreadPresentationController {
         return true;
     }
 
-    private boolean flying() { return morph.running(); }
+    private boolean flying() { return morph.running() || tracking; }
+
+    private void headTo(float end) {
+        state.beginMotion(end >= 0.5f ? BreadPresentationState.Motion.EXPANDING : BreadPresentationState.Motion.COLLAPSING);
+        if (end < 0.5f && proxyCovering) {
+            proxyCovering = false;
+            crossfaded = true;
+        } else if (end >= 0.5f && crossfaded) {
+            crossfaded = false;
+            // A page that never hid needs no fence; one invalidated in flight keeps the proxy until it paints.
+            if (state.phase() == BreadPresentationState.Phase.VISIBLE) fadeProxyOut();
+            else proxyCovering = true;
+        }
+    }
 
     private void beginFlight(BreadPresentationState.Motion motion, String id, Integer sequence) {
         state.beginMotion(motion);
@@ -472,15 +500,17 @@ final class BreadPresentationController {
         return BreadMorphGeometry.progressVelocity(vx, vy, landing.rect, new RectF(0, 0, container.getWidth(), container.getHeight()));
     }
 
-    private void emit(String phase, float target, boolean tracking) {
-        BreadMorphEvent event = event(phase, target, tracking);
+    private void emit(String phase, float target, boolean tracking) { emit(phase, target, tracking, morph.velocity()); }
+
+    private void emit(String phase, float target, boolean tracking, float velocity) {
+        BreadMorphEvent event = event(phase, target, tracking, velocity);
         if (event != null) owner.morphEvent(event);
     }
 
-    private BreadMorphEvent event(String phase, float target, boolean tracking) {
+    private BreadMorphEvent event(String phase, float target, boolean tracking, float velocity) {
         if (morphId == null) return null;
         return new BreadMorphEvent(morphId, phase, target >= 0.5f ? "expanded" : "collapsed", morph.progress(),
-            morph.velocity(), tracking, morphSequence);
+            velocity, tracking, morphSequence);
     }
 
     private void morphFrame(float p) {
@@ -503,10 +533,15 @@ final class BreadPresentationController {
         morphId = null;
     }
 
-    private void finishMotion() { if (flying()) morph.finishAtNearestEnd(); }
+    private void finishMotion() {
+        if (!flying()) return;
+        endTracking();
+        morph.finishAtNearestEnd();
+    }
 
     private void restPose() {
         if (!posed) return;
+        endTracking();
         posed = false;
         crossfaded = false;
         capture = null;
@@ -587,14 +622,114 @@ final class BreadPresentationController {
         finishMotion();
     }
 
-    android.graphics.RectF morphPageRect() { return new android.graphics.RectF(); }
+    RectF morphPageRect() {
+        int[] at = new int[2];
+        container.getLocationInWindow(at);
+        float scale = container.getScaleX();
+        float height = BreadMorphGeometry.pose(morph.progress(), morph.card(), container.getWidth(), container.getHeight()).cropHeight;
+        return new RectF(at[0], at[1], at[0] + scale * container.getWidth(), at[1] + scale * height);
+    }
+
+    // The dialog routes every touch here first: the posed page owns a gesture that starts on it, and a
+    // gesture the page already had when a motion began is cancelled for it, then swallowed.
+    int routeTouch(MotionEvent event) {
+        int action = event.getActionMasked();
+        boolean last = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL;
+        if (action == MotionEvent.ACTION_DOWN) {
+            owned = posed;
+            released = false;
+            cancelledForPage = false;
+        }
+        if (!owned) {
+            if (!posed && !cancelledForPage) return TOUCH_PASS;
+            int route = cancelledForPage ? TOUCH_CONSUME : TOUCH_CANCEL;
+            cancelledForPage = !last;
+            return route;
+        }
+        if (!released) handleTouch(event, action);
+        if (last) owned = false;
+        return TOUCH_CONSUME;
+    }
+
+    private void handleTouch(MotionEvent event, int action) {
+        float x = event.getX(), y = event.getY();
+        if (tracker == null) tracker = VelocityTracker.obtain();
+        if (action == MotionEvent.ACTION_DOWN) {
+            tracker.clear();
+            downX = x;
+            downY = y;
+            downTime = event.getEventTime();
+            moved = false;
+            onPage = morphPageRect().contains(x, y);
+        }
+        tracker.addMovement(event);
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (!moved && Math.hypot(x - downX, y - downY) >= ViewConfiguration.get(owner.getContext()).getScaledTouchSlop()) {
+                moved = true;
+                if (onPage && morph.running() && morph.card() != null) grab(x, y);
+            } else if (tracking) drag(x, y);
+        } else if (action == MotionEvent.ACTION_UP) {
+            if (tracking) release();
+            else if (onPage && !moved && morph.running()
+                && event.getEventTime() - downTime < ViewConfiguration.getLongPressTimeout()) reverse();
+        } else if (action == MotionEvent.ACTION_CANCEL && tracking) {
+            tracker.clear();
+            release();
+        }
+    }
+
+    private void grab(float x, float y) {
+        grabStart = morph.freeze();
+        grabTarget = morph.target();
+        grabX = x;
+        grabY = y;
+        tracking = true;
+        emit("retargeted", grabTarget, true, 0);
+    }
+
+    private void drag(float x, float y) {
+        RectF card = morph.card().rect;
+        float dx = container.getWidth() / 2f - card.centerX(), dy = container.getHeight() / 2f - card.centerY();
+        float p = grabStart + ((x - grabX) * dx + (y - grabY) * dy) / (dx * dx + dy * dy);
+        if (p > 1) p = 1 + BreadMorphGeometry.rubberBand(p - 1, 1);
+        else if (p < 0) p = BreadMorphGeometry.rubberBand(p, 1);
+        morph.track(p);
+    }
+
+    private void release() {
+        tracker.computeCurrentVelocity(1000);
+        float vx = tracker.getXVelocity(), vy = tracker.getYVelocity();
+        float velocity = velocity(morph.card(), vx, vy);
+        float travel = morph.progress() + PROJECTION_SECONDS * velocity - grabStart;
+        float speed = (float) Math.hypot(vx, vy) / owner.getContext().getResources().getDisplayMetrics().density;
+        float end = grabTarget;
+        if (speed >= FLICK_DP_PER_SECOND && Math.abs(velocity) > 0.01f) end = velocity > 0 ? 1 : 0;
+        else if (Math.abs(travel) >= COMMIT_TRAVEL) end = travel > 0 ? 1 : 0;
+        tracking = false;
+        released = true;
+        headTo(end);
+        emit("retargeted", end, false, velocity);
+        morph.animateTo(end, morph.card(), velocity, BreadMorphPhysics.RELEASE);
+    }
+
+    private void reverse() {
+        float end = morph.target() >= 0.5f ? 0 : 1;
+        headTo(end);
+        emit("retargeted", end, false);
+        morph.animateTo(end, morph.card(), 0, end >= 0.5f ? BreadMorphPhysics.EXPAND : BreadMorphPhysics.COLLAPSE);
+    }
+
+    private void endTracking() {
+        if (tracking) released = true;
+        tracking = false;
+    }
     boolean fullscreen() { return state.fullscreen(); }
 
     void visibility(boolean visible) { visibility(visible, null, null); }
 
     void visibility(boolean visible, Integer policyRevision, Integer sequence) {
         boolean previous = state.effectiveVisibility();
-        BreadMorphEvent cancelled = flying() ? event("cancelled", morph.target(), false) : null;
+        BreadMorphEvent cancelled = flying() ? event("cancelled", morph.target(), false, morph.velocity()) : null;
         if (!state.requestVisibility(visible, policyRevision, sequence, SystemClock.uptimeMillis())) return;
         if (!visible) {
             morphId = null;
@@ -634,6 +769,11 @@ final class BreadPresentationController {
 
     void close() {
         morphId = null;
+        endTracking();
+        if (tracker != null) {
+            tracker.recycle();
+            tracker = null;
+        }
         morph.reset();
         posed = false;
         crossfaded = false;
