@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Back up your recovery phrase",
+  "seedBackupRequiredAction": "Back up now",
+  "seedBackupRequiredBody": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet.",
+  "seedBackupSaveFailed": "Could not save the backup check. Please try again.",
   "swapBalanceUnavailable": "Could not verify your spendable balance. Please try again.",
   "swapPendingSpend": "Wait for your pending transaction to finish before swapping.",
   "swapApproxAmount": "≈ $amount$",
