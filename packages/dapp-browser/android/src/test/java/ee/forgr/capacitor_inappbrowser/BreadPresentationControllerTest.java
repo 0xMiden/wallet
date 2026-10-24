@@ -1504,7 +1504,8 @@ public class BreadPresentationControllerTest {
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
         acknowledgePolicy();
         exit.performClick(); exit.performClick();
-        verify(callbacks, times(2)).presentationMinimizeRequested(controller.state.policyRevision(), controller.state.acknowledgedVisibilitySequence(), null);
+        verify(callbacks, times(2)).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), isNull(), any());
         verify(callbacks, never()).closeEvent(any());
         assertEquals(BreadPresentationState.Phase.ERROR, controller.state.phase());
         controller.visibility(false);
