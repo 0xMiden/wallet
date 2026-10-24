@@ -12,6 +12,8 @@
 
 ### Fixes
 
+- [FIX][all] Going back from a deposit returns to the screen that opened it, including Home, instead of always switching to Receive. A deposit opened without navigation history returns to Home.
+
 - [FIX][all] Activity Groups handles recovered and legacy history without stored messages, shares action titles with List, and offers a scoped retry or Return to List if the group renderer fails.
 
 - [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
