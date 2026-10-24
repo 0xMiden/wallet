@@ -940,15 +940,15 @@ async function pay(recipient: string, faucetId: string) {
           <li>Approval screens name your site by its verified origin, never by a name you send.</li>
           <li>Connecting again from the same origin returns the saved grant without a prompt. A locked wallet asks the user to unlock first.</li>
           <li>Users review and revoke connections in Settings, Authorized DApps. <code>disconnect()</code> removes the session too.</li>
-          <li>If the user turns off DApps Interaction in that screen, every request is refused with <code>NOT_GRANTED</code>.</li>
-          <li>If Bread is not installed, the adapter's <code>connect()</code> opens Bread's Chrome Web Store page and throws <code>WalletNotReadyError</code>.</li>
+          <li>If the user turns off DApps Interaction in that screen, every request fails: the phone and desktop apps refuse it with <code>NOT_GRANTED</code>, the extension with a plain <code>Not Found</code> error.</li>
+          <li>If Bread is not installed, <code>connect()</code> throws <code>WalletNotReadyError</code>. Through the React <code>WalletProvider</code> it also opens Bread's Chrome Web Store page.</li>
         </ul>
         <h3>Errors</h3>
-        <p>Bread's refusals carry a code at the start of the message. Through the adapter they arrive wrapped in its <code>Wallet...Error</code> classes with the same message.</p>
+        <p>Bread's refusals carry a code at the start of the message. Through the adapter most arrive wrapped in its <code>Wallet...Error</code> classes with the same message; <code>importPrivateNote</code>, <code>requestConsumableNotes</code> and a refused <code>waitForTransaction</code> pass the provider's error through as it is.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Code</th><th>Means</th></tr></thead>
           <tbody>
-            <tr><td><code>NOT_GRANTED</code></td><td>The user declined, the origin has no session, or DApps Interaction is off</td></tr>
+            <tr><td><code>NOT_GRANTED</code></td><td>The user declined, the origin has no session, or DApps Interaction is off (phone and desktop apps)</td></tr>
             <tr><td><code>NOT_FOUND</code></td><td>Nothing to act on, such as disconnecting without a session</td></tr>
             <tr><td><code>INVALID_PARAMS</code></td><td>A request field Bread refused, explained in the rest of the message</td></tr>
             <tr><td><code>NETWORK_NOT_GRANTED</code></td><td>An unknown network name, or <code>mainnet</code> while the wallet is not on mainnet</td></tr>
@@ -972,7 +972,7 @@ async function pay(recipient: string, faucetId: string) {
         </table></div>
         <ul class="list">
           <li>Bread accepts <code>mainnet</code>, <code>testnet</code>, <code>devnet</code> and <code>localnet</code>. Any other name is refused with <code>NETWORK_NOT_GRANTED</code>.</li>
-          <li>Asking for a valid network the wallet is not on is not refused. The connect sheet tells the user: "This app asked for Miden testnet, but your wallet is on Miden mainnet." Requests then run on the wallet's network.</li>
+          <li>Asking for a valid network the wallet is not on is not refused. The connect sheet tells the user: "This app asked for Miden Testnet, but your wallet is on Miden Mainnet." Requests then run on the wallet's network.</li>
           <li><code>mainnet</code> is granted only while the wallet itself is on mainnet.</li>
         </ul>
         <div class="callout gotcha"><span class="ci"><svg aria-hidden="true"><use href="#i-warn"/></svg></span><div><strong class="t">The adapter has no Mainnet member</strong><p><code>WalletAdapterNetwork</code> 0.17 lists only <code>Devnet</code>, <code>Testnet</code> and <code>Localnet</code>, and <code>WalletProvider</code> defaults to <code>Testnet</code>, so a mainnet wallet shows the mismatch notice on every default connect. A mainnet dApp passes the string itself: <code>'mainnet' as WalletAdapterNetwork</code>.</p></div></div>
@@ -985,7 +985,7 @@ async function pay(recipient: string, faucetId: string) {
 <pre><code data-lang="ts">import { NoteFilterTypes } from '@miden-sdk/miden-sdk';
 
 const assets = await adapter.requestAssets();
-// [{ faucetId: '0x...', amount: '2500000' }], amounts as decimal strings
+// [{ faucetId, amount }]: faucetId as a bech32 address, amount as a decimal string
 
 const consumable = await adapter.requestConsumableNotes();
 const committed = await adapter.requestPrivateNotes(NoteFilterTypes.Committed);
@@ -1051,7 +1051,8 @@ const txId = await adapter.requestTransaction(
   const { txHash, outputNotes } = await adapter.waitForTransaction(txId);
   // outputNotes are SDK Note objects, for example a private note to hand on
 } catch (error) {
-  // WalletTransactionError: the transaction failed or did not settle in time
+  // WalletTransactionError: it failed or did not settle in time.
+  // A refused request rejects with the provider's own error.
 }</code></pre></div>
         </div>
         <ul class="list">
@@ -1064,7 +1065,7 @@ const txId = await adapter.requestTransaction(
         <p>Send with <code>noteType: 'private'</code> and the note's details stay off chain. To pass a private note to Bread yourself, for example one your server holds for the user, import its serialized bytes:</p>
         <div class="code reveal-code"><div class="code-bar"><span class="fname">import-note.ts</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
 <pre><code data-lang="ts">const noteId = await adapter.importPrivateNote(noteBytes); // Uint8Array
-const notes = await adapter.requestConsumableNotes();     // it now appears here</code></pre></div>
+const notes = await adapter.requestConsumableNotes();     // listed if this account can consume it</code></pre></div>
       </section>
 
       <section class="section" id="signing" aria-labelledby="h-signing">
