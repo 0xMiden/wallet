@@ -97,9 +97,14 @@ export function springTimeToReach(
   if (!springPhysics(transition)) return null;
   let previous = from - value;
   if (previous === 0) return 0;
+  // Only a crossing toward the side the spring arrives on counts: a reversal that first carries the
+  // spring back across the value has not reached it yet. A value past the target is reached on the way out.
+  const travel = Math.sign(to - from) || Math.sign(velocity);
+  const side = (value - to) * travel > 0 ? Math.sign(value - to) : Math.sign(to - value);
   for (let ms = SAMPLE_STEP_MS; ms <= MAX_DURATION_MS; ms += SAMPLE_STEP_MS) {
     const current = springProgressAt(transition, ms / 1000, from, to, velocity).value - value;
-    if (Math.sign(current) !== Math.sign(previous)) {
+    const arrives = side === 0 || Math.sign(current) === side || (current === 0 && Math.sign(previous) === -side);
+    if (Math.sign(current) !== Math.sign(previous) && arrives) {
       // The crossing lies between this sample and the last; interpolating keeps it well inside 1 ms.
       return (ms - (SAMPLE_STEP_MS * current) / (current - previous)) / 1000;
     }
