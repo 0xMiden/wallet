@@ -2019,6 +2019,22 @@ final class BreadMorphAnimatorTests: XCTestCase {
         assertModelAtRest(container)
     }
 
+    func testNearTargetFlingCarriesTheRenderedSpringVelocity() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        animator.track(0.995)
+        animator.run(to: 1, card: card, velocity: 3, physics: .release, onSettle: {})
+        let scale = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(Double(scale.initialVelocity), 0)
+        XCTAssertEqual(try XCTUnwrap(animator.spring).velocity, 0)
+        clock.now = 0.07
+        let resting = BreadMorphSpring(from: 0.995, to: 1, velocity: 0, physics: .release, start: 0)
+        XCTAssertEqual(animator.progress(), resting.sample(at: 0.07).value, accuracy: 1e-9)
+        XCTAssertEqual(animator.velocity(), resting.sample(at: 0.07).velocity, accuracy: 1e-9)
+    }
+
     func testFinishSnapsToTheNearestEnd() throws {
         let fixture = try morphContainerFixture()
         defer { fixture.dispose() }
