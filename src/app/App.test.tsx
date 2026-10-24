@@ -223,6 +223,9 @@ jest.mock('app/templates/PinExtensionPrompt', () => ({
 jest.mock('app/templates/HotKeyRotationGate', () => ({
   HotKeyRotationGate: () => null
 }));
+jest.mock('app/templates/HotKeyRotatedOutGate', () => ({
+  HotKeyRotatedOutGate: () => null
+}));
 
 jest.mock('app/templates/OpenLinkPrompt', () => ({
   OpenLinkPrompt: () => <div data-testid="open-link-prompt" />

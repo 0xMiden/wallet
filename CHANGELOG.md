@@ -9,6 +9,7 @@
 ### Features
 
 - [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
+- [FEATURE][all] A device whose everyday key another device rotated out (a seed recovery elsewhere) now persists that verdict, refuses writes through the Guardian sync guard, and shows a sheet that cannot be dismissed with Make this device the main one, which rotates the key back here through the rotation gate, and Remove wallet from this device.
 
 ### Fixes
 

@@ -264,6 +264,20 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.MarkHotKeyRotatedOutRequest: {
+      await Actions.markHotKeyRotatedOut(req.accountPublicKey, req.hotPublicKey, req.onChainHotCommitment);
+      return {
+        type: WalletMessageType.MarkHotKeyRotatedOutResponse
+      };
+    }
+
+    case WalletMessageType.RetireRotatedOutHotKeyRequest: {
+      await Actions.retireRotatedOutHotKey(req.accountPublicKey, req.expectedHotPubKey);
+      return {
+        type: WalletMessageType.RetireRotatedOutHotKeyResponse
+      };
+    }
+
     case WalletMessageType.CheckGuardianDriftRequest: {
       const guardianSyncStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
       return {
