@@ -5,6 +5,7 @@ import type { PanInfo } from 'framer-motion';
 
 import { MORPH_TIMING } from 'lib/animation';
 import type { DappSession } from 'lib/dapp-browser';
+import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
 import { DappPeekCard } from './DappPeekCard';
 
@@ -111,6 +112,17 @@ it('restores on tap with zero velocity', () => {
   fireEvent.click(screen.getByTestId('dapp-peek-card'));
 
   expect(onCommitRestore).toHaveBeenCalledWith(rect, { x: 0, y: 0 });
+});
+
+it('starts the restore before its haptic, on a tap and on a swipe up', () => {
+  const { onCommitRestore } = renderCard();
+  const order = (fn: unknown) => (jest.isMockFunction(fn) ? fn.mock.invocationCallOrder.at(-1) : undefined) ?? 0;
+
+  fireEvent.click(screen.getByTestId('dapp-peek-card'));
+  expect(order(onCommitRestore)).toBeLessThan(order(hapticLight));
+  release({ x: 0, y: -61 }, { x: 0, y: -200 });
+  expect(order(onCommitRestore)).toBeLessThan(order(hapticMedium));
+  expect(order(hapticMedium)).toBeGreaterThan(0);
 });
 
 it('raises the frame rate when a finger lands on the card and again when it lifts', () => {

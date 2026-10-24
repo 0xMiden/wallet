@@ -69,6 +69,14 @@ describe('CapsuleBar', () => {
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
   });
 
+  it('starts the minimize before its haptic', () => {
+    const { onMinimize } = renderBar();
+
+    fireEvent.click(screen.getByTestId('dapp-capsule-minimize'));
+
+    expect(onMinimize.mock.invocationCallOrder[0]).toBeLessThan(mockHapticLight.mock.invocationCallOrder.at(-1)!);
+  });
+
   it('raises the frame rate when a finger lands on Minimize, before the tap parks', () => {
     const { onMinimize } = renderBar();
 

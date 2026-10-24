@@ -236,10 +236,11 @@ let testI18n: typeof i18n;
 const pendingDialogs: Promise<unknown>[] = [];
 let currentTree: ReturnType<typeof render> | undefined;
 
+let driverAction: (() => void) | undefined;
 function Driver() {
   browser = useDappBrowser();
   confirm = useConfirm();
-  return null;
+  return <span data-testid="driver-action" onClick={() => driverAction?.()} />;
 }
 function HeldOverlay() {
   useHideForegroundDappWhileOpen(true);
@@ -1476,6 +1477,31 @@ function emitMorph(phase: string, target: string, morphId = lastMorphId(), extra
 }
 const parked = () => control().parkedSessions.map(state => state.session.id);
 
+// Capacitor hands a plugin call to native one microtask after it is made, as React flushes a tap's updates, so a morph
+// sent after the tap's first update reaches native only once React has rendered.
+async function renderedWhenMorphSent(start: () => void): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  mockMorph.mockImplementation(() =>
+    Promise.resolve().then(() => {
+      seen.push(control().motion);
+      return { accepted: true };
+    })
+  );
+  const actEnvironment: unknown = Reflect.get(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+  Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', false);
+  driverAction = start;
+  try {
+    // Dispatched directly: RTL's fireEvent renders inside act, before any microtask.
+    screen.getByTestId('driver-action').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+  } finally {
+    driverAction = undefined;
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', actEnvironment);
+  }
+  return seen;
+}
+
 describe('native morph collapse', () => {
   afterEach(() => jest.useRealTimers());
 
@@ -1595,6 +1621,23 @@ describe('native morph collapse', () => {
     expect(parked()).toEqual(['origin']);
   });
 
+  it('sends the collapse before the motion it follows renders', async () => {
+    await openForeground();
+    act(() => control().reportLandingCard(CARD));
+    let parking: Promise<void> = Promise.resolve();
+
+    const seen = await renderedWhenMorphSent(() => {
+      parking = control().park('origin');
+    });
+
+    expect(seen).toEqual([null]);
+    await settle();
+    expect(control().motion).toMatchObject({ id: 'origin', target: 'collapsed', morphId: lastMorphId() });
+    emitMorph('settled', 'collapsed');
+    await act(async () => parking);
+    expect(parked()).toEqual(['origin']);
+  });
+
   it('falls back to the legacy park when native does not accept the morph', async () => {
     await openForeground();
     await act(async () => control().park('origin'));
@@ -1656,6 +1699,24 @@ describe('native morph expand', () => {
     await settle();
     expect(control().motion).toBeNull();
     expect(lastVisibility()).toBe(true);
+  });
+
+  it('sends the expand before the foreground it commits renders', async () => {
+    await parkedForeground();
+    let moved: Promise<boolean> = Promise.resolve(false);
+
+    const seen = await renderedWhenMorphSent(() => {
+      moved = control().restore('origin', { card: CARD, velocity: VELOCITY });
+    });
+
+    expect(seen).toEqual([null]);
+    let accepted = false;
+    await act(async () => {
+      accepted = await moved;
+    });
+    expect(accepted).toBe(true);
+    expect(control().mode).toBe('active');
+    expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded', morphId: lastMorphId() });
   });
 
   it('restores without a card from the switcher after it closes', async () => {
