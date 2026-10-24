@@ -23,6 +23,7 @@ struct BreadPresentationOptions {
 }
 
 enum BreadMorphTarget: String { case collapsed, expanded }
+enum BreadMorphPhase: String { case started, retargeted, settled, cancelled }
 
 final class BreadPresentationController: NSObject {
     let state: BreadPresentationState
@@ -54,6 +55,10 @@ final class BreadPresentationController: NSObject {
     private var navigationCommitted = false
     private var notifiedPolicyRevision: Int?
     private var lastSafeArea = UIEdgeInsets.zero
+    private var morphSequence = 0
+    private var proxyCovering = false
+    private var proxyFresh = false
+    private var proxyFade: UIViewPropertyAnimator?
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
         self.options = options
@@ -78,7 +83,13 @@ final class BreadPresentationController: NSObject {
 
     deinit { timer?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 
-    var immersive: Bool { state.display == .fullscreen && state.surfaceVisibility }
+    var immersive: Bool { state.display == .fullscreen && state.surfaceVisibility && !moving }
+    private var moving: Bool { state.motion != .none }
+    private var heading: BreadMorphTarget { state.motion == .collapsing ? .collapsed : .expanded }
+    private var proxyAvailable: Bool {
+        guard state.proxyUsable, state.foreground, let image = proxy.image, let webView else { return false }
+        return abs(image.size.width - webView.bounds.width) < 1 && abs(image.size.height - webView.bounds.height) < 1
+    }
 
     func preparePrivacyCover() -> Bool {
         guard owner?.managedClose?.closing != true, let window = instance?.containerWindow,
@@ -95,6 +106,11 @@ final class BreadPresentationController: NSObject {
     func attach(_ instance: WKWebViewInstance, hostWindow: UIWindow?) {
         self.instance = instance
         self.hostWindow = hostWindow
+        if animator == nil, let container = instance.morphContainer {
+            let animator = BreadMorphAnimator(container: container)
+            animator.companions = [capsuleBackground.layer, button.layer]
+            self.animator = animator
+        }
         render()
     }
 
@@ -124,14 +140,146 @@ final class BreadPresentationController: NSObject {
     func updateSlot() { if state.display == .browser { render() } }
 
     @discardableResult
-    func morph(to target: BreadMorphTarget, card: BreadMorphCard?, velocity: CGPoint, morphId: String,
+    func morph(to target: BreadMorphTarget, card: BreadMorphCard?, velocity: CGPoint, morphId id: String,
                policyRevision: Int?, sequence: Int?) -> Bool {
-        false
+        animator?.boost()
+        let accepted = startMorph(target, card: card, velocity: velocity, id: id, policyRevision: policyRevision, sequence: sequence)
+        if !accepted {
+            if moving { animator?.releaseBoost() } else { animator?.reset() }
+        }
+        return accepted
     }
 
-    func dropProxy() {}
+    func slotFrame() -> CGRect? { instance?.containerWindow.flatMap { slotFrame(for: $0) } }
 
-    func adoptProxy(_ image: UIImage) {}
+    func dropProxy() {
+        proxy.image = nil
+        proxyFresh = false
+        state.dropProxy()
+        if proxyCovering { cancelReveal() }
+    }
+
+    func adoptProxy(_ image: UIImage) {
+        proxy.image = image
+        state.captureProxy()
+        proxyFresh = true
+        if let id = instance?.id { WebViewRegistry.shared.retainProxy(for: id) }
+    }
+
+    private func startMorph(_ target: BreadMorphTarget, card: BreadMorphCard?, velocity: CGPoint, id: String,
+                            policyRevision: Int?, sequence: Int?) -> Bool {
+        guard owner?.managedClose?.closing != true, state.phase != .closed, let animator,
+              let window = instance?.containerWindow, !id.isEmpty else { return false }
+        let wasVisible = state.effectiveVisibility
+        let wasMoving = moving
+        guard target == .expanded else { return false }
+        guard state.requestVisibility(true, policyRevision: policyRevision, sequence: sequence) else { return false }
+        guard state.surfaceVisibility else {
+            if state.effectiveVisibility != wasVisible { invalidateLayout() }
+            render()
+            return false
+        }
+        let previous = morphId
+        let fromRest = !wasMoving && window.isHidden
+        if !wasMoving, applySlotFrame(window) { window.layoutIfNeeded() }
+        let landing = card.flatMap { fits($0, in: window.bounds.size) ? $0 : nil }
+        let progressVelocity = previous != nil ? animator.velocity()
+            : landing.map { BreadMorphGeometry.progressVelocity(velocity, card: $0.rect, slot: window.bounds) } ?? 0
+        state.beginMotion(.expanding)
+        morphSequence = sequence ?? state.acknowledgedVisibilitySequence
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if fromRest { animator.hold(0, card: landing) }
+        beginExpandVisuals(fromRest: fromRest)
+        if state.effectiveVisibility != wasVisible { invalidateLayout() }
+        render()
+        CATransaction.commit()
+        morphId = id
+        run(to: .expanded, card: landing, velocity: progressVelocity, physics: .expand)
+        if previous != nil {
+            emit(.retargeted, id: id, target: .expanded, progress: animator.progress(), velocity: animator.velocity())
+        } else {
+            emitStarted(id)
+        }
+        return true
+    }
+
+    private func fits(_ card: BreadMorphCard, in size: CGSize) -> Bool {
+        card.rect.width > 0 && card.rect.height > 0 && CGRect(origin: .zero, size: size).insetBy(dx: -0.5, dy: -0.5).contains(card.rect)
+    }
+
+    private func run(to target: BreadMorphTarget, card: BreadMorphCard?, velocity: Double, physics: BreadMorphPhysics) {
+        guard let animator, let id = morphId else { return }
+        animator.run(to: target == .expanded ? 1 : 0, card: card, velocity: velocity, physics: physics) { [weak self] in
+            self?.motionSettled(id, at: target)
+        }
+    }
+
+    private func beginExpandVisuals(fromRest: Bool) {
+        webView?.isUserInteractionEnabled = false
+        proxyFresh = false
+        if fromRest {
+            proxyFade?.stopAnimation(true)
+            proxyFade = nil
+            cancelReveal()
+        } else if !proxyCovering, !proxy.isHidden {
+            fadeProxy(to: 0, duration: 0.12)
+        }
+    }
+
+    private func fadeProxy(to alpha: CGFloat, duration: TimeInterval) {
+        proxyFade?.stopAnimation(true)
+        let fade = UIViewPropertyAnimator(duration: duration, curve: alpha > 0 ? .linear : .easeOut) { [weak self] in
+            self?.proxy.alpha = alpha
+        }
+        fade.addCompletion { [weak self, weak fade] position in
+            guard let self, let fade, self.proxyFade === fade else { return }
+            self.proxyFade = nil
+            if position == .end, alpha == 0, !self.proxyCovering { self.proxy.isHidden = true }
+        }
+        proxyFade = fade
+        fade.startAnimation()
+    }
+
+    private func motionSettled(_ id: String, at end: BreadMorphTarget) {
+        guard morphId == id else { return }
+        completeMotion(at: end)
+        render()
+    }
+
+    @discardableResult private func completeMotion(at end: BreadMorphTarget) -> Bool {
+        guard let id = morphId else { return false }
+        morphId = nil
+        if end == .expanded {
+            state.endMotion()
+            webView?.isUserInteractionEnabled = true
+            if !proxyCovering, proxyFade == nil { proxy.isHidden = true }
+        } else if proxyAvailable, !proxyCovering, !UIAccessibility.isReduceMotionEnabled {
+            proxyFade?.stopAnimation(true)
+            proxyFade = nil
+            proxy.isHidden = false
+            proxy.alpha = 1
+        }
+        emit(.settled, id: id, target: end, progress: end == .expanded ? 1 : 0, velocity: 0)
+        if end == .expanded { UIAccessibility.post(notification: .screenChanged, argument: webView) }
+        return true
+    }
+
+    private func emitStarted(_ id: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.morphId == id, let animator = self.animator else { return }
+            self.emit(.started, id: id, target: self.heading, progress: animator.progress(), velocity: animator.velocity())
+        }
+    }
+
+    private func emit(_ phase: BreadMorphPhase, id: String, target: BreadMorphTarget, progress: Double, velocity: Double,
+                      tracking: Bool = false) {
+        guard let owner, owner.managedClose?.closing != true, state.phase != .closed else { return }
+        var data: [String: Any] = ["id": owner.instanceId, "morphId": id, "phase": phase.rawValue, "target": target.rawValue,
+            "progress": progress, "velocity": velocity, "tracking": tracking, "visibilitySequence": morphSequence]
+        if let lifetime = owner.managedClose?.token { data["managedHostCloseToken"] = lifetime }
+        owner.capBrowserPlugin?.notifyListeners("presentationMorph", data: data)
+    }
 
     func handleTap() {}
 
@@ -231,22 +379,37 @@ final class BreadPresentationController: NSObject {
     private func cancelReveal() {
         revealAnimator?.stopAnimation(true)
         revealAnimator = nil
-        cover.alpha = 1
-        cover.isHidden = false
+        proxyFade?.stopAnimation(true)
+        proxyFade = nil
+        // The snapshot stands in for the cover until a fresh fenced paint, never for the privacy cover.
+        if (proxyCovering || moving) && proxyAvailable {
+            proxyCovering = true
+            proxy.alpha = 1
+            proxy.isHidden = false
+            cover.isHidden = true
+        } else {
+            proxyCovering = false
+            proxy.isHidden = true
+            cover.alpha = 1
+            cover.isHidden = false
+        }
         webView?.accessibilityElementsHidden = true
     }
 
     private func reveal() {
-        guard !cover.isHidden, revealAnimator == nil else { return }
+        let veil: UIView = proxyCovering ? proxy : cover
+        guard !veil.isHidden, revealAnimator == nil else { return }
+        let covering = proxyCovering
         if UIAccessibility.isReduceMotionEnabled {
-            cover.isHidden = true
+            veil.isHidden = true
+            proxyCovering = false
             webView?.accessibilityElementsHidden = false
             return
         }
         let generation = state.generation
         let revision = layoutRevision
-        let animator = UIViewPropertyAnimator(duration: 0.18, curve: .easeOut) { [weak self] in
-            self?.cover.alpha = 0
+        let animator = UIViewPropertyAnimator(duration: covering ? 0.12 : 0.18, curve: .easeOut) {
+            veil.alpha = 0
         }
         revealAnimator = animator
         animator.addCompletion { [weak self, weak animator] position in
@@ -254,8 +417,9 @@ final class BreadPresentationController: NSObject {
                   position == .end, self.state.generation == generation,
                   self.layoutRevision == revision, self.state.phase == .visible else { return }
             self.revealAnimator = nil
-            self.cover.isHidden = true
-            self.cover.alpha = 1
+            veil.isHidden = true
+            veil.alpha = 1
+            if covering { self.proxyCovering = false }
             self.webView?.accessibilityElementsHidden = false
         }
         animator.startAnimation()
@@ -282,12 +446,9 @@ final class BreadPresentationController: NSObject {
         guard state.phase != .closed, let owner else { return }
         publishPolicy()
         if let window = instance?.containerWindow {
-            let frame = state.display == .fullscreen ? window.windowScene?.coordinateSpace.bounds : instance?.rect
-            if let frame, !frame.isEmpty, window.frame != frame, state.display != .fullscreen || !rotating {
-                window.frame = frame
-                invalidateLayout()
-            }
-            window.backgroundColor = cover.backgroundColor
+            applySlotFrame(window)
+            window.backgroundColor = moving ? .clear : cover.backgroundColor
+            instance?.morphContainer?.clipView.backgroundColor = cover.backgroundColor
             window.accessibilityViewIsModal = immersive
             window.isHidden = !state.surfaceVisibility
             if immersive { window.makeKey() }
@@ -312,6 +473,18 @@ final class BreadPresentationController: NSObject {
         owner.view.setNeedsLayout()
         publishMetrics()
         preparePaint()
+    }
+
+    private func slotFrame(for window: UIWindow) -> CGRect? {
+        state.display == .fullscreen ? window.windowScene?.coordinateSpace.bounds : instance?.rect
+    }
+
+    @discardableResult private func applySlotFrame(_ window: UIWindow) -> Bool {
+        guard let frame = slotFrame(for: window), !frame.isEmpty, window.frame != frame,
+              state.display != .fullscreen || !rotating else { return false }
+        window.frame = frame
+        invalidateLayout()
+        return true
     }
 
     static let metricScript = """
@@ -415,6 +588,12 @@ final class BreadPresentationController: NSObject {
         cover.isOpaque = true
         cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(cover)
+        proxy.isHidden = true
+        proxy.isUserInteractionEnabled = false
+        proxy.accessibilityElementsHidden = true
+        proxy.contentMode = .scaleToFill
+        proxy.layer.minificationFilter = .trilinear
+        view.insertSubview(proxy, belowSubview: cover)
         errorLabel.text = options.errorLabel
         errorLabel.font = .preferredFont(forTextStyle: .body)
         errorLabel.adjustsFontForContentSizeCategory = true
@@ -460,6 +639,7 @@ final class BreadPresentationController: NSObject {
     private func layoutControls() {
         guard let view = owner?.view else { return }
         cover.frame = view.bounds
+        proxy.frame = webView?.frame ?? view.bounds
         let safe = view.safeAreaInsets
         button.frame = CGRect(x: safe.left + 12, y: safe.top + 8, width: 64, height: 48)
         capsuleBackground.frame = button.frame
