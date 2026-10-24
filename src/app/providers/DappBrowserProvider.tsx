@@ -692,8 +692,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           flight.motion.target === 'collapsed' &&
           !flight.motion.acknowledging
         ) {
-          // A second tap retargets native's own spring; the collapse already followed carries on under the new id.
-          updateFlight(flight, { ...flight.motion, morphId });
+          // A second tap retargets native's own spring; the collapse already followed carries on under the new id. A tap
+          // native saw before the morph JS sent since (an older sequence) was superseded by it, so it changes nothing.
+          if (
+            lifetime === flight.motion.lifetime &&
+            Number.isSafeInteger(event.visibilitySequence) &&
+            event.visibilitySequence === instance.currentVisibilitySequence
+          )
+            updateFlight(flight, { ...flight.motion, morphId });
           return;
         }
         // Not this provider's page, or one going away: there is nothing to adopt or spring back.
