@@ -51,6 +51,7 @@ final class ManagedHostClose {
         completions.append(completion)
         if closing { if failed { retry() }; return }
         visible = instance?.isVisible == true && instance?.containerWindow?.isHidden == false
+        instance?.controller.breadPresentation?.managedCloseStarted()
         instance?.controller.webViewForManagedClose?.isUserInteractionEnabled = false
         retry()
     }

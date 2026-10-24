@@ -22,8 +22,14 @@ struct BreadPresentationOptions {
     }
 }
 
+enum BreadMorphTarget: String { case collapsed, expanded }
+enum BreadMorphPhase: String { case started, retargeted, settled, cancelled }
+
 final class BreadPresentationController: NSObject {
     let state: BreadPresentationState
+    let proxy = UIImageView()
+    private(set) var animator: BreadMorphAnimator?
+    private(set) var morphId: String?
     private let options: BreadPresentationOptions
     private weak var owner: WKWebViewController?
     private weak var webView: WKWebView?
@@ -49,6 +55,15 @@ final class BreadPresentationController: NSObject {
     private var navigationCommitted = false
     private var notifiedPolicyRevision: Int?
     private var lastSafeArea = UIEdgeInsets.zero
+    private var morphSequence = 0
+    private var proxyCovering = false
+    private var proxyFresh = false
+    private var proxyFade: UIViewPropertyAnimator?
+    private var crossfade: DispatchWorkItem?
+    private var proxyCapture = 0
+    private var capturing = false
+    private var snapshotWaiters: [(UIImage?) -> Void] = []
+    private var grab: (start: Double, target: Double, raw: Double)?
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
         self.options = options
@@ -61,6 +76,7 @@ final class BreadPresentationController: NSObject {
         for name in [UIApplication.willResignActiveNotification, UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let self else { return }
+                self.finishMotion()
                 self.tick()
                 self.state.setForeground(note.name == UIApplication.didBecomeActiveNotification)
                 self.invalidateLayout()
@@ -73,11 +89,15 @@ final class BreadPresentationController: NSObject {
 
     deinit { timer?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 
-    var immersive: Bool { state.display == .fullscreen && state.surfaceVisibility }
+    var immersive: Bool { state.display == .fullscreen && state.surfaceVisibility && !moving }
+    private var moving: Bool { state.motion != .none }
+    private var heading: BreadMorphTarget { state.motion == .collapsing ? .collapsed : .expanded }
+    private var proxyAvailable: Bool { state.proxyUsable && state.foreground && proxy.image != nil }
 
     func preparePrivacyCover() -> Bool {
-        guard owner?.managedClose?.closing != true, let window = instance?.containerWindow,
-              !window.isHidden, window.isKeyWindow else { return false }
+        guard owner?.managedClose?.closing != true else { return false }
+        if finishMotion() { render() }
+        guard let window = instance?.containerWindow, !window.isHidden, window.isKeyWindow else { return false }
         tick()
         state.setForeground(false)
         invalidateLayout()
@@ -90,6 +110,15 @@ final class BreadPresentationController: NSObject {
     func attach(_ instance: WKWebViewInstance, hostWindow: UIWindow?) {
         self.instance = instance
         self.hostWindow = hostWindow
+        if animator == nil, let container = instance.morphContainer {
+            let animator = BreadMorphAnimator(container: container)
+            animator.companions = [capsuleBackground.layer, button.layer]
+            self.animator = animator
+            container.onTap = { [weak self] in self?.handleTap() }
+            container.onPan = { [weak self] phase, translation, velocity in
+                self?.handleGrab(phase, translation: translation, velocity: velocity)
+            }
+        }
         render()
     }
 
@@ -111,12 +140,340 @@ final class BreadPresentationController: NSObject {
     func setVisible(_ visible: Bool, policyRevision: Int? = nil, sequence: Int? = nil) {
         tick()
         let wasVisible = state.effectiveVisibility
+        let wasHeading: BreadMorphTarget? = moving ? heading : nil
+        let progress = animator?.progress() ?? 0
+        let velocity = animator?.velocity() ?? 0
         guard state.requestVisibility(visible, policyRevision: policyRevision, sequence: sequence) else { return }
+        guard let wasHeading, !moving else {
+            if state.effectiveVisibility != wasVisible { invalidateLayout() }
+            render()
+            return
+        }
+        let cancelled = morphId
+        stopMorph()
+        // Hide before the rest pose returns, in one transaction, so the full page never shows for a frame.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         if state.effectiveVisibility != wasVisible { invalidateLayout() }
         render()
+        animator?.reset()
+        CATransaction.commit()
+        if let cancelled { emit(.cancelled, id: cancelled, target: wasHeading, progress: progress, velocity: velocity) }
+        if wasHeading == .collapsed { UIAccessibility.post(notification: .screenChanged, argument: nil) }
     }
 
     func updateSlot() { if state.display == .browser { render() } }
+
+    @discardableResult
+    func morph(to target: BreadMorphTarget, card: BreadMorphCard?, velocity: CGPoint, morphId id: String,
+               policyRevision: Int?, sequence: Int?) -> Bool {
+        animator?.boost()
+        let accepted = startMorph(target, card: card, velocity: velocity, id: id, policyRevision: policyRevision, sequence: sequence)
+        if !accepted {
+            if moving { animator?.releaseBoost() } else { animator?.reset() }
+        }
+        return accepted
+    }
+
+    func slotFrame() -> CGRect? { instance?.containerWindow.flatMap { slotFrame(for: $0) } }
+
+    func dropProxy() {
+        proxy.image = nil
+        proxyFresh = false
+        state.dropProxy()
+        if proxyCovering { cancelReveal() }
+    }
+
+    func snapshotFromProxy(_ deliver: @escaping (UIImage?) -> Void) -> Bool {
+        if capturing {
+            snapshotWaiters.append(deliver)
+            return true
+        }
+        guard proxyFresh, state.proxyUsable, let image = proxy.image else { return false }
+        deliver(image)
+        return true
+    }
+
+    func adoptProxy(_ image: UIImage) {
+        proxy.image = image
+        state.captureProxy()
+        proxyFresh = true
+        if let id = instance?.id { WebViewRegistry.shared.retainProxy(for: id) }
+    }
+
+    private func startMorph(_ target: BreadMorphTarget, card: BreadMorphCard?, velocity: CGPoint, id: String,
+                            policyRevision: Int?, sequence: Int?) -> Bool {
+        guard owner?.managedClose?.closing != true, state.phase != .closed, let animator,
+              let window = instance?.containerWindow, !id.isEmpty else { return false }
+        let wasVisible = state.effectiveVisibility
+        let wasMoving = moving
+        if target == .expanded {
+            guard state.requestVisibility(true, policyRevision: policyRevision, sequence: sequence) else { return false }
+            guard state.surfaceVisibility else {
+                if state.effectiveVisibility != wasVisible { invalidateLayout() }
+                render()
+                return false
+            }
+        } else {
+            guard wasMoving || (wasVisible && !window.isHidden),
+                  state.requestVisibility(true, sequence: sequence) else { return false }
+        }
+        let previous = morphId
+        let fromRest = target == .expanded && !wasMoving && window.isHidden
+        if !wasMoving, applySlotFrame(window) { window.layoutIfNeeded() }
+        let landing = card.flatMap { fits($0, in: window.bounds.size) ? $0 : nil }
+        let progressVelocity = previous != nil ? animator.velocity()
+            : landing.map { BreadMorphGeometry.progressVelocity(velocity, card: $0.rect, slot: window.bounds) } ?? 0
+        state.beginMotion(target == .expanded ? .expanding : .collapsing)
+        morphSequence = sequence ?? state.acknowledgedVisibilitySequence
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if fromRest { animator.hold(0, card: landing) }
+        if target == .expanded { beginExpandVisuals(fromRest: fromRest) }
+        if state.effectiveVisibility != wasVisible { invalidateLayout() }
+        render()
+        CATransaction.commit()
+        if target == .collapsed { beginCollapseVisuals() }
+        morphId = id
+        run(to: target, card: landing, velocity: progressVelocity, physics: target == .expanded ? .expand : .collapse)
+        if previous != nil {
+            emitRetarget(id, target: target)
+        } else {
+            emitStarted(id)
+        }
+        return true
+    }
+
+    private func fits(_ card: BreadMorphCard, in size: CGSize) -> Bool {
+        card.rect.width > 0 && card.rect.height > 0 && CGRect(origin: .zero, size: size).insetBy(dx: -0.5, dy: -0.5).contains(card.rect)
+    }
+
+    private func run(to target: BreadMorphTarget, card: BreadMorphCard?, velocity: Double, physics: BreadMorphPhysics) {
+        guard let animator, let id = morphId else { return }
+        animator.run(to: target == .expanded ? 1 : 0, card: card, velocity: velocity, physics: physics) { [weak self] in
+            self?.motionSettled(id, at: target)
+        }
+        scheduleCrossfade()
+    }
+
+    private func beginCollapseVisuals() {
+        crossfade?.cancel()
+        crossfade = nil
+        proxyFade?.stopAnimation(true)
+        proxyFade = nil
+        webView?.isUserInteractionEnabled = false
+        guard !proxyCovering else { return }
+        proxy.alpha = 0
+        proxy.isHidden = false
+        if state.phase == .visible, cover.isHidden || revealAnimator != nil { captureProxy() }
+    }
+
+    private func captureProxy() {
+        guard let webView else { return }
+        let generation = state.generation
+        proxyCapture += 1
+        let serial = proxyCapture
+        capturing = true
+        proxyFresh = false
+        let configuration = WKSnapshotConfiguration()
+        configuration.afterScreenUpdates = false
+        webView.takeSnapshot(with: configuration) { [weak self] image, _ in
+            guard let self, self.proxyCapture == serial else { return }
+            self.capturing = false
+            let waiters = self.snapshotWaiters
+            self.snapshotWaiters = []
+            guard let image, self.state.generation == generation, self.state.phase != .closed else {
+                waiters.forEach { $0(nil) }
+                return
+            }
+            self.adoptProxy(image)
+            if self.state.motion == .collapsing, (self.animator?.progress() ?? 1) <= 0.35 { self.fadeInProxy() }
+            waiters.forEach { $0(image) }
+        }
+    }
+
+    private func scheduleCrossfade() {
+        crossfade?.cancel()
+        crossfade = nil
+        guard state.motion == .collapsing, let animator, let spring = animator.spring else { return }
+        let now = animator.now()
+        guard let at = spring.time(reaching: 0.35), at > now else {
+            if animator.progress() <= 0.35 { fadeInProxy() }
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in self?.fadeInProxy() }
+        crossfade = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + (at - now), execute: work)
+    }
+
+    private func fadeInProxy() {
+        crossfade = nil
+        guard state.motion == .collapsing, proxyFresh, proxyAvailable, !proxyCovering,
+              proxy.isHidden || proxy.alpha < 1, !UIAccessibility.isReduceMotionEnabled else { return }
+        proxy.isHidden = false
+        fadeProxy(to: 1, duration: 0.1)
+    }
+
+    private func stopMorph() {
+        morphId = nil
+        grab = nil
+        crossfade?.cancel()
+        crossfade = nil
+        proxyFade?.stopAnimation(true)
+        proxyFade = nil
+        if owner?.managedClose?.closing != true { webView?.isUserInteractionEnabled = true }
+    }
+
+    @discardableResult private func finishMotion() -> Bool {
+        guard morphId != nil, let animator else { return false }
+        let end = animator.finish()
+        return completeMotion(at: end >= 0.5 ? .expanded : .collapsed)
+    }
+
+    func managedCloseStarted() {
+        guard morphId != nil, let animator else { return }
+        if animator.finish() >= 0.5 { state.endMotion() }
+        stopMorph()
+    }
+
+    private func beginExpandVisuals(fromRest: Bool) {
+        webView?.isUserInteractionEnabled = false
+        proxyFresh = false
+        if fromRest {
+            proxyFade?.stopAnimation(true)
+            proxyFade = nil
+            if let image = proxy.image, let webView,
+               abs(image.size.width - webView.bounds.width) >= 1 || abs(image.size.height - webView.bounds.height) >= 1 {
+                dropProxy()
+            }
+            cancelReveal()
+        } else if !proxyCovering, !proxy.isHidden {
+            fadeProxy(to: 0, duration: 0.12)
+        }
+    }
+
+    private func fadeProxy(to alpha: CGFloat, duration: TimeInterval) {
+        proxyFade?.stopAnimation(true)
+        let fade = UIViewPropertyAnimator(duration: duration, curve: alpha > 0 ? .linear : .easeOut) { [weak self] in
+            self?.proxy.alpha = alpha
+        }
+        fade.addCompletion { [weak self, weak fade] position in
+            guard let self, let fade, self.proxyFade === fade else { return }
+            self.proxyFade = nil
+            if position == .end, alpha == 0, !self.proxyCovering { self.proxy.isHidden = true }
+        }
+        proxyFade = fade
+        fade.startAnimation()
+    }
+
+    private func motionSettled(_ id: String, at end: BreadMorphTarget) {
+        guard morphId == id else { return }
+        completeMotion(at: end)
+        render()
+    }
+
+    @discardableResult private func completeMotion(at end: BreadMorphTarget) -> Bool {
+        guard let id = morphId else { return false }
+        morphId = nil
+        grab = nil
+        crossfade?.cancel()
+        crossfade = nil
+        if end == .expanded {
+            state.endMotion()
+            webView?.isUserInteractionEnabled = true
+            if !proxyCovering, proxyFade == nil { proxy.isHidden = true }
+        } else if proxyFresh, proxyAvailable, !proxyCovering, !UIAccessibility.isReduceMotionEnabled {
+            proxyFade?.stopAnimation(true)
+            proxyFade = nil
+            proxy.isHidden = false
+            proxy.alpha = 1
+        }
+        emit(.settled, id: id, target: end, progress: end == .expanded ? 1 : 0, velocity: 0)
+        if end == .expanded { UIAccessibility.post(notification: .screenChanged, argument: webView) }
+        return true
+    }
+
+    private func emitStarted(_ id: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.morphId == id, let animator = self.animator else { return }
+            self.emit(.started, id: id, target: self.heading, progress: animator.progress(), velocity: animator.velocity())
+        }
+    }
+
+    private func emit(_ phase: BreadMorphPhase, id: String, target: BreadMorphTarget, progress: Double, velocity: Double,
+                      tracking: Bool = false) {
+        guard let owner, owner.managedClose?.closing != true, state.phase != .closed else { return }
+        var data: [String: Any] = ["id": owner.instanceId, "morphId": id, "phase": phase.rawValue, "target": target.rawValue,
+            "progress": progress, "velocity": velocity, "tracking": tracking, "visibilitySequence": morphSequence]
+        if let lifetime = owner.managedClose?.token { data["managedHostCloseToken"] = lifetime }
+        owner.capBrowserPlugin?.notifyListeners("presentationMorph", data: data)
+    }
+
+    func handleTap() {
+        guard let id = morphId, let animator, grab == nil else { return }
+        let target: BreadMorphTarget = heading == .collapsed ? .expanded : .collapsed
+        retarget(id, to: target, velocity: animator.velocity(), physics: target == .expanded ? .expand : .collapse)
+    }
+
+    func handleGrab(_ phase: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint) {
+        guard let id = morphId, let animator, !UIAccessibility.isReduceMotionEnabled else { return }
+        let path = morphPath()
+        let length = Double(hypot(path.x, path.y))
+        switch phase {
+        case .began:
+            crossfade?.cancel()
+            crossfade = nil
+            let start = animator.freeze()
+            grab = (start: start, target: heading == .expanded ? 1 : 0, raw: start)
+            emit(.retargeted, id: id, target: heading, progress: start, velocity: 0, tracking: true)
+        case .changed:
+            guard var current = grab, length > 0 else { return }
+            current.raw = current.start + Double(translation.x * path.x + translation.y * path.y) / (length * length)
+            grab = current
+            animator.track(banded(current.raw, length: length))
+        case .ended, .cancelled, .failed:
+            guard let current = grab else { return }
+            grab = nil
+            let along = length > 0 ? Double(velocity.x * path.x + velocity.y * path.y) / length : 0
+            let progressVelocity = length > 0 ? min(8, max(-8, along / length)) : 0
+            let travel = current.raw + 0.3 * progressVelocity - current.start
+            let end: Double
+            if abs(travel) >= 0.3 { end = travel > 0 ? 1 : 0 } else if abs(along) >= 450 { end = along > 0 ? 1 : 0 } else { end = current.target }
+            retarget(id, to: end == 1 ? .expanded : .collapsed, velocity: progressVelocity, physics: .release)
+        default:
+            break
+        }
+    }
+
+    private func retarget(_ id: String, to target: BreadMorphTarget, velocity: Double, physics: BreadMorphPhysics) {
+        guard let animator else { return }
+        let turned = heading != target
+        state.beginMotion(target == .expanded ? .expanding : .collapsing)
+        if turned {
+            if target == .expanded { beginExpandVisuals(fromRest: false) } else { beginCollapseVisuals() }
+        }
+        run(to: target, card: animator.card, velocity: velocity, physics: physics)
+        emitRetarget(id, target: target)
+    }
+
+    private func emitRetarget(_ id: String, target: BreadMorphTarget) {
+        guard let animator else { return }
+        let start = animator.spring.map { (progress: $0.from, velocity: $0.velocity) }
+        emit(.retargeted, id: id, target: target, progress: start?.progress ?? animator.progress(),
+             velocity: start?.velocity ?? animator.velocity())
+    }
+
+    private func morphPath() -> CGPoint {
+        guard let bounds = instance?.morphContainer?.view.bounds else { return .zero }
+        guard let card = animator?.card?.rect else { return CGPoint(x: 0, y: -bounds.height / 2) }
+        return CGPoint(x: bounds.midX - card.midX, y: bounds.midY - card.midY)
+    }
+
+    private func banded(_ p: Double, length: Double) -> Double {
+        if p > 1 { return 1 + BreadMorphGeometry.rubberBand((p - 1) * length, length: length) / length }
+        if p < 0 { return BreadMorphGeometry.rubberBand(p * length, length: length) / length }
+        return p
+    }
 
     func layoutChanged() {
         guard let owner, state.phase != .closed else { return }
@@ -131,6 +488,7 @@ final class BreadPresentationController: NSObject {
     }
 
     func transition(with coordinator: UIViewControllerTransitionCoordinator) {
+        finishMotion()
         rotating = true
         invalidateLayout()
         render()
@@ -212,22 +570,37 @@ final class BreadPresentationController: NSObject {
     private func cancelReveal() {
         revealAnimator?.stopAnimation(true)
         revealAnimator = nil
-        cover.alpha = 1
-        cover.isHidden = false
+        proxyFade?.stopAnimation(true)
+        proxyFade = nil
+        // The snapshot stands in for the cover until a fresh fenced paint, never for the privacy cover.
+        if (proxyCovering || moving) && proxyAvailable {
+            proxyCovering = true
+            proxy.alpha = 1
+            proxy.isHidden = false
+            cover.isHidden = true
+        } else {
+            proxyCovering = false
+            proxy.isHidden = true
+            cover.alpha = 1
+            cover.isHidden = false
+        }
         webView?.accessibilityElementsHidden = true
     }
 
     private func reveal() {
-        guard !cover.isHidden, revealAnimator == nil else { return }
+        let veil: UIView = proxyCovering ? proxy : cover
+        guard !veil.isHidden, revealAnimator == nil else { return }
+        let covering = proxyCovering
         if UIAccessibility.isReduceMotionEnabled {
-            cover.isHidden = true
+            veil.isHidden = true
+            proxyCovering = false
             webView?.accessibilityElementsHidden = false
             return
         }
         let generation = state.generation
         let revision = layoutRevision
-        let animator = UIViewPropertyAnimator(duration: 0.18, curve: .easeOut) { [weak self] in
-            self?.cover.alpha = 0
+        let animator = UIViewPropertyAnimator(duration: covering ? 0.12 : 0.18, curve: .easeOut) {
+            veil.alpha = 0
         }
         revealAnimator = animator
         animator.addCompletion { [weak self, weak animator] position in
@@ -235,8 +608,9 @@ final class BreadPresentationController: NSObject {
                   position == .end, self.state.generation == generation,
                   self.layoutRevision == revision, self.state.phase == .visible else { return }
             self.revealAnimator = nil
-            self.cover.isHidden = true
-            self.cover.alpha = 1
+            veil.isHidden = true
+            veil.alpha = 1
+            if covering { self.proxyCovering = false }
             self.webView?.accessibilityElementsHidden = false
         }
         animator.startAnimation()
@@ -263,12 +637,9 @@ final class BreadPresentationController: NSObject {
         guard state.phase != .closed, let owner else { return }
         publishPolicy()
         if let window = instance?.containerWindow {
-            let frame = state.display == .fullscreen ? window.windowScene?.coordinateSpace.bounds : instance?.rect
-            if let frame, !frame.isEmpty, window.frame != frame, state.display != .fullscreen || !rotating {
-                window.frame = frame
-                invalidateLayout()
-            }
-            window.backgroundColor = cover.backgroundColor
+            applySlotFrame(window)
+            window.backgroundColor = moving ? .clear : cover.backgroundColor
+            instance?.morphContainer?.clipView.backgroundColor = cover.backgroundColor
             window.accessibilityViewIsModal = immersive
             window.isHidden = !state.surfaceVisibility
             if immersive { window.makeKey() }
@@ -278,6 +649,8 @@ final class BreadPresentationController: NSObject {
         owner.setNeedsUpdateOfHomeIndicatorAutoHidden()
         owner.navigationController?.setNeedsStatusBarAppearanceUpdate()
         owner.navigationController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        instance?.morphContainer?.setNeedsStatusBarAppearanceUpdate()
+        instance?.morphContainer?.setNeedsUpdateOfHomeIndicatorAutoHidden()
         hostWindow?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
         if state.phase == .visible { reveal() } else { cancelReveal() }
         let failed = state.phase == .error
@@ -291,6 +664,19 @@ final class BreadPresentationController: NSObject {
         owner.view.setNeedsLayout()
         publishMetrics()
         preparePaint()
+    }
+
+    private func slotFrame(for window: UIWindow) -> CGRect? {
+        state.display == .fullscreen ? window.windowScene?.coordinateSpace.bounds : instance?.rect
+    }
+
+    @discardableResult private func applySlotFrame(_ window: UIWindow) -> Bool {
+        guard let frame = slotFrame(for: window), !frame.isEmpty, window.frame != frame,
+              state.display != .fullscreen || !rotating else { return false }
+        finishMotion()
+        window.frame = frame
+        invalidateLayout()
+        return true
     }
 
     static let metricScript = """
@@ -394,6 +780,12 @@ final class BreadPresentationController: NSObject {
         cover.isOpaque = true
         cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(cover)
+        proxy.isHidden = true
+        proxy.isUserInteractionEnabled = false
+        proxy.accessibilityElementsHidden = true
+        proxy.contentMode = .scaleToFill
+        proxy.layer.minificationFilter = .trilinear
+        view.insertSubview(proxy, belowSubview: cover)
         errorLabel.text = options.errorLabel
         errorLabel.font = .preferredFont(forTextStyle: .body)
         errorLabel.adjustsFontForContentSizeCategory = true
@@ -432,6 +824,8 @@ final class BreadPresentationController: NSObject {
         }
         button.imageEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         button.addTarget(self, action: #selector(minimizeTapped), for: .touchUpInside)
+        button.addTarget(self, action: #selector(capsuleTouchDown), for: .touchDown)
+        button.addTarget(self, action: #selector(capsuleTouchEnded), for: [.touchCancel, .touchUpOutside])
         view.addSubview(button)
         render()
     }
@@ -439,6 +833,7 @@ final class BreadPresentationController: NSObject {
     private func layoutControls() {
         guard let view = owner?.view else { return }
         cover.frame = view.bounds
+        proxy.frame = webView?.frame ?? view.bounds
         let safe = view.safeAreaInsets
         button.frame = CGRect(x: safe.left + 12, y: safe.top + 8, width: 64, height: 48)
         capsuleBackground.frame = button.frame
@@ -451,17 +846,36 @@ final class BreadPresentationController: NSObject {
         owner?.reload()
     }
 
+    @objc private func capsuleTouchDown() { animator?.boost() }
+
+    @objc private func capsuleTouchEnded() { if !moving { animator?.reset() } }
+
     @objc private func minimizeTapped() {
-        guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else { return }
+        guard state.effectiveVisibility, let owner, owner.managedClose?.closing != true else {
+            capsuleTouchEnded()
+            return
+        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         var data: [String: Any] = ["id": owner.instanceId ?? "", "policyRevision": state.policyRevision,
             "visibilitySequence": state.acknowledgedVisibilitySequence]
+        if !moving, let window = instance?.containerWindow {
+            let id = "native-" + UUID().uuidString
+            let card = WebViewRegistry.shared.morphCard.map {
+                BreadMorphCard(rect: $0.rect.offsetBy(dx: -window.frame.minX, dy: -window.frame.minY), cornerRadius: $0.cornerRadius)
+            }
+            if morph(to: .collapsed, card: card, velocity: .zero, morphId: id, policyRevision: nil, sequence: nil) { data["morphId"] = id }
+        }
         if let lifetime = owner.managedClose?.token { data["managedHostCloseToken"] = lifetime }
         owner.capBrowserPlugin?.notifyListeners("presentationMinimizeRequested", data: data)
     }
 
     func close() {
         guard state.close() else { return }
+        stopMorph()
+        animator?.reset()
+        let waiters = snapshotWaiters
+        snapshotWaiters = []
+        waiters.forEach { $0(nil) }
         cancelReveal()
         timer?.invalidate()
         timer = nil

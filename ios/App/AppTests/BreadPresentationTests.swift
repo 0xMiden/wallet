@@ -14,9 +14,110 @@ private final class CloseFenceWebView: WKWebView {
 private final class PolicyRecordingPlugin: InAppBrowserPlugin {
     var policies = [[String: Any]]()
     var minimizations = [[String: Any]]()
+    var morphs = [[String: Any]]()
     override func notifyListeners(_ eventName: String, data: [String: Any]?) {
         if eventName == "presentationChanged", let data { policies.append(data) }
         if eventName == "presentationMinimizeRequested", let data { minimizations.append(data) }
+        if eventName == "presentationMorph", let data { morphs.append(data) }
+    }
+
+    func phases(_ morphId: String) -> [String] {
+        morphs.filter { $0["morphId"] as? String == morphId }.compactMap { $0["phase"] as? String }
+    }
+}
+
+@MainActor fileprivate struct LivePresentation {
+    let owner: WKWebViewController
+    let web: WKWebView
+    let presentation: BreadPresentationController
+    let window: UIWindow
+    let host: UIWindow?
+    let instance: WKWebViewInstance
+
+    var cover: UIView { owner.view.subviews.first { view in view.subviews.contains { $0 is UIStackView } }! }
+    func dispose() {
+        owner.cleanupWebView()
+        InAppBrowserPlugin.releaseContainerWindow(window)
+        WebViewRegistry.shared.remove(id: instance.id)
+        host?.makeKey()
+    }
+}
+
+@MainActor
+fileprivate extension XCTestCase {
+    func livePresentation(initiallyVisible: Bool = true, morph: Bool = false,
+                          container: ((UINavigationController) -> BreadMorphContainerViewController)? = nil) async throws -> LivePresentation {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let host = scene.windows.first { $0.isKeyWindow }
+        let owner = WKWebViewController(url: URL(string: "about:blank")!, headers: [:], isInspectable: true,
+            preventDeeplink: false, blankNavigationTab: true, enabledSafeBottomMargin: false,
+            blockedHosts: [], authorizedAppLinks: [], enabledSafeTopMargin: false, breadPresentation: [
+                "script": "window.__breadPresentationToken='live'; window.__breadPresentationRespond=()=>{}; window.__breadPresentationUpdate=()=>{};",
+                "backLabel": "Back", "hintLabel": "Return", "retryLabel": "Retry", "errorLabel": "Error"
+            ], initiallyVisible: initiallyVisible)
+        let navigation = StatusBarForwardingNavigationController(rootViewController: owner)
+        navigation.setNavigationBarHidden(true, animated: false)
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
+        instance.rect = scene.coordinateSpace.bounds
+        let window: UIWindow
+        if let container {
+            window = UIWindow(windowScene: scene)
+            window.frame = instance.rect
+            window.windowLevel = .normal + 100
+            let root = container(navigation)
+            instance.morphContainer = root
+            window.rootViewController = root
+        } else if morph {
+            window = InAppBrowserPlugin.makeContainerWindow(scene: scene, rect: instance.rect, instance: instance)
+        } else {
+            window = UIWindow(windowScene: scene)
+            window.frame = instance.rect
+            window.windowLevel = .normal + 100
+            window.rootViewController = navigation
+        }
+        instance.containerWindow = window
+        WebViewRegistry.shared.register(instance)
+        let web = try XCTUnwrap(owner.capableWebView)
+        let presentation = try XCTUnwrap(owner.breadPresentation)
+        instance.installContainerWindow(window, hostWindow: host)
+        web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
+        let loaded = try await eventually {
+            guard !web.isLoading else { return false }
+            return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
+        }
+        XCTAssertTrue(loaded)
+        return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
+    }
+
+    func eventually(_ condition: () async throws -> Bool) async throws -> Bool {
+        for _ in 0..<150 {
+            if try await condition() { return true }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return false
+    }
+
+    func configure(_ live: LivePresentation, theme: String?, display: String = "fullscreen") async throws {
+        var message = ["token": "live", "type": "configure", "display": display]
+        message["themeColor"] = theme
+        let json = String(data: try JSONSerialization.data(withJSONObject: message), encoding: .utf8)!
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify(\(json))); true")
+        try await Task.sleep(nanoseconds: 60_000_000)
+        try await publicVisibility(live, visible: live.presentation.state.desiredVisibility,
+            revision: live.presentation.state.policyRevision)
+    }
+
+    func publicVisibility(_ live: LivePresentation, visible: Bool, revision: Int? = nil,
+                                  lifetime: String? = nil, sequence: Int? = nil) async throws {
+        let completed = expectation(description: "public visibility command")
+        var options: [String: Any] = ["id": live.instance.id, "visible": visible]
+        if let revision { options["policyRevision"] = revision }
+        if let lifetime { options["managedHostCloseToken"] = lifetime }
+        if let sequence { options["visibilitySequence"] = sequence }
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: "policy", methodName: "setVisible", options: options,
+            success: { _, _ in completed.fulfill() }, error: { error in XCTFail(String(describing: error)) }))
+        InAppBrowserPlugin().setVisible(call)
+        await fulfillment(of: [completed], timeout: 2)
     }
 }
 
@@ -526,85 +627,6 @@ final class BreadPresentationTests: XCTestCase {
         XCTAssertNil(window.rootViewController)
     }
 
-    @MainActor private struct LivePresentation {
-        let owner: WKWebViewController
-        let web: WKWebView
-        let presentation: BreadPresentationController
-        let window: UIWindow
-        let host: UIWindow?
-        let instance: WKWebViewInstance
-
-        var cover: UIView { owner.view.subviews.first { view in view.subviews.contains { $0 is UIStackView } }! }
-        func dispose() {
-            owner.cleanupWebView()
-            InAppBrowserPlugin.releaseContainerWindow(window)
-            WebViewRegistry.shared.remove(id: instance.id)
-            host?.makeKey()
-        }
-    }
-
-    private func livePresentation(initiallyVisible: Bool = true) async throws -> LivePresentation {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
-        let host = scene.windows.first { $0.isKeyWindow }
-        let owner = WKWebViewController(url: URL(string: "about:blank")!, headers: [:], isInspectable: true,
-            preventDeeplink: false, blankNavigationTab: true, enabledSafeBottomMargin: false,
-            blockedHosts: [], authorizedAppLinks: [], enabledSafeTopMargin: false, breadPresentation: [
-                "script": "window.__breadPresentationToken='live'; window.__breadPresentationRespond=()=>{}; window.__breadPresentationUpdate=()=>{};",
-                "backLabel": "Back", "hintLabel": "Return", "retryLabel": "Retry", "errorLabel": "Error"
-            ], initiallyVisible: initiallyVisible)
-        let navigation = StatusBarForwardingNavigationController(rootViewController: owner)
-        navigation.setNavigationBarHidden(true, animated: false)
-        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
-        instance.rect = scene.coordinateSpace.bounds
-        let window = UIWindow(windowScene: scene)
-        window.frame = instance.rect
-        window.windowLevel = .normal + 100
-        window.rootViewController = navigation
-        instance.containerWindow = window
-        WebViewRegistry.shared.register(instance)
-        let web = try XCTUnwrap(owner.capableWebView)
-        let presentation = try XCTUnwrap(owner.breadPresentation)
-        instance.installContainerWindow(window, hostWindow: host)
-        web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
-        let loaded = try await eventually {
-            guard !web.isLoading else { return false }
-            return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
-        }
-        XCTAssertTrue(loaded)
-        return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
-    }
-
-    private func eventually(_ condition: () async throws -> Bool) async throws -> Bool {
-        for _ in 0..<150 {
-            if try await condition() { return true }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return false
-    }
-
-    private func configure(_ live: LivePresentation, theme: String?) async throws {
-        var message = ["token": "live", "type": "configure", "display": "fullscreen"]
-        message["themeColor"] = theme
-        let json = String(data: try JSONSerialization.data(withJSONObject: message), encoding: .utf8)!
-        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify(\(json))); true")
-        try await Task.sleep(nanoseconds: 60_000_000)
-        try await publicVisibility(live, visible: live.presentation.state.desiredVisibility,
-            revision: live.presentation.state.policyRevision)
-    }
-
-    private func publicVisibility(_ live: LivePresentation, visible: Bool, revision: Int? = nil,
-                                  lifetime: String? = nil, sequence: Int? = nil) async throws {
-        let completed = expectation(description: "public visibility command")
-        var options: [String: Any] = ["id": live.instance.id, "visible": visible]
-        if let revision { options["policyRevision"] = revision }
-        if let lifetime { options["managedHostCloseToken"] = lifetime }
-        if let sequence { options["visibilitySequence"] = sequence }
-        let call = try XCTUnwrap(CAPPluginCall(callbackId: "policy", methodName: "setVisible", options: options,
-            success: { _, _ in completed.fulfill() }, error: { error in XCTFail(String(describing: error)) }))
-        InAppBrowserPlugin().setVisible(call)
-        await fulfillment(of: [completed], timeout: 2)
-    }
-
     func testFirstMetadataPublishesResolvedPolicyBeforeReadyAndNavigationPublishesPending() async throws {
         let live = try await livePresentation(initiallyVisible: false)
         let plugin = PolicyRecordingPlugin()
@@ -824,7 +846,7 @@ final class BreadPresentationTests: XCTestCase {
     }
 
     func testBreadCapsuleRequestsHostMinimizeWithoutClosingRetainedDocument() async throws {
-        let live = try await livePresentation()
+        let live = try await livePresentation(morph: true)
         defer { live.dispose() }
         let plugin = PolicyRecordingPlugin()
         live.owner.capBrowserPlugin = plugin
@@ -835,6 +857,9 @@ final class BreadPresentationTests: XCTestCase {
         capsule.sendActions(for: .touchUpInside)
         XCTAssertEqual(plugin.minimizations.count, 1)
         XCTAssertEqual(plugin.minimizations.first?["visibilitySequence"] as? Int, live.presentation.state.acknowledgedVisibilitySequence)
+        XCTAssertEqual((plugin.minimizations.first?["morphId"] as? String)?.hasPrefix("native-"), true)
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        XCTAssertFalse(live.window.isHidden)
         XCTAssertEqual(live.presentation.state.generation, generation)
         XCTAssertTrue(WebViewRegistry.shared.get(id: live.instance.id) === live.instance)
     }
@@ -1355,5 +1380,1433 @@ final class BreadPresentationTimeoutTests: XCTestCase {
             state.elapse(0.0005)
             XCTAssertEqual(state.phase, .error, "Nonpositive host timeout must expire after one millisecond")
         }
+    }
+}
+
+final class BreadMorphMathTests: XCTestCase {
+    private let card = BreadMorphCard(rect: CGRect(x: 282, y: 650, width: 104, height: 132), cornerRadius: 16)
+    private let slot = CGSize(width: 402, height: 753)
+
+    func testMorphPhysicsMatchResponseAndDampingRatio() {
+        let cases: [(BreadMorphPhysics, Double, Double)] = [(.expand, 223.8, 26.3), (.collapse, 273.4, 29.8), (.release, 246.7, 25.8)]
+        for (physics, stiffness, damping) in cases {
+            XCTAssertEqual(physics.stiffness, stiffness, accuracy: 0.1)
+            XCTAssertEqual(physics.damping, damping, accuracy: 0.1)
+        }
+    }
+
+    func testMorphSpringSettlesWithinDesignTimes() throws {
+        let cases: [(BreadMorphPhysics, Double)] = [(.expand, 0.580), (.collapse, 0.506), (.release, 0.548)]
+        for (physics, seconds) in cases {
+            XCTAssertEqual(BreadMorphSpring(from: 0, to: 1, velocity: 0, physics: physics, start: 0).settleTime, seconds, accuracy: 0.005)
+        }
+        let crossing = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0).time(reaching: 0.35)
+        XCTAssertEqual(try XCTUnwrap(crossing), 0.125, accuracy: 0.002)
+    }
+
+    func testMorphSpringRetargetKeepsPositionAndVelocityContinuous() {
+        let collapse = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0)
+        let (p, v) = collapse.sample(at: 0.15)
+        let expand = BreadMorphSpring(from: p, to: 1, velocity: v, physics: .expand, start: 0.15)
+        let start = expand.sample(at: 0.15)
+        XCTAssertEqual(start.value, p, accuracy: 1e-9)
+        XCTAssertEqual(start.velocity, v, accuracy: 1e-9)
+        XCTAssertLessThan(v, -1)
+        let frame = 1.0 / 120
+        let before = abs(p - collapse.sample(at: 0.15 - frame).value)
+        let after = abs(expand.sample(at: 0.15 + frame).value - p)
+        XCTAssertGreaterThan(before, 0)
+        XCTAssertLessThanOrEqual(after, 1.2 * before)
+    }
+
+    func testMorphPoseEndpoints() {
+        let start = BreadMorphPose.at(0, card: card, slot: slot)
+        XCTAssertEqual(start.origin.x, 282, accuracy: 1e-6)
+        XCTAssertEqual(start.origin.y, 650, accuracy: 1e-6)
+        XCTAssertEqual(start.scale * 402, 104, accuracy: 1e-6)
+        XCTAssertEqual(start.scale * start.cropHeight, 132, accuracy: 1e-6)
+        XCTAssertEqual(start.cornerRadius * start.scale, 16, accuracy: 1e-6)
+        XCTAssertEqual(start.shadowOpacity, 0.2, accuracy: 1e-6)
+        XCTAssertEqual(start.alpha, 1, accuracy: 1e-9)
+        let end = BreadMorphPose.at(1, card: card, slot: slot)
+        XCTAssertEqual(end.scale, 1, accuracy: 1e-9)
+        XCTAssertEqual(end.origin.x, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.origin.y, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.cropHeight, 753, accuracy: 1e-9)
+        XCTAssertEqual(end.cornerRadius, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.shadowOpacity, 0, accuracy: 1e-9)
+    }
+
+    func testMorphPoseRadiusPeaksNearAThirdOnA402Slot() {
+        var peak: (radius: CGFloat, p: Double) = (0, 0)
+        for step in 0...1000 {
+            let p = Double(step) / 1000
+            let pose = BreadMorphPose.at(p, card: card, slot: slot)
+            if pose.cornerRadius * pose.scale > peak.radius { peak = (pose.cornerRadius * pose.scale, p) }
+        }
+        XCTAssertEqual(peak.radius, 20.9, accuracy: 0.3)
+        XCTAssertEqual(peak.p, 0.33, accuracy: 0.03)
+    }
+
+    func testMissingCardPoseScalesToNinetyPercentWithFade() {
+        let start = BreadMorphPose.at(0, card: nil, slot: slot)
+        XCTAssertEqual(start.scale, 0.9, accuracy: 1e-9)
+        XCTAssertEqual(start.origin.x, 402 * 0.05, accuracy: 1e-6)
+        XCTAssertEqual(start.origin.y, 753 * 0.05, accuracy: 1e-6)
+        XCTAssertEqual(start.alpha, 0, accuracy: 1e-9)
+        XCTAssertEqual(start.cropHeight, 753, accuracy: 1e-9)
+        XCTAssertEqual(start.shadowOpacity, 0, accuracy: 1e-9)
+        XCTAssertEqual(BreadMorphPose.at(1, card: nil, slot: slot).alpha, 1, accuracy: 1e-9)
+        XCTAssertEqual(BreadMorphPose.at(1, card: nil, slot: slot).scale, 1, accuracy: 1e-9)
+    }
+
+    func testProgressVelocityProjectsAndClamps() {
+        let slotRect = CGRect(origin: .zero, size: slot)
+        let path = CGPoint(x: slotRect.midX - card.rect.midX, y: slotRect.midY - card.rect.midY)
+        let length = hypot(path.x, path.y)
+        let along = CGPoint(x: path.x / length * 300, y: path.y / length * 300)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(along, card: card.rect, slot: slotRect), Double(300 / length), accuracy: 1e-9)
+        let across = CGPoint(x: -path.y / length * 300, y: path.x / length * 300)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(across, card: card.rect, slot: slotRect), 0, accuracy: 1e-9)
+        let flick = CGPoint(x: path.x / length * 1e6, y: path.y / length * 1e6)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(flick, card: card.rect, slot: slotRect), 8)
+        XCTAssertEqual(BreadMorphGeometry.progressVelocity(CGPoint(x: -flick.x, y: -flick.y), card: card.rect, slot: slotRect), -8)
+    }
+
+    func testInitialVelocityIsZeroNearTarget() {
+        XCTAssertEqual(BreadMorphGeometry.initialVelocity(3, from: 0.995, to: 1), 0)
+        XCTAssertEqual(BreadMorphGeometry.initialVelocity(2, from: 0.25, to: 1), 2 / 0.75, accuracy: 1e-9)
+        XCTAssertEqual(BreadMorphGeometry.initialVelocity(-2, from: 0.75, to: 0), 2 / 0.75, accuracy: 1e-9)
+    }
+
+    func testRubberBandIsMonotonicAndBounded() {
+        let length = 300.0
+        XCTAssertEqual(BreadMorphGeometry.rubberBand(0, length: length), 0)
+        XCTAssertEqual(BreadMorphGeometry.rubberBand(0.001, length: length) / 0.001, 0.55, accuracy: 1e-3)
+        var previous = 0.0
+        for step in 1...1000 {
+            let stretched = BreadMorphGeometry.rubberBand(Double(step) * length / 100, length: length)
+            XCTAssertGreaterThan(stretched, previous)
+            XCTAssertLessThan(stretched, length)
+            previous = stretched
+        }
+        XCTAssertEqual(BreadMorphGeometry.rubberBand(-30, length: length), -BreadMorphGeometry.rubberBand(30, length: length), accuracy: 1e-9)
+    }
+}
+
+final class BreadMorphStateTests: XCTestCase {
+    private typealias Motion = BreadPresentationState.Motion
+
+    private func openState() -> BreadPresentationState {
+        let state = BreadPresentationState(timeout: 30)
+        let generation = state.beginNavigation()
+        state.configure(.browser, generation: generation)
+        state.requestVisibility(true, policyRevision: state.policyRevision, sequence: 1)
+        return state
+    }
+
+    func testMotionStartsOnlyWhileOpenAndEndsOnce() {
+        let state = openState()
+        XCTAssertEqual(state.motion, Motion.none)
+        XCTAssertFalse(state.beginMotion(Motion.none))
+        XCTAssertTrue(state.beginMotion(.collapsing))
+        XCTAssertEqual(state.motion, .collapsing)
+        state.endMotion()
+        XCTAssertEqual(state.motion, Motion.none)
+        state.endMotion()
+        XCTAssertEqual(state.motion, Motion.none)
+        state.close()
+        XCTAssertFalse(state.beginMotion(.expanding))
+        XCTAssertEqual(state.motion, Motion.none)
+    }
+
+    func testProxyIsUsableOnlyForTheGenerationItWasCapturedIn() {
+        let state = openState()
+        XCTAssertFalse(state.proxyUsable)
+        state.captureProxy()
+        XCTAssertTrue(state.proxyUsable)
+        state.beginNavigation()
+        XCTAssertFalse(state.proxyUsable)
+        state.captureProxy()
+        XCTAssertTrue(state.proxyUsable)
+        state.dropProxy()
+        XCTAssertFalse(state.proxyUsable)
+    }
+
+    func testHiddenRequestCancelsMotion() {
+        let state = openState()
+        XCTAssertTrue(state.beginMotion(.expanding))
+        XCTAssertFalse(state.requestVisibility(false, sequence: 1))
+        XCTAssertEqual(state.motion, .expanding)
+        XCTAssertTrue(state.requestVisibility(false, sequence: 2))
+        XCTAssertEqual(state.motion, Motion.none)
+    }
+
+    func testCollapseKeepsDesiredVisibilityUntilHiddenRequest() {
+        let state = openState()
+        XCTAssertTrue(state.beginMotion(.collapsing))
+        XCTAssertTrue(state.desiredVisibility)
+        XCTAssertTrue(state.requestVisibility(true, sequence: 2))
+        XCTAssertEqual(state.motion, .collapsing)
+        XCTAssertTrue(state.desiredVisibility)
+    }
+
+    func testCloseCancelsMotion() {
+        let state = openState()
+        XCTAssertTrue(state.beginMotion(.collapsing))
+        state.captureProxy()
+        state.close()
+        XCTAssertEqual(state.motion, Motion.none)
+        XCTAssertFalse(state.proxyUsable)
+    }
+}
+
+@MainActor fileprivate struct MorphContainerFixture {
+    let window: UIWindow
+    let container: BreadMorphContainerViewController
+    let web: WKWebView
+
+    func dispose() { InAppBrowserPlugin.releaseContainerWindow(window) }
+}
+
+@MainActor fileprivate func morphContainerFixture(size: CGSize = CGSize(width: 402, height: 753)) throws -> MorphContainerFixture {
+    let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+    let content = UIViewController()
+    let web = WKWebView(frame: content.view.bounds)
+    web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    content.view.addSubview(web)
+    let navigation = StatusBarForwardingNavigationController(rootViewController: content)
+    navigation.setNavigationBarHidden(true, animated: false)
+    let container = BreadMorphContainerViewController(child: navigation)
+    let window = UIWindow(windowScene: scene)
+    window.frame = CGRect(origin: .zero, size: size)
+    window.windowLevel = .normal + 100
+    window.rootViewController = container
+    window.isHidden = false
+    window.layoutIfNeeded()
+    return MorphContainerFixture(window: window, container: container, web: web)
+}
+
+fileprivate let morphClipKeys = ["transform.scale", "position", "bounds.size.height", "cornerRadius", "opacity"]
+fileprivate let morphShadowKeys = ["transform.scale", "position", "bounds.size.height", "shadowPath", "shadowOpacity"]
+
+fileprivate func morphKeys(_ layer: CALayer) -> [String] {
+    (layer.animationKeys() ?? []).filter { $0.hasPrefix("bread.morph.") }
+}
+
+fileprivate func number(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
+
+fileprivate func point(_ value: Any?) -> CGPoint? { (value as? NSValue)?.cgPointValue }
+
+fileprivate func poseNumbers(_ pose: BreadMorphPose) -> [String: Double] {
+    ["transform.scale": Double(pose.scale), "bounds.size.height": Double(pose.cropHeight), "cornerRadius": Double(pose.cornerRadius),
+     "opacity": Double(pose.alpha), "shadowOpacity": Double(pose.shadowOpacity)]
+}
+
+@MainActor fileprivate func assertModelAtRest(_ container: BreadMorphContainerViewController, file: StaticString = #filePath, line: UInt = #line) {
+    let bounds = container.view.bounds
+    for layer in [container.clipView.layer, container.shadowView.layer] {
+        XCTAssertTrue(CATransform3DIsIdentity(layer.transform), file: file, line: line)
+        XCTAssertEqual(layer.position, .zero, file: file, line: line)
+        XCTAssertEqual(layer.bounds, bounds, file: file, line: line)
+    }
+    XCTAssertEqual(container.clipView.layer.cornerRadius, 0, file: file, line: line)
+    XCTAssertEqual(container.clipView.layer.opacity, 1, file: file, line: line)
+    XCTAssertEqual(container.shadowView.layer.shadowOpacity, 0, file: file, line: line)
+    XCTAssertEqual(container.view.layer.opacity, 1, file: file, line: line)
+}
+
+@MainActor fileprivate func assertHeld(_ container: BreadMorphContainerViewController, at pose: BreadMorphPose,
+                                       file: StaticString = #filePath, line: UInt = #line) {
+    let layers: [(CALayer, [String])] = [(container.clipView.layer, morphClipKeys), (container.shadowView.layer, morphShadowKeys)]
+    for (layer, keys) in layers {
+        XCTAssertEqual(Set(morphKeys(layer)), Set(keys.map { "bread.morph." + $0 }), file: file, line: line)
+        for key in keys {
+            guard let hold = layer.animation(forKey: "bread.morph." + key) as? CABasicAnimation else {
+                XCTFail("no held \(key)", file: file, line: line); continue
+            }
+            XCTAssertFalse(hold is CASpringAnimation, key, file: file, line: line)
+            XCTAssertEqual(hold.fillMode, .forwards, key, file: file, line: line)
+            XCTAssertFalse(hold.isRemovedOnCompletion, key, file: file, line: line)
+            if key == "position" {
+                XCTAssertEqual(point(hold.fromValue), pose.origin, key, file: file, line: line)
+                XCTAssertEqual(point(hold.toValue), pose.origin, key, file: file, line: line)
+            } else if let expected = poseNumbers(pose)[key] {
+                XCTAssertEqual(number(hold.fromValue) ?? .nan, expected, accuracy: 1e-6, key, file: file, line: line)
+                XCTAssertEqual(number(hold.toValue) ?? .nan, expected, accuracy: 1e-6, key, file: file, line: line)
+            }
+        }
+    }
+}
+
+private final class CountingMorphContainer: BreadMorphContainerViewController {
+    var statusBarUpdates = 0
+    override func setNeedsStatusBarAppearanceUpdate() {
+        statusBarUpdates += 1
+        super.setNeedsStatusBarAppearanceUpdate()
+    }
+}
+
+@MainActor
+final class BreadMorphContainerTests: XCTestCase {
+    private let card = BreadMorphCard(rect: CGRect(x: 282, y: 650, width: 104, height: 132), cornerRadius: 16)
+
+    func testMorphContainerForwardsImmersiveSystemPolicies() {
+        let navigation = StatusBarForwardingNavigationController(rootViewController: WKWebViewController())
+        let container = BreadMorphContainerViewController(child: navigation)
+        XCTAssertTrue(container.childForStatusBarHidden === navigation)
+        XCTAssertTrue(container.childForStatusBarStyle === navigation)
+        XCTAssertTrue(container.childForHomeIndicatorAutoHidden === navigation)
+        XCTAssertTrue(container.childForScreenEdgesDeferringSystemGestures === navigation)
+    }
+
+    func testMorphContainerKeepsChildAtSlotSizeWhileTheClipShrinks() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let webBounds = fixture.web.bounds
+        let pose = BreadMorphPose.at(0, card: card, slot: container.view.bounds.size)
+        container.morphing = true
+        container.apply(pose)
+        container.view.setNeedsLayout()
+        fixture.window.layoutIfNeeded()
+        XCTAssertEqual(container.child.view.frame, CGRect(x: 0, y: 0, width: 402, height: 753))
+        let held = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.bounds.size.height") as? CABasicAnimation)
+        XCTAssertEqual(number(held.toValue) ?? .nan, Double(pose.cropHeight), accuracy: 1e-6)
+        XCTAssertEqual(fixture.web.bounds, webBounds)
+        XCTAssertEqual(webBounds.size, CGSize(width: 402, height: 753))
+    }
+
+    func testApplyHoldsThePoseWithoutWritingTheModel() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let pose = BreadMorphPose.at(0, card: card, slot: fixture.container.view.bounds.size)
+        fixture.container.apply(pose)
+        assertModelAtRest(fixture.container)
+        assertHeld(fixture.container, at: pose)
+        XCTAssertTrue(fixture.container.morphing)
+    }
+
+    func testPresentationFrameReadsTheHeldPose() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        fixture.container.apply(BreadMorphPose.at(0, card: card, slot: fixture.container.view.bounds.size))
+        CATransaction.flush()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let frame = fixture.container.presentationFrame()
+        XCTAssertEqual(frame.minX, 282, accuracy: 0.5)
+        XCTAssertEqual(frame.minY, 650, accuracy: 0.5)
+        XCTAssertEqual(frame.width, 104, accuracy: 0.5)
+        XCTAssertEqual(frame.height, 132, accuracy: 0.5)
+    }
+
+    func testMorphContainerRestsAtIdentity() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        container.apply(BreadMorphPose.at(0, card: card, slot: container.view.bounds.size))
+        container.layoutAtRest()
+        for layer in [container.clipView.layer, container.shadowView.layer, container.view.layer] {
+            XCTAssertTrue(morphKeys(layer).isEmpty)
+        }
+        assertModelAtRest(container)
+        XCTAssertNotNil(container.shadowView.layer.shadowPath)
+        XCTAssertFalse(container.morphing)
+        XCTAssertEqual(container.clipView.layer.cornerCurve, .circular)
+        XCTAssertTrue(container.clipView.clipsToBounds)
+        XCTAssertEqual(container.child.view.frame, container.view.bounds)
+    }
+
+    func testContainerWindowInstallsTheMorphContainer() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let owner = WKWebViewController()
+        let navigation = StatusBarForwardingNavigationController(rootViewController: owner)
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
+        let rect = CGRect(x: 0, y: 90, width: 402, height: 663)
+        let window = InAppBrowserPlugin.makeContainerWindow(scene: scene, rect: rect, instance: instance)
+        defer { InAppBrowserPlugin.releaseContainerWindow(window) }
+        let container = try XCTUnwrap(instance.morphContainer)
+        XCTAssertTrue(window.rootViewController === container)
+        XCTAssertTrue(container.child === navigation)
+        XCTAssertEqual(window.windowLevel, UIWindow.Level.normal + 100)
+        XCTAssertEqual(window.frame, rect)
+        XCTAssertEqual(window.backgroundColor, UIColor.clear)
+    }
+
+    func testRenderRefreshesTheContainerSystemPolicies() async throws {
+        let live = try await livePresentation(container: { CountingMorphContainer(child: $0) })
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer as? CountingMorphContainer)
+        let before = container.statusBarUpdates
+        live.presentation.setVisible(false)
+        XCTAssertGreaterThan(container.statusBarUpdates, before)
+    }
+}
+
+private final class MorphTestClock {
+    var now: CFTimeInterval = 0
+}
+
+@MainActor
+final class BreadMorphAnimatorTests: XCTestCase {
+    private let card = BreadMorphCard(rect: CGRect(x: 282, y: 650, width: 104, height: 132), cornerRadius: 16)
+    private let clock = MorphTestClock()
+
+    private func clocked(_ container: BreadMorphContainerViewController, reduceMotion: Bool = false) -> BreadMorphAnimator {
+        let clock = self.clock
+        clock.now = 0
+        return BreadMorphAnimator(container: container, now: { clock.now }, reduceMotion: { reduceMotion })
+    }
+
+    private func controlPoints(_ function: CAMediaTimingFunction?) -> [Float] {
+        guard let function else { return [] }
+        var values = [Float](repeating: 0, count: 2)
+        var result = [Float]()
+        for index in 1...2 {
+            function.getControlPoint(at: index, values: &values)
+            result += values
+        }
+        return result
+    }
+
+    func testRunAddsSixHeldSpringsAndNeverWritesTheModel() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        let slot = container.view.bounds.size
+        let from = BreadMorphPose.at(1, card: card, slot: slot)
+        let to = BreadMorphPose.at(0, card: card, slot: slot)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        assertModelAtRest(container)
+        let layers: [(CALayer, [String])] = [(container.clipView.layer, morphClipKeys), (container.shadowView.layer, morphShadowKeys)]
+        for (layer, keys) in layers {
+            XCTAssertEqual(Set(morphKeys(layer)), Set(keys.map { "bread.morph." + $0 }))
+            for key in keys {
+                let spring = try XCTUnwrap(layer.animation(forKey: "bread.morph." + key) as? CASpringAnimation, key)
+                XCTAssertEqual(Double(spring.stiffness), 273.4, accuracy: 0.1, key)
+                XCTAssertEqual(Double(spring.damping), 29.8, accuracy: 0.1, key)
+                XCTAssertEqual(Double(spring.mass), 1, key)
+                XCTAssertEqual(spring.duration, spring.settlingDuration, accuracy: 1e-9, key)
+                XCTAssertEqual(spring.fillMode, .forwards, key)
+                XCTAssertFalse(spring.isRemovedOnCompletion, key)
+                XCTAssertEqual(spring.preferredFrameRateRange.minimum, 80, key)
+                XCTAssertEqual(spring.preferredFrameRateRange.maximum, 120, key)
+                XCTAssertEqual(spring.preferredFrameRateRange.preferred, 120, key)
+                if key == "position" {
+                    XCTAssertEqual(point(spring.fromValue), from.origin)
+                    XCTAssertEqual(point(spring.toValue), to.origin)
+                } else if let expectedFrom = poseNumbers(from)[key], let expectedTo = poseNumbers(to)[key] {
+                    XCTAssertEqual(number(spring.fromValue) ?? .nan, expectedFrom, accuracy: 1e-6, key)
+                    XCTAssertEqual(number(spring.toValue) ?? .nan, expectedTo, accuracy: 1e-6, key)
+                } else {
+                    XCTAssertNotNil(spring.fromValue, key)
+                    XCTAssertNotNil(spring.toValue, key)
+                }
+            }
+        }
+        XCTAssertTrue(container.morphing)
+    }
+
+    func testShadowLandsAtFourteenBlurAndTenOffsetOnScreen() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        clocked(container).run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        let shadow = container.shadowView.layer
+        let scale = BreadMorphPose.at(0, card: card, slot: container.view.bounds.size).scale
+        XCTAssertEqual(shadow.shadowRadius * scale, 14, accuracy: 1e-6)
+        XCTAssertEqual(shadow.shadowOffset.height * scale, 10, accuracy: 1e-6)
+        XCTAssertEqual(shadow.shadowOffset.width, 0)
+        let color = try XCTUnwrap(shadow.shadowColor.map { UIColor(cgColor: $0) })
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        XCTAssertTrue(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        XCTAssertEqual(red * 255, 15, accuracy: 0.5)
+        XCTAssertEqual(green * 255, 23, accuracy: 0.5)
+        XCTAssertEqual(blue * 255, 42, accuracy: 0.5)
+    }
+
+    func testRetargetRestartsFromTheAnalyticProgressWithNormalizedVelocity() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        clock.now = 0.15
+        let expected = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0).sample(at: 0.15)
+        XCTAssertEqual(animator.progress(), expected.value, accuracy: 1e-9)
+        XCTAssertEqual(animator.velocity(), expected.velocity, accuracy: 1e-9)
+        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: {})
+        let scale = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(Double(scale.stiffness), 223.8, accuracy: 0.1)
+        let pose = BreadMorphPose.at(expected.value, card: card, slot: container.view.bounds.size)
+        XCTAssertEqual(number(scale.fromValue) ?? .nan, Double(pose.scale), accuracy: 1e-6)
+        XCTAssertEqual(number(scale.toValue) ?? .nan, 1, accuracy: 1e-6)
+        XCTAssertEqual(Double(scale.initialVelocity),
+                       BreadMorphGeometry.initialVelocity(expected.velocity, from: expected.value, to: 1), accuracy: 1e-6)
+        XCTAssertEqual(animator.target, 1)
+        XCTAssertEqual(animator.progress(), expected.value, accuracy: 1e-9)
+        assertModelAtRest(container)
+    }
+
+    func testSettleFiresOnceAndNotForASupersededRun() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = BreadMorphAnimator(container: container, reduceMotion: { false })
+        var first = 0
+        var second = 0
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: { first += 1 })
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let started = CACurrentMediaTime()
+        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: { second += 1 })
+        let settling = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale")).duration
+        let settled = try await eventually { second > 0 }
+        let elapsed = CACurrentMediaTime() - started
+        XCTAssertTrue(settled)
+        XCTAssertGreaterThanOrEqual(elapsed, settling - 0.01)
+        XCTAssertLessThanOrEqual(elapsed, settling + 0.2)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(first, 0)
+        XCTAssertEqual(second, 1)
+    }
+
+    func testSettleAtTheExpandedEndRemovesTheAnimationsAndAtTheCollapsedEndHoldsTheCard() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = BreadMorphAnimator(container: container, reduceMotion: { false })
+        var settled = false
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: { settled = true })
+        let collapsed = try await eventually { settled }
+        XCTAssertTrue(collapsed)
+        assertHeld(container, at: BreadMorphPose.at(0, card: card, slot: container.view.bounds.size))
+        assertModelAtRest(container)
+        XCTAssertNil(animator.target)
+        XCTAssertEqual(animator.progress(), 0)
+        settled = false
+        animator.run(to: 1, card: card, velocity: 0, physics: .expand, onSettle: { settled = true })
+        let expanded = try await eventually { settled }
+        XCTAssertTrue(expanded)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+        XCTAssertFalse(container.morphing)
+        assertModelAtRest(container)
+        XCTAssertEqual(animator.progress(), 1)
+    }
+
+    func testReduceMotionFadesWithoutScaleOrTranslation() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        clocked(container, reduceMotion: true).run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        let fade = try XCTUnwrap(container.view.layer.animation(forKey: "bread.morph.opacity") as? CABasicAnimation)
+        XCTAssertFalse(fade is CASpringAnimation)
+        XCTAssertEqual(fade.duration, 0.2, accuracy: 1e-9)
+        XCTAssertEqual(controlPoints(fade.timingFunction), controlPoints(CAMediaTimingFunction(name: .easeOut)))
+        XCTAssertEqual(fade.fillMode, .forwards)
+        XCTAssertFalse(fade.isRemovedOnCompletion)
+        XCTAssertEqual(number(fade.toValue) ?? .nan, 0, accuracy: 1e-9)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+        XCTAssertEqual(container.view.layer.opacity, 1)
+        assertModelAtRest(container)
+    }
+
+    func testFinishSnapsToTheNearestEnd() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        let spring = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0)
+        let cases: [(Double, Double)] = [(0.6, 1), (0.4, 0)]
+        for (value, end) in cases {
+            animator.reset()
+            clock.now = 0
+            animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+            clock.now = try XCTUnwrap(spring.time(reaching: value))
+            XCTAssertEqual(animator.progress(), value, accuracy: 1e-3)
+            XCTAssertEqual(animator.finish(), end)
+            XCTAssertNil(animator.target)
+            XCTAssertFalse(animator.boosting)
+            if end == 1 {
+                XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+                XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+            } else {
+                assertHeld(container, at: BreadMorphPose.at(0, card: card, slot: container.view.bounds.size))
+            }
+            assertModelAtRest(container)
+        }
+    }
+
+    func testFreezeAndTrackHoldThePresentationWithoutTheModel() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container)
+        let slot = container.view.bounds.size
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        clock.now = 0.1
+        let expected = BreadMorphSpring(from: 1, to: 0, velocity: 0, physics: .collapse, start: 0).sample(at: 0.1).value
+        XCTAssertEqual(animator.freeze(), expected, accuracy: 1e-9)
+        assertHeld(container, at: BreadMorphPose.at(expected, card: card, slot: slot))
+        clock.now = 0.3
+        XCTAssertEqual(animator.progress(), expected, accuracy: 1e-9)
+        animator.track(0.7)
+        assertHeld(container, at: BreadMorphPose.at(0.7, card: card, slot: slot))
+        XCTAssertEqual(animator.progress(), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(animator.velocity(), 0)
+        assertModelAtRest(container)
+    }
+
+    func testFrameRateLinkIsHeldFromBoostToSettle() async throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = BreadMorphAnimator(container: container, reduceMotion: { false })
+        animator.boost()
+        let link = try XCTUnwrap(animator.link)
+        XCTAssertTrue(animator.boosting)
+        XCTAssertEqual(link.preferredFrameRateRange.minimum, 80)
+        XCTAssertEqual(link.preferredFrameRateRange.maximum, 120)
+        XCTAssertEqual(link.preferredFrameRateRange.preferred, 120)
+        animator.boost()
+        XCTAssertTrue(animator.link === link)
+        var settled = false
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        XCTAssertTrue(animator.link === link)
+        animator.run(to: 1, card: card, velocity: animator.velocity(), physics: .expand, onSettle: { settled = true })
+        XCTAssertTrue(animator.link === link)
+        let ended = try await eventually { settled }
+        XCTAssertTrue(ended)
+        XCTAssertFalse(animator.boosting)
+        XCTAssertNil(animator.link)
+        animator.boost()
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        _ = animator.finish()
+        XCTAssertFalse(animator.boosting)
+        animator.boost()
+        animator.reset()
+        XCTAssertFalse(animator.boosting)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        XCTAssertTrue(animator.boosting)
+        animator.reset()
+        XCTAssertFalse(animator.boosting)
+    }
+}
+
+@MainActor
+final class BreadMorphPresentationTests: XCTestCase {
+    private typealias Motion = BreadPresentationState.Motion
+
+    private func landing(_ live: LivePresentation) -> BreadMorphCard {
+        let bounds = live.window.bounds
+        return BreadMorphCard(rect: CGRect(x: bounds.maxX - 120, y: bounds.maxY - 230, width: 104, height: 132), cornerRadius: 16)
+    }
+
+    private func revealedMorph(display: String = "browser") async throws -> (LivePresentation, PolicyRecordingPlugin) {
+        let live = try await livePresentation(morph: true)
+        let plugin = PolicyRecordingPlugin()
+        live.owner.capBrowserPlugin = plugin
+        try await configure(live, theme: nil, display: display)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let revealed = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(revealed)
+        return (live, plugin)
+    }
+
+    private func parkedWithProxy(display: String = "browser") async throws -> (LivePresentation, PolicyRecordingPlugin) {
+        let (live, plugin) = try await revealedMorph(display: display)
+        XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "park",
+                                              policyRevision: nil, sequence: nil))
+        let parked = try await eventually { plugin.phases("park").contains("settled") && live.presentation.state.proxyUsable }
+        XCTAssertTrue(parked)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        return (live, plugin)
+    }
+
+    private func holdFrames(_ live: LivePresentation) async throws {
+        _ = try await live.web.evaluateJavaScript("window.heldFrames=[]; window.realRAF=window.realRAF||window.requestAnimationFrame; window.requestAnimationFrame=callback=>heldFrames.push(callback); true")
+    }
+
+    private func releaseFrames(_ live: LivePresentation) async throws {
+        _ = try await live.web.evaluateJavaScript("window.requestAnimationFrame=window.realRAF; while(heldFrames.length) heldFrames.shift()(performance.now()); true")
+    }
+
+    private func expand(_ live: LivePresentation, _ morphId: String, card: BreadMorphCard? = nil, sequence: Int? = nil) -> Bool {
+        live.presentation.morph(to: .expanded, card: card ?? landing(live), velocity: .zero, morphId: morphId,
+                                policyRevision: live.presentation.state.policyRevision, sequence: sequence)
+    }
+
+    private func veiled(_ live: LivePresentation) -> Bool {
+        let proxy = live.presentation.proxy
+        return (!proxy.isHidden && proxy.alpha == 1) || (!live.cover.isHidden && live.cover.alpha == 1)
+    }
+
+    func testExpandShowsTheProxyAtTheCardAndFadesItOnlyAfterAFencedPaint() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        let card = landing(live)
+        try await holdFrames(live)
+        XCTAssertTrue(expand(live, "m1", card: card))
+        XCTAssertFalse(live.window.isHidden)
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        let scale = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(number(scale.fromValue) ?? .nan, Double(BreadMorphPose.at(0, card: card, slot: live.window.bounds.size).scale), accuracy: 1e-6)
+        assertModelAtRest(container)
+        XCTAssertEqual(live.presentation.proxy.alpha, 1)
+        XCTAssertFalse(live.presentation.proxy.isHidden)
+        XCTAssertTrue(live.cover.isHidden)
+        let settled = try await eventually { plugin.phases("m1") == ["started", "settled"] }
+        XCTAssertTrue(settled)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(live.presentation.proxy.alpha, 1)
+        XCTAssertFalse(live.presentation.proxy.isHidden)
+        XCTAssertTrue(live.web.accessibilityElementsHidden)
+        try await releaseFrames(live)
+        let revealed = try await eventually { live.presentation.proxy.isHidden && !live.web.accessibilityElementsHidden }
+        XCTAssertTrue(revealed)
+        XCTAssertTrue(live.cover.isHidden)
+    }
+
+    func testExpandWithoutAProxyOrAfterNavigationUsesTheThemeCover() async throws {
+        for scenario in ["drop", "navigation"] {
+            let (live, _) = try await parkedWithProxy()
+            defer { live.dispose() }
+            if scenario == "drop" {
+                live.presentation.dropProxy()
+                XCTAssertFalse(live.presentation.state.proxyUsable)
+            } else {
+                live.presentation.beginNavigation()
+                live.presentation.committed()
+                try await configure(live, theme: nil, display: "browser")
+                XCTAssertFalse(live.presentation.state.proxyUsable)
+            }
+            XCTAssertTrue(expand(live, "m-\(scenario)"), scenario)
+            XCTAssertFalse(live.cover.isHidden, scenario)
+            XCTAssertEqual(live.cover.alpha, 1, scenario)
+            let stack = try XCTUnwrap(live.cover.subviews.first as? UIStackView)
+            let spinner = try XCTUnwrap(stack.arrangedSubviews.first as? UIActivityIndicatorView)
+            XCTAssertFalse(spinner.isHidden, scenario)
+            XCTAssertTrue(live.presentation.proxy.isHidden, scenario)
+        }
+    }
+
+    func testInvalidationDuringExpandSnapsTheProxyBackToOpaque() async throws {
+        let (live, _) = try await parkedWithProxy()
+        defer { live.dispose() }
+        try await holdFrames(live)
+        XCTAssertTrue(expand(live, "m1"))
+        live.presentation.state.layoutPrepared(generation: live.presentation.state.generation)
+        live.presentation.setVisible(true)
+        XCTAssertEqual(live.presentation.proxy.alpha, 0, "a fenced paint starts the proxy fade")
+        live.owner.view.bounds.size.width -= 1
+        live.presentation.layoutChanged()
+        XCTAssertEqual(live.presentation.proxy.alpha, 1)
+        XCTAssertFalse(live.presentation.proxy.isHidden)
+        XCTAssertTrue(live.web.accessibilityElementsHidden)
+    }
+
+    func testExpandEmitsStartedThenSettledWithItsMorphIdLifetimeAndSequence() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "lifetime"], instance: live.instance,
+            host: { nil }, notify: { _ in }, finish: {}))
+        live.instance.managedClose = managed
+        live.owner.managedClose = managed
+        let sequence = live.presentation.state.acknowledgedVisibilitySequence + 5
+        XCTAssertTrue(expand(live, "m1", sequence: sequence))
+        let settled = try await eventually { plugin.phases("m1").last == "settled" }
+        XCTAssertTrue(settled)
+        let events = plugin.morphs.filter { $0["morphId"] as? String == "m1" }
+        XCTAssertEqual(events.compactMap { $0["phase"] as? String }, ["started", "settled"])
+        for event in events {
+            XCTAssertEqual(event["target"] as? String, "expanded")
+            XCTAssertEqual(event["managedHostCloseToken"] as? String, "lifetime")
+            XCTAssertEqual(event["visibilitySequence"] as? Int, sequence)
+            XCTAssertEqual(event["id"] as? String, live.owner.instanceId)
+            XCTAssertEqual(event["tracking"] as? Bool, false)
+        }
+        XCTAssertEqual(events.last?["progress"] as? Double, 1)
+        XCTAssertEqual(events.last?["velocity"] as? Double, 0)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+    }
+
+    func testExpandIsRejectedForAnUnacknowledgedPolicyOrAStaleSequence() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        let revision = live.presentation.state.policyRevision
+        XCTAssertFalse(live.presentation.morph(to: .expanded, card: landing(live), velocity: .zero, morphId: "stale-policy",
+                                               policyRevision: revision - 1, sequence: nil))
+        live.presentation.setVisible(false, sequence: 3)
+        XCTAssertFalse(live.presentation.morph(to: .expanded, card: landing(live), velocity: .zero, morphId: "stale-sequence",
+                                               policyRevision: revision, sequence: 2))
+        live.presentation.state.configure(.fullscreen, generation: live.presentation.state.generation)
+        XCTAssertFalse(live.presentation.morph(to: .expanded, card: landing(live), velocity: .zero, morphId: "unacknowledged",
+                                               policyRevision: nil, sequence: 4))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(plugin.morphs.filter { ($0["morphId"] as? String) != "park" }.isEmpty)
+        XCTAssertTrue(live.window.isHidden)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+    }
+
+    func testSetVisibleTrueDuringExpandDoesNotRearmTheCover() async throws {
+        let (live, _) = try await parkedWithProxy()
+        defer { live.dispose() }
+        try await holdFrames(live)
+        XCTAssertTrue(expand(live, "m1"))
+        live.presentation.setVisible(true, policyRevision: live.presentation.state.policyRevision)
+        XCTAssertEqual(live.presentation.proxy.alpha, 1)
+        XCTAssertFalse(live.presentation.proxy.isHidden)
+        XCTAssertTrue(live.cover.isHidden)
+        XCTAssertEqual(live.presentation.state.motion, .expanding)
+        XCTAssertEqual(live.presentation.morphId, "m1")
+    }
+
+    func testNewMorphMidFlightRetargetsAndSilencesTheOldMorphId() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        XCTAssertTrue(expand(live, "m1"))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "m2",
+                                              policyRevision: nil, sequence: nil))
+        let settled = try await eventually { plugin.phases("m2").last == "settled" }
+        XCTAssertTrue(settled)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(plugin.phases("m1"), ["started"])
+        XCTAssertEqual(plugin.phases("m2"), ["retargeted", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed")
+    }
+
+    func testManagedCloseBlocksMotion() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "closing"], instance: live.instance,
+            host: { nil }, notify: { _ in }, finish: {}))
+        live.instance.managedClose = managed
+        live.owner.managedClose = managed
+        managed.request()
+        XCTAssertFalse(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "c1",
+                                               policyRevision: nil, sequence: 1))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(plugin.morphs.isEmpty)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+    }
+
+    func testWindowBackgroundStaysClearAcrossRendersWhileMoving() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        try await holdFrames(live)
+        XCTAssertTrue(expand(live, "m1"))
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertEqual(live.window.backgroundColor, UIColor.clear)
+        live.presentation.setVisible(true, policyRevision: live.presentation.state.policyRevision)
+        XCTAssertEqual(live.window.backgroundColor, UIColor.clear)
+        live.owner.view.bounds.size.width -= 1
+        live.presentation.layoutChanged()
+        live.presentation.updateSlot()
+        XCTAssertEqual(live.window.backgroundColor, UIColor.clear)
+        XCTAssertEqual(container.clipView.backgroundColor, live.cover.backgroundColor)
+        let settled = try await eventually { plugin.phases("m1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(live.window.backgroundColor, live.cover.backgroundColor)
+    }
+
+    func testMorphBoostsTheFrameRateOnArrivalAndReleasesItOnRejection() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        XCTAssertTrue(expand(live, "m1"))
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        let settled = try await eventually { plugin.phases("m1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        live.presentation.setVisible(true, sequence: 3)
+        XCTAssertFalse(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "stale",
+                                               policyRevision: nil, sequence: 2))
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        XCTAssertTrue(live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: "c1",
+                                              policyRevision: nil, sequence: 5))
+        XCTAssertFalse(live.presentation.morph(to: .expanded, card: nil, velocity: .zero, morphId: "stale-expand",
+                                               policyRevision: live.presentation.state.policyRevision, sequence: 4))
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        let collapsed = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(collapsed)
+        XCTAssertTrue(plugin.phases("stale").isEmpty)
+        XCTAssertTrue(plugin.phases("stale-expand").isEmpty)
+    }
+
+    private func collapse(_ live: LivePresentation, _ morphId: String, sequence: Int? = nil) -> Bool {
+        live.presentation.morph(to: .collapsed, card: landing(live), velocity: .zero, morphId: morphId,
+                                policyRevision: nil, sequence: sequence)
+    }
+
+    func testCollapseKeepsTheWindowVisibleUntilTheHiddenAcknowledgement() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertFalse(live.window.isHidden)
+        assertHeld(container, at: BreadMorphPose.at(0, card: landing(live), slot: live.window.bounds.size))
+        assertModelAtRest(container)
+        XCTAssertEqual(live.window.backgroundColor, UIColor.clear)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertTrue(morphKeys(container.shadowView.layer).isEmpty)
+        assertModelAtRest(container)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed")
+        XCTAssertEqual(plugin.morphs.last?["progress"] as? Double, 0)
+    }
+
+    func testCollapseCrossfadesToTheProxyBelowThirtyFivePercent() async throws {
+        let (live, _) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        let spring = try XCTUnwrap(live.presentation.animator?.spring)
+        let crossing = try XCTUnwrap(spring.time(reaching: 0.35))
+        XCTAssertEqual(live.presentation.proxy.alpha, 0)
+        while CACurrentMediaTime() < crossing - 0.01 {
+            XCTAssertEqual(live.presentation.proxy.alpha, 0, "the live page shows above p 0.35")
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let faded = try await eventually { live.presentation.proxy.alpha == 1 && !live.presentation.proxy.isHidden }
+        XCTAssertTrue(faded)
+        XCTAssertLessThanOrEqual(CACurrentMediaTime(), crossing + 0.1 + 0.3)
+        XCTAssertNotNil(live.presentation.proxy.image)
+    }
+
+    func testHiddenRequestMidFlightCancelsAndHidesAtOnce() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "cancelled"])
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        XCTAssertNil(live.presentation.morphId)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "cancelled"])
+    }
+
+    func testFlightChangesNoSafeAreaAndARealChangeStillInvalidates() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let navigation = live.instance.navigationController
+        let insets = [navigation.view.safeAreaInsets, live.owner.view.safeAreaInsets, live.web.safeAreaInsets]
+        let bounds = [navigation.view.bounds, live.owner.view.bounds, live.web.bounds]
+        XCTAssertTrue(collapse(live, "c1"))
+        let deadline = CACurrentMediaTime() + 3
+        while plugin.phases("c1").last != "settled", CACurrentMediaTime() < deadline {
+            XCTAssertEqual([navigation.view.safeAreaInsets, live.owner.view.safeAreaInsets, live.web.safeAreaInsets], insets)
+            XCTAssertEqual([navigation.view.bounds, live.owner.view.bounds, live.web.bounds], bounds)
+            XCTAssertEqual(live.presentation.state.phase, .visible)
+            XCTAssertTrue(live.cover.isHidden)
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(plugin.phases("c1").last, "settled")
+        XCTAssertTrue(live.presentation.state.proxyUsable)
+        XCTAssertTrue(expand(live, "e1"))
+        let proxy = live.presentation.proxy
+        func describe() -> String {
+            "usable=\(live.presentation.state.proxyUsable) foreground=\(live.presentation.state.foreground) " +
+                "image=\(String(describing: proxy.image?.size)) web=\(live.web.bounds.size) motion=\(live.presentation.state.motion) " +
+                "hidden=\(proxy.isHidden) alpha=\(proxy.alpha) cover=\(live.cover.isHidden) phase=\(live.presentation.state.phase)"
+        }
+        let started = describe()
+        navigation.additionalSafeAreaInsets = UIEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+        navigation.view.setNeedsLayout()
+        navigation.view.layoutIfNeeded()
+        live.owner.view.layoutIfNeeded()
+        XCTAssertEqual(live.presentation.state.phase, .preparing)
+        XCTAssertEqual(proxy.alpha, 1, "started: \(started) now: \(describe())")
+        XCTAssertFalse(proxy.isHidden, "started: \(started) now: \(describe())")
+        XCTAssertTrue(live.web.accessibilityElementsHidden)
+        navigation.additionalSafeAreaInsets = .zero
+    }
+
+    func testBackgroundingMidFlightFinishesAtNearestEndBeforePrivacyCover() async throws {
+        let (live, plugin) = try await parkedWithProxy(display: "fullscreen")
+        defer { live.dispose() }
+        XCTAssertTrue(expand(live, "e1"))
+        let spring = try XCTUnwrap(live.presentation.animator?.spring)
+        let at = try XCTUnwrap(spring.time(reaching: 0.6))
+        while CACurrentMediaTime() < at { try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertTrue(live.presentation.preparePrivacyCover())
+        XCTAssertEqual(plugin.phases("e1"), ["started", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    func testFrameChangeMidFlightFinishesMotionThenAppliesFrame() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose() }
+        XCTAssertTrue(expand(live, "e1"))
+        let spring = try XCTUnwrap(live.presentation.animator?.spring)
+        let past = try XCTUnwrap(spring.time(reaching: 0.7))
+        while CACurrentMediaTime() < past { try await Task.sleep(nanoseconds: 5_000_000) }
+        let rect = CGRect(x: 0, y: 40, width: live.instance.rect.width, height: live.instance.rect.height - 40)
+        live.instance.rect = rect
+        live.presentation.updateSlot()
+        XCTAssertEqual(plugin.phases("e1"), ["started", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(live.window.frame, rect)
+        XCTAssertEqual(live.presentation.state.phase, .preparing)
+        XCTAssertTrue(veiled(live))
+        XCTAssertTrue(live.web.accessibilityElementsHidden)
+    }
+
+    func testWebViewIgnoresTouchesDuringFlight() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(live.web.isUserInteractionEnabled)
+        XCTAssertTrue(collapse(live, "c1"))
+        XCTAssertFalse(live.web.isUserInteractionEnabled)
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertTrue(expand(live, "e1"))
+        XCTAssertFalse(live.web.isUserInteractionEnabled)
+        let settled = try await eventually { plugin.phases("e1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertTrue(live.web.isUserInteractionEnabled)
+    }
+
+    func testManagedCloseMidFlightCancelsWithoutEvents() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        live.presentation.close()
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        XCTAssertTrue(morphKeys(container.clipView.layer).isEmpty)
+        XCTAssertNil(live.presentation.morphId)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(plugin.phases("c1"), ["started"])
+    }
+
+    func testProxyFadeCannotCompleteAfterInvalidation() async throws {
+        for action in ["hide", "navigation", "layout", "close"] {
+            let (live, _) = try await parkedWithProxy()
+            defer { live.dispose() }
+            try await holdFrames(live)
+            XCTAssertTrue(expand(live, "e-\(action)"), action)
+            live.presentation.state.layoutPrepared(generation: live.presentation.state.generation)
+            live.presentation.setVisible(true)
+            XCTAssertEqual(live.presentation.proxy.alpha, 0, action)
+            switch action {
+            case "hide": live.presentation.setVisible(false)
+            case "navigation": live.presentation.beginNavigation()
+            case "layout":
+                live.owner.view.bounds.size.width -= 1
+                live.presentation.layoutChanged()
+            default: live.presentation.close()
+            }
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertTrue(veiled(live), action)
+            XCTAssertTrue(live.web.accessibilityElementsHidden, action)
+        }
+    }
+
+    private func path(_ live: LivePresentation) -> CGPoint {
+        let card = landing(live).rect
+        return CGPoint(x: live.window.bounds.midX - card.midX, y: live.window.bounds.midY - card.midY)
+    }
+
+    private func along(_ live: LivePresentation, _ fraction: CGFloat) -> CGPoint {
+        let vector = path(live)
+        return CGPoint(x: vector.x * fraction, y: vector.y * fraction)
+    }
+
+    private func speed(_ live: LivePresentation, _ pointsPerSecond: CGFloat) -> CGPoint {
+        let vector = path(live)
+        let length = hypot(vector.x, vector.y)
+        return CGPoint(x: vector.x / length * pointsPerSecond, y: vector.y / length * pointsPerSecond)
+    }
+
+    private func grab(_ live: LivePresentation, by fraction: CGFloat, release velocity: CGPoint) {
+        live.presentation.handleGrab(.began, translation: .zero, velocity: .zero)
+        live.presentation.handleGrab(.changed, translation: along(live, fraction), velocity: velocity)
+        live.presentation.handleGrab(.ended, translation: along(live, fraction), velocity: velocity)
+    }
+
+    func testTapOnTheMovingPageRetargetsToTheOppositeEndWithVelocity() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 80_000_000)
+        let animator = try XCTUnwrap(live.presentation.animator)
+        let before = animator.progress()
+        let velocity = animator.velocity()
+        live.presentation.handleTap()
+        let event = try XCTUnwrap(plugin.morphs.last)
+        XCTAssertEqual(event["phase"] as? String, "retargeted")
+        XCTAssertEqual(event["morphId"] as? String, "c1")
+        XCTAssertEqual(event["target"] as? String, "expanded")
+        XCTAssertEqual(event["tracking"] as? Bool, false)
+        let retargeted = try XCTUnwrap(animator.spring)
+        XCTAssertEqual(event["progress"] as? Double ?? .nan, retargeted.from, accuracy: 1e-9)
+        XCTAssertEqual(retargeted.from, before, accuracy: 0.03)
+        XCTAssertLessThanOrEqual(retargeted.from, before)
+        XCTAssertLessThan(velocity, 0)
+        XCTAssertLessThan(event["velocity"] as? Double ?? 0, 0)
+        XCTAssertEqual(animator.target, 1)
+        let scale = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(Double(scale.stiffness), 223.8, accuracy: 0.1)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+    }
+
+    func testGrabTracksOneToOneThenSpringsWithReleasePhysics() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        let animator = try XCTUnwrap(live.presentation.animator)
+        live.presentation.handleGrab(.began, translation: .zero, velocity: .zero)
+        let start = animator.progress()
+        XCTAssertGreaterThan(start, 0.3)
+        live.presentation.handleGrab(.changed, translation: along(live, -0.25), velocity: .zero)
+        XCTAssertEqual(animator.progress(), start - 0.25, accuracy: 1e-6)
+        assertHeld(container, at: BreadMorphPose.at(start - 0.25, card: landing(live), slot: live.window.bounds.size))
+        assertModelAtRest(container)
+        live.presentation.handleGrab(.ended, translation: along(live, -0.25), velocity: .zero)
+        let spring = try XCTUnwrap(container.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(Double(spring.stiffness), 246.7, accuracy: 0.1)
+        XCTAssertEqual(Double(spring.damping), 25.8, accuracy: 0.1)
+        XCTAssertEqual(number(spring.toValue) ?? .nan, Double(BreadMorphPose.at(0, card: landing(live), slot: live.window.bounds.size).scale), accuracy: 1e-6)
+        XCTAssertEqual(animator.target, 0)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+    }
+
+    func testReleaseCommitsPastThirtyPercentOrFourHundredFiftyPointsPerSecond() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        grab(live, by: 0.31, release: .zero)
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded", "projected travel past 0.3 commits the dragged end")
+        XCTAssertEqual(live.presentation.state.motion, .expanding)
+        grab(live, by: -0.1, release: speed(live, -500))
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed", "a 500 pt/s flick commits the flicked end")
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        grab(live, by: 0.1, release: .zero)
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "collapsed", "a short slow drag keeps the pre-grab target")
+        XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, false)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+    }
+
+    func testGrabEmitsTrackingThenReleaseRetargets() async throws {
+        let (live, plugin) = try await revealedMorph()
+        defer { live.dispose() }
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        live.presentation.handleGrab(.began, translation: .zero, velocity: .zero)
+        XCTAssertEqual(plugin.morphs.last?["phase"] as? String, "retargeted")
+        XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, true)
+        XCTAssertEqual(plugin.morphs.last?["morphId"] as? String, "c1")
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        XCTAssertEqual(plugin.phases("c1"), ["started", "retargeted"])
+        live.presentation.handleGrab(.changed, translation: along(live, -0.05), velocity: .zero)
+        live.presentation.handleGrab(.ended, translation: along(live, -0.05), velocity: .zero)
+        XCTAssertEqual(plugin.morphs.last?["phase"] as? String, "retargeted")
+        XCTAssertEqual(plugin.morphs.last?["tracking"] as? Bool, false)
+        XCTAssertEqual(plugin.morphs.last?["morphId"] as? String, "c1")
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        let settled = try await eventually { plugin.phases("c1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+    }
+
+    func testFlightRoutesTouchesAgainstThePresentationRect() async throws {
+        let (live, _) = try await revealedMorph()
+        defer { live.dispose() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        let center = CGPoint(x: container.view.bounds.midX, y: container.view.bounds.midY)
+        let corner = CGPoint(x: 2, y: 2)
+        let restHit = container.view.hitTest(center, with: nil)
+        XCTAssertFalse(restHit === container.view)
+        XCTAssertEqual(restHit?.isDescendant(of: container.child.view), true)
+        XCTAssertFalse(container.tap.isEnabled)
+        XCTAssertFalse(container.pan.isEnabled)
+        XCTAssertTrue(collapse(live, "c1"))
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertTrue(container.view.hitTest(center, with: nil) === container.view)
+        XCTAssertTrue(container.view.hitTest(corner, with: nil) === container.view)
+        XCTAssertTrue(container.tap.isEnabled)
+        XCTAssertTrue(container.pan.isEnabled)
+        let frame = container.presentationFrame()
+        XCTAssertLessThan(frame.width, container.view.bounds.width)
+        XCTAssertTrue(container.acceptsTouch(at: CGPoint(x: frame.midX, y: frame.midY)))
+        XCTAssertFalse(container.acceptsTouch(at: corner))
+    }
+
+    private func capsule(_ live: LivePresentation) throws -> UIButton {
+        try XCTUnwrap(live.owner.view.subviews.compactMap { $0 as? UIButton }
+            .first { $0.accessibilityIdentifier == "bread-presentation-minimize" })
+    }
+
+    func testFullscreenCapsuleCollapsesFromSceneBoundsTowardThePublishedCard() async throws {
+        let (live, plugin) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose(); WebViewRegistry.shared.morphCard = nil }
+        let scene = try XCTUnwrap(live.window.windowScene)
+        XCTAssertTrue(live.owner.prefersStatusBarHidden)
+        let card = landing(live)
+        WebViewRegistry.shared.morphCard = BreadMorphCard(rect: card.rect.offsetBy(dx: live.window.frame.minX, dy: live.window.frame.minY),
+                                                          cornerRadius: card.cornerRadius)
+        try capsule(live).sendActions(for: .touchUpInside)
+        let morphId = try XCTUnwrap(plugin.minimizations.last?["morphId"] as? String)
+        XCTAssertTrue(morphId.hasPrefix("native-"))
+        XCTAssertEqual(live.window.frame, scene.coordinateSpace.bounds)
+        XCTAssertEqual(live.presentation.animator?.card?.rect, card.rect)
+        XCTAssertEqual(live.presentation.animator?.target, 0)
+        XCTAssertFalse(live.owner.prefersStatusBarHidden)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(live.window.frame, scene.coordinateSpace.bounds)
+        XCTAssertEqual(plugin.phases(morphId).first, "started")
+        let settled = try await eventually { plugin.phases(morphId).last == "settled" }
+        XCTAssertTrue(settled)
+    }
+
+    func testCapsuleWithoutAPublishedCardCollapsesWithFadeScale() async throws {
+        let (live, _) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose() }
+        WebViewRegistry.shared.morphCard = nil
+        try capsule(live).sendActions(for: .touchUpInside)
+        XCTAssertNil(live.presentation.animator?.card)
+        let scale = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(number(scale.toValue) ?? .nan, 0.9, accuracy: 1e-6)
+        let opacity = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.opacity") as? CASpringAnimation)
+        XCTAssertEqual(number(opacity.toValue) ?? .nan, 0, accuracy: 1e-6)
+    }
+
+    func testCardOutsideTheWindowFallsBackToFadeScale() async throws {
+        let (live, _) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose(); WebViewRegistry.shared.morphCard = nil }
+        let bounds = live.window.bounds
+        WebViewRegistry.shared.morphCard = BreadMorphCard(rect: CGRect(x: bounds.maxX - 50, y: bounds.maxY - 100, width: 104, height: 132), cornerRadius: 16)
+        try capsule(live).sendActions(for: .touchUpInside)
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+        XCTAssertNil(live.presentation.animator?.card)
+        let scale = try XCTUnwrap(live.instance.morphContainer?.clipView.layer.animation(forKey: "bread.morph.transform.scale") as? CASpringAnimation)
+        XCTAssertEqual(number(scale.toValue) ?? .nan, 0.9, accuracy: 1e-6)
+    }
+
+    func testHostRejectionSpringsBack() async throws {
+        let (live, plugin) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose(); WebViewRegistry.shared.morphCard = nil }
+        let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "lifetime"], instance: live.instance,
+            host: { nil }, notify: { _ in }, finish: {}))
+        live.instance.managedClose = managed
+        live.owner.managedClose = managed
+        WebViewRegistry.shared.morphCard = landing(live)
+        try capsule(live).sendActions(for: .touchUpInside)
+        let nativeId = try XCTUnwrap(plugin.minimizations.last?["morphId"] as? String)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(live.presentation.morph(to: .expanded, card: nil, velocity: .zero, morphId: "reject",
+                                              policyRevision: live.presentation.state.policyRevision,
+                                              sequence: live.presentation.state.acknowledgedVisibilitySequence + 1))
+        var hidden = false
+        let deadline = CACurrentMediaTime() + 3
+        while plugin.phases("reject").last != "settled", CACurrentMediaTime() < deadline {
+            hidden = hidden || live.window.isHidden
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(plugin.phases("reject"), ["retargeted", "settled"])
+        XCTAssertEqual(plugin.morphs.last?["target"] as? String, "expanded")
+        XCTAssertEqual(plugin.phases(nativeId), ["started"])
+        XCTAssertFalse(hidden)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+    }
+
+    func testBreadButtonTouchDownBoostsTheFrameRate() async throws {
+        let (live, _) = try await revealedMorph(display: "fullscreen")
+        defer { live.dispose() }
+        let button = try capsule(live)
+        button.sendActions(for: .touchDown)
+        XCTAssertEqual(live.presentation.animator?.boosting, true)
+        XCTAssertEqual(live.presentation.state.motion, Motion.none)
+        button.sendActions(for: .touchCancel)
+        XCTAssertEqual(live.presentation.animator?.boosting, false)
+        button.sendActions(for: .touchDown)
+        let link = try XCTUnwrap(live.presentation.animator?.link)
+        button.sendActions(for: .touchUpInside)
+        XCTAssertTrue(live.presentation.animator?.link === link)
+        XCTAssertEqual(live.presentation.state.motion, .collapsing)
+    }
+}
+
+private final class EncodeThreads {
+    private let lock = NSLock()
+    private var values = [Bool]()
+    func append(_ value: Bool) { lock.lock(); values.append(value); lock.unlock() }
+    var all: [Bool] { lock.lock(); defer { lock.unlock() }; return values }
+}
+
+@MainActor
+final class BreadMorphPluginTests: XCTestCase {
+    private func card(in live: LivePresentation) -> [String: Any] {
+        let bounds = live.window.bounds
+        return ["x": bounds.maxX - 120 + live.window.frame.minX, "y": bounds.maxY - 230 + live.window.frame.minY,
+                "width": 104, "height": 132, "cornerRadius": 16]
+    }
+
+    private func revealed() async throws -> (LivePresentation, PolicyRecordingPlugin) {
+        let live = try await livePresentation(morph: true)
+        let plugin = PolicyRecordingPlugin()
+        live.owner.capBrowserPlugin = plugin
+        try await configure(live, theme: nil, display: "browser")
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let shown = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(shown)
+        return (live, plugin)
+    }
+
+    private func call(_ method: String, _ options: [String: Any], onResolve: @escaping ([String: Any]?) -> Void = { _ in }) async throws {
+        let resolved = expectation(description: method)
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: method, methodName: method,
+            options: JSTypes.coerceDictionaryToJSObject(options as [AnyHashable: Any]) ?? [:],
+            success: { result, _ in onResolve(result?.data); resolved.fulfill() },
+            error: { error in XCTFail(String(describing: error?.message)); resolved.fulfill() }))
+        let plugin = InAppBrowserPlugin()
+        switch method {
+        case "morph": plugin.morph(call)
+        case "setMorphTarget": plugin.setMorphTarget(call)
+        default: plugin.snapshot(call)
+        }
+        await fulfillment(of: [resolved], timeout: 3)
+    }
+
+    private func morph(_ options: [String: Any]) async throws -> Bool {
+        var accepted: Bool?
+        try await call("morph", options) { accepted = $0?["accepted"] as? Bool }
+        return try XCTUnwrap(accepted)
+    }
+
+    func testMorphMethodAppliesTheLifetimeAndSequenceGuards() async throws {
+        let (live, plugin) = try await revealed()
+        defer { live.dispose() }
+        let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "lifetime"], instance: live.instance,
+            host: { nil }, notify: { _ in }, finish: {}))
+        live.instance.managedClose = managed
+        live.owner.managedClose = managed
+        let base: [String: Any] = ["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "p1"]
+        var stale = base
+        stale["managedHostCloseToken"] = "stale"
+        stale["visibilitySequence"] = 5
+        let staleToken = try await morph(stale)
+        XCTAssertFalse(staleToken)
+        var unsequenced = base
+        unsequenced["managedHostCloseToken"] = "lifetime"
+        let missingSequence = try await morph(unsequenced)
+        XCTAssertFalse(missingSequence)
+        var matching = unsequenced
+        matching["visibilitySequence"] = 5
+        let accepted = try await morph(matching)
+        XCTAssertTrue(accepted)
+        var older = matching
+        older["morphId"] = "p2"
+        older["visibilitySequence"] = 4
+        let staleSequence = try await morph(older)
+        XCTAssertFalse(staleSequence)
+        let settled = try await eventually { plugin.phases("p1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertTrue(plugin.phases("p2").isEmpty)
+        XCTAssertEqual(plugin.morphs.first?["visibilitySequence"] as? Int, 5)
+    }
+
+    func testMorphWithoutAContainerIsNotAccepted() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        try await configure(live, theme: nil, display: "browser")
+        let accepted = try await morph(["id": live.instance.id, "to": "collapsed", "card": NSNull(), "morphId": "legacy"])
+        XCTAssertFalse(accepted)
+        XCTAssertNil(live.instance.morphContainer)
+        XCTAssertNil(live.presentation.animator)
+        XCTAssertEqual(live.presentation.state.motion, BreadPresentationState.Motion.none)
+    }
+
+    func testAcceptedMorphCallHoldsTheFrameRateLinkWhenItResolves() async throws {
+        let (live, _) = try await revealed()
+        defer { live.dispose() }
+        let animator = try XCTUnwrap(live.presentation.animator)
+        var boostingAtResolve: Bool?
+        try await call("morph", ["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c1"]) { result in
+            XCTAssertEqual(result?["accepted"] as? Bool, true)
+            boostingAtResolve = animator.boosting
+        }
+        XCTAssertEqual(boostingAtResolve, true)
+        live.presentation.setVisible(false)
+        XCTAssertFalse(animator.boosting)
+        try await call("morph", ["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c2",
+                                 "managedHostCloseToken": "unknown"]) { result in
+            XCTAssertEqual(result?["accepted"] as? Bool, false)
+            boostingAtResolve = animator.boosting
+        }
+        XCTAssertEqual(boostingAtResolve, false)
+    }
+
+    func testSetMorphTargetStoresTheCardForTheNativeCollapse() async throws {
+        defer { WebViewRegistry.shared.morphCard = nil }
+        try await call("setMorphTarget", ["card": ["x": 10, "y": 20, "width": 104, "height": 132, "cornerRadius": 16]])
+        XCTAssertEqual(WebViewRegistry.shared.morphCard?.rect, CGRect(x: 10, y: 20, width: 104, height: 132))
+        XCTAssertEqual(WebViewRegistry.shared.morphCard?.cornerRadius, 16)
+        try await call("setMorphTarget", ["card": NSNull()])
+        XCTAssertNil(WebViewRegistry.shared.morphCard)
+    }
+
+    func testSnapshotEncodesOffTheMainThreadFromTheCollapseProxy() async throws {
+        let (live, _) = try await revealed()
+        defer { live.dispose(); WKWebViewController.snapshotEncodeHook = nil }
+        let threads = EncodeThreads()
+        WKWebViewController.snapshotEncodeHook = { threads.append($0) }
+        let accepted = try await morph(["id": live.instance.id, "to": "collapsed", "card": card(in: live), "morphId": "c1"])
+        XCTAssertTrue(accepted)
+        var dataURL: String?
+        try await call("snapshot", ["id": live.instance.id, "scale": 0.5, "quality": 0.7]) { dataURL = $0?["data"] as? String }
+        let encoded = try XCTUnwrap(dataURL)
+        let prefix = "data:image/jpeg;base64,"
+        XCTAssertTrue(encoded.hasPrefix(prefix))
+        let image = try XCTUnwrap(Data(base64Encoded: String(encoded.dropFirst(prefix.count))).flatMap { UIImage(data: $0) })
+        let proxy = try XCTUnwrap(live.presentation.proxy.image)
+        XCTAssertTrue(live.presentation.state.proxyUsable)
+        XCTAssertEqual(image.size.width, live.web.bounds.width * 0.5 * proxy.scale, accuracy: 1)
+        XCTAssertEqual(threads.all, [false])
+    }
+
+    func testProxyCacheKeepsThreeAndDropsOnMemoryWarning() async throws {
+        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        var lives = [LivePresentation]()
+        defer { lives.forEach { $0.dispose() } }
+        for _ in 0..<4 { lives.append(try await livePresentation(morph: true)) }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }
+        for live in lives { live.presentation.adoptProxy(image) }
+        XCTAssertEqual(lives.map { $0.presentation.state.proxyUsable }, [false, true, true, true])
+        XCTAssertNil(lives[0].presentation.proxy.image)
+        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        XCTAssertEqual(lives.map { $0.presentation.state.proxyUsable }, [false, false, false, false])
+        XCTAssertTrue(lives.allSatisfy { $0.presentation.proxy.image == nil })
     }
 }
