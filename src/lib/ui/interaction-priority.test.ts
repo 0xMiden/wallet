@@ -4,7 +4,6 @@ import {
   _resetInteractionPriorityForTest,
   beginInteraction,
   isInteracting,
-  subscribeInteraction,
   whenInteractionIdle
 } from './interaction-priority';
 
@@ -86,6 +85,42 @@ describe('interaction priority', () => {
     expect(isInteracting()).toBe(true);
   });
 
+  it('keeps the defer cap on the busy period that a restart before the idle frame continues', async () => {
+    const end = beginInteraction();
+    jest.advanceTimersByTime(1000);
+    const held = jest.fn();
+    void whenInteractionIdle().then(held);
+    end();
+    beginInteraction();
+    const restarted = jest.fn();
+    void whenInteractionIdle().then(restarted);
+    jest.advanceTimersByTime(CAP - 1000);
+    await flushMicrotasks();
+    expect(held).toHaveBeenCalledTimes(1);
+    expect(restarted).toHaveBeenCalledTimes(1);
+    expect(isInteracting()).toBe(true);
+  });
+
+  it('releases idle waiters one frame after the latest end, not on a frame queued by an earlier end', async () => {
+    const end = beginInteraction();
+    const done = jest.fn();
+    void whenInteractionIdle().then(done);
+    end();
+    const endAgain = beginInteraction();
+    endAgain();
+    flushFrame();
+    await flushMicrotasks();
+    expect(done).not.toHaveBeenCalled();
+    flushFrame();
+    await flushMicrotasks();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not export a listener subscription', async () => {
+    const interactionPriority = await import('./interaction-priority');
+    expect('subscribeInteraction' in interactionPriority).toBe(false);
+  });
+
   it('counts nested interactions', () => {
     const endA = beginInteraction();
     const endB = beginInteraction();
@@ -101,21 +136,6 @@ describe('interaction priority', () => {
     endA();
     endA();
     expect(isInteracting()).toBe(true);
-  });
-
-  it('notifies listeners on transitions only and stops after unsubscribe', () => {
-    const listener = jest.fn();
-    const unsubscribe = subscribeInteraction(listener);
-    const endA = beginInteraction();
-    const endB = beginInteraction();
-    expect(listener.mock.calls).toEqual([[true]]);
-    endA();
-    expect(listener).toHaveBeenCalledTimes(1);
-    endB();
-    expect(listener.mock.calls).toEqual([[true], [false]]);
-    unsubscribe();
-    beginInteraction();
-    expect(listener).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to a timer when requestAnimationFrame is missing', async () => {

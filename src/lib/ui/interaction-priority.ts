@@ -16,14 +16,11 @@ let active = 0;
 let busySince = 0;
 let frameScheduled = false;
 let waiters: Waiter[] = [];
-const listeners = new Set<(busy: boolean) => void>();
 
 const nextFrame = (cb: () => void) => {
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(cb);
   else setTimeout(cb, FRAME_FALLBACK_MS);
 };
-
-const emit = (busy: boolean) => listeners.forEach(listener => listener(busy));
 
 const settle = (waiter: Waiter) => {
   clearTimeout(waiter.capTimer);
@@ -42,7 +39,6 @@ export function beginInteraction(): () => void {
   if (active === 0) {
     busySince = Date.now();
     active = 1;
-    emit(true);
   } else {
     active++;
   }
@@ -52,7 +48,6 @@ export function beginInteraction(): () => void {
     ended = true;
     active--;
     if (active > 0) return;
-    emit(false);
     if (!frameScheduled) {
       frameScheduled = true;
       nextFrame(releaseWaitersIfIdle);
@@ -79,19 +74,10 @@ export function whenInteractionIdle(): Promise<void> {
   });
 }
 
-/** Calls `listener` on each idle/busy transition. Returns the unsubscribe function. */
-export function subscribeInteraction(listener: (busy: boolean) => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
 /** Test-only: drops all state so suites do not leak interactions into each other. */
 export function _resetInteractionPriorityForTest(): void {
   waiters.forEach(w => clearTimeout(w.capTimer));
   waiters = [];
-  listeners.clear();
   active = 0;
   busySince = 0;
   frameScheduled = false;
