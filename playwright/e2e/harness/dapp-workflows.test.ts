@@ -129,6 +129,19 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(authTabScript).not.toContain('connectedDebugAndroidTest');
     expect(authTabScript).toContain("grep -qxF 'OK (1 test)'");
     expect(authTabScript).toContain('"${provider_version%%.*}" -lt 137');
+    // Android 36 keeps one system_server for the whole run, so installs wait only for the package manager.
+    for (const probe of [
+      'wait_for_stable_system',
+      'pidof system_server',
+      'restart-reason.txt',
+      'system-server-pids.txt'
+    ]) {
+      expect(authTabScript).not.toContain(probe);
+    }
+    expect(authTabScript).toContain('for attempt in 1 2 3');
+    expect(authTabScript).toContain('for _ in $(seq 1 30); do adb shell pm path android');
+    expect(authTabScript).toContain('logcat-crash.txt');
+    expect(authTabScript).toContain('verifier_verify_adb_installs');
     expect(authTab).toContain("if: github.event_name == 'workflow_dispatch' && inputs.suite == 'auth-tab'");
     expect(authTab).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 90 \|\| 60 \}\}/);
     expect(android).toContain('E2E_ANDROID_BASE_AVD: Pixel_API_37');

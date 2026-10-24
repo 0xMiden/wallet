@@ -33,39 +33,12 @@ trap write_acceptance_evidence EXIT
 
 # Gradle's connected test task installs through a session commit the Android 37 image intermittently drops
 # ("Broken pipe" from the package service) and never retries, so the APKs are installed here and run with am instrument.
-# "Failure calling service package: Broken pipe" means system_server went away under the install, so wait until
-# it has kept one pid for 30 s, and record which pid each attempt saw.
-wait_for_stable_system() {
-  local last='' same=0
-  for _ in $(seq 1 60); do
-    local pid
-    pid=$(timeout 10s adb shell pidof system_server 2>/dev/null | tr -d '\r')
-    starts=$(timeout 10s adb shell getprop sys.system_server.start_count 2>/dev/null | tr -d '\r')
-    if [[ -n "$pid" && "$pid" == "$last" ]]; then same=$((same + 1)); else same=0; fi
-    if [[ -n "$last" && "$pid" != "$last" && ! -f "$results_dir/restart-reason.txt" ]]; then
-      {
-        echo '--- crash buffer ---'
-        timeout 15s adb logcat -d -b crash | tail -120
-        echo '--- system_server deaths ---'
-        timeout 15s adb logcat -d -b system,main,events | grep -iE 'FATAL EXCEPTION IN SYSTEM PROCESS|Watchdog|\*\*\* FATAL|system_server.*(died|crash)|am_crash|sysui_|Zygote.*died|AndroidRuntime' | tail -80
-      } > "$results_dir/restart-reason.txt" 2>&1 || true
-      cat "$results_dir/restart-reason.txt"
-    fi
-    echo "$(date +%T) system_server=${pid:-none} start_count=${starts:-none}" | tee -a "$results_dir/system-server-pids.txt"
-    last=$pid
-    [[ $same -ge 6 ]] && return 0
-    sleep 5
-  done
-  return 1
-}
-
 install_apk() {
   local apk=$1
   for attempt in 1 2 3; do
-    wait_for_stable_system || true
-    adb shell pm path android >/dev/null 2>&1 || sleep 5
+    for _ in $(seq 1 30); do adb shell pm path android >/dev/null 2>&1 && break; sleep 2; done
     if timeout 240s adb install -r -t --no-streaming "$apk"; then return 0; fi
-    echo "$(date +%T) install failed: $apk attempt=$attempt" >> "$results_dir/system-server-pids.txt"
+    echo "$(date +%T) install failed: $apk attempt=$attempt" >&2
   done
   timeout 15s adb logcat -d -b crash > "$results_dir/logcat-crash.txt" 2>&1 || true
   echo '--- crash buffer (last 80 lines) ---'
