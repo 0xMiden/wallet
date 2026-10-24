@@ -1224,10 +1224,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
 
       // Park the current foreground (if any) so its bubble will appear
-      // alongside the new session while the new one loads.
+      // alongside the new session while the new one loads; a reopen of it
+      // restores it, so the park yields to that restore.
       const currentForeground = foregroundIdRef.current;
       if (currentForeground) {
-        void parkLegacy(currentForeground);
+        const generation = restoreGeneration.current.get(currentForeground);
+        void parkLegacy(currentForeground, () => restoreGeneration.current.get(currentForeground) === generation);
       }
 
       finalizations.current.delete(next.id);
@@ -1713,8 +1715,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (!guard && foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
       // A collapse native carries commits the park itself, once it settles. A guarded park answers a native minimize
       // that started no collapse, and keeps its sequence check: a morph attempt would spend the sequence.
+      // Read before that answer: a restore while native answers wins over the fallback below.
+      const generation = restoreGeneration.current.get(id);
       if (!guard && (await parkByMorph(id)) !== 'unaccepted') return;
-      const committed = await parkLegacy(id, guard);
+      const committed = await parkLegacy(
+        id,
+        afterHide => (!guard || guard(afterHide)) && restoreGeneration.current.get(id) === generation
+      );
       if (!committed || (guard && !guard(true))) return;
       // If parking the foreground, clear the foregroundId so the launcher
       // shows again (with the bubble overlay).
@@ -1743,7 +1750,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const currentForeground = foregroundIdRef.current;
       let parkedForeground = false;
       if (currentForeground && currentForeground !== sessionId) {
-        parkedForeground = (await parkLegacy(currentForeground)) === true;
+        const generation = restoreGeneration.current.get(currentForeground);
+        parkedForeground =
+          (await parkLegacy(
+            currentForeground,
+            () => restoreGeneration.current.get(currentForeground) === generation
+          )) === true;
+        // A newer restore of that foreground began during the park. It owns the status and the foreground now.
+        if (restoreGeneration.current.get(currentForeground) !== generation) return false;
       }
       const target = getSessionStateById(sessionId);
       if (!target || finalizations.current.has(sessionId) || sessionLifetimes.current.get(sessionId) !== lifetime) {
@@ -1841,10 +1855,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (slotRectShownForRef.current !== foregroundId) return;
     slotRectShownForRef.current = null;
     const id = foregroundId;
+    const generation = restoreGeneration.current.get(id);
     // The page collapses into its card over whichever tab is now showing; without the native morph it hides at once.
+    // A restore while native answers keeps the session; otherwise the foreground clears at once.
     void parkByMorph(id).then(outcome => {
       if (outcome !== 'unaccepted') return;
-      void parkLegacy(id);
+      if (restoreGeneration.current.get(id) !== generation) return;
+      void parkLegacy(id, () => restoreGeneration.current.get(id) === generation);
       if (foregroundIdRef.current === id) setForegroundId(null);
     });
   }, [foregroundId, slotRect, parkByMorph, parkLegacy]);
