@@ -1225,7 +1225,8 @@ function loginMessage(word: Word) {
           <div class="panel" role="tabpanel" hidden><pre><code data-lang="js">// With bread-ready="manual", reveal once your first correctly sized frame is drawn.
 await renderFirstFrame();
 if (window.bread?.presentation) {
-  await window.bread.presentation.ready();
+  // Rejects where Bread falls back to browser mode; the page then shows as usual.
+  await window.bread.presentation.ready().catch(() =&gt; {});
 }
 
 // Leave fullscreen and close the page from your own UI.
@@ -1319,7 +1320,7 @@ layout();</code></pre></div>
           <li><b>Rotation:</b> fullscreen opens in the current orientation and follows the device.</li>
           <li><b>Promises:</b> <code>ready()</code> and <code>close()</code> resolve when the native side acknowledges and reject on refusal or after 30 seconds. At most 32 calls may be outstanding.</li>
         </ul>
-        <div class="callout nope"><span class="ci"><svg aria-hidden="true"><use href="#i-nope"/></svg></span><div><strong class="t">Where fullscreen does not apply</strong><p>Only the main document of Bread's mobile browser has <code>window.bread.presentation</code>; frames, the extension and the desktop app do not. Android WebViews without the required navigation support open the page in normal browser mode. Keep your ordinary responsive layout working outside Bread and size your renderer from its container.</p></div></div>
+        <div class="callout nope"><span class="ci"><svg aria-hidden="true"><use href="#i-nope"/></svg></span><div><strong class="t">Where fullscreen does not apply</strong><p>Only the main document of Bread's mobile browser has <code>window.bread.presentation</code>; frames, the extension and the desktop app do not. Android WebViews without the required navigation support open the page in normal browser mode; <code>window.bread.presentation</code> still exists there, but <code>ready()</code> and <code>close()</code> reject. Keep your ordinary responsive layout working outside Bread and size your renderer from its container.</p></div></div>
       </section>
 
       <section class="section" id="auth-sheet" aria-labelledby="h-auth">

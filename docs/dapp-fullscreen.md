@@ -33,7 +33,7 @@ Native preparation allows 30 seconds of foreground time before offering Retry an
 
 Closing allows five seconds of foreground preparation before showing Retry and Exit now. Retry starts a fresh close request; Exit now closes that page immediately if the prepared return cannot complete. Closing rejects that page's unanswered wallet confirmation and removes its saved session and preview; an already submitted transaction continues independently.
 
-Older Android WebViews without the required navigation identity open the page in Bread's normal browser mode, with its ordinary toolbar.
+Older Android WebViews without the required navigation identity open the page in Bread's normal browser mode, with its ordinary toolbar. `window.bread.presentation` still exists there, but `ready()` and `close()` reject with "Native presentation is unsupported in this WebView", so treat a rejection as browser mode.
 
 Older hosts expose a scalar CSS pixel metric that reserves a complete row:
 
