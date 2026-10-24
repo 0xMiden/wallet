@@ -1,8 +1,8 @@
 // The stuck-consume reaper spares a consume only while this realm's attempt for it is still running: it reads the
-// attempt the loop and `generateTransaction` open and close, not the realm's lifetime record of rows it started.
+// attempt `generateTransactionsLoop` opens and closes, not the realm's lifetime record of rows it started.
 import * as Repo from 'lib/miden/repo';
 
-import { verifyStuckTransactionsFromNode } from './cancel';
+import { beginAttemptInThisRealm, endAttemptInThisRealm, verifyStuckTransactionsFromNode } from './cancel';
 import { generateTransaction, generateTransactionsLoop } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus } from '../db/types';
@@ -171,4 +171,52 @@ it('fails a consume whose direct generateTransaction call has thrown, once the g
 
   expect(await verifyStuckTransactionsFromNode()).toBe(1);
   expect(await status()).toBe(ITransactionStatus.Failed);
+});
+
+describe('an attempt the sync stage never began', () => {
+  const syncSpare = (): ITransaction => ({ ...queuedConsume(), id: 'sync-spare' });
+  const syncSpareRow = () => Repo.transactions.get('sync-spare');
+  const reapedAfterSyncFailure = async () => {
+    await Repo.transactions.update('sync-spare', {
+      status: ITransactionStatus.GeneratingTransaction,
+      processingStartedAt: Math.floor(Date.now() / 1000) - 120
+    });
+    return verifyStuckTransactionsFromNode();
+  };
+
+  it('leaves another open attempt for the same id open when the loop fails at sync', async () => {
+    await Repo.transactions.put(syncSpare());
+    beginAttemptInThisRealm('sync-spare');
+    try {
+      jest
+        .requireMock('../back/miden-client-proxy')
+        .midenClientProxy.syncState.mockRejectedValueOnce(new Error('sync down'));
+      await expect(generateTransactionsLoop(signCallback, false, provider)).resolves.toBe(false);
+      expect((await syncSpareRow())?.status).toBe(ITransactionStatus.Queued);
+      expect((await syncSpareRow())?.stage).toBe('syncing');
+
+      expect(await reapedAfterSyncFailure()).toBe(0);
+      expect((await syncSpareRow())?.status).toBe(ITransactionStatus.GeneratingTransaction);
+    } finally {
+      endAttemptInThisRealm('sync-spare');
+    }
+  });
+
+  it('leaves another open attempt for the same id open when a direct generateTransaction fails at sync', async () => {
+    await Repo.transactions.put(syncSpare());
+    beginAttemptInThisRealm('sync-spare');
+    try {
+      jest
+        .requireMock('../back/miden-client-proxy')
+        .midenClientProxy.syncState.mockRejectedValueOnce(new Error('sync down'));
+      await expect(generateTransaction(syncSpare(), signCallback, false, provider)).rejects.toThrow('sync down');
+      expect((await syncSpareRow())?.status).toBe(ITransactionStatus.Queued);
+      expect((await syncSpareRow())?.stage).toBe('syncing');
+
+      expect(await reapedAfterSyncFailure()).toBe(0);
+      expect((await syncSpareRow())?.status).toBe(ITransactionStatus.GeneratingTransaction);
+    } finally {
+      endAttemptInThisRealm('sync-spare');
+    }
+  });
 });

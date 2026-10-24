@@ -1368,8 +1368,7 @@ export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
-  guardianProvider: GuardianAccountProvider,
-  releaseRealmAttempt: boolean = true
+  guardianProvider: GuardianAccountProvider
 ) => {
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
@@ -1407,7 +1406,6 @@ export const generateTransaction = async (
     await guardianProvider
       .releaseRecoveryAuthorization?.(transaction.id)
       .catch(e => console.warn('[generateTransaction] recovery authorization release failed:', e));
-    if (releaseRealmAttempt) endAttemptInThisRealm(transaction.id);
   }
 };
 
@@ -1429,7 +1427,6 @@ const generateTransactionWithProvider = async (
   transaction.attemptId = uuid();
   delete (transaction as ITransaction).failureDiagnostics;
   markStartedInThisRealm(transaction.id);
-  beginAttemptInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending',
@@ -4568,8 +4565,9 @@ export const generateTransactionsLoop = async (
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
+  beginAttemptInThisRealm(nextTransaction.id);
   try {
-    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider, false);
+    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
