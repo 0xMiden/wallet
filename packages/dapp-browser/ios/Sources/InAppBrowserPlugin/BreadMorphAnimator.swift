@@ -138,6 +138,24 @@ enum BreadMorphGeometry {
         let stretched = (1 - 1 / (0.55 * abs(x) / length + 1)) * length
         return x < 0 ? -stretched : stretched
     }
+
+    // The value a timing function shows at `elapsed`, so progress reads what an eased fade puts on screen.
+    static func eased(_ elapsed: Double, by timing: CAMediaTimingFunction) -> Double {
+        guard elapsed > 0 else { return 0 }
+        guard elapsed < 1 else { return 1 }
+        var p1: [Float] = [0, 0], p2: [Float] = [0, 0]
+        timing.getControlPoint(at: 1, values: &p1)
+        timing.getControlPoint(at: 2, values: &p2)
+        func bezier(_ t: Double, _ a: Float, _ b: Float) -> Double {
+            3 * (1 - t) * (1 - t) * t * Double(a) + 3 * (1 - t) * t * t * Double(b) + t * t * t
+        }
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<52 {
+            let t = (lo + hi) / 2
+            if bezier(t, p1[0], p2[0]) < elapsed { lo = t } else { hi = t }
+        }
+        return bezier((lo + hi) / 2, p1[1], p2[1])
+    }
 }
 
 final class BreadMorphFrameTarget: NSObject {
@@ -246,6 +264,7 @@ final class BreadFrameRateBoostTarget: NSObject {
 final class BreadMorphAnimator {
     static let frameRate = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
     static let fadeDuration: CFTimeInterval = 0.2
+    static let fadeTiming = CAMediaTimingFunction(name: .easeOut)
     private static let log = OSLog(subsystem: "com.miden.bread", category: .pointsOfInterest)
     private weak var container: BreadMorphContainerViewController?
     let now: () -> CFTimeInterval
@@ -290,7 +309,7 @@ final class BreadMorphAnimator {
         if let spring { return spring.sample(at: now()).value }
         if let fade, let target {
             let elapsed = min(1, max(0, (now() - fade.start) / Self.fadeDuration))
-            return fade.from + (target - fade.from) * elapsed
+            return fade.from + (target - fade.from) * BreadMorphGeometry.eased(elapsed, by: Self.fadeTiming)
         }
         return held
     }
@@ -327,7 +346,7 @@ final class BreadMorphAnimator {
             animation.fromValue = NSNumber(value: Float(min(1, max(0, from))))
             animation.toValue = NSNumber(value: Float(min(1, max(0, target))))
             animation.duration = Self.fadeDuration
-            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animation.timingFunction = Self.fadeTiming
             animation.fillMode = .forwards
             animation.isRemovedOnCompletion = false
             animation.preferredFrameRateRange = Self.frameRate
