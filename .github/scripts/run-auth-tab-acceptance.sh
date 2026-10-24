@@ -36,7 +36,7 @@ trap write_acceptance_evidence EXIT
 install_apk() {
   local apk=$1
   for attempt in 1 2 3; do
-    for _ in $(seq 1 30); do adb shell pm path android >/dev/null 2>&1 && break; sleep 2; done
+    for _ in $(seq 1 30); do timeout 15s adb shell pm path android >/dev/null 2>&1 && break; sleep 2; done
     if timeout 240s adb install -r -t --no-streaming "$apk"; then return 0; fi
     echo "$(date +%T) install failed: $apk attempt=$attempt" >&2
   done
