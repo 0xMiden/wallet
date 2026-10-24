@@ -2083,6 +2083,137 @@ describe('native morph adoption', () => {
     expect(parked()).toContain('second');
   });
 
+  describe('a legacy park that a newer restore of its session overtakes', () => {
+    const statusOf = (id: string) => control().sessionStates.find(state => state.session.id === id)?.status;
+    function holdSnapshot() {
+      let release: (snapshot: string | null) => void = () => undefined;
+      mockCaptureSnapshot.mockImplementationOnce(
+        () =>
+          new Promise<string | null>(resolve => {
+            release = resolve;
+          })
+      );
+      return (snapshot: string | null) => release(snapshot);
+    }
+    function holdMorph() {
+      let answer: (result: { accepted: boolean }) => void = () => undefined;
+      mockMorph.mockImplementationOnce(
+        () =>
+          new Promise<{ accepted: boolean }>(resolve => {
+            answer = resolve;
+          })
+      );
+      return (result: { accepted: boolean }) => answer(result);
+    }
+
+    it("keeps a reopened foreground when another restore's park of it lands late", async () => {
+      await openForeground();
+      act(() => control().open(session('second')));
+      await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+      await act(async () => control().park('second'));
+      await act(async () => void control().restore('origin'));
+      await settle();
+      act(() => control().openSwitcher());
+      const release = holdSnapshot();
+
+      act(() => void control().restore('second'));
+      await settle();
+      act(() => control().open(session('origin')));
+      await settle();
+      await act(async () => release(null));
+      await settle();
+
+      expect(control().session?.id).toBe('origin');
+      expect(statusOf('origin')).toBe('active');
+    });
+
+    it('keeps a reopened foreground when the park of it that open started lands late', async () => {
+      await openForeground();
+      const release = holdSnapshot();
+      act(() => control().open(session('fresh')));
+      await settle();
+      act(() => control().open(session('origin')));
+      await settle();
+      await act(async () => release(null));
+      await settle();
+
+      expect(statusOf('origin')).toBe('active');
+      expect(parked()).not.toContain('origin');
+    });
+
+    it('still parks the foreground open replaced when a host alert opens meanwhile', async () => {
+      await openForeground();
+      const release = holdSnapshot();
+      act(() => control().open(session('fresh')));
+      await settle();
+      act(() => externalPageFailed());
+      await settle();
+      await act(async () => release(null));
+      await settle();
+
+      expect(statusOf('origin')).toBe('parked');
+    });
+
+    it('keeps a session restored while native was answering its collapse with a rejection', async () => {
+      await openForeground();
+      const answer = holdMorph();
+      act(() => void control().park('origin'));
+      await settle();
+      await act(async () => void control().restore('origin', { card: CARD }));
+      await settle();
+      await act(async () => answer({ accepted: false }));
+      await settle();
+
+      expect(control().mode).toBe('active');
+      expect(parked()).not.toContain('origin');
+    });
+
+    it('keeps a session restored while native was answering the collapse a slot removal sent', async () => {
+      await openForeground();
+      const answer = holdMorph();
+      act(() => control().setSlotRect(null));
+      await settle();
+      await act(async () => void control().restore('origin', { card: CARD }));
+      await settle();
+      await act(async () => answer({ accepted: false }));
+      await settle();
+
+      expect(control().mode).toBe('active');
+      expect(parked()).not.toContain('origin');
+    });
+
+    it('keeps a session restored while the legacy park a slot removal started captures its snapshot', async () => {
+      await openForeground();
+      const release = holdSnapshot();
+      act(() => control().setSlotRect(null));
+      await settle();
+      await act(async () => void control().restore('origin'));
+      await settle();
+      await act(async () => release(null));
+      await settle();
+
+      expect(statusOf('origin')).toBe('active');
+    });
+
+    it('requests one park snapshot when the settle overtakes the accepted collapse', async () => {
+      await openForeground();
+      jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+      const answer = holdMorph();
+      act(() => void control().park('origin'));
+      await settle();
+      const before = mockCaptureSnapshot.mock.calls.length;
+
+      emitMorph('settled', 'collapsed');
+      await settle();
+      await act(async () => answer({ accepted: true }));
+      await settle();
+
+      expect(mockCaptureSnapshot.mock.calls.length - before).toBe(1);
+      expect(mockCaptureSnapshot).toHaveBeenLastCalledWith('origin', 0.5, 0.7);
+      expect(parked()).toEqual(['origin']);
+    });
+  });
+
   it('springs a rejected native minimize back', async () => {
     await openForeground();
 
