@@ -278,7 +278,8 @@ final class BreadPresentationController: NSObject {
         let previous = morphId
         let fromRest = target == .expanded && !wasMoving && (window.isHidden || warmed)
         if !wasMoving, applySlotFrame(window) { window.layoutIfNeeded() }
-        let landing = card.flatMap { fits($0, in: window.bounds.size) ? $0 : nil }
+        // The shown pose is drawn against the card the motion started with; a new one would make the next interrupt jump.
+        let landing = wasMoving ? animator.card : card.flatMap { fits($0, in: window.bounds.size) ? $0 : nil }
         let progressVelocity = previous != nil ? animator.velocity()
             : landing.map { BreadMorphGeometry.progressVelocity(velocity, card: $0.rect, slot: window.bounds) } ?? 0
         if !wasMoving { systemUIHeld = systemUI }
