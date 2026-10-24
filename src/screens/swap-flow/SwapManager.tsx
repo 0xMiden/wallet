@@ -444,13 +444,17 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   const onSwapDirection = useCallback(() => {
     setOfferToken(requestToken);
     setRequestToken(offerToken);
-    // The receive field is re-derived by the quote effect (requestEdited=false),
-    // so only the pay side needs seeding here.
-    setOfferAmount(requestAmount);
-    setRequestAmount('');
-    setRequestEdited(false);
+    if (requestEdited) {
+      setOfferAmount(requestAmount);
+      setRequestAmount('');
+      setRequestEdited(false);
+    } else {
+      setOfferAmount('');
+      setRequestAmount(offerAmount);
+      setRequestEdited(true);
+    }
     setSubmitError(null);
-  }, [offerToken, requestToken, requestAmount]);
+  }, [offerToken, requestToken, offerAmount, requestAmount, requestEdited]);
 
   const onSelectOfferToken = useCallback(() => {
     setSelectingSide('offer');
@@ -465,25 +469,44 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   // Picking the token already on the opposite side flips the two sides rather
   // than landing on an invalid same-token state. The drawer closes itself.
   // The "To" drawer lists only the partners of the pay token. A new pay token that
-  // the solver does not pair with the receive token moves the receive side to its
-  // first partner, so the form never holds a pair the solver cannot fill.
+  // a pay-anchored draft moves the receive side to its first partner. A receive-
+  // anchored draft keeps its target and stays blocked while the pair is unsupported.
   const onTokenSelected = useCallback(
     (token: SwapToken) => {
+      const flipsPair =
+        (selectingSide === 'offer' && token.faucetId === requestToken.faucetId) ||
+        (selectingSide === 'request' && token.faucetId === offerToken.faucetId);
       if (selectingSide === 'offer') {
         const [firstPartner] = getSwapPartners(token.faucetId);
         if (token.faucetId === requestToken.faucetId) setRequestToken(offerToken);
-        else if (firstPartner && !isSwapPair(token.faucetId, requestToken.faucetId)) setRequestToken(firstPartner);
+        else if (firstPartner && !requestEdited && !isSwapPair(token.faucetId, requestToken.faucetId)) {
+          setRequestToken(firstPartner);
+        }
         setOfferToken(token);
       } else {
         if (token.faucetId === offerToken.faucetId) setOfferToken(requestToken);
         setRequestToken(token);
       }
-      setOfferAmount('');
-      setRequestAmount('');
-      setRequestEdited(false);
+      if (flipsPair) {
+        if (requestEdited) {
+          setOfferAmount(requestAmount);
+          setRequestAmount('');
+          setRequestEdited(false);
+        } else {
+          setOfferAmount('');
+          setRequestAmount(offerAmount);
+          setRequestEdited(true);
+        }
+      } else if (requestEdited) {
+        setOfferAmount('');
+        setRequestAmount(requestAmount);
+      } else {
+        setOfferAmount(offerAmount);
+        setRequestAmount('');
+      }
       setSubmitError(null);
     },
-    [selectingSide, offerToken, requestToken]
+    [selectingSide, offerToken, requestToken, offerAmount, requestAmount, requestEdited]
   );
 
   const runSwap = useCallback(
