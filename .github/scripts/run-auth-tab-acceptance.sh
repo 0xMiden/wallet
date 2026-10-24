@@ -145,6 +145,7 @@ run_instrumentation_test com.miden.wallet.AuthTabProviderAcceptanceTest firefox-
 grep -F 'selectedProvider=org.mozilla.firefox' "$results_dir/firefox-capability.log"
 grep -F 'provider=org.mozilla.firefox ' "$results_dir/firefox-capability.log" | grep -F 'authTabSupported=false'
 
+adb shell ps -A -o PID,NAME | grep -i 'com.google.android.gms' > "$results_dir/gms-processes.txt" || echo 'no gms processes' > "$results_dir/gms-processes.txt"
 yarn playwright test --config playwright.android.auth-tab.config.ts
 node <<'NODE'
 const r = require('./test-results-auth-tab/results.json');

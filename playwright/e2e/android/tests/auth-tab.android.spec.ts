@@ -116,7 +116,8 @@ test.describe('Android Auth Tab acceptance', () => {
       cert: readFileSync(certPath)
     });
     const emulator = new EmulatorControl();
-    await emulator.ensureBooted(SERIAL);
+    // run-auth-tab-acceptance.sh has already installed every APK and run the instrumentation on this device, so
+    // the cold-boot readiness wait (which also waits for Play services' persistent process) adds nothing here.
     await emulator.terminate(SERIAL, PACKAGE_NAME);
     await emulator.install(SERIAL, APK_PATH, PACKAGE_NAME);
     await emulator.wipeAppState(SERIAL, PACKAGE_NAME);
