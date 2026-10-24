@@ -16,6 +16,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -31,6 +32,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
+import android.view.PixelCopy;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -83,6 +85,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONException;
@@ -113,6 +116,7 @@ public class WebViewDialog extends Dialog {
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
     ManagedHostClose managedClose() { return managedClose; }
     void disableClosingPage() {
+        if (presentation != null) presentation.stopMotion();
         if (_webView != null) {
             _webView.setEnabled(false);
             _webView.onPause();
@@ -165,8 +169,11 @@ public class WebViewDialog extends Dialog {
     }
     void applyBrowserDimensions() { applyDimensions(); }
     BreadSnapshotter snapshotter = BreadSnapshotter.PIXEL_COPY;
-    void morphEvent(BreadMorphEvent event) { }
-    public void takeSnapshotData(float scale, float quality, java.util.function.Consumer<String> done) { done.accept(null); }
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    void morphEvent(BreadMorphEvent event) {
+        if (permanentlyClosed || managedClosing()) return;
+        _options.getCallbacks().presentationMorph(event);
+    }
 
     @Override public void show() {
         if (permanentlyClosed || managedClosing()) return;
@@ -3324,30 +3331,69 @@ public class WebViewDialog extends Dialog {
      * base64 data URL. Used by the embedded dApp browser to show frozen
      * previews on minimized bubbles and card-switcher cards.
      *
-     * Must be called on the UI thread (the plugin wrapper enforces this).
+     * The page is read with PixelCopy and encoded off the UI thread; during a
+     * native morph the capture taken when the motion started is used, because
+     * the window shows a scaled page. Must be called on the UI thread; done runs there.
      */
-    public String takeSnapshotData(float scale, float quality) {
-        if (_webView == null || _webView.getWidth() == 0 || _webView.getHeight() == 0) {
-            return null;
-        }
-        try {
-            float clampedScale = Math.max(0.05f, Math.min(1.0f, scale));
-            int width = Math.max(1, (int) (_webView.getWidth() * clampedScale));
-            int height = Math.max(1, (int) (_webView.getHeight() * clampedScale));
-            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
-            android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
-            canvas.scale(clampedScale, clampedScale);
-            _webView.draw(canvas);
+    public void takeSnapshotData(float scale, float quality, Consumer<String> done) {
+        Consumer<Bitmap> encode = source -> encodeSnapshot(source, scale, quality, done);
+        if (presentation != null) presentation.snapshot(encode);
+        else captureWebView(encode);
+    }
 
-            int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, qualityPct, baos);
-            bmp.recycle();
-            String b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
-            return "data:image/jpeg;base64," + b64;
-        } catch (Exception e) {
-            Log.e("InAppBrowser", "takeSnapshotData failed: " + e.getMessage());
-            return null;
+    void captureWebView(Consumer<Bitmap> done) {
+        Window window = getWindow();
+        if (_webView == null || window == null || _webView.getWidth() == 0 || _webView.getHeight() == 0) {
+            done.accept(null);
+            return;
         }
+        int[] at = new int[2];
+        _webView.getLocationInWindow(at);
+        Bitmap bitmap = Bitmap.createBitmap(_webView.getWidth(), _webView.getHeight(), Bitmap.Config.ARGB_8888);
+        Rect rect = new Rect(at[0], at[1], at[0] + bitmap.getWidth(), at[1] + bitmap.getHeight());
+        try {
+            snapshotter.capture(window, rect, bitmap, result -> done.accept(result == PixelCopy.SUCCESS ? bitmap : null));
+        } catch (RuntimeException e) {
+            Log.e("InAppBrowser", "snapshot capture failed: " + e.getMessage());
+            done.accept(null);
+        }
+    }
+
+    void hardwareCopy(Bitmap source, Consumer<Bitmap> done) {
+        snapshotter.encode(() -> {
+            Bitmap copy = null;
+            try {
+                copy = source.copy(Bitmap.Config.HARDWARE, false);
+            } catch (RuntimeException e) {
+                Log.w("InAppBrowser", "hardware snapshot copy failed: " + e.getMessage());
+            }
+            Bitmap result = copy;
+            if (result != null) mainHandler.post(() -> done.accept(result));
+        });
+    }
+
+    private void encodeSnapshot(Bitmap source, float scale, float quality, Consumer<String> done) {
+        if (source == null) {
+            done.accept(null);
+            return;
+        }
+        float clampedScale = Math.max(0.05f, Math.min(1.0f, scale));
+        int width = Math.max(1, (int) (source.getWidth() * clampedScale));
+        int height = Math.max(1, (int) (source.getHeight() * clampedScale));
+        int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
+        snapshotter.encode(() -> {
+            String data = null;
+            try {
+                Bitmap scaled = Bitmap.createScaledBitmap(source, width, height, true);
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                scaled.compress(Bitmap.CompressFormat.JPEG, qualityPct, bytes);
+                if (scaled != source) scaled.recycle();
+                data = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
+            } catch (RuntimeException e) {
+                Log.e("InAppBrowser", "snapshot encode failed: " + e.getMessage());
+            }
+            String result = data;
+            mainHandler.post(() -> done.accept(result));
+        });
     }
 }

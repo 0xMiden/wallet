@@ -4,6 +4,9 @@ import android.animation.ValueAnimator;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -14,6 +17,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.Interpolator;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -39,10 +44,15 @@ import org.json.JSONTokener;
 import java.util.Collections;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 @androidx.annotation.OptIn(markerClass = androidx.webkit.WebNavigationClient.ExperimentalNavigationCallback.class)
 final class BreadPresentationController {
     private static final int FALLBACK = Color.rgb(22, 22, 22);
+    private static final float CROSSFADE_PROGRESS = 0.35f;
+    private static final long COLLAPSE_CROSSFADE_MS = 100;
+    private static final long EXPAND_CROSSFADE_MS = 120;
+    private static final Interpolator EASE_OUT = new DecelerateInterpolator();
     final BreadPresentationState state;
     private final WebViewDialog owner;
     private final WebView webView;
@@ -56,6 +66,19 @@ final class BreadPresentationController {
     private final ProgressBar spinner;
     private final ImageView proxy;
     private final BreadMorphController morph;
+    private final ViewGroup container;
+    private final int[] origin = new int[2];
+    private final List<Consumer<Bitmap>> captureWaiters = new ArrayList<>();
+    private String morphId;
+    private long morphSequence;
+    private boolean posed;
+    private boolean proxyCovering;
+    private boolean crossfaded;
+    private boolean insetsDeferred;
+    private boolean capturing;
+    private int captureEpoch;
+    private Bitmap proxyBitmap;
+    private Bitmap capture;
     private ScriptHandler script;
     private boolean supported;
     private boolean installed;
@@ -172,16 +195,23 @@ final class BreadPresentationController {
         overlay.addView(back, new FrameLayout.LayoutParams(dp(76), dp(48), Gravity.TOP | Gravity.START));
         ViewGroup root = owner.findViewById(R.id.coordinator_layout);
         root.addView(overlay, new ViewGroup.LayoutParams(-1, -1));
+        container = root;
         proxy = new ImageView(owner.getContext());
+        proxy.setScaleType(ImageView.ScaleType.MATRIX);
+        proxy.setClickable(true);
+        proxy.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        proxy.setVisibility(View.GONE);
+        overlay.addView(proxy, 0, new FrameLayout.LayoutParams(-1, -1));
         morph = new BreadMorphController(root, new BreadMorphController.Listener() {
-            @Override public void onFrame(float p) { }
-            @Override public void onSettled(float end) { }
+            @Override public void onFrame(float p) { morphFrame(p); }
+            @Override public void onSettled(float end) { morphSettled(end); }
         });
         webView.addOnLayoutChangeListener((v, l, t, r, b, oldL, oldT, oldR, oldB) -> {
             int width = r - l, height = b - t;
             if (width != layoutWidth || height != layoutHeight) {
                 layoutWidth = width;
                 layoutHeight = height;
+                finishMotion();
                 invalidateLayout();
             }
         });
@@ -193,7 +223,9 @@ final class BreadPresentationController {
                 controlTop = top;
                 controlLeft = left;
                 positionControls();
-                invalidateLayout();
+                // A real change waits for the motion to land, then invalidates like any other.
+                if (posed) insetsDeferred = true;
+                else invalidateLayout();
             }
             return insets;
         });
@@ -352,12 +384,208 @@ final class BreadPresentationController {
     void failed() { state.fail(); cancelPaint(); render(); }
 
     boolean morph(String to, BreadMorphCard card, float vx, float vy, String id, Integer revision, Integer sequence) {
+        if (id == null || owner.managedClosing() || state.phase() == BreadPresentationState.Phase.CLOSED) return false;
+        if ("collapsed".equals(to)) return collapse(card, vx, vy, id, sequence);
+        if ("expanded".equals(to)) return expand(card, vx, vy, id, revision, sequence);
         return false;
     }
 
-    void snapshot(java.util.function.Consumer<Bitmap> done) { done.accept(null); }
+    private boolean collapse(BreadMorphCard card, float vx, float vy, String id, Integer sequence) {
+        boolean flying = flying();
+        if (!flying && (posed || !owner.isShowing() || !state.surfaceVisibility())) return false;
+        if (container.getWidth() == 0 || container.getHeight() == 0) return false;
+        if (!state.requestVisibility(true, null, sequence, SystemClock.uptimeMillis())) return false;
+        if (!flying) container.getLocationInWindow(origin);
+        BreadMorphCard landing = landing(card);
+        beginFlight(BreadPresentationState.Motion.COLLAPSING, id, sequence);
+        if (proxyCovering) {
+            proxyCovering = false;
+            crossfaded = true;
+        }
+        if (flying) emit("retargeted", 0, false);
+        else {
+            posed = true;
+            webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            captureProxy();
+            emit("started", 0, false);
+        }
+        morph.animateTo(0, landing, velocity(landing, vx, vy), BreadMorphPhysics.COLLAPSE);
+        return true;
+    }
 
-    void stopMotion() { }
+    private boolean expand(BreadMorphCard card, float vx, float vy, String id, Integer revision, Integer sequence) {
+        boolean flying = flying();
+        if (!posed && owner.isShowing()) return false;
+        boolean previous = state.effectiveVisibility();
+        if (!state.requestVisibility(true, revision, sequence, SystemClock.uptimeMillis())) return false;
+        if (!state.surfaceVisibility() || container.getWidth() == 0 || container.getHeight() == 0) {
+            if (previous != state.effectiveVisibility()) cancelPaint();
+            render();
+            return false;
+        }
+        boolean resumed = posed;
+        if (!resumed) container.getLocationInWindow(origin);
+        BreadMorphCard landing = landing(card);
+        beginFlight(BreadPresentationState.Motion.EXPANDING, id, sequence);
+        if (resumed) {
+            if (crossfaded) {
+                crossfaded = false;
+                // A page that never hid needs no fence; one invalidated in flight keeps the proxy until it paints.
+                if (state.phase() == BreadPresentationState.Phase.VISIBLE) fadeProxyOut();
+                else proxyCovering = true;
+            }
+            BreadMorphCard path = flying ? landing : morph.card();
+            emit(flying ? "retargeted" : "started", 1, false);
+            morph.animateTo(1, path, velocity(path, vx, vy), BreadMorphPhysics.EXPAND);
+            return true;
+        }
+        posed = true;
+        crossfaded = false;
+        proxyCovering = state.proxyUsable() && proxyBitmap != null;
+        morph.place(landing, 0);
+        if (previous != state.effectiveVisibility()) cancelPaint();
+        render();
+        emit("started", 1, false);
+        morph.animateTo(1, landing, velocity(landing, vx, vy), BreadMorphPhysics.EXPAND);
+        return true;
+    }
+
+    private boolean flying() { return morph.running(); }
+
+    private void beginFlight(BreadPresentationState.Motion motion, String id, Integer sequence) {
+        state.beginMotion(motion);
+        morphId = id;
+        morphSequence = sequence == null ? state.acknowledgedVisibilitySequence() : sequence;
+    }
+
+    private BreadMorphCard landing(BreadMorphCard card) {
+        if (card == null) return null;
+        RectF rect = new RectF(card.rect);
+        rect.offset(-origin[0], -origin[1]);
+        boolean inside = rect.width() > 0 && rect.height() > 0 && rect.left >= -0.5f && rect.top >= -0.5f
+            && rect.right <= container.getWidth() + 0.5f && rect.bottom <= container.getHeight() + 0.5f;
+        return inside ? new BreadMorphCard(rect, Math.max(0, card.cornerRadius)) : null;
+    }
+
+    private float velocity(BreadMorphCard landing, float vx, float vy) {
+        if (landing == null) return 0;
+        return BreadMorphGeometry.progressVelocity(vx, vy, landing.rect, new RectF(0, 0, container.getWidth(), container.getHeight()));
+    }
+
+    private void emit(String phase, float target, boolean tracking) {
+        BreadMorphEvent event = event(phase, target, tracking);
+        if (event != null) owner.morphEvent(event);
+    }
+
+    private BreadMorphEvent event(String phase, float target, boolean tracking) {
+        if (morphId == null) return null;
+        return new BreadMorphEvent(morphId, phase, target >= 0.5f ? "expanded" : "collapsed", morph.progress(),
+            morph.velocity(), tracking, morphSequence);
+    }
+
+    private void morphFrame(float p) {
+        if (state.motion() == BreadPresentationState.Motion.COLLAPSING && !crossfaded && p <= CROSSFADE_PROGRESS
+            && proxyBitmap != null && state.proxyUsable()) {
+            crossfaded = true;
+            proxy.animate().cancel();
+            proxy.setVisibility(View.VISIBLE);
+            if (ValueAnimator.areAnimatorsEnabled()) {
+                proxy.setAlpha(0);
+                proxy.animate().alpha(1).setDuration(COLLAPSE_CROSSFADE_MS).setInterpolator(EASE_OUT).start();
+            } else proxy.setAlpha(1);
+        }
+    }
+
+    private void morphSettled(float end) {
+        state.endMotion();
+        if (end >= 1) restPose();
+        emit("settled", end, false);
+        morphId = null;
+    }
+
+    private void finishMotion() { if (flying()) morph.finishAtNearestEnd(); }
+
+    private void restPose() {
+        if (!posed) return;
+        posed = false;
+        crossfaded = false;
+        capture = null;
+        morph.reset();
+        if (!state.surfaceVisibility()) { insetsDeferred = false; return; }
+        if (insetsDeferred) {
+            insetsDeferred = false;
+            invalidateLayout();
+        } else render();
+    }
+
+    private boolean proxyRoute() {
+        if (proxyCovering && (!state.proxyUsable() || proxyBitmap == null)) proxyCovering = false;
+        return proxyCovering;
+    }
+
+    private void hideProxy() {
+        proxyCovering = false;
+        proxy.animate().cancel();
+        proxy.setVisibility(View.GONE);
+        proxy.setAlpha(0);
+    }
+
+    private void fadeProxyOut() {
+        proxyCovering = false;
+        proxy.animate().cancel();
+        if (!ValueAnimator.areAnimatorsEnabled()) { hideProxy(); return; }
+        proxy.animate().alpha(0).setDuration(EXPAND_CROSSFADE_MS).setInterpolator(EASE_OUT).withEndAction(() -> {
+            if (!crossfaded && !proxyCovering) proxy.setVisibility(View.GONE);
+        }).start();
+    }
+
+    void snapshot(Consumer<Bitmap> done) {
+        if (capturing) { captureWaiters.add(done); return; }
+        // In flight the window shows a scaled page, so only the capture the motion took at its start is the page.
+        if (posed) { done.accept(capture); return; }
+        captureWaiters.add(done);
+        captureProxy();
+    }
+
+    private void captureProxy() {
+        int epoch = ++captureEpoch;
+        long navigation = state.navigationGeneration();
+        Rect page = new Rect(0, 0, webView.getWidth(), webView.getHeight());
+        container.offsetDescendantRectToMyCoords(webView, page);
+        int dx = page.left - overlay.getLeft(), dy = page.top - overlay.getTop();
+        capturing = true;
+        owner.captureWebView(bitmap -> {
+            if (epoch != captureEpoch) return;
+            capturing = false;
+            boolean current = bitmap != null && navigation == state.navigationGeneration()
+                && state.phase() != BreadPresentationState.Phase.CLOSED;
+            if (current) adopt(bitmap, dx, dy);
+            List<Consumer<Bitmap>> waiters = new ArrayList<>(captureWaiters);
+            captureWaiters.clear();
+            for (Consumer<Bitmap> waiter : waiters) waiter.accept(current ? bitmap : null);
+        });
+    }
+
+    private void adopt(Bitmap bitmap, int dx, int dy) {
+        capture = bitmap;
+        proxyBitmap = bitmap;
+        state.captureProxy();
+        Matrix matrix = new Matrix();
+        matrix.setTranslate(dx, dy);
+        proxy.setImageMatrix(matrix);
+        proxy.setImageBitmap(bitmap);
+        int epoch = captureEpoch;
+        owner.hardwareCopy(bitmap, copy -> {
+            if (epoch != captureEpoch || proxyBitmap != bitmap) return;
+            proxyBitmap = copy;
+            proxy.setImageBitmap(copy);
+        });
+    }
+
+    void stopMotion() {
+        morphId = null;
+        finishMotion();
+    }
 
     android.graphics.RectF morphPageRect() { return new android.graphics.RectF(); }
     boolean fullscreen() { return state.fullscreen(); }
@@ -366,12 +594,22 @@ final class BreadPresentationController {
 
     void visibility(boolean visible, Integer policyRevision, Integer sequence) {
         boolean previous = state.effectiveVisibility();
+        BreadMorphEvent cancelled = flying() ? event("cancelled", morph.target(), false) : null;
         if (!state.requestVisibility(visible, policyRevision, sequence, SystemClock.uptimeMillis())) return;
+        if (!visible) {
+            morphId = null;
+            hideProxy();
+        }
         if (previous != state.effectiveVisibility()) cancelPaint();
         render();
+        if (visible) return;
+        // The window is already hidden, so leaving the pose shows no frame of the page at rest.
+        restPose();
+        if (cancelled != null) owner.morphEvent(cancelled);
     }
 
     void foreground(boolean foreground) {
+        if (!foreground) finishMotion();
         state.foreground(foreground, SystemClock.uptimeMillis());
         cancelPaint();
         render();
@@ -387,10 +625,26 @@ final class BreadPresentationController {
         pendingPaint = -1;
         cover.animate().cancel();
         cover.setAlpha(1);
+        if (proxyRoute()) {
+            proxy.animate().cancel();
+            proxy.setAlpha(1);
+        }
         webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
     }
 
     void close() {
+        morphId = null;
+        morph.reset();
+        posed = false;
+        crossfaded = false;
+        capture = null;
+        proxyBitmap = null;
+        hideProxy();
+        captureEpoch++;
+        capturing = false;
+        List<Consumer<Bitmap>> waiters = new ArrayList<>(captureWaiters);
+        captureWaiters.clear();
+        for (Consumer<Bitmap> waiter : waiters) waiter.accept(null);
         restoreWindow();
         state.close();
         cancelPaint();
@@ -486,7 +740,13 @@ final class BreadPresentationController {
 
     private void renderCover() {
         boolean failed = state.phase() == BreadPresentationState.Phase.ERROR;
-        cover.setVisibility(View.VISIBLE);
+        if (!failed && proxyRoute()) {
+            proxy.setVisibility(View.VISIBLE);
+            cover.setVisibility(View.GONE);
+        } else {
+            if (!crossfaded) hideProxy();
+            cover.setVisibility(View.VISIBLE);
+        }
         webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         error.setVisibility(failed ? View.VISIBLE : View.GONE);
         retry.setVisibility(failed ? View.VISIBLE : View.GONE);
@@ -593,16 +853,21 @@ final class BreadPresentationController {
         state.painted(generation);
         pendingPaint = -1;
         back.setVisibility(fullscreen() ? View.VISIBLE : View.GONE);
-        if (ValueAnimator.areAnimatorsEnabled()) {
+        if (!ValueAnimator.areAnimatorsEnabled()) finishReveal(generation);
+        else if (proxyRoute()) {
+            proxy.animate().alpha(0).setDuration(EXPAND_CROSSFADE_MS).setInterpolator(EASE_OUT)
+                .withEndAction(() -> finishReveal(generation)).start();
+        } else {
             cover.animate().alpha(0).setDuration(160).withEndAction(() -> {
                 finishReveal(generation);
             }).start();
-        } else finishReveal(generation);
+        }
     }
 
     private void finishReveal(long generation) {
         if (!state.canReveal(generation)) return;
         cover.setVisibility(View.GONE);
+        if (!crossfaded) hideProxy();
         webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
     }
 

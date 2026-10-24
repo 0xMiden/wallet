@@ -1350,14 +1350,15 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        String dataUrl = dialog.takeSnapshotData(scale, quality);
-                        if (dataUrl == null) {
-                            call.reject("snapshot failed");
-                            return;
-                        }
-                        JSObject ret = new JSObject();
-                        ret.put("data", dataUrl);
-                        call.resolve(ret);
+                        dialog.takeSnapshotData(scale, quality, dataUrl -> {
+                            if (dataUrl == null) {
+                                call.reject("snapshot failed");
+                                return;
+                            }
+                            JSObject ret = new JSObject();
+                            ret.put("data", dataUrl);
+                            call.resolve(ret);
+                        });
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "Error taking snapshot: " + e.getMessage());
                         call.reject("snapshot failed: " + e.getMessage());
