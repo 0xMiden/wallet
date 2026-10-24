@@ -4,13 +4,14 @@ const mockVisible = jest.fn(async (_options: unknown) => {});
 const mockRect = jest.fn(async (_options: unknown) => {});
 const mockMorph = jest.fn(async (_options: unknown) => ({ accepted: true }));
 const mockTarget = jest.fn(async (_options: unknown) => {});
+const mockClose = jest.fn(async (_options: unknown) => {});
 jest.mock('../../../packages/dapp-browser/dist/esm/index.js', () => ({
   InAppBrowser: {
     setVisible: (options: unknown) => mockVisible(options),
     updateDimensions: (options: unknown) => mockRect(options),
     morph: (options: unknown) => mockMorph(options),
     setMorphTarget: (options: unknown) => mockTarget(options),
-    close: async () => {}
+    close: (options: unknown) => mockClose(options)
   }
 }));
 
@@ -127,14 +128,22 @@ it('sends a policy revision only with an expand', async () => {
 it('answers a morph on a closed wrapper as not accepted without a native call', async () => {
   const closed = new DappWebViewInstance('session', 'lifetime');
   await closed.close();
+  await expect(closed.morph({ to: 'expanded', card: CARD, morphId: 'm1' })).resolves.toEqual({ accepted: false });
+  expect(closed.currentVisibilitySequence).toBe(0);
+
+  // Native close stays pending, so only the in-flight close can refuse the morph.
+  let releaseClose = () => {};
+  mockClose.mockImplementationOnce(() => new Promise<void>(resolve => (releaseClose = resolve)));
   const closing = new DappWebViewInstance('other', 'lifetime');
   const pending = closing.close();
-  await expect(closed.morph({ to: 'expanded', card: CARD, morphId: 'm1' })).resolves.toEqual({ accepted: false });
-  await expect(closing.morph({ to: 'collapsed', card: CARD, morphId: 'm2' })).resolves.toEqual({ accepted: false });
-  await pending;
-  expect(mockMorph).not.toHaveBeenCalled();
-  expect(closed.currentVisibilitySequence).toBe(0);
-  expect(closing.currentVisibilitySequence).toBe(0);
+  try {
+    await expect(closing.morph({ to: 'collapsed', card: CARD, morphId: 'm2' })).resolves.toEqual({ accepted: false });
+    expect(mockMorph).not.toHaveBeenCalled();
+    expect(closing.currentVisibilitySequence).toBe(0);
+  } finally {
+    releaseClose();
+    await pending;
+  }
 });
 
 it('publishes the landing card through the manager', async () => {
