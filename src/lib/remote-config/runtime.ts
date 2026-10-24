@@ -470,7 +470,7 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
   startupEligibility = (async (): Promise<GeoLookup> => {
     let geo: GeoLookup;
     try {
-      let snapshot = await ensureBridgeConfig();
+      const snapshot = await ensureBridgeConfig();
       let decision = snapshot.config ? await lookupFeatureEligibility(snapshot.network, snapshot.config.version) : null;
       if (!decision && snapshot.config) {
         const state = states.get(snapshot.network);
@@ -479,8 +479,7 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
           await startRefresh(state);
           const refreshed = state.snapshot;
           if (refreshed.config && refreshed.config.version > snapshot.config.version) {
-            snapshot = refreshed;
-            decision = await lookupFeatureEligibility(snapshot.network, snapshot.config.version);
+            decision = await lookupFeatureEligibility(refreshed.network, refreshed.config.version);
           }
         }
       }
