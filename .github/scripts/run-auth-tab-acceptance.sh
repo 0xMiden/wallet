@@ -123,6 +123,8 @@ grep -m1 'versionName=158.0.2' "$results_dir/firefox-package.txt"
 for _ in $(seq 1 60); do adb shell ls /sdcard/ >/dev/null 2>&1 && break; sleep 2; done
 adb shell mkdir -p /sdcard/Download
 adb push "$RUNNER_TEMP/auth-tab-cert/auth-tab-root-ca.crt" /sdcard/Download/auth-tab-root-ca.crt
+# An adb push is invisible to the file picker until MediaStore indexes it.
+adb shell content call --uri content://media --method scan_volume --arg external_primary >/dev/null || true
 
 run_instrumentation_test com.miden.wallet.AuthTabCertificateSetupTest certificate-setup.log \
   caSubject "$AUTH_TAB_CA_SUBJECT" devicePin "$device_pin"

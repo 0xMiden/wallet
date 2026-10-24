@@ -50,8 +50,8 @@ public class AuthTabCertificateSetupTest {
         clickText(device, "CA certificate");
         clickPastMore(device, "Install anyway");
         confirmPinIfAsked(device, devicePin, "Downloads", CERTIFICATE_FILE);
-        // The picker can open on Recent files with the certificate already listed.
-        if (!waitForEither(device, CERTIFICATE_FILE, "Downloads")) clickText(device, "Downloads");
+        // The picker can open on Recent files, with or without the certificate listed; Downloads is then in its drawer.
+        if (!waitForEither(device, CERTIFICATE_FILE, "Downloads")) openDownloads(device);
         clickText(device, CERTIFICATE_FILE);
         confirmPinIfAsked(device, devicePin, "Install anyway", "Install", "OK", "Done");
         clickFirstAvailable(device, "Install anyway", "Install", "OK");
@@ -198,15 +198,29 @@ public class AuthTabCertificateSetupTest {
         }
     }
 
-    // True when `first` shows; false when only `second` does. Waits without scrolling, since the picker is still opening.
+    // True when `first` shows; false when it does not, once `second` or the picker's Recent view is up.
+    // Waits without scrolling, since the picker is still opening.
     private static boolean waitForEither(UiDevice device, String first, String second) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UI_TIMEOUT_MS);
+        int recentPolls = 0;
         while (System.nanoTime() < deadline) {
             if (device.findObject(label(first)) != null) return true;
             if (device.findObject(label(second)) != null) return false;
+            // Recent lists its files a moment after its header, so give it two seconds before going to Downloads.
+            if (device.findObject(label("Recent files")) != null && ++recentPolls > 4) return false;
             device.waitForWindowUpdate(null, 500);
         }
         throw new AssertionError("neither " + first + " nor " + second + " showed; on screen: " + visibleLabels(device));
+    }
+
+    private static void openDownloads(UiDevice device) {
+        if (device.findObject(label("Downloads")) == null) {
+            UiObject2 roots = device.wait(Until.findObject(By.desc(Pattern.compile("(?i)show roots"))), UI_TIMEOUT_MS);
+            assertNotNull("picker roots drawer not found; on screen: " + visibleLabels(device), roots);
+            roots.click();
+            device.waitForIdle();
+        }
+        clickText(device, "Downloads");
     }
 
     private static UiObject2 findText(UiDevice device, String text, long timeoutMs) {
