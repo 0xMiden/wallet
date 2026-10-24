@@ -16,6 +16,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowChoreographer;
+import org.robolectric.shadows.ShadowTrace;
 import org.robolectric.util.ReflectionHelpers;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -196,5 +197,32 @@ public class BreadMorphControllerTest {
         assertTrue(controller.progress() < 0.25f);
         settle();
         assertEquals(List.of(0f), settled);
+    }
+
+    @Test public void traceCountersRecordProgressWhileMoving() {
+        controller.animateTo(0, card(), 0, BreadMorphPhysics.COLLAPSE);
+        settle();
+        List<Long> values = new ArrayList<>();
+        for (ShadowTrace.Counter counter : ShadowTrace.getCounters()) {
+            if ("bread_morph_p".equals(counter.getName())) values.add(counter.getValue());
+        }
+        assertTrue(values.size() > 5);
+        assertEquals(Long.valueOf(0), values.get(values.size() - 1));
+        int sections = 0;
+        for (ShadowTrace.AsyncTraceSection section : ShadowTrace.getPreviousAsyncSections()) {
+            if ("bread_morph".equals(section.getSectionName())) sections++;
+        }
+        assertEquals(1, sections);
+        for (ShadowTrace.AsyncTraceSection section : ShadowTrace.getCurrentAsyncSections()) {
+            assertNotEquals("bread_morph", section.getSectionName());
+        }
+    }
+
+    @Test @Config(sdk = 28)
+    public void traceCountersAreSkippedOnApi28() {
+        controller.animateTo(0, card(), 0, BreadMorphPhysics.COLLAPSE);
+        settle();
+        assertEquals(List.of(0f), settled);
+        assertTrue(ShadowTrace.getCounters().isEmpty());
     }
 }
