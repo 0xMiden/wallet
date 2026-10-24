@@ -64,6 +64,7 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ["the node's consume verdict", ['landed-local', 'landed-external', 'invalid', 'processing', 'not-landed', 'unknown']],
   ['storage owner', STORAGE_OWNERS],
   ['storage operation', STORAGE_OPERATIONS],
   ['page visibility', PAGE_VISIBILITY],
