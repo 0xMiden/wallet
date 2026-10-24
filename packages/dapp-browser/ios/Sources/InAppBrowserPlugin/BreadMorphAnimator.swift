@@ -152,6 +152,7 @@ final class BreadMorphFrameTarget: NSObject {
     }
 
     @objc func frame(_ link: CADisplayLink) {
+        animator?.displayFrame(link.targetTimestamp)
         #if DEBUG
         guard trace, let animator else { return }
         let frame = NSCoder.string(for: animator.presentationFrame())
@@ -258,6 +259,7 @@ final class BreadMorphAnimator {
     private var held: Double = 1
     private var fade: (from: Double, start: CFTimeInterval)?
     private var settleWork: DispatchWorkItem?
+    private var settleDeadline: CFTimeInterval?
     private var runToken = 0
     private var signpost: OSSignpostID?
 
@@ -295,7 +297,10 @@ final class BreadMorphAnimator {
 
     func velocity() -> Double { spring?.sample(at: now()).velocity ?? 0 }
 
-    func displayFrame(_ targetTimestamp: CFTimeInterval) {}
+    func displayFrame(_ targetTimestamp: CFTimeInterval) {
+        guard let deadline = settleDeadline, targetTimestamp >= deadline else { return }
+        settleWork?.perform()
+    }
 
     func presentationFrame() -> CGRect { container?.presentationFrame() ?? .zero }
 
@@ -359,6 +364,7 @@ final class BreadMorphAnimator {
             onSettle()
         }
         settleWork = work
+        settleDeadline = CACurrentMediaTime() + settling
         DispatchQueue.main.asyncAfter(deadline: .now() + settling, execute: work)
     }
 
@@ -456,6 +462,7 @@ final class BreadMorphAnimator {
         runToken += 1
         settleWork?.cancel()
         settleWork = nil
+        settleDeadline = nil
     }
 
     private func removeCompanionAnimations() {
