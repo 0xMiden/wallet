@@ -52,7 +52,8 @@ export function startMorphCompanions(
   const shownTo = collapsing ? 1 : 0;
   const capsuleTo = collapsing ? { opacity: 0, lift: -MORPH_TIMING.capsuleLiftPx } : { opacity: 1, lift: 0 };
   if (capsule && capsuleFrom) {
-    capsule.style.pointerEvents = collapsing ? 'none' : '';
+    // Inert while the page moves either way: an expand holds it invisible through its delay. The stop gives it back.
+    capsule.style.pointerEvents = 'none';
     const delay = collapsing || reduceMotion ? 0 : capsuleFadeInDelay(motion);
     const duration = reduceMotion
       ? MORPH_TIMING.reducedFadeMs
