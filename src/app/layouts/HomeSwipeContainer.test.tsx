@@ -660,6 +660,86 @@ describe('HomeSwipeContainer', () => {
     });
   });
 
+  // A wheel or trackpad scroll sends no touches, so its events are dropped while the slide runs;
+  // the slide's end is then the only chance to notice the scroller is somewhere else.
+  describe('a wheel scroll during a tap slide', () => {
+    it('settles a finished slide onto the page a wheel left there', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/send');
+      frame();
+      mockNavigate.mockClear();
+      mockHapticSelection.mockClear();
+      mockScrollTo.mockClear();
+
+      scroller.scrollLeft = 4 * W;
+      finishAnimation(lastAnimation());
+
+      expect(mockNavigate).toHaveBeenCalledWith('/swap');
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+      expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
+      expect(scroller.scrollLeft).toBe(4 * W);
+      expect(mockScrollTo).not.toHaveBeenCalled();
+
+      route(rerender, '/swap');
+      expect(notInert(scroller)).toEqual(['swap']);
+    });
+
+    it('nudges a finished slide that a wheel left between pages', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      mockNavigate.mockClear();
+      mockHapticSelection.mockClear();
+      mockScrollTo.mockClear();
+
+      scroller.scrollLeft = 2 * W + 120;
+      finishAnimation(lastAnimation());
+
+      expect(mockScrollTo).toHaveBeenLastCalledWith({ left: 2 * W, behavior: 'smooth' });
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      scroller.scrollLeft = 2 * W;
+      fire(scroller, 'scrollend');
+
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/receive');
+    });
+
+    it('does not settle a slide a touch catches before it finishes', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      scroller.scrollLeft = 4 * W;
+
+      fire(scroller, 'touchstart', 1);
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(scroller.scrollLeft).toBe(3 * W);
+    });
+
+    it('settles a slide that finishes under a finger only once the finger lifts', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      route(rerender, '/send');
+      scroller.scrollLeft = 4 * W;
+
+      finishAnimation(lastAnimation());
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/swap');
+    });
+  });
+
   describe('a touch during a tap slide', () => {
     it('catches the slide where it is on screen and hands it to the native scroll', () => {
       const { scroller, track, rerender } = mount();

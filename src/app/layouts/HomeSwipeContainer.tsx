@@ -158,6 +158,9 @@ const HomeSwipeContainer: FC = () => {
   // A touch caught a slide and is still down: snapping stays off until it lifts, even if another
   // slide starts and ends under it.
   const catchHeldRef = useRef(false);
+  // The scroll effect's finger and rest check, refreshed every time that effect runs. A slide
+  // that finishes off its target calls it; a cancel, a catch and a finger still down do not settle.
+  const checkRestRef = useRef<(() => void) | null>(null);
 
   useLayoutEffect(() => {
     widthRef.current = width;
@@ -217,13 +220,25 @@ const HomeSwipeContainer: FC = () => {
     if (flipRef.current !== flip) return;
     flipRef.current = null;
     if (cancel) flip.animation.cancel();
-    // The transform is gone and the scroller sits on the page, so snapping back on moves nothing.
+    // Snap moves nothing when the scroller already sits on a boundary, including a boundary other
+    // than the slide's target.
     const scroller = scrollerRef.current;
     if (scroller && !catchHeldRef.current) scroller.style.scrollSnapType = SNAP_TYPE;
     const track = trackRef.current;
     if (track) track.style.willChange = '';
     scrollerRef.current?.removeEventListener('pointerdown', blockFieldFocus, true);
     flip.endInteraction();
+    // The transform is gone, so scrollLeft is the page on screen. Cancel and a held catch place
+    // the scroller themselves; on the slide's target there is nothing to settle.
+    if (
+      cancel ||
+      catchHeldRef.current ||
+      !scroller ||
+      Math.abs(scroller.scrollLeft - flip.targetLeft) <= pagerMotion.alignTolerancePx
+    ) {
+      return;
+    }
+    checkRestRef.current?.();
   }, []);
 
   /**
@@ -349,6 +364,12 @@ const HomeSwipeContainer: FC = () => {
       // At rest between two pages: a touch stopped a slide and lifted without dragging. Snap to the
       // nearest page; that scroll's own end settles it.
       scroller.scrollTo({ left: k * w, behavior: 'smooth' });
+    };
+    // Refreshed each run so it closes over this effect's finger and rest check. endFlip calls it
+    // only once a slide has finished off its target, after the flip is cleared and snap is back.
+    checkRestRef.current = () => {
+      if (touchDown) return;
+      checkRest();
     };
 
     const onIdle = () => {
