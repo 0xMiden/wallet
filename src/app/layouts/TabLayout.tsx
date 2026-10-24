@@ -27,6 +27,7 @@ import {
 import { announceFooterMounted } from 'app/pages/Browser/peek-footer';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
+import { useHasUnreadBadges } from 'lib/badges/useWalletBadges';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
@@ -177,6 +178,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
   const hasUnreadActivity = useHasUnreadActivity();
+  const hasUnreadBadges = useHasUnreadBadges();
   // Content of each tab that has been shown. The active tab's entry is
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
@@ -214,7 +216,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'me',
       label: t('profile'),
-      icon: <Icon name={IconName.User} className="w-6 h-6" fill="currentColor" />
+      icon: <Icon name={IconName.User} className="w-6 h-6" fill="currentColor" />,
+      unread: hasUnreadBadges ? { label: t('activityUnread') } : undefined
     }
   ];
 
