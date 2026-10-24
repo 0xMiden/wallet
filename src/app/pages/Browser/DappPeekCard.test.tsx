@@ -55,7 +55,7 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: { Close: 'Close' } }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
 const mockPrepareMorph = jest.fn();
-jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: () => mockPrepareMorph() }));
+jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: (...args: unknown[]) => mockPrepareMorph(...args) }));
 jest.mock('lib/dapp-browser', () => ({
   getDappDisplayName: (session: { title: string }) => session.title,
   getFallbackColor: () => '#123456',
@@ -131,9 +131,11 @@ it('raises the frame rate when a finger lands on the card and again when it lift
 
   fireEvent.pointerDown(screen.getByTestId('dapp-peek-card'));
   expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
+  expect(mockPrepareMorph).toHaveBeenLastCalledWith(SESSION.id);
   expect(onCommitRestore).not.toHaveBeenCalled();
   fireEvent.pointerUp(screen.getByTestId('dapp-peek-card'));
   expect(mockPrepareMorph).toHaveBeenCalledTimes(2);
+  expect(mockPrepareMorph).toHaveBeenLastCalledWith(SESSION.id);
   fireEvent.pointerDown(screen.getByTestId('dapp-peek-card-close'));
   expect(mockPrepareMorph).toHaveBeenCalledTimes(2);
 });

@@ -23,6 +23,12 @@ it('asks native for the full frame rate for a window that a morph takes over', a
   expect(MORPH_PREPARE_MS).toBeLessThanOrEqual(1000);
 });
 
+it('names the window to warm, when a control restores a particular dApp', async () => {
+  await prepareMorph('dapp-7');
+
+  expect(mockPrepare).toHaveBeenCalledWith({ durationMs: MORPH_PREPARE_MS, id: 'dapp-7' });
+});
+
 it('sends nothing off mobile', async () => {
   mockMobile.value = false;
 

@@ -21,7 +21,7 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 jest.mock('lib/dapp-browser/snapshot-store', () => ({ getSnapshot: () => undefined }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
 const mockPrepareMorph = jest.fn();
-jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: () => mockPrepareMorph() }));
+jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: (...args: unknown[]) => mockPrepareMorph(...args) }));
 
 // motion.div as a plain div that reports its `layout` mode.
 jest.mock('framer-motion', () => {
@@ -86,6 +86,7 @@ describe('DappSwitcher', () => {
     fireEvent.pointerDown(screen.getByTestId('dapp-switcher-card'));
 
     expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
+    expect(mockPrepareMorph).toHaveBeenCalledWith('session-1');
     expect(mockRestore).not.toHaveBeenCalled();
   });
 

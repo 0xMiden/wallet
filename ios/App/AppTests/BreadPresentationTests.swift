@@ -3219,6 +3219,49 @@ final class BreadMorphPluginTests: XCTestCase {
         XCTAssertEqual(log.configurations.count, 0)
     }
 
+    func testPrepareMorphNamingAParkedPageShowsItsWindowUnseenSoTheMorphsFirstFrameIsNotTheUnhide() async throws {
+        let (live, _) = try await parkedWithProxy()
+        defer { live.dispose(); BreadFrameRateBoost.shared.release() }
+        try await call("prepareMorph", ["durationMs": 600, "id": live.instance.id])
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertEqual(live.window.alpha, 0)
+        XCTAssertFalse(live.presentation.state.surfaceVisibility)
+    }
+
+    func testPrepareMorphWarmsOnlyTheNamedPage() async throws {
+        let (live, _) = try await parkedWithProxy()
+        defer { live.dispose(); BreadFrameRateBoost.shared.release() }
+        try await call("prepareMorph", ["durationMs": 600])
+        XCTAssertTrue(live.window.isHidden)
+        try await call("prepareMorph", ["durationMs": 600, "id": "another-page"])
+        XCTAssertTrue(live.window.isHidden)
+    }
+
+    func testTheMorphThatFollowsAWarmUpShowsThePageFromTheCardWithoutAJump() async throws {
+        let (live, plugin) = try await parkedWithProxy()
+        defer { live.dispose(); BreadFrameRateBoost.shared.release() }
+        let container = try XCTUnwrap(live.instance.morphContainer)
+        try await call("prepareMorph", ["durationMs": 600, "id": live.instance.id])
+        XCTAssertTrue(expand(live, "e1"))
+        XCTAssertEqual(live.window.alpha, 1)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertLessThan(try XCTUnwrap(live.presentation.animator).progress(), 0.2)
+        XCTAssertLessThan(container.presentationFrame().width, live.window.bounds.width / 2)
+        let settled = try await eventually { plugin.phases("e1").last == "settled" }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(live.window.alpha, 1)
+    }
+
+    func testAWarmUpNoMorphFollowsHidesTheWindowAgain() async throws {
+        let (live, _) = try await parkedWithProxy()
+        defer { live.dispose(); BreadFrameRateBoost.shared.release() }
+        try await call("prepareMorph", ["durationMs": 600, "id": live.instance.id])
+        XCTAssertFalse(live.window.isHidden)
+        let cooled = try await eventually { live.window.isHidden }
+        XCTAssertTrue(cooled)
+        XCTAssertEqual(live.window.alpha, 1)
+    }
+
     func testPrepareMorphHoldsTheFrameRateUntilAMorphTakesItOver() async throws {
         let (live, _) = try await revealed()
         let boost = BreadFrameRateBoost.shared
