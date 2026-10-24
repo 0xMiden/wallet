@@ -19,6 +19,7 @@ import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
 import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProvider';
 import { BreadConnectPrompt } from 'app/templates/BreadConnectPrompt';
+import { HotKeyRotatedOutGate } from 'app/templates/HotKeyRotatedOutGate';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { OpenLinkPrompt } from 'app/templates/OpenLinkPrompt';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
@@ -118,6 +119,7 @@ const App: FC<AppProps> = ({ env }) => {
                             <DappBrowserProvider>
                               <UpdateNotificationProvider>
                                 <HotKeyRotationGate />
+                                <HotKeyRotatedOutGate />
                                 <GuardianRecoveryProvider />
                                 <OpenLinkPrompt />
                                 <BreadConnectPrompt />
@@ -127,6 +129,7 @@ const App: FC<AppProps> = ({ env }) => {
                           ) : (
                             <UpdateNotificationProvider>
                               <HotKeyRotationGate />
+                              <HotKeyRotatedOutGate />
                               <GuardianRecoveryProvider />
                               <PageRouter />
                             </UpdateNotificationProvider>
