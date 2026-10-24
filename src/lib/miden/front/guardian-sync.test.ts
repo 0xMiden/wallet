@@ -75,7 +75,7 @@ const storeState: {
   persistNewHotKey: jest.fn(),
   swapHotKey: jest.fn(),
   setGuardianEndpoint: jest.fn(),
-  markHotKeyRotatedOut: jest.fn(async () => undefined),
+  markHotKeyRotatedOut: jest.fn(),
   revertGuardianEndpointAfterDiscard: jest.fn(async () => 'reverted'),
   checkGuardianDrift: jest.fn(),
   signTransaction: jest.fn()
@@ -1692,6 +1692,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+    // The verdict is persisted against the key it was judged on. A repeat from a later heal attempt
+    // (the cold service's adopt is once per service) is a no-op in the vault, so the count is not pinned.
     expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledWith(
       'acct-closed-budget',
       'hot',
@@ -1701,17 +1703,22 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     perfSpy.mockRestore();
   });
 
-  // A verdict that could not be written is not a finding yet: the budget stays open so a later tick records it.
-  it('keeps the budget open while the rotated-out verdict cannot be written', async () => {
+  // The budget still closes when the verdict cannot be written: the write is a courtesy to the
+  // screen, and a store that throws on it must not turn the permanent answer into a retried heal.
+  it('closes the budget even when the rotated-out verdict cannot be persisted', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // Once: `clearAllMocks` keeps implementations, and later tests expect the write to succeed.
+    storeState.markHotKeyRotatedOut.mockImplementationOnce(() => {
+      throw new Error('no store');
+    });
     mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
       })
     });
-    storeState.markHotKeyRotatedOut.mockRejectedValueOnce(new Error('intercom down'));
     storeState.accounts = [
-      { publicKey: 'acct-verdict-retry', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+      { publicKey: 'acct-closed-unwritten', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
 
     const start = Date.now();
@@ -1723,7 +1730,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       await syncGuardianAccounts();
     }
 
-    expect(storeState.markHotKeyRotatedOut.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
     nowSpy.mockRestore();
     perfSpy.mockRestore();
   });

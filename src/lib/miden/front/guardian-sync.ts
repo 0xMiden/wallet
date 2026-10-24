@@ -1905,8 +1905,10 @@ async function attemptColdReRegisterSelfHeal(
         // The verdict is persisted so the wallet can SAY so: without it this device
         // looks healthy between ticks (reads never touch the guardian) and every
         // write fails one at a time with a generic error. `account.hotPublicKey` is
-        // set here, since the keyless case returned above. A failed write is
-        // TRANSIENT: closing the budget on it would leave the verdict unrecorded for good.
+        // set here, since the keyless case returned above. Best-effort: a failed
+        // write leaves the next tick to persist it, and the budget closes either way.
+        // A try, not a `.catch`: a store without the action throws synchronously, and that must not
+        // turn a permanent verdict into a failed attempt that re-asks the guardian next cooldown.
         if (account.hotPublicKey) {
           try {
             await zustandProvider.markHotKeyRotatedOut?.(
@@ -1916,7 +1918,6 @@ async function attemptColdReRegisterSelfHeal(
             );
           } catch (markError) {
             console.warn(`[Guardian Sync] could not record that ${account.publicKey} was rotated out:`, markError);
-            return 'refused-transiently';
           }
         }
         // PERMANENT: this device was rotated out, and no later tick changes that.
