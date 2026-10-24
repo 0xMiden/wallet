@@ -1906,6 +1906,61 @@ describe('native morph adoption', () => {
     expect(parked()).toEqual(['origin']);
   });
 
+  it('settles an adopted collapse it drops when native rejects the expand that replaced it', async () => {
+    await openForeground();
+    act(() => control().open(session('second')));
+    await waitFor(() => expect(control().sessionStates[1]?.instance).not.toBeNull());
+    await act(async () => control().park('second'));
+    await act(async () => void control().restore('origin'));
+    await settle();
+    expect(control().mode).toBe('active');
+
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: 'native-1' })));
+    expect(control().motion).toMatchObject({ id: 'origin', morphId: 'native-1' });
+    await act(async () => void control().restore('second', { card: CARD }));
+    await settle();
+    expect(parked()).toContain('origin');
+
+    await act(async () => void control().restore('origin'));
+    await settle();
+    const sent = mockMorph.mock.calls.length;
+    act(() => nativeListeners.get('presentationMinimizeRequested')?.(minimizeEvent({ morphId: 'native-2' })));
+    await settle();
+    expect(control().motion).toMatchObject({ id: 'origin', morphId: 'native-2' });
+    expect(mockMorph.mock.calls.length).toBe(sent);
+  });
+
+  it('settles a collapse whose replacing expand was itself replaced before native rejected it', async () => {
+    await openForeground();
+    let answerExpand: (result: { accepted: boolean }) => void = () => undefined;
+    mockMorph
+      .mockResolvedValueOnce({ accepted: true })
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ accepted: boolean }>(resolve => {
+            answerExpand = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ accepted: true });
+    let firstParkSettled = false;
+    act(() => {
+      void control()
+        .park('origin')
+        .then(() => {
+          firstParkSettled = true;
+        });
+    });
+    await settle();
+    act(() => void control().restore('origin', { card: CARD }));
+    await settle();
+    act(() => void control().park('origin'));
+    await settle();
+
+    await act(async () => answerExpand({ accepted: false }));
+    await settle();
+    expect(firstParkSettled).toBe(true);
+  });
+
   it('springs a rejected native minimize back', async () => {
     await openForeground();
 
