@@ -193,7 +193,7 @@ public class BreadMorphControllerTest {
         controller.track(0.25f);
         assertEquals(0.25f, controller.progress(), 0);
         assertEquals(BreadMorphGeometry.pose(0.25f, card(), WIDTH, HEIGHT).scale, container.getScaleX(), 1e-5f);
-        controller.release(-2);
+        controller.animateTo(0, controller.card(), -2, BreadMorphPhysics.RELEASE);
         assertTrue(controller.running());
         frame();
         frame();
