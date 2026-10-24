@@ -1370,7 +1370,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let values = value as? [String: Any], let x = morphNumber(values["x"]), let y = morphNumber(values["y"]),
               let width = morphNumber(values["width"]), let height = morphNumber(values["height"]),
               let radius = morphNumber(values["cornerRadius"]), width > 0, height > 0, radius >= 0 else { return nil }
-        return BreadMorphCard(rect: CGRect(x: x, y: y, width: width, height: height), cornerRadius: CGFloat(radius))
+        // The shadow renderer sizes a bitmap from the radius, so no corner may exceed the card it rounds.
+        return BreadMorphCard(rect: CGRect(x: x, y: y, width: width, height: height),
+                              cornerRadius: CGFloat(min(radius, min(width, height) / 2)))
     }
 
     private static func morphNumber(_ value: Any?) -> Double? {
