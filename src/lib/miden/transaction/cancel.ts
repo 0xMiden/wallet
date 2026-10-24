@@ -1168,6 +1168,10 @@ const verifyStuckTransactions = async (): Promise<number> => {
     // sync: false — this reaper rides AutoSync; syncing per stuck consume would be
     // N syncs/cycle where the pre-#3a reaper did 0 (see verifyConsumeLanded).
     const verdict = await verifyConsumeLanded(tx, false);
+    // Do not cancel a local live attempt from a negative note read; keep landed and invalid verdicts authoritative.
+    if (startedInThisRealm.has(tx.id) && (verdict === 'not-landed' || verdict === 'landed-external')) {
+      continue;
+    }
 
     if (verdict === 'landed-local') {
       // The node confirms the note is consumed on chain by THIS client's own tracked
