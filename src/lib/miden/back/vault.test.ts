@@ -1575,7 +1575,9 @@ describe('Vault rotated-out hot key', () => {
   });
 
   it('retireRotatedOutHotKey refuses a stale expectation and changes nothing', async () => {
-    const vault = await seedRotatedOutAccount();
+    const vault = await seedRotatedOutAccount({
+      hotKeyRotatedOut: { hotPublicKey: 'hot-pub-hex', onChainHotCommitment: '0xchain', detectedAt: 1 }
+    });
 
     const caught = await vault.retireRotatedOutHotKey('guardian-acc-1', 'stale-pub').then(
       () => undefined,
@@ -1605,7 +1607,10 @@ describe('Vault rotated-out hot key', () => {
 
   // A hot-key-only import has nothing to sign the rotation with.
   it('retireRotatedOutHotKey refuses an account without a cold key', async () => {
-    const vault = await seedRotatedOutAccount({ coldPublicKey: undefined });
+    const vault = await seedRotatedOutAccount({
+      coldPublicKey: undefined,
+      hotKeyRotatedOut: { hotPublicKey: 'hot-pub-hex', onChainHotCommitment: '0xchain', detectedAt: 1 }
+    });
 
     await expect(vault.retireRotatedOutHotKey('guardian-acc-1', 'hot-pub-hex')).rejects.toBeInstanceOf(PublicError);
 
