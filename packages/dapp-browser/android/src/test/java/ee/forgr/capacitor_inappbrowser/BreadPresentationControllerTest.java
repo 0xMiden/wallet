@@ -1731,6 +1731,7 @@ public class BreadPresentationControllerTest {
         ReflectionHelpers.callInstanceMethod(controller, "invalidateLayout");
         assertEquals(View.VISIBLE, proxy.getVisibility());
         assertEquals(motionState(), 1, proxy.getAlpha(), 0);
+        assertEquals(255, proxy.getImageAlpha());
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
         BreadMorphControllerTest.advance(300);
         assertEquals(View.VISIBLE, proxy.getVisibility());
@@ -1773,6 +1774,7 @@ public class BreadPresentationControllerTest {
         assertEquals(View.VISIBLE, proxy.getVisibility());
         BreadMorphControllerTest.advance(150);
         assertEquals(1, proxy.getAlpha(), 0.001f);
+        assertEquals("the view fades, never the image", 255, proxy.getImageAlpha());
     }
 
     @Test @Config(shadows = PaintWebView.class)
@@ -2126,6 +2128,8 @@ public class BreadPresentationControllerTest {
         assertFalse(dialog.isShowing());
         assertRestored(fit, behavior);
         assertEquals(1, root.getScaleX(), 0);
+        assertEquals(1, capsule.getAlpha(), 0);
+        assertEquals(255, capsule.getImageAlpha());
     }
 
     @Test @Config(shadows = PaintWebView.class)
