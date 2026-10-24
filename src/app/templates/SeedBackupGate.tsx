@@ -43,30 +43,42 @@ export const SeedBackupGate: FC<{ children: ReactNode }> = ({ children }) => {
   const status = useWalletStore(s => s.status);
   const seedStatus = useWalletStore(s => s.seedPhraseStatus);
   const ownMnemonic = useWalletStore(s => s.ownMnemonic);
-  if (getEffectiveNetworkName() !== MIDEN_NETWORK_NAME.MAINNET) return <>{children}</>;
-  // A recovered phrase is already held outside this device. A removed phrase cannot be shown again.
-  if (status !== WalletStatus.Ready || ownMnemonic || (seedStatus && seedStatus !== 'stored')) return <>{children}</>;
-  return <UnverifiedSeedGate>{children}</UnverifiedSeedGate>;
-};
-
-const UnverifiedSeedGate: FC<{ children: ReactNode }> = ({ children }) => {
   const [reachedThisSession, setReachedThisSession] = useState(false);
   const reached = useWalletStore(reachesSeedBackupThreshold);
   const [required, setRequired] = useStorage<boolean>(SEED_BACKUP_REQUIRED_KEY, false);
   const [prompts] = useStorage<WalletPromptStorage>(WALLET_PROMPTS_STORAGE_KEY, EMPTY_WALLET_PROMPT_STORAGE);
+  // A recovered phrase is already held outside this device. A removed phrase cannot be shown again.
+  const exempt =
+    getEffectiveNetworkName() !== MIDEN_NETWORK_NAME.MAINNET ||
+    status !== WalletStatus.Ready ||
+    ownMnemonic ||
+    Boolean(seedStatus && seedStatus !== 'stored');
   const verified = prompts.prompts[WalletPromptType.VerifySeedPhrase] === WalletPromptStatus.Completed;
 
   useEffect(() => {
-    if (reached) setReachedThisSession(true);
-  }, [reached]);
+    if (reached && !exempt) setReachedThisSession(true);
+  }, [reached, exempt]);
 
   useEffect(() => {
-    if (reachedThisSession && !required && !verified) {
-      setRequired(true).catch(error => console.warn('Could not save the seed backup requirement:', error));
-    }
+    if (!reachedThisSession || required || verified) return;
+    let ignoreLateRejection = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const persist = () => {
+      setRequired(true).catch(error => {
+        if (ignoreLateRejection) return;
+        console.warn('Could not save the seed backup requirement:', error);
+        retryTimer = setTimeout(persist, 1000);
+      });
+    };
+    persist();
+    return () => {
+      ignoreLateRejection = true;
+      clearTimeout(retryTimer);
+    };
   }, [reachedThisSession, required, verified, setRequired]);
 
-  return <>{!verified && (required || reached || reachedThisSession) ? <RequiredSeedBackup /> : children}</>;
+  if (!exempt && !verified && (required || reached || reachedThisSession)) return <RequiredSeedBackup />;
+  return <>{children}</>;
 };
 
 const RequiredSeedBackup: FC = () => {

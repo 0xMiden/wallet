@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
@@ -191,6 +191,69 @@ it('keeps the gate closed if the requirement write fails and the balance then fa
   }
 });
 
+it('keeps the gate closed across a lock after the requirement write fails and the balance falls', async () => {
+  mockSave.mockRejectedValueOnce(new Error('storage failed'));
+  const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const view = render(app());
+    await act(async () => {});
+    mockState.status = WalletStatus.Locked;
+    view.rerender(app());
+    expect(screen.getByRole('button', { name: 'Wallet action' })).toBeInTheDocument();
+    mockState.balances = {};
+    mockState.status = WalletStatus.Ready;
+    view.rerender(app());
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Wallet action' })).not.toBeInTheDocument();
+  } finally {
+    warning.mockRestore();
+  }
+});
+
+it('retries a failed requirement write', async () => {
+  jest.useFakeTimers();
+  mockSave.mockRejectedValueOnce(new Error('storage failed'));
+  const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    render(app());
+    await act(async () => {});
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockSave).toHaveBeenCalledTimes(2);
+  } finally {
+    warning.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+it('keeps wallet screens mounted when the gate does not block', () => {
+  let mounts = 0;
+  const Screen = () => {
+    React.useEffect(() => {
+      mounts += 1;
+    }, []);
+    return <button>Wallet action</button>;
+  };
+  const gated = () => (
+    <SeedBackupGate>
+      <Screen />
+    </SeedBackupGate>
+  );
+  mockState.balances = {};
+  const view = render(gated());
+  mockState.status = WalletStatus.Locked;
+  view.rerender(gated());
+  mockState.status = WalletStatus.Ready;
+  view.rerender(gated());
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  view.rerender(gated());
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+  view.rerender(gated());
+  expect(mounts).toBe(1);
+});
+
 it('starts the required backup flow only from the drawer action', () => {
   render(app());
   const drawer = screen.getByRole('alertdialog');
@@ -216,6 +279,17 @@ it.each([MIDEN_NETWORK_NAME.TESTNET, MIDEN_NETWORK_NAME.DEVNET, MIDEN_NETWORK_NA
     expect(mockSave).not.toHaveBeenCalled();
   }
 );
+
+it('does not save a requirement for a balance reached off mainnet', () => {
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  mockState.balances.a = [token(1000)];
+  const view = render(app());
+  mockState.balances.a = [token(0.5)];
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+  view.rerender(app());
+  expect(screen.getByRole('button', { name: 'Wallet action' })).toBeInTheDocument();
+  expect(mockSave).not.toHaveBeenCalled();
+});
 
 it('applies the requirement when the active network changes to mainnet', () => {
   jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
