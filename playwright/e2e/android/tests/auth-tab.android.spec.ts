@@ -13,7 +13,6 @@ const execFileAsync = promisify(execFile);
 const PACKAGE_NAME = 'com.miden.wallet';
 const SERIAL = process.env.ANDROID_SERIAL ?? 'emulator-5554';
 const HOST_PORT = 9230;
-const APK_PATH = 'android/app/build/outputs/apk/debug/app-debug.apk';
 // The CI lane installs a pinned Chromium as the Auth Tab provider (see e2e-dapp-browser.yml).
 const AUTH_TAB_PROVIDER = process.env.AUTH_TAB_PROVIDER ?? 'com.android.chrome';
 const PROVIDERS = {
@@ -119,7 +118,6 @@ test.describe('Android Auth Tab acceptance', () => {
     // run-auth-tab-acceptance.sh has already installed every APK and run the instrumentation on this device, so
     // the cold-boot readiness wait (which also waits for Play services' persistent process) adds nothing here.
     await emulator.terminate(SERIAL, PACKAGE_NAME);
-    await emulator.install(SERIAL, APK_PATH, PACKAGE_NAME);
     await emulator.wipeAppState(SERIAL, PACKAGE_NAME);
     await emulator.grantNotifications(SERIAL, PACKAGE_NAME);
     await emulator.launch(SERIAL, PACKAGE_NAME);

@@ -240,6 +240,16 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(certificateTest).toContain('By.res("com.android.settings", "next_button")');
     expect(acceptance).toContain('yarn playwright test --config playwright.android.auth-tab.config.ts');
     expect(authTab).not.toContain('adb wait-for-device');
+    // The script installs the wallet APK; the spec only resets and launches it.
+    const spec = readFileSync(resolve(__dirname, '../android/tests/auth-tab.android.spec.ts'), 'utf8');
+    expect(acceptance).toContain('install_apk android/app/build/outputs/apk/debug/app-debug.apk');
+    expect(spec.indexOf('emulator.install')).toBe(-1);
+    expect(spec.indexOf('APK_PATH')).toBe(-1);
+    const reset = ['emulator.terminate', 'emulator.wipeAppState', 'emulator.grantNotifications', 'emulator.launch'].map(
+      call => spec.indexOf(call)
+    );
+    expect(reset[0]).toBeGreaterThan(-1);
+    expect(reset).toEqual([...reset].sort((x, y) => x - y));
   });
 
   it('keeps Auth Tab evidence collection bounded when emulator boot or acceptance fails', () => {
