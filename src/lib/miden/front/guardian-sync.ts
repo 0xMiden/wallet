@@ -1907,12 +1907,18 @@ async function attemptColdReRegisterSelfHeal(
         // write fails one at a time with a generic error. `account.hotPublicKey` is
         // set here, since the keyless case returned above. Best-effort: a failed
         // write leaves the next tick to persist it, and the budget closes either way.
+        // A try, not a `.catch`: a store without the action throws synchronously, and that must not
+        // turn a permanent verdict into a failed attempt that re-asks the guardian next cooldown.
         if (account.hotPublicKey) {
-          await zustandProvider
-            .markHotKeyRotatedOut?.(account.publicKey, account.hotPublicKey, onChainHot.commitment)
-            .catch(markError => {
-              console.warn(`[Guardian Sync] could not record that ${account.publicKey} was rotated out:`, markError);
-            });
+          try {
+            await zustandProvider.markHotKeyRotatedOut?.(
+              account.publicKey,
+              account.hotPublicKey,
+              onChainHot.commitment
+            );
+          } catch (markError) {
+            console.warn(`[Guardian Sync] could not record that ${account.publicKey} was rotated out:`, markError);
+          }
         }
         // PERMANENT: this device was rotated out, and no later tick changes that.
         // The caller closes the budget on this outcome, which is what stops this
