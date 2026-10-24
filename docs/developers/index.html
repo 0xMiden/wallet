@@ -636,6 +636,15 @@ footer { border-top: 1px solid var(--hairline); padding: 40px 24px 56px; }
   .cta .btn { flex: 1 1 auto; justify-content: center; }
   .stage-chips span { font-size: 11.5px; }
   .callout { grid-template-columns: minmax(0, 1fr); }
+  /* Phones read each table row as a block: label first, then the text at full width */
+  .table-wrap table, .table-wrap tbody, .table-wrap tr, .table-wrap td { display: block; }
+  .table-wrap thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .table-wrap tr { padding: 11px 14px; border-bottom: 1px solid var(--hairline); }
+  .table-wrap tr:last-child { border-bottom: 0; }
+  .table-wrap td { padding: 2px 0; border: 0; }
+  .table-wrap td:first-child { padding-bottom: 5px; color: var(--ink); font-weight: 600; }
+  .table-wrap td code { white-space: normal; }
+  .table-wrap td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); font-weight: 600; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
@@ -1570,6 +1579,21 @@ if (window.bread?.auth) {
     code.setAttribute('data-src', src);
   }
   document.querySelectorAll('pre code[data-lang]').forEach(render);
+
+  // Tables stack into blocks on phones: keep their semantics, and label the cells of wider tables.
+  document.querySelectorAll('.table-wrap table').forEach(function (table) {
+    var heads = Array.prototype.map.call(table.querySelectorAll('thead th'), function (th) { return th.textContent; });
+    table.setAttribute('role', 'table');
+    table.querySelectorAll('thead, tbody').forEach(function (g) { g.setAttribute('role', 'rowgroup'); });
+    table.querySelectorAll('tr').forEach(function (tr) { tr.setAttribute('role', 'row'); });
+    table.querySelectorAll('th').forEach(function (th) { th.setAttribute('role', 'columnheader'); });
+    table.querySelectorAll('tbody tr').forEach(function (tr) {
+      Array.prototype.forEach.call(tr.children, function (td, k) {
+        td.setAttribute('role', 'cell');
+        if (heads.length > 2 && k > 0) td.setAttribute('data-label', heads[k]);
+      });
+    });
+  });
 
   // A code block or table that scrolls sideways takes focus, so a keyboard can scroll it.
   var scrollers = document.querySelectorAll('pre, .table-wrap');
