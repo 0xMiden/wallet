@@ -3375,9 +3375,9 @@ public class WebViewDialog extends Dialog {
      * the window shows a scaled page. Must be called on the UI thread; done runs there.
      */
     public void takeSnapshotData(float scale, float quality, Consumer<String> done) {
-        Consumer<Bitmap> encode = source -> encodeSnapshot(source, scale, quality, done);
-        if (presentation != null) presentation.snapshot(encode);
-        else captureWebView(encode);
+        // The controller keeps its capture as the proxy; a standalone capture exists for this request only.
+        if (presentation != null) presentation.snapshot(source -> encodeSnapshot(source, scale, quality, false, done));
+        else captureWebView(source -> encodeSnapshot(source, scale, quality, true, done));
     }
 
     void captureWebView(Consumer<Bitmap> done) {
@@ -3391,9 +3391,17 @@ public class WebViewDialog extends Dialog {
         Bitmap bitmap = Bitmap.createBitmap(_webView.getWidth(), _webView.getHeight(), Bitmap.Config.ARGB_8888);
         Rect rect = new Rect(at[0], at[1], at[0] + bitmap.getWidth(), at[1] + bitmap.getHeight());
         try {
-            snapshotter.capture(window, rect, bitmap, result -> done.accept(result == PixelCopy.SUCCESS ? bitmap : null));
+            snapshotter.capture(window, rect, bitmap, result -> {
+                if (result == PixelCopy.SUCCESS) {
+                    done.accept(bitmap);
+                    return;
+                }
+                bitmap.recycle();
+                done.accept(null);
+            });
         } catch (RuntimeException e) {
             Log.e("InAppBrowser", "snapshot capture failed: " + e.getMessage());
+            bitmap.recycle();
             done.accept(null);
         }
     }
@@ -3411,7 +3419,7 @@ public class WebViewDialog extends Dialog {
         });
     }
 
-    private void encodeSnapshot(Bitmap source, float scale, float quality, Consumer<String> done) {
+    private void encodeSnapshot(Bitmap source, float scale, float quality, boolean release, Consumer<String> done) {
         if (source == null) {
             done.accept(null);
             return;
@@ -3422,14 +3430,17 @@ public class WebViewDialog extends Dialog {
         int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
         snapshotter.encode(() -> {
             String data = null;
+            Bitmap scaled = null;
             try {
-                Bitmap scaled = Bitmap.createScaledBitmap(source, width, height, true);
+                scaled = Bitmap.createScaledBitmap(source, width, height, true);
                 java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
                 scaled.compress(Bitmap.CompressFormat.JPEG, qualityPct, bytes);
-                if (scaled != source) scaled.recycle();
                 data = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
             } catch (RuntimeException e) {
                 Log.e("InAppBrowser", "snapshot encode failed: " + e.getMessage());
+            } finally {
+                if (scaled != null && scaled != source) scaled.recycle();
+                if (release) source.recycle();
             }
             String result = data;
             mainHandler.post(() -> done.accept(result));
