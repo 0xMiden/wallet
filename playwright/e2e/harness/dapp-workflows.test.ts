@@ -211,6 +211,9 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     );
     expect(pinBinding).toBeGreaterThan(-1);
     expect(pinSet).toBeGreaterThan(pinBinding);
+    // A sleeping screen would return on the PIN keyguard and hide every app the run opens.
+    expect(acceptance.indexOf('adb shell svc power stayon true')).toBeGreaterThan(-1);
+    expect(acceptance.indexOf('adb shell svc power stayon true')).toBeLessThan(pinSet);
     expect(acceptance.split('devicePin "$device_pin"')).toHaveLength(3);
     expect(pinArgument).toBeGreaterThan(certificateSetup);
     expect(firefoxPinArgument).toBeGreaterThan(pinArgument);

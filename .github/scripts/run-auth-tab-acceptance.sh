@@ -97,6 +97,11 @@ run_instrumentation_test() {
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
+# Once the PIN below is set, a sleeping screen comes back on the PIN keyguard, which hides every app the run opens;
+# the APK installs alone can outlast the default screen timeout.
+adb shell svc power stayon true
+adb shell settings put system screen_off_timeout 2147483647
+adb shell wm dismiss-keyguard
 device_pin=1234
 adb shell locksettings set-pin "$device_pin" >/dev/null
 # Play Protect verifies each adb install on Play images; skipping it removes one source of dropped install commits.
