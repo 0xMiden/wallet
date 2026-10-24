@@ -76,11 +76,11 @@ it('collapse fades and lifts the capsule over 160 ms and stops its pointer event
   expect(capsule.style.pointerEvents).toBe('');
 });
 
-it('expand fades the capsule in from progress 0.6', () => {
+it('expand fades the capsule in from progress 0.6 and keeps it inert until its stop', () => {
   capsule.style.opacity = '0';
   capsule.style.transform = 'matrix(1, 0, 0, 1, 0, -8)';
 
-  startMorphCompanions({ capsule, launcher }, { target: 'expanded', progress: 0, velocity: 0 }, false);
+  const stop = startMorphCompanions({ capsule, launcher }, { target: 'expanded', progress: 0, velocity: 0 }, false);
 
   const [fade] = of(capsule);
   expect(fade?.keyframes).toEqual([
@@ -90,6 +90,9 @@ it('expand fades the capsule in from progress 0.6', () => {
   const reach = springTimeToReach(springs.morphExpand, 0, 1, 0, MORPH_TIMING.capsuleFadeInProgress)!;
   expect(fade?.options.delay).toBeCloseTo(reach * 1000, 3);
   expect(fade?.options.delay).toBeCloseTo(125, -1);
+  expect(capsule.style.pointerEvents).toBe('none');
+
+  stop();
   expect(capsule.style.pointerEvents).toBe('');
 });
 
