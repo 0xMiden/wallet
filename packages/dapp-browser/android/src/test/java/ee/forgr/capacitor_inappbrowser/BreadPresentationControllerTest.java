@@ -262,6 +262,7 @@ public class BreadPresentationControllerTest {
     @After public void tearDown() {
         if (dialog != null) dialog.forceClose();
         WebViewRegistry.getShared().clear();
+        WebViewRegistry.getShared().setMorphCard(null);
         webkit.close(); features.close();
         activity.finish();
     }
@@ -829,13 +830,17 @@ public class BreadPresentationControllerTest {
         assertFalse("A never-shown controller cannot inherit background dialog ownership", dialog.isShowing());
     }
 
-    @Test public void breadCapsuleRequestsHostMinimizeWithoutClosingTheRetainedDocument() {
+    @Test public void breadCapsuleRequestsHostMinimizeWithoutClosingTheRetainedDocument() throws Exception {
         open(true, true, "default");
         fullscreen();
+        morphFixture();
         long navigation = controller.state.navigationGeneration();
         ImageButton capsule = ReflectionHelpers.getField(controller, "back");
         capsule.performClick();
-        verify(callbacks).presentationMinimizeRequested(controller.state.policyRevision(), controller.state.acknowledgedVisibilitySequence(), null);
+        verify(callbacks).presentationMinimizeRequested(eq(controller.state.policyRevision()),
+            eq(controller.state.acknowledgedVisibilitySequence()), isNull(), startsWith("native-"));
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, controller.state.motion());
+        assertTrue(dialog.isShowing());
         verify(callbacks, never()).closeEvent(any());
         assertEquals(navigation, controller.state.navigationGeneration());
         assertEquals("doc", controller.state.token());
@@ -1558,13 +1563,17 @@ public class BreadPresentationControllerTest {
     private int gestures;
 
     private void openMorph(boolean fullscreen) throws Exception {
-        BreadMorphControllerTest.resetSpringFrames();
         open(true, true, "default");
-        snapshots = new FakeSnapshotter();
-        ReflectionHelpers.setField(dialog, "snapshotter", snapshots);
         if (fullscreen) fullscreen();
         else { controller.state.configure("doc", false, true); acknowledgePolicy(); }
         assertTrue(controller.state.ready());
+        morphFixture();
+    }
+
+    private void morphFixture() throws Exception {
+        BreadMorphControllerTest.resetSpringFrames();
+        snapshots = new FakeSnapshotter();
+        ReflectionHelpers.setField(dialog, "snapshotter", snapshots);
         root = dialog.findViewById(R.id.coordinator_layout);
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50));
         if (root.getWidth() == 0 || root.getHeight() == 0) {
@@ -2059,5 +2068,81 @@ public class BreadPresentationControllerTest {
         assertTrue(dialog.dispatchTouchEvent(touch(android.view.MotionEvent.ACTION_UP, page.centerX(), page.centerY(), t + 240)));
         assertTrue(received.isEmpty());
         assertEquals(List.of("started:collapsed", "retargeted:expanded"), phases("m1"));
+    }
+
+    private BreadMorphCard hostCardInside(float left, float top, float right, float bottom) {
+        float density = activity.getResources().getDisplayMetrics().density;
+        int status = activity.getResources().getDimensionPixelSize(
+            activity.getResources().getIdentifier("status_bar_height", "dimen", "android"));
+        WindowManager.LayoutParams params = dialog.getWindow().getAttributes();
+        float width = root.getWidth(), height = root.getHeight();
+        float ox = rootOrigin[0] + params.x, oy = rootOrigin[1] + params.y - status;
+        return new BreadMorphCard(new RectF((ox + width * left) / density, (oy + height * top) / density,
+            (ox + width * right) / density, (oy + height * bottom) / density), 16);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void fullscreenCollapseKeepsTheWindowFullUntilTheAcknowledgementAndShowsBars() throws Exception {
+        open(true, true, "default");
+        boolean fit = fits(); int behavior = bars().getSystemBarsBehavior();
+        fullscreen();
+        assertTrue(controller.state.ready());
+        morphFixture();
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        capsule.performClick();
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, controller.state.motion());
+        assertEquals(-1, dialog.getWindow().getAttributes().width);
+        assertEquals(-1, dialog.getWindow().getAttributes().height);
+        int requested = ReflectionHelpers.callInstanceMethod(dialog.getWindow().getInsetsController(), "getRequestedVisibleTypes");
+        assertEquals(3, requested & 3);
+        android.graphics.drawable.Drawable background = dialog.getWindow().getDecorView().getBackground();
+        assertTrue(background instanceof android.graphics.drawable.ColorDrawable);
+        assertEquals(android.graphics.Color.TRANSPARENT, ((android.graphics.drawable.ColorDrawable) background).getColor());
+        BreadMorphControllerTest.settle();
+        assertTrue(dialog.isShowing());
+        assertEquals(-1, dialog.getWindow().getAttributes().width);
+        assertNotNull(driver().card());
+        assertEquals(0.3f, root.getScaleX(), 1e-3f);
+        assertEquals(2, activity.getWindow().getAttributes().rotationAnimation);
+        controller.visibility(false, null, nextSequence());
+        assertFalse(dialog.isShowing());
+        assertRestored(fit, behavior);
+        assertEquals(1, root.getScaleX(), 0);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void capsuleWithoutACardFadesAndScales() throws Exception {
+        openMorph(true);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(null);
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        capsule.performClick();
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, controller.state.motion());
+        BreadMorphControllerTest.settle();
+        assertNull(driver().card());
+        assertEquals(0.9f, root.getScaleX(), 1e-4f);
+        assertEquals(0, root.getAlpha(), 1e-4f);
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void hostRejectionSpringsBack() throws Exception {
+        openMorph(true);
+        reveal();
+        WebViewRegistry.getShared().setMorphCard(hostCardInside(0.6f, 0.6f, 0.9f, 0.85f));
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        capsule.performClick();
+        org.mockito.ArgumentCaptor<String> id = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(callbacks).presentationMinimizeRequested(anyLong(), anyLong(), isNull(), id.capture());
+        assertTrue(id.getValue().startsWith("native-"));
+        for (int i = 0; i < 3; i++) BreadMorphControllerTest.frame();
+        assertTrue(controller.morph("expanded", null, 0, 0, "m2", (int) controller.state.policyRevision(), nextSequence()));
+        BreadMorphControllerTest.settle();
+        assertEquals(List.of("started:collapsed"), phases(id.getValue()));
+        assertEquals(List.of("retargeted:expanded", "settled:expanded"), phases("m2"));
+        assertTrue(dialog.isShowing());
+        assertEquals(1, root.getScaleX(), 0);
+        assertEquals(2, bars().getSystemBarsBehavior());
     }
 }

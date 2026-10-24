@@ -67,4 +67,7 @@ public class WebViewRegistry {
     public synchronized void clear() {
         instances.clear();
     }
+
+    synchronized BreadMorphCard morphCard() { return null; }
+    synchronized void setMorphCard(BreadMorphCard card) { }
 }

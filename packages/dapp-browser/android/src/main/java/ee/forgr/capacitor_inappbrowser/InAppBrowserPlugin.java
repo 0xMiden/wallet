@@ -756,7 +756,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     notifyListeners("permissionDeniedToast", new JSObject());
                 }
 
-                @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime) {
+                @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime, String morphId) {
                     JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("policyRevision", revision).put("visibilitySequence", sequence);
                     if (lifetime != null) event.put("managedHostCloseToken", lifetime);
                     notifyListeners("presentationMinimizeRequested", event);

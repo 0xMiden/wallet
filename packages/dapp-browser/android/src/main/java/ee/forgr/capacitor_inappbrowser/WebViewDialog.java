@@ -146,7 +146,7 @@ public class WebViewDialog extends Dialog {
     }
     void presentationMinimizeRequested(long revision, long sequence) {
         if (permanentlyClosed || managedClosing()) return;
-        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token);
+        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token, null);
     }
     void presentationChanged(boolean fullscreen, boolean resolved, long revision) {
         _options.getCallbacks().presentationChanged(fullscreen, resolved, revision,
