@@ -188,7 +188,7 @@ final class BreadPresentationController: NSObject {
     private(set) var warmed = false
 
     private func warmWindow() {
-        guard !warmed, !moving, state.phase == .visible, !state.surfaceVisibility, owner?.managedClose?.closing != true,
+        guard !warmed, !moving, state.phase == .visible || state.phase == .temporarilyHidden, !state.surfaceVisibility, owner?.managedClose?.closing != true,
               let window = instance?.containerWindow, window.isHidden else { return }
         if applySlotFrame(window) { window.layoutIfNeeded() }
         warmed = true
