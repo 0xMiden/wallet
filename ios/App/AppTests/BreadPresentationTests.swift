@@ -2019,6 +2019,20 @@ final class BreadMorphAnimatorTests: XCTestCase {
         assertModelAtRest(container)
     }
 
+    func testReduceMotionFadeProgressFollowsEaseOut() throws {
+        let fixture = try morphContainerFixture()
+        defer { fixture.dispose() }
+        let container = fixture.container
+        let animator = clocked(container, reduceMotion: true)
+        animator.run(to: 0, card: card, velocity: 0, physics: .collapse, onSettle: {})
+        clock.now = 0.1
+        let eased = 1 - 0.6846431874274608
+        XCTAssertEqual(animator.progress(), eased, accuracy: 1e-6)
+        animator.run(to: 1, card: card, velocity: 0, physics: .expand, onSettle: {})
+        let fade = try XCTUnwrap(container.view.layer.animation(forKey: "bread.morph.opacity") as? CABasicAnimation)
+        XCTAssertEqual(number(fade.fromValue) ?? .nan, eased, accuracy: 1e-6)
+    }
+
     func testNearTargetFlingCarriesTheRenderedSpringVelocity() throws {
         let fixture = try morphContainerFixture()
         defer { fixture.dispose() }
