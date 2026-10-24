@@ -53,6 +53,7 @@ export function classifyMorphEvent(motion: DappMotion | null, event: unknown): M
     event.id !== motion.id ||
     event.managedHostCloseToken !== motion.lifetime ||
     event.morphId !== motion.morphId ||
+    !isMorphTarget(event.target) ||
     // Native data crosses the bridge untyped, and a NaN progress would reach every companion animation.
     !isFiniteNumber(event.progress) ||
     !isFiniteNumber(event.velocity) ||
@@ -63,11 +64,9 @@ export function classifyMorphEvent(motion: DappMotion | null, event: unknown): M
     case 'started':
       return { kind: 'start' };
     case 'retargeted':
-      return isMorphTarget(event.target)
-        ? { kind: 'retarget', target: event.target, tracking: event.tracking }
-        : IGNORE;
+      return { kind: 'retarget', target: event.target, tracking: event.tracking };
     case 'settled':
-      return isMorphTarget(event.target) ? { kind: 'settle', target: event.target } : IGNORE;
+      return { kind: 'settle', target: event.target };
     case 'cancelled':
       return { kind: 'cancel' };
     default:
