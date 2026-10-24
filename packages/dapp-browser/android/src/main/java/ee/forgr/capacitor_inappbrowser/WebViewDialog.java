@@ -154,6 +154,27 @@ public class WebViewDialog extends Dialog {
         _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token, morphId);
     }
 
+    boolean presentationMorph(String to, JSObject card, JSObject velocity, String morphId, Integer revision, Integer sequence) {
+        if (permanentlyClosed || managedClosing() || presentation == null) return false;
+        BreadMorphCard host = hostCard(card);
+        float density = getContext().getResources().getDisplayMetrics().density;
+        float vx = velocity == null ? 0 : (float) velocity.optDouble("x", 0) * density;
+        float vy = velocity == null ? 0 : (float) velocity.optDouble("y", 0) * density;
+        if (!Float.isFinite(vx) || !Float.isFinite(vy)) vx = vy = 0;
+        return presentation.morph(to, host == null ? null : hostCardToWindow(host), vx, vy, morphId, revision, sequence);
+    }
+
+    static BreadMorphCard hostCard(JSObject card) {
+        if (card == null) return null;
+        double x = card.optDouble("x", Double.NaN), y = card.optDouble("y", Double.NaN);
+        double width = card.optDouble("width", Double.NaN), height = card.optDouble("height", Double.NaN);
+        double radius = card.optDouble("cornerRadius", 0);
+        if (!Double.isFinite(x) || !Double.isFinite(y) || !(width > 0) || !(height > 0) || !Double.isFinite(width)
+            || !Double.isFinite(height)) return null;
+        return new BreadMorphCard(new android.graphics.RectF((float) x, (float) y, (float) (x + width), (float) (y + height)),
+            (float) (Double.isFinite(radius) ? Math.max(0, radius) : 0));
+    }
+
     BreadMorphCard hostCardToWindow(BreadMorphCard host) {
         WindowManager.LayoutParams params = getWindow().getAttributes();
         return BreadMorphGeometry.hostToWindow(host.rect.left, host.rect.top, host.rect.width(), host.rect.height(),

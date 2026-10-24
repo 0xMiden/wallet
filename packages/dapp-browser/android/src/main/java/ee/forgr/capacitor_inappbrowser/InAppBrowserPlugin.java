@@ -762,6 +762,15 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     if (morphId != null) event.put("morphId", morphId);
                     notifyListeners("presentationMinimizeRequested", event);
                 }
+                @Override public void presentationMorph(BreadMorphEvent morph) {
+                    JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("morphId", morph.morphId)
+                        .put("phase", morph.phase).put("target", morph.target).put("progress", morph.progress)
+                        .put("velocity", morph.velocity).put("tracking", morph.tracking).put("visibilitySequence", morph.sequence);
+                    JSObject managed = call.getObject("managedHostClose");
+                    String lifetime = managed == null ? null : managed.getString("token");
+                    if (lifetime != null && !lifetime.isEmpty()) event.put("managedHostCloseToken", lifetime);
+                    notifyListeners("presentationMorph", event);
+                }
                 @Override public void presentationChanged(boolean fullscreen, boolean resolved, long revision, String lifetime) {
                     JSObject event = new JSObject().put("id", callbackInstanceId[0])
                         .put("display", fullscreen ? "fullscreen" : "browser")
@@ -1421,13 +1430,42 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         );
     }
 
+    /**
+     * Miden plugin method (#1817): run the native expand or collapse of a positioned instance as one
+     * spring on the live page. setVisible's guards apply; every refusal resolves accepted: false.
+     */
     @PluginMethod
     public void morph(PluginCall call) {
-        call.resolve(new JSObject().put("accepted", false));
+        final String instanceId = call.getString("id");
+        final WebViewDialog dialog = instanceId == null ? null : WebViewRegistry.getShared().get(instanceId);
+        if (dialog == null) {
+            call.resolve(new JSObject().put("accepted", false));
+            return;
+        }
+        this.getActivity().runOnUiThread(() -> {
+            boolean accepted = false;
+            try {
+                String lifetime = dialog.managedClose() == null ? null : dialog.managedClose().token;
+                boolean current = WebViewRegistry.getShared().get(instanceId) == dialog
+                    && java.util.Objects.equals(lifetime, call.getString("managedHostCloseToken"))
+                    && (lifetime == null || call.getInt("visibilitySequence") != null);
+                if (current) {
+                    boolean shown = dialog.isShowing();
+                    accepted = dialog.presentationMorph(call.getString("to"), call.getObject("card"), call.getObject("velocity"),
+                        call.getString("morphId"), call.getInt("policyRevision"), call.getInt("visibilitySequence"));
+                    if (shown != dialog.isShowing() && navbarManager != null) navbarManager.notifyDialogVisibilityChanged(dialog);
+                }
+            } catch (Exception e) {
+                Log.e("InAppBrowser", "morph failed: " + e.getMessage());
+            }
+            call.resolve(new JSObject().put("accepted", accepted));
+        });
     }
 
+    /** Miden plugin method (#1817): publish the landing card the native Bread button collapses to. */
     @PluginMethod
     public void setMorphTarget(PluginCall call) {
+        WebViewRegistry.getShared().setMorphCard(WebViewDialog.hostCard(call.getObject("card")));
         call.resolve();
     }
 
