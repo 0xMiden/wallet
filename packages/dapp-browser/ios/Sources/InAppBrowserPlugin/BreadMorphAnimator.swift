@@ -1,5 +1,7 @@
 import UIKit
 import QuartzCore
+import os
+import os.signpost
 
 struct BreadMorphPhysics {
     let stiffness: Double
@@ -138,7 +140,20 @@ enum BreadMorphGeometry {
     }
 }
 
+final class BreadMorphFrameTarget: NSObject {
+    weak var animator: BreadMorphAnimator?
+
+    init(animator: BreadMorphAnimator) {
+        self.animator = animator
+    }
+
+    @objc func frame(_ link: CADisplayLink) {}
+}
+
 final class BreadMorphAnimator {
+    static let frameRate = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+    static let fadeDuration: CFTimeInterval = 0.2
+    private static let log = OSLog(subsystem: "com.miden.bread", category: .pointsOfInterest)
     private weak var container: BreadMorphContainerViewController?
     let now: () -> CFTimeInterval
     private let reduceMotion: () -> Bool
@@ -148,6 +163,11 @@ final class BreadMorphAnimator {
     private(set) var link: CADisplayLink?
     var companions: [CALayer] = []
     var boosting: Bool { link != nil }
+    private var held: Double = 1
+    private var fade: (from: Double, start: CFTimeInterval)?
+    private var settleWork: DispatchWorkItem?
+    private var runToken = 0
+    private var signpost: OSSignpostID?
 
     init(container: BreadMorphContainerViewController, now: @escaping () -> CFTimeInterval = CACurrentMediaTime,
          reduceMotion: @escaping () -> Bool = { UIAccessibility.isReduceMotionEnabled }) {
@@ -156,23 +176,210 @@ final class BreadMorphAnimator {
         self.reduceMotion = reduceMotion
     }
 
-    func boost() {}
+    deinit { link?.invalidate() }
 
-    func releaseBoost() {}
+    func boost() {
+        guard link == nil else { return }
+        let link = CADisplayLink(target: BreadMorphFrameTarget(animator: self), selector: #selector(BreadMorphFrameTarget.frame(_:)))
+        link.preferredFrameRateRange = Self.frameRate
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
 
-    func progress() -> Double { 1 }
+    func releaseBoost() {
+        guard spring == nil, fade == nil else { return }
+        stopLink()
+    }
 
-    func velocity() -> Double { 0 }
+    func progress() -> Double {
+        if let spring { return spring.sample(at: now()).value }
+        if let fade, let target {
+            let elapsed = min(1, max(0, (now() - fade.start) / Self.fadeDuration))
+            return fade.from + (target - fade.from) * elapsed
+        }
+        return held
+    }
 
-    func run(to target: Double, card: BreadMorphCard?, velocity: Double, physics: BreadMorphPhysics, onSettle: @escaping () -> Void) {}
+    func velocity() -> Double { spring?.sample(at: now()).velocity ?? 0 }
 
-    func hold(_ p: Double, card: BreadMorphCard?) {}
+    func run(to target: Double, card: BreadMorphCard?, velocity: Double, physics: BreadMorphPhysics, onSettle: @escaping () -> Void) {
+        boost()
+        guard let container else { return }
+        let start = now()
+        let from = progress()
+        let fromPose = pose(from)
+        if let card { self.card = card } else if target < 0.5 { self.card = nil }
+        let toPose = pose(target)
+        cancelSettle()
+        beginSignpost()
+        self.target = target
+        container.setShadowScale(pose(0).scale)
+        container.morphing = true
+        var settling = Self.fadeDuration
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if reduceMotion() {
+            spring = nil
+            fade = (from, start)
+            let animation = CABasicAnimation(keyPath: "opacity")
+            animation.fromValue = NSNumber(value: Float(min(1, max(0, from))))
+            animation.toValue = NSNumber(value: Float(min(1, max(0, target))))
+            animation.duration = Self.fadeDuration
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animation.fillMode = .forwards
+            animation.isRemovedOnCompletion = false
+            animation.preferredFrameRateRange = Self.frameRate
+            container.view.layer.add(animation, forKey: BreadMorphContainerViewController.keyPrefix + "opacity")
+        } else {
+            fade = nil
+            spring = BreadMorphSpring(from: from, to: target, velocity: velocity, physics: physics, start: start)
+            let relative = CGFloat(BreadMorphGeometry.initialVelocity(velocity, from: from, to: target))
+            settling = 0
+            let starts = container.morphValues(fromPose) + companionValues(from)
+            let ends = container.morphValues(toPose) + companionValues(target)
+            for (begin, end) in zip(starts, ends) {
+                let animation = CASpringAnimation(keyPath: begin.keyPath)
+                animation.mass = 1
+                animation.stiffness = CGFloat(physics.stiffness)
+                animation.damping = CGFloat(physics.damping)
+                animation.initialVelocity = relative
+                animation.fromValue = begin.value
+                animation.toValue = end.value
+                animation.duration = animation.settlingDuration
+                animation.fillMode = .forwards
+                animation.isRemovedOnCompletion = false
+                animation.preferredFrameRateRange = Self.frameRate
+                begin.layer.add(animation, forKey: BreadMorphContainerViewController.keyPrefix + begin.keyPath)
+                settling = max(settling, animation.duration)
+            }
+        }
+        CATransaction.commit()
+        runToken += 1
+        let token = runToken
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.runToken == token else { return }
+            self.land(at: target)
+            onSettle()
+        }
+        settleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + settling, execute: work)
+    }
 
-    func freeze() -> Double { progress() }
+    func hold(_ p: Double, card: BreadMorphCard?) {
+        self.card = card
+        container?.setShadowScale(pose(0).scale)
+        track(p)
+    }
 
-    func track(_ p: Double) {}
+    func freeze() -> Double {
+        let p = progress()
+        track(p)
+        return p
+    }
 
-    func finish() -> Double { 1 }
+    func track(_ p: Double) {
+        cancelSettle()
+        spring = nil
+        fade = nil
+        target = nil
+        held = p
+        holdPose(p)
+    }
 
-    func reset() {}
+    func finish() -> Double {
+        let end: Double = progress() >= 0.5 ? 1 : 0
+        land(at: end)
+        return end
+    }
+
+    func reset() {
+        cancelSettle()
+        spring = nil
+        fade = nil
+        target = nil
+        held = 1
+        container?.layoutAtRest()
+        removeCompanionAnimations()
+        stopLink()
+        endSignpost()
+    }
+
+    private func pose(_ p: Double) -> BreadMorphPose {
+        BreadMorphPose.at(p, card: card, slot: container?.view.bounds.size ?? .zero)
+    }
+
+    private func companionValues(_ p: Double) -> [BreadMorphValue] {
+        let opacity = NSNumber(value: Float(min(1, max(0, p))))
+        return companions.map { BreadMorphValue(layer: $0, keyPath: "opacity", value: opacity) }
+    }
+
+    private func holdPose(_ p: Double) {
+        guard let container else { return }
+        if reduceMotion() {
+            container.morphing = true
+            hold([BreadMorphValue(layer: container.view.layer, keyPath: "opacity", value: NSNumber(value: Float(min(1, max(0, p)))))])
+        } else {
+            container.apply(pose(p))
+            hold(companionValues(p))
+        }
+    }
+
+    private func hold(_ values: [BreadMorphValue]) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for value in values {
+            let animation = CABasicAnimation(keyPath: value.keyPath)
+            animation.fromValue = value.value
+            animation.toValue = value.value
+            animation.duration = 1
+            animation.fillMode = .forwards
+            animation.isRemovedOnCompletion = false
+            value.layer.add(animation, forKey: BreadMorphContainerViewController.keyPrefix + value.keyPath)
+        }
+        CATransaction.commit()
+    }
+
+    private func land(at end: Double) {
+        cancelSettle()
+        spring = nil
+        fade = nil
+        target = nil
+        held = end
+        if end >= 1 {
+            container?.layoutAtRest()
+            removeCompanionAnimations()
+        } else {
+            holdPose(end)
+        }
+        stopLink()
+        endSignpost()
+    }
+
+    private func cancelSettle() {
+        runToken += 1
+        settleWork?.cancel()
+        settleWork = nil
+    }
+
+    private func removeCompanionAnimations() {
+        for layer in companions { layer.removeAnimation(forKey: BreadMorphContainerViewController.keyPrefix + "opacity") }
+    }
+
+    private func stopLink() {
+        link?.invalidate()
+        link = nil
+    }
+
+    private func beginSignpost() {
+        guard signpost == nil else { return }
+        let id = OSSignpostID(log: Self.log)
+        signpost = id
+        os_signpost(.animationBegin, log: Self.log, name: "bread.morph", signpostID: id)
+    }
+
+    private func endSignpost() {
+        guard let id = signpost else { return }
+        signpost = nil
+        os_signpost(.end, log: Self.log, name: "bread.morph", signpostID: id)
+    }
 }
