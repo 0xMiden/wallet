@@ -161,6 +161,7 @@ jest.mock('./SwapAmounts', () => {
         <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
         <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
         <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
+        <span data-testid="sa-offer-loading">{String(props.offerLoading)}</span>
         <span data-testid="sa-one-click-networks">
           {(props.oneClickNetworks ?? []).map(network => network.id).join(',')}
         </span>
@@ -943,7 +944,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
     });
 
-    it('blocks an offer amount when the selected token has fewer decimals', async () => {
+    it('preserves and blocks the active offer amount when the selected token has fewer decimals', async () => {
       const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       const lowPrecisionOffer = { ...mockTokenC, decimals: 2 };
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 18 }, mockTokenB, lowPrecisionOffer]);
@@ -959,10 +960,6 @@ describe('SwapFlow / SwapManager', () => {
       fireEvent.click(screen.getByTestId('sa-select-offer'));
       act(() => mockDrawerProps.onSelect(lowPrecisionOffer));
 
-      // Receive-driven swaps clear both amounts when the token pair changes.
-      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
-      setOffer('');
-      setOffer('1.123456');
       expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.123456');
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
       expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ offerAmount: '' }));
@@ -1008,7 +1005,7 @@ describe('SwapFlow / SwapManager', () => {
     });
   });
 
-  it('swaps the two sides, seeding the pay field from the previous receive amount', () => {
+  it('keeps the active pay amount as the receive source after swapping direction', () => {
     renderFlow();
     setOffer('10');
     expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('5');
@@ -1017,8 +1014,22 @@ describe('SwapFlow / SwapManager', () => {
 
     expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
     expect(screen.getByTestId('sa-request-token')).toHaveTextContent('AAA');
-    // Pay field seeded with the old receive amount (5); receive re-derived to 5.
-    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('5');
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+    expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('10');
+    expect(screen.getByTestId('rs-request-edited')).toHaveTextContent('true');
+  });
+
+  it('keeps the active receive amount as the pay source after swapping direction', () => {
+    renderFlow();
+    setRequest('9');
+
+    fireEvent.click(screen.getByTestId('sa-swap-direction'));
+
+    expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
+    expect(screen.getByTestId('sa-request-token')).toHaveTextContent('AAA');
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('9');
+    expect(screen.getByTestId('sa-request-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('rs-request-edited')).toHaveTextContent('false');
   });
 
   describe('after a flip, before the new pair is quoted', () => {
@@ -1039,13 +1050,15 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
     };
 
-    it('empties the receive field, disables Continue and shows the calculating state', () => {
+    it('keeps the source amount and calculates only the new pay side', () => {
       renderFlow();
       flip();
 
-      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('');
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('10');
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
-      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-offer-loading')).toHaveTextContent('true');
       expect(screen.getByTestId('sa-status')).toHaveTextContent('');
       expect(screen.getByTestId('rs-market-price')).toHaveTextContent('undefined');
     });
@@ -1087,11 +1100,15 @@ describe('SwapFlow / SwapManager', () => {
 
     it('offer side: picking the token already on the request side flips the pair', () => {
       renderFlow();
+      setOffer('10');
       fireEvent.click(screen.getByTestId('sa-select-offer'));
       act(() => mockDrawerProps.onSelect(mockTokenB));
 
       expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
       expect(screen.getByTestId('sa-request-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('rs-request-edited')).toHaveTextContent('true');
     });
 
     it('offer side: picking a fresh token just replaces the offer token', () => {
@@ -1105,11 +1122,15 @@ describe('SwapFlow / SwapManager', () => {
 
     it('request side: picking the token already on the offer side flips the pair', () => {
       renderFlow();
+      setRequest('9');
       fireEvent.click(screen.getByTestId('sa-select-request'));
       act(() => mockDrawerProps.onSelect(mockTokenA));
 
       expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
       expect(screen.getByTestId('sa-request-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('9');
+      expect(screen.getByTestId('sa-request-amount')).toBeEmptyDOMElement();
+      expect(screen.getByTestId('rs-request-edited')).toHaveTextContent('false');
     });
 
     it('request side: picking a fresh token just replaces the request token', () => {
@@ -1119,6 +1140,30 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
       expect(screen.getByTestId('sa-request-token')).toHaveTextContent('CCC');
+    });
+
+    it('preserves the active pay source and recalculates the receive side after token selection', () => {
+      renderFlow();
+      setOffer('10');
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      act(() => mockDrawerProps.onSelect(mockTokenC));
+
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('sa-request-amount')).toBeEmptyDOMElement();
+      expect(screen.getByTestId('rs-request-edited')).toHaveTextContent('false');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ offerAmount: '10' }));
+    });
+
+    it('preserves the active receive source when its token changes', () => {
+      renderFlow();
+      setRequest('9');
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      act(() => mockDrawerProps.onSelect(mockTokenC));
+
+      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9');
+      expect(screen.getByTestId('rs-request-edited')).toHaveTextContent('true');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ requestAmount: '9' }));
     });
 
     it('lists every token with a pair on the offer side, and only the partners of the pay token on the request side', () => {
@@ -1144,6 +1189,27 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
       expect(screen.getByTestId('sa-request-token')).toHaveTextContent('AAA');
+    });
+
+    it('preserves a receive target and blocks an unsupported pair when changing pay token', () => {
+      mockSolverPairs = [
+        ['faucet-A', 'faucet-B'],
+        ['faucet-A', 'faucet-C']
+      ];
+      renderFlow();
+      setRequest('9');
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      act(() => mockDrawerProps.onSelect(mockTokenC));
+
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9');
+      expect(screen.getByTestId('rs-request-edited')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPairNotListed');
+      expect(mockUseSwapQuote).toHaveBeenLastCalledWith(
+        expect.objectContaining({ enabled: false, requestAmount: '9', requestToken: mockTokenB })
+      );
     });
 
     it('offer side: a pay token the solver pairs with the receive token keeps the receive side', () => {
