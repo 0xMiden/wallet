@@ -146,6 +146,26 @@ test.describe('Android Auth Tab acceptance', () => {
     await waitForDappSession(wallet, new URL(fixture.dappUrl()).origin);
   });
 
+  // The failing screen is usually another app's (a browser prompt, a wallet approval), so capture the device itself.
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status === testInfo.expectedStatus) return;
+    const capture = async (name: string, ...args: string[]): Promise<void> => {
+      try {
+        const { stdout } = await execFileAsync('adb', ['-s', SERIAL, ...args], {
+          timeout: 30_000,
+          maxBuffer: 32 * 1024 * 1024,
+          encoding: 'buffer'
+        });
+        await testInfo.attach(name, { body: stdout });
+      } catch (error) {
+        await testInfo.attach(name, { body: String(error) });
+      }
+    };
+    await capture('device-screen.png', 'exec-out', 'screencap', '-p');
+    await capture('device-focus.txt', 'shell', 'dumpsys', 'window', 'displays');
+    await capture('device-logcat.txt', 'logcat', '-d', '-t', '1500');
+  });
+
   test.afterAll(async () => {
     await cdp?.close();
     await fixture?.stop();
