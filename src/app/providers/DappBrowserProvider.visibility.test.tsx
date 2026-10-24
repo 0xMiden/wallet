@@ -32,6 +32,7 @@ const mockRemoveSnapshot = jest.fn(async () => {});
 const mockResetViewport = jest.fn(async () => {});
 const mockClose = jest.fn(async (_id: string) => {});
 const mockMorph = jest.fn(async (_id: string, _request: unknown) => ({ accepted: false }));
+const mockExecuteScript = jest.fn(async (_id: string, _code: string) => {});
 const mockSetMorphTarget = jest.fn(async (_card: unknown) => {});
 const mockUpsertSession = jest.fn(async (_session: unknown) => {});
 const mockLoadPersisted = jest.fn(async (): Promise<unknown[]> => []);
@@ -98,7 +99,7 @@ jest.mock('@miden/dapp-browser', () => ({
           visibilitySequence++;
           return mockMorph(options.id, request);
         },
-        executeScript: async () => {},
+        executeScript: (code: string) => mockExecuteScript(options.id, code),
         close: () => mockClose(options.id)
       };
     }
@@ -1717,6 +1718,25 @@ describe('native morph expand', () => {
     expect(accepted).toBe(true);
     expect(control().mode).toBe('active');
     expect(control().motion).toMatchObject({ id: 'origin', target: 'expanded', morphId: lastMorphId() });
+  });
+
+  it('re-runs the injection of a warm restore once its expand settles, not in flight', async () => {
+    await openForeground();
+    await act(async () => nativeListeners.get('browserPageLoaded')?.({ id: 'origin' }));
+    await act(async () => control().park('origin'));
+    mockMorph.mockReset().mockResolvedValue({ accepted: true });
+    mockExecuteScript.mockClear();
+    const injections = () => mockExecuteScript.mock.calls.filter(([, code]) => code === 'INJECTED;').length;
+
+    await act(async () => {
+      await control().restore('origin', { card: CARD, velocity: VELOCITY });
+    });
+    emitMorph('started', 'expanded');
+    await settle();
+    expect(injections()).toBe(0);
+    emitMorph('settled', 'expanded');
+    await settle();
+    expect(injections()).toBe(1);
   });
 
   it('restores without a card from the switcher after it closes', async () => {
