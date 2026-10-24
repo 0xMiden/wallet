@@ -427,7 +427,7 @@ async function requestSessionChain(
     return {
       state: observed,
       native: readReownNativeFailure(err),
-      recovery: newer || buffered || !reread.unread ? 'rejected' : 'rejected_unread'
+      recovery: reread.unread ? 'rejected_unread' : 'rejected'
     };
   }
   const waited = await waitForSessionChain(state, chainId, watch);
@@ -461,12 +461,8 @@ export async function prepareNativeSessionChain(chainId: number): Promise<void> 
     try {
       current = await NativeReown.getState();
     } catch (err) {
-      const newer = newerSession(watch, started);
-      if (!newer) {
-        rememberSessionPrecheck(err, 'state_unread', 'not_attempted');
-        throw err;
-      }
-      current = newer;
+      rememberSessionPrecheck(err, 'state_unread', 'not_attempted');
+      throw err;
     }
     const newer = newerSession(watch, started);
     if (newer) current = newer;
