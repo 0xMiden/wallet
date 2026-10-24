@@ -179,8 +179,9 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       wasDraggedRef.current = false;
       return;
     }
-    hapticLight();
+    // The restore's morph command goes to native first; the haptic does not have to precede it.
     commitRestore({ x: 0, y: 0 });
+    hapticLight();
   };
 
   // Only the front card is draggable. Back cards are partially hidden
@@ -212,8 +213,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
     if (isVerticalDrag) {
       // Up: restore, handing the release velocity to the native morph.
       if (dy < -SWIPE_OFFSET_THRESHOLD || vy < -SWIPE_VELOCITY_THRESHOLD) {
-        hapticMedium();
         commitRestore({ x: vx, y: vy });
+        hapticMedium();
         return;
       }
       // Down: close with a continuation-of-drag fade.

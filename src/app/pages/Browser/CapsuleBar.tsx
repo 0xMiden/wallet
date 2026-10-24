@@ -152,8 +152,9 @@ export const CapsuleBar = forwardRef<HTMLElement, CapsuleBarProps>(function Caps
             type="button"
             onPointerDown={() => void prepareMorph()}
             onClick={() => {
-              hapticLight();
+              // The collapse's morph command goes to native first; the haptic does not have to precede it.
               onMinimize();
+              hapticLight();
             }}
             aria-label={t('minimize')}
             data-testid="dapp-capsule-minimize"

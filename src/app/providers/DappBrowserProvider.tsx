@@ -1444,14 +1444,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         finish: value => resolveParked(value),
         snapshot: null
       };
-      // Followed before the command resolves, so an event that overtakes the answer still matches.
+      // Followed before the command resolves, so an event that overtakes the answer still matches. Sent before the
+      // first state update: Capacitor posts a call a microtask later, behind the render that update schedules.
       flightRef.current = flight;
-      setMotion(flight.motion);
-      const accepted = await sendMorph(instance, {
+      const sent = sendMorph(instance, {
         to: 'collapsed',
         card: landingCardRef.current,
         morphId: flight.motion.morphId
       });
+      setMotion(flight.motion);
+      const accepted = await sent;
       if (!accepted) {
         restoreFlight(flight, previous);
         return 'unaccepted';
@@ -1583,13 +1585,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (!lifetime) return false;
       const current = foregroundIdRef.current;
       const outgoingId = current && current !== id ? current : null;
-      // Committed before native answers, so DappActive mounts while the page is still small and its capsule can
-      // return alongside it.
-      updateSession(id, s => ({ ...s, status: 'active' }));
       // Eager, so an event or a minimize handled before the next render already sees the new foreground.
       foregroundIdRef.current = id;
-      setForegroundId(id);
-      setActiveDappSession(id);
       const previous = flightRef.current;
       const flight: MorphFlight = {
         motion: {
@@ -1610,17 +1607,24 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         snapshot: null
       };
       flightRef.current = flight;
-      setMotion(flight.motion);
-      // From another tab the capsule and slot exist only once DappActive mounts on /browser.
-      if (typeof window !== 'undefined' && !window.location.hash.startsWith('#/browser')) navigate('/browser');
       const policyRevision = acknowledgedRevision(id);
-      const accepted = await sendMorph(instance, {
+      // Sent before the first state update: Capacitor posts a call a microtask later, behind the render it schedules.
+      const sent = sendMorph(instance, {
         to: 'expanded',
         card: gesture?.card ?? null,
         morphId: flight.motion.morphId,
         ...(gesture?.velocity ? { velocity: gesture.velocity } : {}),
         ...(policyRevision === undefined ? {} : { policyRevision })
       });
+      // Committed before native answers, so DappActive mounts while the page is still small and its capsule can
+      // return alongside it.
+      updateSession(id, s => ({ ...s, status: 'active' }));
+      setForegroundId(id);
+      setActiveDappSession(id);
+      setMotion(flight.motion);
+      // From another tab the capsule and slot exist only once DappActive mounts on /browser.
+      if (typeof window !== 'undefined' && !window.location.hash.startsWith('#/browser')) navigate('/browser');
+      const accepted = await sent;
       if (!accepted) {
         // The position effect shows the page the way it always has; the replaced foreground parks now, so a collapse
         // of it that was flying is not resumed.
