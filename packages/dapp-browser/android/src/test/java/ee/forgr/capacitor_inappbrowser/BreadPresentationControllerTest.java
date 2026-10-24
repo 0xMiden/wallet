@@ -1623,6 +1623,13 @@ public class BreadPresentationControllerTest {
             at[0] + width * 0.95f, at[1] + height * 0.92f), 16);
     }
 
+    private String motionState() {
+        return "motion=" + controller.state.motion() + " phase=" + controller.state.phase()
+            + " covering=" + ReflectionHelpers.getField(controller, "proxyCovering")
+            + " crossfaded=" + ReflectionHelpers.getField(controller, "crossfaded")
+            + " usable=" + controller.state.proxyUsable() + " p=" + driver().progress() + " target=" + driver().target();
+    }
+
     private float cardScale(BreadMorphCard card) { return card.rect.width() / root.getWidth(); }
     private int nextSequence() { return ++acknowledgementSequence; }
     private BreadMorphController driver() { return ReflectionHelpers.getField(controller, "morph"); }
@@ -1723,7 +1730,7 @@ public class BreadPresentationControllerTest {
         assertTrue(proxy.getAlpha() < 1);
         ReflectionHelpers.callInstanceMethod(controller, "invalidateLayout");
         assertEquals(View.VISIBLE, proxy.getVisibility());
-        assertEquals(1, proxy.getAlpha(), 0);
+        assertEquals(motionState(), 1, proxy.getAlpha(), 0);
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
         BreadMorphControllerTest.advance(300);
         assertEquals(View.VISIBLE, proxy.getVisibility());
