@@ -1114,19 +1114,23 @@ describe('native session precheck reasons', () => {
   });
 
   it('keeps an initial state read failure when a session event arrives during that read', async () => {
+    jest.useFakeTimers();
     const cause = new Error(`state read failed ${topic}`);
-    rawNativeReown.getState
-      .mockReset()
-      .mockImplementationOnce(async () => {
-        updateSession(sessionState([SEPOLIA]));
-        throw cause;
-      });
+    rawNativeReown.getState.mockImplementationOnce(async () => {
+      updateSession(sessionState([SEPOLIA]));
+      throw cause;
+    });
 
-    const { error } = await rejectionOf(prepareNativeSessionChain(ARC));
+    try {
+      const watched = watch(prepareNativeSessionChain(ARC));
+      await jest.advanceTimersByTimeAsync(5000);
 
-    expect(error).toBe(cause);
-    expect(rawNativeRequest).not.toHaveBeenCalled();
-    expectReason(error, 'state_unread', 'not_attempted', 'other');
+      expect(watched.error).toBe(cause);
+      expect(rawNativeRequest).not.toHaveBeenCalled();
+      expectReason(watched.error, 'state_unread', 'not_attempted', 'other');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('names a state read that threw a function, and rethrows that function', async () => {
