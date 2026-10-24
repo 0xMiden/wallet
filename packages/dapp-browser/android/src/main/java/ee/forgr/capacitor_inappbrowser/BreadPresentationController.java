@@ -733,8 +733,10 @@ final class BreadPresentationController {
 
     private void drag(float x, float y) {
         RectF card = morph.card().rect;
-        float dx = container.getWidth() / 2f - card.centerX(), dy = container.getHeight() / 2f - card.centerY();
-        float p = grabStart + ((x - grabX) * dx + (y - grabY) * dy) / (dx * dx + dy * dy);
+        double dx = container.getWidth() / 2f - card.centerX(), dy = container.getHeight() / 2f - card.centerY();
+        double length = dx * dx + dy * dy;
+        // A card centred on the slot has no path to project onto; keep the grabbed progress, never NaN.
+        float p = length < 1e-6 ? grabStart : (float) (grabStart + ((x - grabX) * dx + (y - grabY) * dy) / length);
         if (p > 1) p = 1 + BreadMorphGeometry.rubberBand(p - 1, 1);
         else if (p < 0) p = BreadMorphGeometry.rubberBand(p, 1);
         morph.track(p);
