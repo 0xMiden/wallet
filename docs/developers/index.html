@@ -1127,7 +1127,7 @@ function loginMessage(word: Word) {
         <ul class="list">
           <li><b>Key:</b> <code>requestLoginKey()</code> resolves to <code>{ loginKey }</code>, the 32-byte commitment of the login key, in the same form as the <code>publicKey</code> a connection returns. It needs a connected session and shows no prompt.</li>
           <li><b>Signature:</b> <code>signLoginBytes(data, 'word')</code> always asks for approval, on a screen that names your site. It resolves to <code>{ signature }</code>, a 66-byte recoverable ECDSA signature over secp256k1 with Keccak: <code>[0x01, r, s, v]</code>.</li>
-          <li><b>Verify:</b> on your server, compute the login message M from your own word, check the signature against M with the SDK's ECDSA <code>PublicKey</code>, and compare that key's commitment with <code>loginKey</code>. Checking against the raw word fails by design.</li>
+          <li><b>Verify:</b> on your server, compute the login message M from your own word. Bread never sends the public key and the SDK's <code>PublicKey.recoverFrom</code> supports only Falcon keys, so recover the secp256k1 key with an ECDSA library from <code>r</code>, <code>s</code> and <code>v</code> over keccak256 of M's 32 serialized bytes. Deserialize it as an SDK <code>PublicKey</code> (<code>0x01</code> and the 33-byte compressed point), check <code>publicKey.verify(M, signature)</code>, and accept only when <code>publicKey.toCommitment()</code> equals <code>loginKey</code>. Checking against the raw word fails by design.</li>
           <li><b>Domain:</b> Bread takes the domain from your page's real origin, never from the request. <code>app.example.com</code> and <code>www.example.com</code> share one key. Pages must be https, except <code>localhost</code> and loopback addresses.</li>
         </ul>
         <div class="table-wrap"><table>
@@ -1316,7 +1316,7 @@ if (window.bread?.auth) {
         <div class="table-wrap"><table>
           <thead><tr><th>Rejection</th><th>When</th></tr></thead>
           <tbody>
-            <tr><td><code>AUTH_NOT_MAIN_FRAME</code></td><td>Called from a frame</td></tr>
+            <tr><td><code>AUTH_NOT_MAIN_FRAME</code></td><td>A frame reached the native transport; frames get no <code>window.bread</code> at all</td></tr>
             <tr><td><code>AUTH_INSECURE_PAGE</code></td><td>The page is not https with a host; <code>http://localhost</code> too</td></tr>
             <tr><td><code>AUTH_INVALID_URL</code></td><td>The URL breaks a rule above</td></tr>
             <tr><td><code>AUTH_BUSY</code></td><td>A sheet is already open, for any dApp</td></tr>
@@ -1385,7 +1385,7 @@ if (window.bread?.auth) {
             <tr><td>"Success" but nothing on chain</td><td>A transaction id means queued. Call <code>waitForTransaction</code>.</td></tr>
             <tr><td><code>catch (e)</code> misses wallet errors</td><td>Raw provider errors fail <code>instanceof Error</code>. Match <code>e.message</code>.</td></tr>
             <tr><td>Script error about <code>bread</code></td><td>A classic script declared a global <code>bread</code>. Rename it or use a module.</td></tr>
-            <tr><td>Fullscreen ignored</td><td>The meta tag was added by JavaScript after the head parsed, or its value is not exactly <code>fullscreen</code>.</td></tr>
+            <tr><td>Fullscreen ignored</td><td>The meta tag was added after <code>DOMContentLoaded</code>, for example by a bundle, or its value is not exactly <code>fullscreen</code>.</td></tr>
             <tr><td><code>theme-color</code> ignored</td><td>Bread accepts only <code>#RRGGBB</code>.</td></tr>
             <tr><td>Blank page on Android</td><td>Plain-http dev server. Use https.</td></tr>
             <tr><td><code>createAccount</code> fails</td><td>Bread does not create accounts for dApps; the extension and phones refuse it, desktop does not define it.</td></tr>
